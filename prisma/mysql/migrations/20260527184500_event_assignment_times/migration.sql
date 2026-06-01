@@ -1,0 +1,3 @@
+ALTER TABLE `EventAssignment`
+  ADD COLUMN `checkIn` VARCHAR(20) NULL,
+  ADD COLUMN `checkOut` VARCHAR(20) NULL;

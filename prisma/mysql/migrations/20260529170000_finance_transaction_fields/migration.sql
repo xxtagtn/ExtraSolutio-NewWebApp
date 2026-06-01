@@ -1,0 +1,6 @@
+ALTER TABLE `Transaction`
+  ADD COLUMN `vatAmount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN `supplier` VARCHAR(191) NULL,
+  ADD COLUMN `documentName` VARCHAR(191) NULL,
+  ADD COLUMN `documentData` LONGTEXT NULL,
+  ADD COLUMN `sentToAccountant` BOOLEAN NOT NULL DEFAULT false;

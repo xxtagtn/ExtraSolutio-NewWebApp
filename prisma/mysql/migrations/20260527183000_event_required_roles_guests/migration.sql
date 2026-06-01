@@ -1,0 +1,3 @@
+ALTER TABLE `Event`
+  ADD COLUMN `guestsCount` INTEGER NULL,
+  ADD COLUMN `requiredRoles` LONGTEXT NULL;

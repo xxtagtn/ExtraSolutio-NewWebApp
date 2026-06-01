@@ -1,0 +1,1 @@
+ALTER TABLE "Collaborator" ADD COLUMN "includeVat" BOOLEAN NOT NULL DEFAULT false;

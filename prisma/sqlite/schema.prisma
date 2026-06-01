@@ -1,0 +1,306 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("admin")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Collaborator {
+  id          Int               @id @default(autoincrement())
+  name        String
+  email       String            @unique
+  phone       String?
+  nif         String?
+  iban        String?
+  shortName      String?
+  birthDate      DateTime?
+  gender         String?
+  documentType   String?
+  documentNumber String?
+  documentExpiry DateTime?
+  documentExtended Boolean     @default(false)
+  residenceArea  String?
+  insurancePolicy String?
+  allergies      String?
+  greenReceipt   String?
+  availability   String?
+  photo          String?
+  address     String?
+  category    String            @default("")
+  hourlyRate  Decimal           @default(0)
+  includeVat  Boolean           @default(false)
+  isPreferred Boolean           @default(false)
+  status      String            @default("active")
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  assignments EventAssignment[]
+  payments    Payment[]
+  roles       CollaboratorRole[]
+
+  @@index([status])
+  @@index([category])
+}
+
+model CollaboratorRole {
+  id             Int          @id @default(autoincrement())
+  collaboratorId Int
+  collaborator   Collaborator @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  role           String
+  createdAt      DateTime     @default(now())
+
+  @@unique([collaboratorId, role])
+  @@index([role])
+}
+
+model Client {
+  id            Int       @id @default(autoincrement())
+  name          String
+  email         String?
+  phone         String?
+  nif           String?
+  address       String?
+  postalCode    String?
+  city          String?
+  contactPerson String?
+  representativeName String?
+  type          String    @default("company")
+  billingMethod String    @default("per_event")
+  billingCustomRule String?
+  paymentTerm   String    @default("days_30")
+  paymentTermDays Int?
+  status        String    @default("active")
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  events        Event[]
+  invoices      Invoice[]
+  budgets       Budget[]
+
+  @@index([status])
+  @@index([type])
+}
+
+model Budget {
+  id            Int      @id @default(autoincrement())
+  reference     String   @unique
+  clientId      Int?
+  client        Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  eventDate     DateTime?
+  leadName      String?
+  companyName   String?
+  phone         String?
+  email         String?
+  nif           String?
+  eventType     String?
+  guestsCount   Int?
+  startTime     String?
+  endTime       String?
+  leadSource    String?
+  serviceType   String?
+  eventLevel    String?
+  regularClient Boolean?
+  locationScope String?
+  minimumHours  Decimal  @default(0)
+  sentAt        DateTime?
+  lostReason    String?
+  followUpHistory String?
+  responseTemplate String?
+  commercialEmailText String?
+  commercialWhatsappText String?
+  commercialPdfText String?
+  marginAmount  Decimal  @default(0)
+  budgetType    String   @default("company")
+  location      String?
+  description   String?
+  amount        Decimal  @default(0)
+  vatRate       Decimal  @default(23)
+  travelType    String   @default("none")
+  travelPeople  Int?
+  km            Decimal?
+  kmRate        Decimal?
+  durationHours Decimal?
+  split5050     Boolean  @default(false)
+  baseAmount    Decimal  @default(0)
+  travelAmount  Decimal  @default(0)
+  taxAmount     Decimal  @default(0)
+  totalWithTax  Decimal  @default(0)
+  discountRate  Decimal  @default(0)
+  discountAmount Decimal @default(0)
+  totalAmount   Decimal  @default(0)
+  categories    String?
+  paymentPlan   String?
+  status        String   @default("new_request")
+  paymentStatus String   @default("pending")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([eventDate])
+  @@index([sentAt])
+  @@index([leadSource])
+}
+
+model Event {
+  id           Int               @id @default(autoincrement())
+  name         String
+  eventType    String?
+  description  String?
+  clientId     Int
+  client       Client            @relation(fields: [clientId], references: [id])
+  location     String?
+  useDefaultLocation Boolean      @default(true)
+  date         DateTime
+  startTime    String?
+  endTime      String?
+  actualStartTime String?
+  actualEndTime   String?
+  billableHours   Decimal         @default(0)
+  guestsCount  Int?
+  requiredRoles String?
+  uniform      String?
+  meetingPoint String?
+  onsiteContactName String?
+  onsiteContactPhone String?
+  travelExpenseEnabled Boolean    @default(false)
+  travelExpenseAmount Decimal     @default(0)
+  billingStatus String            @default("pending")
+  signaledAmount Decimal          @default(0)
+  paidAmount Decimal              @default(0)
+  remainingPaymentDate DateTime?
+  status       String            @default("pending")
+  totalCost    Decimal           @default(0)
+  totalRevenue Decimal           @default(0)
+  notes        String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  assignments  EventAssignment[]
+  invoices     Invoice[]
+
+  @@index([clientId])
+  @@index([date])
+  @@index([status])
+}
+
+model EventAssignment {
+  id             Int          @id @default(autoincrement())
+  eventId        Int
+  event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  collaboratorId Int
+  collaborator   Collaborator @relation(fields: [collaboratorId], references: [id])
+  role           String?
+  checkIn        String?
+  checkOut       String?
+  clientCheckIn  String?
+  clientCheckOut String?
+  validatedCheckIn String?
+  validatedCheckOut String?
+  hoursWorked    Decimal      @default(0)
+  clientBillableHours Decimal @default(0)
+  staffPayableHours Decimal   @default(0)
+  hourlyRate     Decimal      @default(0)
+  totalPay       Decimal      @default(0)
+  validationStatus String     @default("pending")
+  validationNotes  String?
+  status         String       @default("assigned")
+  paymentStatus  String       @default("unpaid")
+  paymentDate    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([eventId, collaboratorId, role])
+  @@index([collaboratorId])
+  @@index([status])
+  @@index([paymentStatus])
+}
+
+model Invoice {
+  id        Int           @id @default(autoincrement())
+  number    String        @unique
+  clientId  Int
+  client    Client        @relation(fields: [clientId], references: [id])
+  eventId   Int?
+  eventIds  String?
+  billingPeriodLabel String?
+  event     Event?        @relation(fields: [eventId], references: [id])
+  issueDate DateTime      @default(now())
+  dueDate   DateTime?
+  subtotal  Decimal       @default(0)
+  taxRate   Decimal       @default(23)
+  taxAmount Decimal       @default(0)
+  total     Decimal       @default(0)
+  status    String        @default("draft")
+  notes     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  items     InvoiceItem[]
+
+  @@index([clientId])
+  @@index([eventId])
+  @@index([status])
+  @@index([issueDate])
+}
+
+model InvoiceItem {
+  id          Int     @id @default(autoincrement())
+  invoiceId   Int
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal @default(1)
+  unitPrice   Decimal @default(0)
+  total       Decimal @default(0)
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id             Int          @id @default(autoincrement())
+  collaboratorId Int
+  collaborator   Collaborator @relation(fields: [collaboratorId], references: [id])
+  amount         Decimal
+  description    String?
+  date           DateTime     @default(now())
+  status         String       @default("pending")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([collaboratorId])
+  @@index([date])
+  @@index([status])
+}
+
+model Transaction {
+  id          Int      @id @default(autoincrement())
+  type        String
+  category    String
+  amount      Decimal
+  vatAmount   Decimal  @default(0)
+  supplier    String?
+  description String?
+  documentName String?
+  documentData String?
+  sentToAccountant Boolean @default(false)
+  date        DateTime @default(now())
+  referenceId Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type])
+  @@index([category])
+  @@index([date])
+}

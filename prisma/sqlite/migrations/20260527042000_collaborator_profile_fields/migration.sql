@@ -1,0 +1,10 @@
+ALTER TABLE "Collaborator" ADD COLUMN "shortName" TEXT;
+ALTER TABLE "Collaborator" ADD COLUMN "birthDate" DATETIME;
+ALTER TABLE "Collaborator" ADD COLUMN "gender" TEXT;
+ALTER TABLE "Collaborator" ADD COLUMN "documentExtended" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Collaborator" ADD COLUMN "residenceArea" TEXT;
+ALTER TABLE "Collaborator" ADD COLUMN "insurancePolicy" TEXT;
+ALTER TABLE "Collaborator" ADD COLUMN "allergies" TEXT;
+ALTER TABLE "Collaborator" ADD COLUMN "greenReceipt" TEXT;
+ALTER TABLE "Collaborator" ADD COLUMN "availability" TEXT;
+ALTER TABLE "Collaborator" ADD COLUMN "photo" TEXT;

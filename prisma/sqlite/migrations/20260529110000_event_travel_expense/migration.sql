@@ -1,0 +1,2 @@
+ALTER TABLE "Event" ADD COLUMN "travelExpenseEnabled" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Event" ADD COLUMN "travelExpenseAmount" DECIMAL NOT NULL DEFAULT 0;

@@ -1,0 +1,10 @@
+ALTER TABLE `Event`
+  ADD COLUMN `eventType` VARCHAR(80) NULL,
+  ADD COLUMN `useDefaultLocation` BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN `actualStartTime` VARCHAR(20) NULL,
+  ADD COLUMN `actualEndTime` VARCHAR(20) NULL,
+  ADD COLUMN `billableHours` DECIMAL(8, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN `uniform` VARCHAR(80) NULL,
+  ADD COLUMN `meetingPoint` TEXT NULL,
+  ADD COLUMN `onsiteContactName` VARCHAR(191) NULL,
+  ADD COLUMN `onsiteContactPhone` VARCHAR(40) NULL;
