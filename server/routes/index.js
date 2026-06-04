@@ -9,11 +9,13 @@ import {
   normalizeAssignment,
   normalizeTransaction,
   normalizeBudget,
+  normalizeEventTemplate,
 } from './crud.js';
 import { authRouter } from './auth.js';
 import { requireAuth } from '../middleware/auth.js';
 import { usersRouter } from './users.js';
 import { collaboratorsRouter } from './collaborators.js';
+import { notificationsRouter } from './notifications.js';
 
 export const apiRouter = Router();
 
@@ -26,6 +28,7 @@ apiRouter.get('/health', (_req, res) => {
 apiRouter.use(requireAuth);
 
 apiRouter.use('/users', usersRouter);
+apiRouter.use('/notifications', notificationsRouter);
 
 apiRouter.use('/collaborators', collaboratorsRouter);
 
@@ -55,6 +58,11 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   },
   normalizeCreate: normalizeEvent,
   normalizeUpdate: normalizeEvent,
+}));
+
+apiRouter.use('/service-templates', createCrudRouter(prisma.eventTemplate, [], {
+  normalizeCreate: normalizeEventTemplate,
+  normalizeUpdate: normalizeEventTemplate,
 }));
 
 apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [

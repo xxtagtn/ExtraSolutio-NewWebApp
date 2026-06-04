@@ -33,6 +33,43 @@ function parseDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function startOfDay(value) {
+  const d = parseDate(value);
+  if (!d) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function eventRangeEnd(service) {
+  return service?.isContinuous && service.endDate ? service.endDate : service?.date;
+}
+
+function eachServiceDayInMonth(service, cursor) {
+  const start = startOfDay(service.date);
+  const end = startOfDay(eventRangeEnd(service));
+  if (!start || !end) return [];
+  const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const monthEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+  const rangeStart = start > monthStart ? start : monthStart;
+  const rangeEnd = end < monthEnd ? end : monthEnd;
+  if (rangeEnd < rangeStart) return [];
+  const days = [];
+  const current = new Date(rangeStart);
+  while (current <= rangeEnd) {
+    days.push(current.getDate());
+    current.setDate(current.getDate() + 1);
+  }
+  return days;
+}
+
+function eventTouchesYear(service, year) {
+  const start = startOfDay(service.date);
+  const end = startOfDay(eventRangeEnd(service));
+  if (!start || !end) return false;
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = new Date(year, 11, 31);
+  return start <= yearEnd && yearStart <= end;
+}
+
 function parseJsonArray(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -102,13 +139,11 @@ export default function Calendar() {
     const map = new Map();
 
     for (const service of visibleServices) {
-      const date = parseDate(service.date);
-      if (!date) continue;
-      if (date.getFullYear() !== cursor.getFullYear() || date.getMonth() !== cursor.getMonth()) continue;
-      const day = date.getDate();
+      for (const day of eachServiceDayInMonth(service, cursor)) {
       const list = map.get(day) || [];
-      list.push({ ...service, _reminder: false });
+      list.push({ ...service, _reminder: false, _calendarKey: `service-${service.id}-${day}` });
       map.set(day, list);
+      }
     }
 
     for (const service of visibleServices) {
@@ -154,6 +189,8 @@ export default function Calendar() {
     for (const service of services) {
       const d = parseDate(service.date);
       if (d) years.add(d.getFullYear());
+      const end = parseDate(eventRangeEnd(service));
+      if (end) years.add(end.getFullYear());
       const rp = parseDate(service.remainingPaymentDate);
       if (rp) years.add(rp.getFullYear());
     }
@@ -167,8 +204,13 @@ export default function Calendar() {
   const monthsWithEventsInYear = useMemo(() => {
     const set = new Set();
     for (const service of visibleServices) {
-      const d = parseDate(service.date);
-      if (d && d.getFullYear() === cursor.getFullYear()) set.add(d.getMonth());
+      if (eventTouchesYear(service, cursor.getFullYear())) {
+        const start = startOfDay(service.date);
+        const end = startOfDay(eventRangeEnd(service));
+        const firstMonth = start.getFullYear() < cursor.getFullYear() ? 0 : start.getMonth();
+        const lastMonth = end.getFullYear() > cursor.getFullYear() ? 11 : end.getMonth();
+        for (let month = firstMonth; month <= lastMonth; month += 1) set.add(month);
+      }
       if (service.billingStatus === 'partial70') {
         const rp = parseDate(service.remainingPaymentDate);
         if (rp && rp.getFullYear() === cursor.getFullYear()) set.add(rp.getMonth());

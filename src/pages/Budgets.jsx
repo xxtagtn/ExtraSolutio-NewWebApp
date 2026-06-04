@@ -19,6 +19,7 @@ import Modal from '../components/UI/Modal.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { date, money } from '../utils/formatters.js';
+import { calculateTravelAmount } from '../utils/travelCalculator.js';
 
 const pipelineTabs = [
   { id: 'new_request', label: 'Novos Pedidos' },
@@ -142,6 +143,7 @@ function emptyForm(reference = '') {
     kmRate: 0.4,
     durationHours: 0,
     split5050: false,
+    travelManualAmount: '',
     status: 'new_request',
     paymentStatus: 'pending',
     sentAt: '',
@@ -233,15 +235,7 @@ function calcTotals(form) {
     return sum + (num(c.qty) * num(c.rate) * hours);
   }, 0);
 
-  let travelAmount = 0;
-  if (form.travelType === 'automatic') travelAmount = form.locationScope === 'outside_lisbon' ? 35 : 0;
-  if (form.travelType === 'outside_lisbon') travelAmount = 35;
-  if (form.travelType === 'outside_plus_staff') travelAmount = 35 + (num(form.travelPeople) * 10);
-  if (form.travelType === 'manual' || form.travelType === 'long_trip') {
-    const kmCost = num(form.km) * num(form.kmRate);
-    const hourCost = num(form.durationHours) * num(form.travelPeople) * 10;
-    travelAmount = kmCost + (form.split5050 ? hourCost / 2 : hourCost);
-  }
+  const travelAmount = calculateTravelAmount(form);
 
   const subtotal = baseAmount + travelAmount;
   const taxRate = form.vatMode === 'exempt' ? 0 : num(form.vatRate);
@@ -439,6 +433,13 @@ export default function Budgets() {
   }
 
   function openEdit(row) {
+    const hasLegacyKilometerCalculation = ['manual', 'long_trip'].includes(row.travelType)
+      && (num(row.km) > 0 || num(row.durationHours) > 0);
+    const normalizedTravelType = row.travelType === 'automatic'
+      ? (row.locationScope === 'outside_lisbon' ? 'outside_lisbon' : 'none')
+      : hasLegacyKilometerCalculation
+        ? 'kilometers'
+        : row.travelType;
     setEditing(row);
     setSmartMode(false);
     setForm({
@@ -449,6 +450,8 @@ export default function Budgets() {
       sentAt: row.sentAt || '',
       guestsCount: row.guestsCount ?? '',
       vatMode: Number(row.vatRate || 0) > 0 ? 'normal_23' : 'exempt',
+      travelType: normalizedTravelType || 'none',
+      travelManualAmount: normalizedTravelType === 'manual' ? (row.travelAmount ?? '') : '',
       regularClient: Boolean(row.regularClient),
       categories: row.categoriesParsed.length ? row.categoriesParsed : [emptyCategory()],
       eventDays: safeJson(row.paymentPlan, []).length
@@ -694,6 +697,11 @@ export default function Budgets() {
       const clientId = await ensureClient(row);
       const categories = row.categoriesParsed.length ? row.categoriesParsed : safeJson(row.categories, []);
       const travelAmount = Number(row.travelAmount || 0);
+      const convertedTravelType = ['manual', 'long_trip'].includes(row.travelType) && (num(row.km) > 0 || num(row.durationHours) > 0)
+        ? 'kilometers'
+        : row.travelType === 'automatic'
+          ? (row.locationScope === 'outside_lisbon' ? 'outside_lisbon' : 'none')
+          : (row.travelType || 'none');
       const uniformsByRole = categories
         .filter((item) => item.role && item.uniform)
         .map((item) => ({ role: String(item.role), uniform: String(item.uniform) }));
@@ -728,6 +736,13 @@ export default function Budgets() {
           billingStatus: row.budgetType === 'individual' ? 'pending' : 'pending',
           travelExpenseEnabled: Number.isFinite(travelAmount) && travelAmount > 0,
           travelExpenseAmount: Number.isFinite(travelAmount) && travelAmount > 0 ? travelAmount : 0,
+          travelType: convertedTravelType,
+          travelPeople: row.travelPeople || null,
+          km: row.km || null,
+          kmRate: row.kmRate || null,
+          durationHours: row.durationHours || null,
+          split5050: Boolean(row.split5050),
+          travelManualAmount: convertedTravelType === 'manual' ? travelAmount : 0,
           totalRevenue: Number(row.totalAmount || row.amount || 0),
           notes: budgetRefTag,
         }),
@@ -1040,17 +1055,35 @@ export default function Budgets() {
                     <label>Deslocação
                       <select value={form.travelType} onChange={(event) => setForm({ ...form, travelType: event.target.value })}>
                         <option value="none">Nenhuma</option>
-                        <option value="automatic">Automática</option>
                         <option value="outside_lisbon">Fora Grande Lisboa</option>
                         <option value="outside_plus_staff">Fora + Staff</option>
-                        <option value="manual">Manual</option>
+                        <option value="kilometers">Quilómetros</option>
+                        <option value="manual">Valor manual</option>
                       </select>
                     </label>
-                    <label>Pessoas deslocação<input type="number" min="1" value={form.travelPeople} onChange={(event) => setForm({ ...form, travelPeople: event.target.value })} /></label>
-                    <label>KM<input type="number" step="0.01" value={form.km} onChange={(event) => setForm({ ...form, km: event.target.value })} /></label>
-                    <label>Valor/KM<input type="number" step="0.01" value={form.kmRate} onChange={(event) => setForm({ ...form, kmRate: event.target.value })} /></label>
-                    <label>Duração deslocação (h)<input type="number" step="0.01" value={form.durationHours} onChange={(event) => setForm({ ...form, durationHours: event.target.value })} /></label>
-                    <label className="check-inline budget-check"><input type="checkbox" checked={form.split5050} onChange={(event) => setForm({ ...form, split5050: event.target.checked })} /><span>50/50 no tempo de deslocação</span></label>
+                    {['outside_plus_staff', 'kilometers'].includes(form.travelType) ? (
+                      <label>Pessoas deslocação<input type="number" min="1" value={form.travelPeople} onChange={(event) => setForm({ ...form, travelPeople: event.target.value })} /></label>
+                    ) : null}
+                    {form.travelType === 'kilometers' ? (
+                      <>
+                        <label>KM<input type="number" min="0" step="0.01" value={form.km} onChange={(event) => setForm({ ...form, km: event.target.value })} /></label>
+                        <label>Valor/KM<input type="number" min="0" step="0.01" value={form.kmRate} onChange={(event) => setForm({ ...form, kmRate: event.target.value })} /></label>
+                        <label>Duração deslocação (h)<input type="number" min="0" step="0.01" value={form.durationHours} onChange={(event) => setForm({ ...form, durationHours: event.target.value })} /></label>
+                        <label className="check-inline budget-check"><input type="checkbox" checked={form.split5050} onChange={(event) => setForm({ ...form, split5050: event.target.checked })} /><span>50/50 no tempo de deslocação</span></label>
+                      </>
+                    ) : null}
+                    {form.travelType === 'manual' ? (
+                      <label>Valor manual
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={form.travelManualAmount}
+                          placeholder="Ex: 35,00"
+                          onChange={(event) => setForm({ ...form, travelManualAmount: event.target.value })}
+                        />
+                      </label>
+                    ) : null}
                     <label className="span-2">Observações<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
                   </div>
                 </section>

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Edit2, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
+﻿import { ChevronDown, ChevronRight, Edit2, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
@@ -66,11 +66,10 @@ function rowToForm(row) {
   };
 }
 
-function computeShortName(name, nif) {
-  const first = String(name || '').trim().split(/\s+/)[0] || '';
-  const digits = String(nif || '').replace(/\D/g, '').slice(-4);
-  if (!first) return '';
-  return digits ? `${first}${digits}` : first;
+function computeShortName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 2) return parts.join(' ');
+  return [parts[0], parts[1], parts[parts.length - 1]].join(' ');
 }
 
 export default function Collaborators() {
@@ -86,6 +85,7 @@ export default function Collaborators() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [rolesOpen, setRolesOpen] = useState(false);
+  const [shortNameTouched, setShortNameTouched] = useState(false);
   const [expandedRows, setExpandedRows] = useState({});
 
   const rows = useMemo(() => data.filter((row) => {
@@ -138,6 +138,7 @@ export default function Collaborators() {
     setFormOpen(true);
     setFormError('');
     setRolesOpen(false);
+    setShortNameTouched(false);
   }
 
   function openEdit(row) {
@@ -146,6 +147,7 @@ export default function Collaborators() {
     setFormOpen(true);
     setFormError('');
     setRolesOpen(false);
+    setShortNameTouched(true);
   }
 
   function closeForm() {
@@ -154,6 +156,7 @@ export default function Collaborators() {
     setForm(emptyForm());
     setFormError('');
     setRolesOpen(false);
+    setShortNameTouched(false);
   }
 
   function toggleExpanded(id) {
@@ -163,17 +166,13 @@ export default function Collaborators() {
   function onNameChange(value) {
     setForm((prev) => {
       const next = { ...prev, name: value };
-      if (!prev.shortName) next.shortName = computeShortName(value, prev.nif);
+      if (!shortNameTouched) next.shortName = computeShortName(value);
       return next;
     });
   }
 
   function onNifChange(value) {
-    setForm((prev) => {
-      const next = { ...prev, nif: value };
-      if (!prev.shortName) next.shortName = computeShortName(prev.name, value);
-      return next;
-    });
+    setForm((prev) => ({ ...prev, nif: value }));
   }
 
   async function onPhotoSelected(file) {
@@ -196,6 +195,7 @@ export default function Collaborators() {
     }
     return {
       ...source,
+      shortName: source.shortName || computeShortName(source.name),
       documentType: source.documentType || null,
       documentNumber: source.documentType ? source.documentNumber : null,
       documentExpiry: source.documentType ? source.documentExpiry : null,
@@ -329,7 +329,7 @@ export default function Collaborators() {
                 <input placeholder="Ex: João Miguel da Silva" value={form.name} required onChange={(event) => onNameChange(event.target.value)} />
                 <div className="collab-row-2">
                   <div><label>NIF</label><input placeholder="Ex: 123456789" value={form.nif} onChange={(event) => onNifChange(event.target.value)} /></div>
-                  <div><label>Nome curto</label><input placeholder="Ex: João Silva" value={form.shortName} onChange={(event) => setForm({ ...form, shortName: event.target.value })} /></div>
+                  <div><label>Nome curto</label><input placeholder="Ex: João Miguel Silva" value={form.shortName} onChange={(event) => { setShortNameTouched(true); setForm({ ...form, shortName: event.target.value }); }} /></div>
                 </div>
                 <div className="collab-row-2">
                   <div>

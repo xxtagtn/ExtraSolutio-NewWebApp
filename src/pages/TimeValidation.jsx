@@ -6,6 +6,7 @@ import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { date } from '../utils/formatters.js';
+import { clientChargeHours, decimalValue } from '../utils/serviceFinance.js';
 
 const NON_BILLABLE_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const VALIDATED_EVENT_MARKER = '[EVENT_VALIDATED_HOURS]';
@@ -87,13 +88,7 @@ function monthOf(value) {
 }
 
 function clientHoursFor(assignment, event) {
-  const explicit = num(assignment.clientBillableHours);
-  if (explicit > 0) return explicit;
-  const validated = calcRoundedBillableHours(assignment.validatedCheckIn, assignment.validatedCheckOut);
-  if (validated > 0) return validated;
-  const staff = num(assignment.hoursWorked);
-  if (staff > 0) return staff;
-  return calcRoundedBillableHours(assignment.checkIn || event.startTime, assignment.checkOut || event.endTime);
+  return clientChargeHours(assignment, event.startTime, event.endTime);
 }
 
 function staffHoursFor(assignment, event) {
@@ -181,7 +176,7 @@ function reopenAssignmentPayload(assignment) {
 
 function eventTotals(event, assignments) {
   const requiredRoles = parseRequiredRoles(event.requiredRoles);
-  const roleRateMap = new Map(requiredRoles.map((item) => [item.role, num(item.agreedRate)]));
+  const roleRateMap = new Map(requiredRoles.map((item) => [item.role, decimalValue(item.agreedRate) || 0]));
   let totalRevenue = 0;
   let totalCost = 0;
   for (const assignment of assignments) {
@@ -393,7 +388,7 @@ export default function TimeValidation() {
   }
 
   async function persistRow(row, merged, mode = 'auto') {
-    const clientHours = num(merged.clientBillableHours) || clientHoursFor(merged, row.event);
+    const clientHours = clientHoursFor(merged, row.event);
     const staffHours = num(merged.staffPayableHours) || staffHoursFor(merged, row.event);
     const normalizedValidatedCheckIn = mode === 'pending' ? null : (merged.validatedCheckIn || null);
     const normalizedValidatedCheckOut = mode === 'pending' ? null : (merged.validatedCheckOut || null);

@@ -9,19 +9,18 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import { isFinanceReadyEvent } from '../utils/financeReadiness.js';
 import { date, money } from '../utils/formatters.js';
 
 const AREA_TABS = [
   { id: 'overview', label: 'Visão Geral' },
   { id: 'clients', label: 'Clientes' },
   { id: 'staff', label: 'Staff' },
-  { id: 'billing', label: 'Faturação' },
   { id: 'margins', label: 'Margens' },
 ];
 
@@ -68,7 +67,6 @@ const EXPENSE_CATEGORIES = [
 
 const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const CLOSED_BILLING_STATUSES = new Set(['partial70', 'invoiced', 'paid']);
-const FINANCE_READY_EVENT_STATUSES = new Set(['to_validate_client', 'paid']);
 const COLLABORATOR_VAT_RATE = 0.23;
 const MONTH_OPTIONS = [
   { value: '00', label: 'Todos os meses' },
@@ -176,12 +174,6 @@ function eventRevenue(event) {
   return num(event.totalRevenue);
 }
 
-function isFinanceReadyEvent(event) {
-  const operationalStatus = String(event?.status || '').trim().toLowerCase();
-  const billingStatus = String(event?.billingStatus || '').trim().toLowerCase();
-  return FINANCE_READY_EVENT_STATUSES.has(operationalStatus) || CLOSED_BILLING_STATUSES.has(billingStatus);
-}
-
 function invoiceIsPaid(invoice) {
   return invoice.status === 'paid';
 }
@@ -202,6 +194,7 @@ function parseInvoiceEventIds(invoice) {
 }
 
 function invoiceIncludesEvent(invoice, eventId) {
+  if (invoice.status === 'cancelled') return false;
   return parseInvoiceEventIds(invoice).includes(Number(eventId));
 }
 
@@ -796,7 +789,7 @@ export default function Accounting() {
       const eventIds = parseInvoiceEventIds(invoice);
       await Promise.all(eventIds.map((eventId) => api(`/services/${eventId}`, {
         method: 'PUT',
-        body: JSON.stringify({ billingStatus: status === 'paid' ? 'paid' : 'invoiced' }),
+        body: JSON.stringify({ billingStatus: status === 'paid' ? 'paid' : status === 'cancelled' ? 'pending' : 'invoiced' }),
       })));
       reloadInvoices();
       reload();
@@ -1089,73 +1082,6 @@ export default function Accounting() {
             </table>
           </div>
         </Card>
-      ) : null}
-
-      {activeArea === 'billing' ? (
-        <div className="finance-grid">
-          <Card title="Por Faturar" action={<Link className="secondary-button" to="/invoices"><ReceiptText size={16} /> Abrir Faturação</Link>}>
-            <div className="finance-billing-list">
-              {currentBillingGroups.map((group) => (
-                <article key={group.key} className="finance-billing-card">
-                  <div>
-                    <small>{BILLING_METHOD_LABELS[group.method] || group.method}</small>
-                    <strong>{group.label}</strong>
-                    <span>{group.events.length} evento(s) · emissão {date.format(group.issueDate)} · vencimento {date.format(group.dueDate || group.issueDate)}</span>
-                  </div>
-                  <div className="finance-billing-events">
-                    {group.events.slice(0, 5).map((event) => (
-                      <span key={event.id}>{event.date ? date.format(new Date(event.date)) : '-'} · {event.name}</span>
-                    ))}
-                    {group.events.length > 5 ? <span>+ {group.events.length - 5} evento(s)</span> : null}
-                  </div>
-                  <strong>{money.format(group.total)}</strong>
-                </article>
-              ))}
-              {!currentBillingGroups.length ? <p className="muted">Sem eventos pendentes de faturação neste mês.</p> : null}
-            </div>
-          </Card>
-
-          <Card title="Faturas Emitidas">
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Número</th>
-                    <th>Cliente</th>
-                    <th>Período / Evento</th>
-                    <th>Emissão</th>
-                    <th>Vencimento</th>
-                    <th>Total</th>
-                    <th>Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentMonthInvoices.map((invoice) => (
-                    <tr key={invoice.id}>
-                      <td>{invoice.number}</td>
-                      <td>{invoice.client?.name || '-'}</td>
-                      <td>{invoice.billingPeriodLabel || invoice.event?.name || '-'}</td>
-                      <td>{invoice.issueDate ? date.format(new Date(invoice.issueDate)) : '-'}</td>
-                      <td>{invoice.dueDate ? date.format(new Date(invoice.dueDate)) : '-'}</td>
-                      <td>{money.format(num(invoice.total))}</td>
-                      <td>
-                        <select
-                          className={`payment-state payment-state--${invoice.status === 'paid' ? 'paid' : invoice.status === 'issued' ? 'pending' : 'awaiting_data'}`}
-                          value={invoice.status || 'issued'}
-                          disabled={updatingInvoiceId === invoice.id}
-                          onChange={(event) => updateInvoiceStatus(invoice, event.target.value)}
-                        >
-                          {INVOICE_STATUS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!currentMonthInvoices.length ? <p className="muted">Sem faturas emitidas neste mês.</p> : null}
-            </div>
-          </Card>
-        </div>
       ) : null}
 
       {activeArea === 'staff' ? (

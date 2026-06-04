@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
 
@@ -11,7 +11,7 @@ const ALLOWED_DOCUMENT_TYPES = new Set(['passport', 'citizen_card', 'residence_t
 function parseId(req, res) {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) {
-    res.status(400).json({ message: 'ID inválido.' });
+    res.status(400).json({ message: 'ID invÃ¡lido.' });
     return null;
   }
   return id;
@@ -26,13 +26,36 @@ function normalizeRoles(inputRoles) {
 function toDateOrNull(value, label) {
   if (value === undefined || value === null || value === '') return null;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new Error(`${label} inválida.`);
+  if (Number.isNaN(date.getTime())) throw new Error(`${label} invÃ¡lida.`);
   return date;
 }
 
 function toDecimalOrDefault(value, fallback = 0) {
   if (value === undefined || value === null || value === '') return fallback;
-  const normalized = String(value).trim().replace(',', '.');
+  const raw = String(value)
+    .replace('€', '')
+    .replace('â‚¬', '')
+    .replace(/\/\s*h(?:ora)?s?/gi, '')
+    .replace(/\b(?:eur|euros?)\b/gi, '')
+    .replace(/\s/g, '')
+    .trim();
+  const commaIndex = raw.lastIndexOf(',');
+  const dotIndex = raw.lastIndexOf('.');
+  let normalized = raw;
+  if (commaIndex >= 0 && dotIndex >= 0) {
+    normalized = commaIndex > dotIndex
+      ? raw.replace(/\./g, '').replace(',', '.')
+      : raw.replace(/,/g, '');
+  } else if (commaIndex >= 0) {
+    normalized = raw.replace(',', '.');
+  } else if (dotIndex >= 0) {
+    const dotCount = (raw.match(/\./g) || []).length;
+    const beforeDot = raw.slice(0, dotIndex);
+    const afterDot = raw.slice(dotIndex + 1);
+    if (dotCount > 1 || (afterDot.length === 3 && beforeDot.length <= 3)) {
+      normalized = raw.replace(/\./g, '');
+    }
+  }
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) throw new Error('Valor/h inválido.');
   return parsed;
@@ -54,13 +77,13 @@ function normalizeCollaboratorBody(input, { requireCore = false } = {}) {
   const hourlyRate = toDecimalOrDefault(input.hourlyRate, 0);
 
   if (rawDocumentType !== undefined && rawDocumentType !== '' && !documentType) {
-    throw new Error('Tipo de documento inválido.');
+    throw new Error('Tipo de documento invÃ¡lido.');
   }
   if (documentType && (!documentNumber || !documentExpiry)) {
-    throw new Error('Número e validade do documento são obrigatórios.');
+    throw new Error('NÃºmero e validade do documento sÃ£o obrigatÃ³rios.');
   }
   if (input.status !== undefined && !ALLOWED_STATUS.has(String(input.status))) {
-    throw new Error('Estado inválido.');
+    throw new Error('Estado invÃ¡lido.');
   }
 
   const data = {
@@ -91,10 +114,10 @@ function normalizeCollaboratorBody(input, { requireCore = false } = {}) {
   };
 
   if (requireCore && (!data.name || !data.email)) {
-    throw new Error('Nome completo e email são obrigatórios.');
+    throw new Error('Nome completo e email sÃ£o obrigatÃ³rios.');
   }
   if (requireCore && roles.length === 0) {
-    throw new Error('Seleciona pelo menos uma função.');
+    throw new Error('Seleciona pelo menos uma funÃ§Ã£o.');
   }
   return { data, roles };
 }
@@ -129,7 +152,7 @@ collaboratorsRouter.get('/:id', asyncHandler(async (req, res) => {
     where: { id },
     include: { roles: { orderBy: { role: 'asc' } } },
   });
-  if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
+  if (!row) return res.status(404).json({ message: 'Registo nÃ£o encontrado.' });
   return res.json(toOutput(row));
 }));
 
@@ -159,7 +182,7 @@ collaboratorsRouter.put('/:id', asyncHandler(async (req, res) => {
   }
   const { data, roles } = normalized;
   const hasRoles = Array.isArray(req.body.roles);
-  if (hasRoles && roles.length === 0) return res.status(400).json({ message: 'Seleciona pelo menos uma função.' });
+  if (hasRoles && roles.length === 0) return res.status(400).json({ message: 'Seleciona pelo menos uma funÃ§Ã£o.' });
   const row = await prisma.collaborator.update({
     where: { id },
     data: {

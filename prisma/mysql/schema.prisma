@@ -15,6 +15,18 @@ model User {
   role      String   @default("admin") @db.VarChar(40)
   createdAt DateTime @default(now()) @db.DateTime(3)
   updatedAt DateTime @updatedAt @db.DateTime(3)
+  notificationDismissals NotificationDismissal[]
+}
+
+model NotificationDismissal {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String   @db.VarChar(191)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+
+  @@unique([userId, key], map: "NotificationDismissal_userId_key_key")
+  @@index([userId], map: "NotificationDismissal_userId_idx")
 }
 
 model Collaborator {
@@ -166,6 +178,8 @@ model Event {
   location     String?           @db.Text
   useDefaultLocation Boolean      @default(true)
   date         DateTime          @db.DateTime(3)
+  endDate      DateTime?         @db.DateTime(3)
+  isContinuous Boolean           @default(false)
   startTime    String?           @db.VarChar(20)
   endTime      String?           @db.VarChar(20)
   actualStartTime String?        @db.VarChar(20)
@@ -179,6 +193,13 @@ model Event {
   onsiteContactPhone String?     @db.VarChar(40)
   travelExpenseEnabled Boolean    @default(false)
   travelExpenseAmount Decimal     @default(0) @db.Decimal(12, 2)
+  travelType   String             @default("none") @db.VarChar(40)
+  travelPeople Int?
+  km           Decimal?          @db.Decimal(10, 2)
+  kmRate       Decimal?          @db.Decimal(8, 2)
+  durationHours Decimal?         @db.Decimal(8, 2)
+  split5050    Boolean           @default(false)
+  travelManualAmount Decimal     @default(0) @db.Decimal(12, 2)
   billingStatus String           @default("pending") @db.VarChar(40)
   signaledAmount Decimal         @default(0) @db.Decimal(12, 2)
   paidAmount Decimal             @default(0) @db.Decimal(12, 2)
@@ -197,12 +218,25 @@ model Event {
   @@index([status])
 }
 
+model EventTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(191)
+  eventType   String?  @db.VarChar(80)
+  description String?  @db.Text
+  payload     String   @db.LongText
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+  updatedAt   DateTime @updatedAt @db.DateTime(3)
+
+  @@index([eventType])
+}
+
 model EventAssignment {
   id             Int          @id @default(autoincrement())
   eventId        Int
   event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
   collaboratorId Int
   collaborator   Collaborator @relation(fields: [collaboratorId], references: [id])
+  assignmentDate DateTime?    @db.DateTime(3)
   role           String?      @db.VarChar(80)
   checkIn        String?      @db.VarChar(20)
   checkOut       String?      @db.VarChar(20)
@@ -223,7 +257,7 @@ model EventAssignment {
   createdAt      DateTime     @default(now()) @db.DateTime(3)
   updatedAt      DateTime     @updatedAt @db.DateTime(3)
 
-  @@unique([eventId, collaboratorId, role])
+  @@index([eventId, collaboratorId, role], map: "EventAssignment_eventId_collaboratorId_role_idx")
   @@index([collaboratorId])
   @@index([status])
   @@index([paymentStatus])

@@ -1,4 +1,4 @@
-import { BarChart3, BriefcaseBusiness, CalendarCheck2, CalendarDays, CalendarRange, FileText, LayoutDashboard, ShieldCheck, UserRound, Users, X } from 'lucide-react';
+import { BarChart3, BriefcaseBusiness, CalendarCheck2, CalendarDays, CalendarRange, FileText, LayoutDashboard, ShieldCheck, Users, X } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
 
@@ -11,14 +11,13 @@ const links = [
   { to: '/services', label: 'Eventos/Serviços', icon: CalendarDays },
   { to: '/time-validation', label: 'Validação de Horas', icon: CalendarCheck2 },
   { to: '/finance', label: 'Financeiro', icon: BarChart3 },
-  { to: '/invoices', label: 'Faturação', icon: FileText },
 ];
 
 export default function Sidebar({ mobileOpen = false, onClose }) {
   const { user } = useAuth();
   const visibleLinks = user?.role === 'admin'
-    ? [...links, { to: '/admin', label: 'Administração', icon: ShieldCheck }, { to: '/profile', label: 'Perfil', icon: UserRound }]
-    : [...links, { to: '/profile', label: 'Perfil', icon: UserRound }];
+    ? [...links, { to: '/admin', label: 'Administração', icon: ShieldCheck }]
+    : links;
 
   return (
     <aside className={`sidebar ${mobileOpen ? 'sidebar--open' : ''}`}>

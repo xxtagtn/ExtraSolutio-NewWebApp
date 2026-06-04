@@ -27,6 +27,23 @@ function serviceStatusLabel(status) {
   return status || '-';
 }
 
+function dateOnly(value) {
+  if (!value) return '';
+  return String(value).slice(0, 10);
+}
+
+function serviceEndDate(service) {
+  return service?.isContinuous && service.endDate ? service.endDate : service?.date;
+}
+
+function formatServiceDateRange(service) {
+  if (!service?.date) return '-';
+  const start = new Date(service.date).toLocaleDateString('pt-PT');
+  const endValue = serviceEndDate(service);
+  if (!service.isContinuous || !endValue || dateOnly(endValue) === dateOnly(service.date)) return start;
+  return `${start} - ${new Date(endValue).toLocaleDateString('pt-PT')}`;
+}
+
 export default function Dashboard() {
   const { data: services, loading: loadingServices, error: servicesError } = useApi('/services', []);
   const { data: collaborators, loading: loadingCollaborators, error: collaboratorsError } = useApi('/collaborators', []);
@@ -60,8 +77,10 @@ export default function Dashboard() {
     return { month, receita: total };
   });
 
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const upcomingServices = [...services]
-    .filter((service) => service.date)
+    .filter((service) => service.date && new Date(serviceEndDate(service) || service.date) >= todayStart)
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .slice(0, 5);
   const loading = loadingServices || loadingCollaborators || loadingInvoices || loadingTransactions;
@@ -111,7 +130,7 @@ export default function Dashboard() {
               <Link className="stack-row" key={service.id} to={`/services?serviceId=${service.id}`}>
                 <div>
                   <strong>{service.name}</strong>
-                  <span>{service.client?.name || 'Cliente por associar'}</span>
+                  <span>{service.client?.name || 'Cliente por associar'} · {formatServiceDateRange(service)}</span>
                 </div>
                 <small>{serviceStatusLabel(service.status)}</small>
               </Link>

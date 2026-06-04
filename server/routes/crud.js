@@ -1,10 +1,10 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { pick, toDate, asyncHandler } from '../utils/http.js';
 
 function parseId(req, res) {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) {
-    res.status(400).json({ message: 'ID inválido.' });
+    res.status(400).json({ message: 'ID invÃ¡lido.' });
     return null;
   }
   return id;
@@ -26,7 +26,7 @@ export function createCrudRouter(model, fields, options = {}) {
     const id = parseId(req, res);
     if (!id) return;
     const row = await model.findUnique({ where: { id }, include });
-    if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
+    if (!row) return res.status(404).json({ message: 'Registo nÃ£o encontrado.' });
     return res.json(row);
   }));
 
@@ -62,25 +62,57 @@ function asInt(value) {
   return value === undefined || value === '' || value === null ? undefined : Number(value);
 }
 
+function parseDecimal(value) {
+  if (value === undefined || value === '' || value === null) return undefined;
+  const raw = String(value)
+    .replace('€', '')
+    .replace('â‚¬', '')
+    .replace(/\/\s*h(?:ora)?s?/gi, '')
+    .replace(/\b(?:eur|euros?)\b/gi, '')
+    .replace(/\s/g, '')
+    .trim();
+  const commaIndex = raw.lastIndexOf(',');
+  const dotIndex = raw.lastIndexOf('.');
+  let normalized = raw;
+  if (commaIndex >= 0 && dotIndex >= 0) {
+    normalized = commaIndex > dotIndex
+      ? raw.replace(/\./g, '').replace(',', '.')
+      : raw.replace(/,/g, '');
+  } else if (commaIndex >= 0) {
+    normalized = raw.replace(',', '.');
+  } else if (dotIndex >= 0) {
+    const dotCount = (raw.match(/\./g) || []).length;
+    const beforeDot = raw.slice(0, dotIndex);
+    const afterDot = raw.slice(dotIndex + 1);
+    if (dotCount > 1 || (afterDot.length === 3 && beforeDot.length <= 3)) {
+      normalized = raw.replace(/\./g, '');
+    }
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 export function normalizeEvent(input) {
   const requiredRoles = Array.isArray(input.requiredRoles) ? input.requiredRoles : [];
   const parseRate = (value) => {
-    if (value === undefined || value === null || value === '') return null;
-    const normalized = String(value).replace('€', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : null;
+    const parsed = parseDecimal(value);
+    return parsed === undefined ? null : parsed;
   };
   return compact({
     ...pick(input, [
-      'name', 'eventType', 'description', 'location', 'useDefaultLocation', 'startTime', 'endTime',
+      'name', 'eventType', 'description', 'location', 'useDefaultLocation', 'isContinuous', 'startTime', 'endTime',
       'actualStartTime', 'actualEndTime', 'uniform', 'meetingPoint', 'onsiteContactName',
-      'onsiteContactPhone', 'travelExpenseEnabled', 'billingStatus', 'signaledAmount', 'paidAmount',
+      'onsiteContactPhone', 'travelExpenseEnabled', 'travelType', 'split5050', 'billingStatus', 'signaledAmount', 'paidAmount',
       'remainingPaymentDate', 'status', 'totalCost', 'totalRevenue', 'notes',
     ]),
-    travelExpenseAmount: input.travelExpenseAmount === undefined || input.travelExpenseAmount === '' || input.travelExpenseAmount === null ? undefined : Number(input.travelExpenseAmount),
-    signaledAmount: input.signaledAmount === undefined || input.signaledAmount === '' || input.signaledAmount === null ? undefined : Number(input.signaledAmount),
-    paidAmount: input.paidAmount === undefined || input.paidAmount === '' || input.paidAmount === null ? undefined : Number(input.paidAmount),
-    billableHours: input.billableHours === undefined || input.billableHours === '' || input.billableHours === null ? undefined : Number(input.billableHours),
+    travelExpenseAmount: parseDecimal(input.travelExpenseAmount),
+    travelPeople: asInt(input.travelPeople),
+    km: parseDecimal(input.km),
+    kmRate: parseDecimal(input.kmRate),
+    durationHours: parseDecimal(input.durationHours),
+    travelManualAmount: parseDecimal(input.travelManualAmount),
+    signaledAmount: parseDecimal(input.signaledAmount),
+    paidAmount: parseDecimal(input.paidAmount),
+    billableHours: parseDecimal(input.billableHours),
     guestsCount: asInt(input.guestsCount),
     requiredRoles: input.requiredRoles === undefined ? undefined : JSON.stringify(
       requiredRoles
@@ -89,7 +121,18 @@ export function normalizeEvent(input) {
     ),
     clientId: asInt(input.clientId),
     ...(input.date ? { date: toDate(input.date) } : {}),
+    ...(input.endDate !== undefined ? (input.endDate ? { endDate: toDate(input.endDate) } : { endDate: null }) : {}),
     ...(input.remainingPaymentDate !== undefined ? (input.remainingPaymentDate ? { remainingPaymentDate: toDate(input.remainingPaymentDate) } : { remainingPaymentDate: null }) : {}),
+  });
+}
+
+export function normalizeEventTemplate(input) {
+  const payload = typeof input.payload === 'string'
+    ? input.payload
+    : JSON.stringify(input.payload || {});
+  return compact({
+    ...pick(input, ['name', 'eventType', 'description']),
+    payload,
   });
 }
 
@@ -123,6 +166,7 @@ export function normalizeAssignment(input) {
   return compact({
     eventId: asInt(input.eventId),
     collaboratorId: asInt(input.collaboratorId),
+    ...(input.assignmentDate !== undefined ? { assignmentDate: input.assignmentDate ? toDate(input.assignmentDate) : null } : {}),
     role: input.role,
     checkIn: input.checkIn === undefined ? undefined : input.checkIn,
     checkOut: input.checkOut === undefined ? undefined : input.checkOut,
@@ -130,11 +174,11 @@ export function normalizeAssignment(input) {
     clientCheckOut: input.clientCheckOut === undefined ? undefined : input.clientCheckOut,
     validatedCheckIn: input.validatedCheckIn === undefined ? undefined : input.validatedCheckIn,
     validatedCheckOut: input.validatedCheckOut === undefined ? undefined : input.validatedCheckOut,
-    hoursWorked: input.hoursWorked === undefined || input.hoursWorked === '' || input.hoursWorked === null ? undefined : Number(input.hoursWorked),
-    clientBillableHours: input.clientBillableHours === undefined || input.clientBillableHours === '' || input.clientBillableHours === null ? undefined : Number(input.clientBillableHours),
-    staffPayableHours: input.staffPayableHours === undefined || input.staffPayableHours === '' || input.staffPayableHours === null ? undefined : Number(input.staffPayableHours),
-    hourlyRate: input.hourlyRate === undefined || input.hourlyRate === '' || input.hourlyRate === null ? undefined : Number(input.hourlyRate),
-    totalPay: input.totalPay === undefined || input.totalPay === '' || input.totalPay === null ? undefined : Number(input.totalPay),
+    hoursWorked: parseDecimal(input.hoursWorked),
+    clientBillableHours: parseDecimal(input.clientBillableHours),
+    staffPayableHours: parseDecimal(input.staffPayableHours),
+    hourlyRate: parseDecimal(input.hourlyRate),
+    totalPay: parseDecimal(input.totalPay),
     validationStatus: input.validationStatus,
     validationNotes: input.validationNotes,
     status: input.status,
@@ -146,7 +190,7 @@ export function normalizeAssignment(input) {
 export function normalizeTransaction(input) {
   return compact({
     ...pick(input, ['type', 'category', 'amount', 'description', 'supplier', 'documentName', 'documentData', 'sentToAccountant']),
-    vatAmount: input.vatAmount === undefined || input.vatAmount === '' || input.vatAmount === null ? undefined : Number(input.vatAmount),
+    vatAmount: parseDecimal(input.vatAmount),
     referenceId: asInt(input.referenceId),
     ...(input.date ? { date: toDate(input.date) } : {}),
   });

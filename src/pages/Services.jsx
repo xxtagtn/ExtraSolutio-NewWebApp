@@ -1,5 +1,5 @@
-import { ChevronRight, CircleDollarSign, Plus, Trash2, Users } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+﻿import { ChevronDown, ChevronRight, LayoutTemplate, Plus, Save, Trash2, Users } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
@@ -7,6 +7,8 @@ import Modal from '../components/UI/Modal.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { date } from '../utils/formatters.js';
+import { assignmentStaffCost, assignmentStaffRate, clientChargeHours, collaboratorHourlyRate, decimalValue } from '../utils/serviceFinance.js';
+import { calculateTravelAmount } from '../utils/travelCalculator.js';
 
 const eventTypeOptions = [
   'Restaurante',
@@ -67,6 +69,8 @@ function emptyForm() {
     name: '',
     eventType: '',
     date: '',
+    endDate: '',
+    isContinuous: false,
     clientId: '',
     useDefaultLocation: true,
     location: '',
@@ -80,6 +84,13 @@ function emptyForm() {
     onsiteContactPhone: '',
     travelExpenseEnabled: false,
     travelExpenseAmount: '',
+    travelType: 'none',
+    travelPeople: 1,
+    km: 0,
+    kmRate: 0.4,
+    durationHours: 0,
+    split5050: false,
+    travelManualAmount: '',
     description: '',
     status: 'drafting',
     billingStatus: 'pending',
@@ -92,10 +103,7 @@ function emptyForm() {
 }
 
 function parseMoney(value) {
-  if (value === '' || value === null || value === undefined) return null;
-  const normalized = String(value).replace('€', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
+  return decimalValue(value);
 }
 
 function formatMoneyInline(value) {
@@ -107,6 +115,11 @@ function formatMoneyInline(value) {
 function euro(value) {
   const amount = Number(value || 0);
   return `${amount.toFixed(2).replace('.', ',')}€`;
+}
+
+function formatHours(value) {
+  const amount = Number(value || 0);
+  return `${amount.toFixed(2).replace('.', ',')} h`;
 }
 
 function toMinutes(time) {
@@ -137,23 +150,7 @@ function calcRoundedBillableHours(start, end) {
 }
 
 function assignmentClientHours(assignment, fallbackStart, fallbackEnd) {
-  const explicit = Number(assignment.clientBillableHours || 0);
-  if (explicit > 0) return explicit;
-  const validated = calcRoundedBillableHours(assignment.validatedCheckIn, assignment.validatedCheckOut);
-  if (validated > 0) return validated;
-  const worked = Number(assignment.hoursWorked || 0);
-  if (worked > 0) return worked;
-  return calcRoundedBillableHours(assignment.checkIn || fallbackStart, assignment.checkOut || fallbackEnd);
-}
-
-function assignmentStaffHours(assignment, fallbackStart, fallbackEnd) {
-  const explicit = Number(assignment.staffPayableHours || 0);
-  if (explicit > 0) return explicit;
-  const validated = calcRoundedBillableHours(assignment.validatedCheckIn, assignment.validatedCheckOut);
-  if (validated > 0) return validated;
-  const worked = Number(assignment.hoursWorked || 0);
-  if (worked > 0) return worked;
-  return calcRoundedBillableHours(assignment.checkIn || fallbackStart, assignment.checkOut || fallbackEnd);
+  return clientChargeHours(assignment, fallbackStart, fallbackEnd);
 }
 
 function isPastEvent(eventDate) {
@@ -164,6 +161,45 @@ function isPastEvent(eventDate) {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const eventDayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   return eventDayStart.getTime() < todayStart.getTime();
+}
+
+function dateOnly(value) {
+  if (!value) return '';
+  return String(value).slice(0, 10);
+}
+
+function parseDateOnly(value) {
+  if (!value) return null;
+  const d = new Date(`${dateOnly(value)}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function eventRangeEnd(item) {
+  return item?.isContinuous && item.endDate ? item.endDate : item?.date;
+}
+
+function inclusiveDayCount(startValue, endValue) {
+  const start = parseDateOnly(startValue);
+  const end = parseDateOnly(endValue || startValue);
+  if (!start || !end || end < start) return 1;
+  return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+}
+
+function dateRangesOverlap(aStartValue, aEndValue, bStartValue, bEndValue) {
+  const aStart = parseDateOnly(aStartValue);
+  const aEnd = parseDateOnly(aEndValue || aStartValue);
+  const bStart = parseDateOnly(bStartValue);
+  const bEnd = parseDateOnly(bEndValue || bStartValue);
+  if (!aStart || !aEnd || !bStart || !bEnd) return false;
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
+function formatEventDateRange(item) {
+  if (!item?.date) return '-';
+  const start = date.format(new Date(item.date));
+  const endValue = eventRangeEnd(item);
+  if (!item.isContinuous || !endValue || dateOnly(endValue) === dateOnly(item.date)) return start;
+  return `${start} - ${date.format(new Date(endValue))}`;
 }
 
 function timeRangesOverlap(aStart, aEnd, bStart, bEnd) {
@@ -207,6 +243,51 @@ function extractBudgetReference(text) {
   return fallback ? fallback[0].toUpperCase() : '';
 }
 
+function parseTemplatePayload(template) {
+  if (!template?.payload) return {};
+  if (typeof template.payload === 'object') return template.payload;
+  try {
+    const parsed = JSON.parse(template.payload);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function templatePayloadFromForm(currentForm) {
+  const calculatedTravelAmount = calculateTravelAmount(currentForm);
+  return {
+    eventName: currentForm.name || '',
+    eventType: currentForm.eventType || '',
+    isContinuous: Boolean(currentForm.isContinuous),
+    useDefaultLocation: Boolean(currentForm.useDefaultLocation),
+    location: currentForm.location || '',
+    guestsCount: currentForm.guestsCount || '',
+    startTime: currentForm.startTime || '',
+    endTime: currentForm.endTime || '',
+    uniform: currentForm.uniform || '',
+    uniformOther: currentForm.uniformOther || '',
+    meetingPoint: currentForm.meetingPoint || '',
+    onsiteContactName: currentForm.onsiteContactName || '',
+    onsiteContactPhone: currentForm.onsiteContactPhone || '',
+    travelExpenseEnabled: calculatedTravelAmount > 0,
+    travelExpenseAmount: calculatedTravelAmount,
+    travelType: currentForm.travelType || 'none',
+    travelPeople: currentForm.travelPeople || 1,
+    km: currentForm.km || 0,
+    kmRate: currentForm.kmRate || 0.4,
+    durationHours: currentForm.durationHours || 0,
+    split5050: Boolean(currentForm.split5050),
+    travelManualAmount: currentForm.travelManualAmount || '',
+    description: currentForm.description || '',
+    requiredRoles: (currentForm.requiredRoles || []).map((item) => ({
+      role: item.role || '',
+      qty: Number(item.qty || 0),
+      agreedRate: item.agreedRate || '',
+    })).filter((item) => item.role && item.qty > 0),
+  };
+}
+
 function collaboratorHasRole(collab, role) {
   if (!role) return true;
   const roles = Array.isArray(collab?.roles) ? collab.roles : [];
@@ -218,10 +299,18 @@ function toForm(row) {
   const savedUniform = row.uniform || '';
   const isKnownUniform = uniformOptions.includes(savedUniform) && savedUniform !== 'Outros';
   const isOtherUniform = savedUniform === 'Outros';
+  const savedTravelAmount = Number(row.travelExpenseAmount || 0);
+  const savedTravelType = row.travelType && row.travelType !== 'none'
+    ? row.travelType
+    : row.travelExpenseEnabled && savedTravelAmount > 0
+      ? 'manual'
+      : 'none';
   return {
     name: row.name || '',
     eventType: row.eventType || '',
-    date: row.date ? String(row.date).slice(0, 10) : '',
+    date: dateOnly(row.date),
+    endDate: row.endDate ? dateOnly(row.endDate) : '',
+    isContinuous: Boolean(row.isContinuous),
     clientId: row.clientId ? String(row.clientId) : '',
     useDefaultLocation: row.useDefaultLocation !== false,
     location: row.location || '',
@@ -235,6 +324,13 @@ function toForm(row) {
     onsiteContactPhone: row.onsiteContactPhone || '',
     travelExpenseEnabled: Boolean(row.travelExpenseEnabled),
     travelExpenseAmount: row.travelExpenseAmount === undefined || row.travelExpenseAmount === null ? '' : formatMoneyInline(row.travelExpenseAmount),
+    travelType: savedTravelType,
+    travelPeople: row.travelPeople ?? 1,
+    km: row.km ?? 0,
+    kmRate: row.kmRate ?? 0.4,
+    durationHours: row.durationHours ?? 0,
+    split5050: Boolean(row.split5050),
+    travelManualAmount: savedTravelType === 'manual' ? formatMoneyInline(row.travelManualAmount || savedTravelAmount) : '',
     description: row.description || '',
     status: row.status || 'drafting',
     billingStatus: row.billingStatus || 'pending',
@@ -249,6 +345,7 @@ function toForm(row) {
       id: item.id,
       role: item.role || '',
       collaboratorId: item.collaboratorId ? String(item.collaboratorId) : '',
+      assignmentDate: item.assignmentDate ? dateOnly(item.assignmentDate) : '',
       collaboratorSearch: '',
       checkIn: item.checkIn || '',
       checkOut: item.checkOut || '',
@@ -277,7 +374,7 @@ function getRoleForecast(requiredRoles, expectedHours) {
 
 function getRowForecast(row) {
   const requiredRoles = safeArrayJson(row.requiredRoles);
-  const roleRateMap = new Map(requiredRoles.map((item) => [item.role, Number(item.agreedRate || 0)]));
+  const roleRateMap = new Map(requiredRoles.map((item) => [item.role, parseMoney(item.agreedRate) || 0]));
   const travel = Number(row.travelExpenseEnabled ? row.travelExpenseAmount || 0 : 0);
   const assignments = (row.assignments || []).filter((item) => item.role && item.collaboratorId);
   if (assignments.length) {
@@ -289,7 +386,7 @@ function getRowForecast(row) {
     }, 0);
     return Number((total + travel).toFixed(2));
   }
-  const expectedHours = calcRoundedBillableHours(row.startTime, row.endTime);
+  const expectedHours = calcRoundedBillableHours(row.startTime, row.endTime) * inclusiveDayCount(row.date, eventRangeEnd(row));
   const forecast = getRoleForecast(requiredRoles, expectedHours);
   return Number((forecast + travel).toFixed(2));
 }
@@ -301,6 +398,7 @@ export default function Services() {
   const { data: collaborators } = useApi('/collaborators', []);
   const { data: budgets, reload: reloadBudgets } = useApi('/budgets', []);
   const { data: roleCatalog } = useApi('/collaborators/roles', []);
+  const { data: serviceTemplates, reload: reloadTemplates } = useApi('/service-templates', []);
   const [fromDate, setFromDate] = useState('');
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -314,9 +412,15 @@ export default function Services() {
   const [openedFromQuery, setOpenedFromQuery] = useState(false);
   const [statusManualOverride, setStatusManualOverride] = useState(false);
   const [activeCollaboratorPickerIndex, setActiveCollaboratorPickerIndex] = useState(null);
+  const [selectedTeamDay, setSelectedTeamDay] = useState('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState('');
 
   const rows = useMemo(() => data.filter((row) => {
-    const byDate = fromDate ? String(row.date).slice(0, 10) >= fromDate : true;
+    const byDate = fromDate ? dateOnly(eventRangeEnd(row)) >= fromDate : true;
     const byClient = clientFilter ? String(row.clientId) === clientFilter : true;
     const byStatus = statusFilter ? row.status === statusFilter : true;
     return byDate && byClient && byStatus;
@@ -325,6 +429,14 @@ export default function Services() {
   const availableRoles = useMemo(
     () => [...new Set((roleCatalog || []).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt')),
     [roleCatalog],
+  );
+  const sortedTemplates = useMemo(
+    () => [...(serviceTemplates || [])].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt')),
+    [serviceTemplates],
+  );
+  const selectedTemplate = useMemo(
+    () => sortedTemplates.find((item) => String(item.id) === String(selectedTemplateId)),
+    [selectedTemplateId, sortedTemplates],
   );
   const activeCollaborators = useMemo(
     () => (collaborators || [])
@@ -342,15 +454,45 @@ export default function Services() {
     [clients, form.clientId],
   );
   const prepaidPaymentBlocked = selectedClient?.billingMethod === 'prepaid' && form.billingStatus !== 'paid';
-  const canShowInactiveAssignments = isPastEvent(form.date);
+  const canShowInactiveAssignments = isPastEvent(form.isContinuous && form.endDate ? form.endDate : form.date);
 
   function collaboratorOptionLabel(collab) {
     return `${collab.shortName || collab.name || `Colaborador ${collab.id}`} | ${collab.nif || '-'}`;
   }
 
-  const expectedHours = calcRoundedBillableHours(form.startTime, form.endTime);
+  const eventDays = inclusiveDayCount(form.date, form.isContinuous ? form.endDate : form.date);
+  const teamDays = useMemo(() => {
+    if (!form.isContinuous || !form.date) return [];
+    const start = parseDateOnly(form.date);
+    const end = parseDateOnly(form.endDate || form.date);
+    if (!start || !end || end < start) return [];
+    const days = [];
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      days.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return days;
+  }, [form.isContinuous, form.date, form.endDate]);
+  const expectedDailyHours = calcRoundedBillableHours(form.startTime, form.endTime);
+  const expectedHours = Number((expectedDailyHours * eventDays).toFixed(2));
   const billableHours = expectedHours;
-  const travelExpenseAmount = form.travelExpenseEnabled ? (parseMoney(form.travelExpenseAmount) || 0) : 0;
+  const travelExpenseAmount = calculateTravelAmount(form);
+
+  const formAssignmentClientHours = useCallback((assignment) => {
+    return clientChargeHours(assignment, form.startTime, form.endTime);
+  }, [form.endTime, form.startTime]);
+
+  const formAssignmentStaffHours = useCallback((assignment) => {
+    const checked = calcRoundedBillableHours(assignment.checkIn || form.startTime, assignment.checkOut || form.endTime);
+    if (assignment.timesTouched && checked > 0) return checked;
+    const explicit = Number(assignment.staffPayableHours || 0);
+    if (explicit > 0) return explicit;
+    const validated = calcRoundedBillableHours(assignment.validatedCheckIn, assignment.validatedCheckOut);
+    if (validated > 0) return validated;
+    if (checked > 0) return checked;
+    return Number(assignment.hoursWorked || 0);
+  }, [form.endTime, form.startTime]);
 
   const financials = useMemo(() => {
     const roleRateMap = new Map(form.requiredRoles.map((item) => [item.role, parseMoney(item.agreedRate) || 0]));
@@ -361,11 +503,11 @@ export default function Services() {
     let expectedRevenue = 0;
     for (const assignment of assignments) {
       if (nonBillableStatuses.has(normalizeAssignmentStatus(assignment.status))) continue;
-      const clientHours = assignmentClientHours(assignment, form.startTime, form.endTime);
-      const staffHours = assignmentStaffHours(assignment, form.startTime, form.endTime);
+      const clientHours = formAssignmentClientHours(assignment);
+      const staffHours = formAssignmentStaffHours(assignment);
       if (!assignment.role || (!clientHours && !staffHours)) continue;
       const clientRate = roleRateMap.get(assignment.role) || 0;
-      const collaboratorRate = parseMoney(assignment.hourlyRate) || 0;
+      const collaboratorRate = assignmentStaffRate(assignment, collaboratorsById, clientRate);
       expectedRevenue += clientHours * clientRate;
       totalRevenue += clientHours * clientRate;
       totalCost += staffHours * collaboratorRate;
@@ -380,16 +522,17 @@ export default function Services() {
       totalCost: Number(totalCost.toFixed(2)),
       profit: Number((revenue - totalCost).toFixed(2)),
     };
-  }, [form.requiredRoles, form.assignments, form.startTime, form.endTime, expectedHours, travelExpenseAmount]);
-  const paidAmount = parseMoney(form.signaledAmount) || 0;
-  const amountMissing = Number((financials.totalRevenue - paidAmount).toFixed(2));
+  }, [form.requiredRoles, form.assignments, expectedHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentStaffHours, collaboratorsById]);
 
   function getAutoOperationalStatus(currentForm) {
-    const requested = currentForm.requiredRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const requested = currentForm.isContinuous
+      ? currentForm.assignments.filter((item) => item.role && item.collaboratorId && item.assignmentDate).length
+      : currentForm.requiredRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0);
     const confirmed = currentForm.assignments.filter((item) => item.status === 'confirmed').length;
     const now = new Date();
-    if (currentForm.date && currentForm.endTime) {
-      const endDt = new Date(`${currentForm.date}T${currentForm.endTime}:00`);
+    const finalDate = currentForm.isContinuous && currentForm.endDate ? currentForm.endDate : currentForm.date;
+    if (finalDate && currentForm.endTime) {
+      const endDt = new Date(`${finalDate}T${currentForm.endTime}:00`);
       if (!Number.isNaN(endDt.getTime()) && now >= endDt) return 'to_validate_staff';
     }
     if (currentForm.date && currentForm.startTime) {
@@ -407,6 +550,58 @@ export default function Services() {
   }, [formOpen, statusManualOverride, form]);
 
   useEffect(() => {
+    if (!formOpen) return;
+    if (!form.isContinuous) {
+      setSelectedTeamDay('');
+      return;
+    }
+    if (!teamDays.length) {
+      setSelectedTeamDay('');
+      return;
+    }
+    if (!selectedTeamDay || !teamDays.includes(selectedTeamDay)) {
+      setSelectedTeamDay(teamDays[0]);
+    }
+  }, [formOpen, form.isContinuous, teamDays, selectedTeamDay]);
+
+  function openCreate() {
+    setEditing(null);
+    setForm(emptyForm());
+    setActiveTab('summary');
+    setFormOpen(true);
+    setFormError('');
+    setTemplateError('');
+    setTemplateName('');
+    setSelectedTemplateId('');
+    setStatusManualOverride(false);
+    setSelectedTeamDay('');
+  }
+
+  const formWithStaffRates = useCallback((nextForm) => {
+    const roleRateMap = new Map(nextForm.requiredRoles.map((item) => [item.role, parseMoney(item.agreedRate) || 0]));
+    return {
+      ...nextForm,
+      assignments: nextForm.assignments.map((assignment) => {
+        const rate = assignmentStaffRate(assignment, collaboratorsById, roleRateMap.get(assignment.role) || 0);
+        return rate > 0 ? { ...assignment, hourlyRate: formatMoneyInline(rate) } : assignment;
+      }),
+    };
+  }, [collaboratorsById]);
+
+  const openEdit = useCallback((row) => {
+    setEditing(row);
+    setForm(formWithStaffRates(toForm(row)));
+    setActiveTab('summary');
+    setFormOpen(true);
+    setFormError('');
+    setTemplateError('');
+    setTemplateName('');
+    setSelectedTemplateId('');
+    setStatusManualOverride(false);
+    setSelectedTeamDay('');
+  }, [formWithStaffRates]);
+
+  useEffect(() => {
     const idParam = searchParams.get('serviceId');
     if (!idParam || loading || openedFromQuery) return;
     const targetId = Number(idParam);
@@ -419,24 +614,104 @@ export default function Services() {
       nextParams.delete('serviceId');
       setSearchParams(nextParams, { replace: true });
     }
-  }, [searchParams, setSearchParams, loading, openedFromQuery, data]);
+  }, [searchParams, setSearchParams, loading, openedFromQuery, data, openEdit]);
 
-  function openCreate() {
-    setEditing(null);
-    setForm(emptyForm());
-    setActiveTab('summary');
-    setFormOpen(true);
-    setFormError('');
-    setStatusManualOverride(false);
+  function applyTemplate(templateId) {
+    const template = sortedTemplates.find((item) => String(item.id) === String(templateId));
+    setSelectedTemplateId(templateId);
+    setTemplateError('');
+    if (!template) return;
+    const payload = parseTemplatePayload(template);
+    const nextUniform = payload.uniform || '';
+    const isKnownUniform = uniformOptions.includes(nextUniform) && nextUniform !== 'Outros';
+    const useDefaultLocation = payload.useDefaultLocation !== false;
+    setTemplateName(template.name || '');
+    setForm((prev) => ({
+      ...prev,
+      name: prev.name || payload.eventName || template.name || '',
+      eventType: payload.eventType || prev.eventType,
+      isContinuous: Boolean(payload.isContinuous),
+      endDate: payload.isContinuous ? prev.endDate : '',
+      useDefaultLocation,
+      location: useDefaultLocation ? (selectedClient?.address || payload.location || prev.location) : (payload.location || prev.location),
+      guestsCount: payload.guestsCount ?? prev.guestsCount,
+      startTime: payload.startTime || prev.startTime,
+      endTime: payload.endTime || prev.endTime,
+      uniform: isKnownUniform ? nextUniform : (nextUniform ? 'Outros' : prev.uniform),
+      uniformOther: isKnownUniform ? '' : (payload.uniformOther || nextUniform || prev.uniformOther),
+      meetingPoint: payload.meetingPoint || prev.meetingPoint,
+      onsiteContactName: payload.onsiteContactName || prev.onsiteContactName,
+      onsiteContactPhone: payload.onsiteContactPhone || prev.onsiteContactPhone,
+      travelExpenseEnabled: Boolean(payload.travelExpenseEnabled),
+      travelExpenseAmount: payload.travelExpenseAmount || '',
+      travelType: payload.travelType || (payload.travelExpenseEnabled ? 'manual' : 'none'),
+      travelPeople: payload.travelPeople || 1,
+      km: payload.km || 0,
+      kmRate: payload.kmRate || 0.4,
+      durationHours: payload.durationHours || 0,
+      split5050: Boolean(payload.split5050),
+      travelManualAmount: payload.travelManualAmount || payload.travelExpenseAmount || '',
+      description: payload.description || prev.description,
+      requiredRoles: Array.isArray(payload.requiredRoles) ? payload.requiredRoles.map((item) => ({
+        role: item.role || '',
+        qty: Number(item.qty || 0),
+        agreedRate: item.agreedRate || '',
+      })).filter((item) => item.role && item.qty > 0) : prev.requiredRoles,
+      assignments: [],
+    }));
   }
 
-  function openEdit(row) {
-    setEditing(row);
-    setForm(toForm(row));
-    setActiveTab('summary');
-    setFormOpen(true);
-    setFormError('');
-    setStatusManualOverride(false);
+  async function saveCurrentTemplate() {
+    const name = (templateName || form.name || form.eventType || 'Template de Evento').trim();
+    if (!name) {
+      setTemplateError('Indica um nome para o template.');
+      return;
+    }
+    const existing = sortedTemplates.find((item) => String(item.name || '').trim().toLowerCase() === name.toLowerCase());
+    if (existing && !window.confirm('Já existe um template com este nome. Queres atualizar esse template?')) return;
+    setSavingTemplate(true);
+    setTemplateError('');
+    try {
+      const payload = templatePayloadFromForm(form);
+      const saved = await api(`/service-templates${existing ? `/${existing.id}` : ''}`, {
+        method: existing ? 'PUT' : 'POST',
+        body: JSON.stringify({
+          name,
+          eventType: form.eventType || null,
+          description: form.description || null,
+          payload,
+        }),
+      });
+      setTemplateName(saved.name || name);
+      setSelectedTemplateId(String(saved.id));
+      reloadTemplates();
+    } catch (err) {
+      setTemplateError(err.message || 'Não foi possível guardar o template.');
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
+  async function deleteSelectedTemplate(templateId = selectedTemplateId) {
+    if (!templateId) {
+      setTemplateError('Seleciona um template para apagar.');
+      return;
+    }
+    const template = sortedTemplates.find((item) => String(item.id) === String(templateId));
+    const confirmed = window.confirm(`Queres apagar o template "${template?.name || 'selecionado'}"?`);
+    if (!confirmed) return;
+    setTemplateError('');
+    try {
+      await api(`/service-templates/${templateId}`, { method: 'DELETE' });
+      if (String(templateId) === String(selectedTemplateId)) {
+        setSelectedTemplateId('');
+        setTemplateName('');
+      }
+      setTemplateDropdownOpen(false);
+      reloadTemplates();
+    } catch (err) {
+      setTemplateError(err.message || 'Não foi possível apagar o template.');
+    }
   }
 
   function updateClient(clientId) {
@@ -473,12 +748,12 @@ export default function Services() {
       window.alert('Cliente com pré-pagamento: marca o evento como pago antes de alocar staff.');
       return;
     }
-    const roleConfig = form.requiredRoles.find((item) => item.role === role);
     setForm({
       ...form,
       assignments: [...form.assignments, {
         role,
         collaboratorId: '',
+        assignmentDate: form.isContinuous ? (selectedTeamDay || form.date || '') : '',
         collaboratorSearch: '',
         checkIn: form.startTime || '',
         checkOut: form.endTime || '',
@@ -486,10 +761,10 @@ export default function Services() {
         clientCheckOut: '',
         validatedCheckIn: '',
         validatedCheckOut: '',
-        hoursWorked: calcRoundedBillableHours(form.startTime, form.endTime),
+        hoursWorked: expectedDailyHours,
         clientBillableHours: 0,
         staffPayableHours: 0,
-        hourlyRate: roleConfig.agreedRate || '',
+        hourlyRate: '',
         validationStatus: 'pending',
         validationNotes: '',
         status: 'pending_confirmation',
@@ -501,29 +776,45 @@ export default function Services() {
     const next = form.assignments.map((item, i) => {
       if (i !== index) return item;
       const merged = { ...item, ...patch };
-      return { ...merged, hoursWorked: calcRoundedBillableHours(merged.checkIn, merged.checkOut) };
+      const timesTouched = patch.checkIn !== undefined || patch.checkOut !== undefined;
+      const workedHours = calcRoundedBillableHours(merged.checkIn, merged.checkOut);
+      const updated = { ...merged, hoursWorked: workedHours };
+      if (timesTouched) {
+        updated.timesTouched = true;
+        updated.staffPayableHours = workedHours;
+        if (!merged.clientCheckIn && !merged.clientCheckOut && !merged.validatedCheckIn && !merged.validatedCheckOut) {
+          updated.clientBillableHours = workedHours;
+        }
+      }
+      return updated;
     });
 
     if (patch.collaboratorId) {
       const selected = next[index];
       const selectedId = Number(selected.collaboratorId);
-      const selectedDate = form.date || '';
+      const selectedDate = selected.assignmentDate || form.date || '';
+      const selectedEndDate = selectedDate;
       const selectedStart = selected.checkIn || form.startTime;
       const selectedEnd = selected.checkOut || form.endTime;
       if (selectedId && selectedDate && selectedStart && selectedEnd) {
         const overlapInCurrentForm = next.some((item, i) => {
           if (i === index) return false;
           if (Number(item.collaboratorId) !== selectedId) return false;
+          const itemDate = item.assignmentDate || form.date || '';
+          if (itemDate !== selectedDate) return false;
           const otherStart = item.checkIn || form.startTime;
           const otherEnd = item.checkOut || form.endTime;
           return otherStart && otherEnd && timeRangesOverlap(selectedStart, selectedEnd, otherStart, otherEnd);
         });
         const overlapInOtherServices = data.some((service) => {
           if (editing && service.id === editing.id) return false;
-          const serviceDate = service.date ? String(service.date).slice(0, 10) : '';
-          if (serviceDate !== selectedDate) return false;
+          const serviceDate = dateOnly(service.date);
+          const serviceEndDate = dateOnly(eventRangeEnd(service));
+          if (!dateRangesOverlap(selectedDate, selectedEndDate, serviceDate, serviceEndDate)) return false;
           return (service.assignments || []).some((assignment) => {
             if (Number(assignment.collaboratorId) !== selectedId) return false;
+            const assignmentDay = dateOnly(assignment.assignmentDate || service.date);
+            if (assignmentDay !== selectedDate) return false;
             const otherStart = assignment.checkIn || service.startTime;
             const otherEnd = assignment.checkOut || service.endTime;
             return otherStart && otherEnd && timeRangesOverlap(selectedStart, selectedEnd, otherStart, otherEnd);
@@ -546,23 +837,14 @@ export default function Services() {
     setForm({ ...form, assignments: form.assignments.filter((_, i) => i !== index) });
   }
 
-  function updateBillingStatus(nextBillingStatus) {
-    if (nextBillingStatus === 'paid') {
-      setStatusManualOverride(true);
-      setForm((prev) => ({ ...prev, billingStatus: nextBillingStatus, status: 'paid' }));
-      return;
-    }
-    setStatusManualOverride(false);
-    setForm((prev) => {
-      const next = { ...prev, billingStatus: nextBillingStatus };
-      if (prev.status === 'paid') next.status = getAutoOperationalStatus(prev);
-      return next;
-    });
-  }
-
   async function submit(event) {
     event.preventDefault();
-    if (!form.requiredRoles.length) {
+    if (form.isContinuous && form.endDate && form.date && parseDateOnly(form.endDate) < parseDateOnly(form.date)) {
+      setFormError('A data de fim nao pode ser anterior a data de inicio.');
+      setActiveTab('summary');
+      return;
+    }
+    if (!form.requiredRoles.length && !form.isContinuous) {
       setFormError('Define pelo menos uma função necessária com número de colaboradores.');
       setActiveTab('summary');
       return;
@@ -573,16 +855,42 @@ export default function Services() {
       setActiveTab('team');
       return;
     }
-    const duplicateKeys = new Set();
-    for (const item of form.assignments) {
-      if (!item.role || !item.collaboratorId) continue;
-      const key = `${item.role}::${item.collaboratorId}`;
-      if (duplicateKeys.has(key)) {
-        setFormError('O mesmo colaborador não pode ser atribuído duas vezes à mesma função.');
+    if (form.isContinuous) {
+      const missingDate = form.assignments.some((item) => item.role && item.collaboratorId && !item.assignmentDate);
+      if (missingDate) {
+        setFormError('Nos eventos continuos, cada colaborador tem de ter a data de trabalho preenchida.');
         setActiveTab('team');
         return;
       }
-      duplicateKeys.add(key);
+      const hasPlannedDailyStaff = form.assignments.some((item) => item.role && item.collaboratorId && item.assignmentDate);
+      if (!hasPlannedDailyStaff) {
+        setFormError('Nos eventos continuos, adiciona pelo menos uma linha de colaborador com data.');
+        setActiveTab('team');
+        return;
+      }
+    }
+    for (let i = 0; i < form.assignments.length; i += 1) {
+      const current = form.assignments[i];
+      if (!current.role || !current.collaboratorId) continue;
+      const currentDate = current.assignmentDate || form.date || '';
+      const currentStart = current.checkIn || form.startTime;
+      const currentEnd = current.checkOut || form.endTime;
+      if (!currentDate || !currentStart || !currentEnd) continue;
+      for (let j = i + 1; j < form.assignments.length; j += 1) {
+        const other = form.assignments[j];
+        if (!other.role || !other.collaboratorId) continue;
+        if (String(other.collaboratorId) !== String(current.collaboratorId)) continue;
+        const otherDate = other.assignmentDate || form.date || '';
+        if (otherDate !== currentDate) continue;
+        const otherStart = other.checkIn || form.startTime;
+        const otherEnd = other.checkOut || form.endTime;
+        if (!otherStart || !otherEnd) continue;
+        if (timeRangesOverlap(currentStart, currentEnd, otherStart, otherEnd)) {
+          setFormError('O mesmo colaborador não pode ter horários sobrepostos no mesmo dia.');
+          setActiveTab('team');
+          return;
+        }
+      }
     }
     setSaving(true);
     setFormError('');
@@ -591,6 +899,7 @@ export default function Services() {
       const payload = {
         ...form,
         status: form.billingStatus === 'paid' ? 'paid' : form.status,
+        endDate: form.isContinuous && form.endDate ? form.endDate : null,
         location: effectiveLocation,
         uniform: form.uniform === 'Outros' ? form.uniformOther : form.uniform,
         clientId: Number(form.clientId),
@@ -599,8 +908,15 @@ export default function Services() {
         billableHours,
         totalRevenue: financials.totalRevenue,
         totalCost: financials.totalCost,
-        travelExpenseEnabled: Boolean(form.travelExpenseEnabled),
+        travelExpenseEnabled: travelExpenseAmount > 0,
         travelExpenseAmount: travelExpenseAmount || 0,
+        travelType: form.travelType || 'none',
+        travelPeople: form.travelPeople || null,
+        km: form.km || null,
+        kmRate: form.kmRate || null,
+        durationHours: form.durationHours || null,
+        split5050: Boolean(form.split5050),
+        travelManualAmount: form.travelType === 'manual' ? (parseMoney(form.travelManualAmount) || 0) : 0,
         signaledAmount: form.billingStatus === 'partial70' ? (parseMoney(form.signaledAmount) || 0) : 0,
         paidAmount: form.billingStatus === 'partial70' ? (parseMoney(form.signaledAmount) || 0) : 0,
         remainingPaymentDate: form.billingStatus === 'partial70' && form.remainingPaymentDate ? form.remainingPaymentDate : null,
@@ -620,12 +936,15 @@ export default function Services() {
         form.assignments
           .filter((item) => item.role && item.collaboratorId)
           .map((item) => {
-            const staffHours = assignmentStaffHours(item, form.startTime, form.endTime);
-            const clientHours = assignmentClientHours(item, form.startTime, form.endTime);
-            const hourlyRate = parseMoney(item.hourlyRate) || 0;
+            const staffHours = formAssignmentStaffHours(item);
+            const clientHours = formAssignmentClientHours(item);
+            const roleConfig = form.requiredRoles.find((required) => required.role === item.role);
+            const clientRoleRate = parseMoney(roleConfig?.agreedRate) || 0;
+            const hourlyRate = assignmentStaffRate(item, collaboratorsById, clientRoleRate);
             const body = {
               eventId,
               collaboratorId: Number(item.collaboratorId),
+              assignmentDate: form.isContinuous ? (item.assignmentDate || null) : null,
               role: item.role,
               checkIn: item.checkIn || null,
               checkOut: item.checkOut || null,
@@ -699,7 +1018,6 @@ export default function Services() {
         { id: 'summary', label: 'Evento/Serviço' },
         { id: 'team', label: 'Colaboradores' },
         { id: 'finance', label: 'Financeiro' },
-        { id: 'billing', label: 'Faturação' },
       ]
     : [{ id: 'summary', label: 'Evento/Serviço' }];
 
@@ -731,7 +1049,9 @@ export default function Services() {
         <div className="service-card-list">
           {rows.map((row) => {
             const requiredRoles = safeArrayJson(row.requiredRoles);
-            const requestedTotal = requiredRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+            const requestedTotal = row.isContinuous
+              ? (row.assignments || []).filter((item) => item.role && item.collaboratorId && item.assignmentDate).length
+              : requiredRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0);
             const confirmedTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'confirmed').length;
             const pendingTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'pending_confirmation').length;
             return (
@@ -747,7 +1067,7 @@ export default function Services() {
                   </div>
                   <div className="service-card__field">
                     <small>Data</small>
-                    <strong>{row.date ? date.format(new Date(row.date)) : '-'}</strong>
+                    <strong>{formatEventDateRange(row)}</strong>
                   </div>
                 </div>
                 <div className="service-card__meta">
@@ -775,6 +1095,78 @@ export default function Services() {
               ))}
             </div>
 
+            <div className="service-template-bar">
+              <div className="service-template-bar__title">
+                <LayoutTemplate size={17} />
+                <span>Templates</span>
+              </div>
+              <div className="service-template-select">
+                <span>Template</span>
+                <button
+                  type="button"
+                  className="service-template-trigger"
+                  onClick={() => setTemplateDropdownOpen((prev) => !prev)}
+                >
+                  <span>
+                    {selectedTemplate
+                      ? `${selectedTemplate.name}${selectedTemplate.eventType ? ` · ${selectedTemplate.eventType}` : ''}`
+                      : 'Selecionar template'}
+                  </span>
+                  <ChevronDown size={16} />
+                </button>
+                {templateDropdownOpen ? (
+                  <div className="service-template-menu">
+                    <button
+                      type="button"
+                      className="service-template-option"
+                      onClick={() => {
+                        applyTemplate('');
+                        setTemplateDropdownOpen(false);
+                      }}
+                    >
+                      <span>Selecionar template</span>
+                    </button>
+                    {sortedTemplates.map((template) => (
+                      <div key={template.id} className="service-template-option service-template-option--with-action">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            applyTemplate(String(template.id));
+                            setTemplateDropdownOpen(false);
+                          }}
+                        >
+                          <span>{template.name}</span>
+                          {template.eventType ? <small>{template.eventType}</small> : null}
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-button icon-button--danger"
+                          aria-label={`Apagar template ${template.name}`}
+                          onClick={() => deleteSelectedTemplate(String(template.id))}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                    {!sortedTemplates.length ? <p className="muted">Sem templates guardados.</p> : null}
+                  </div>
+                ) : null}
+              </div>
+              <label>
+                <span>Nome do template</span>
+                <input
+                  value={templateName}
+                  placeholder={form.name || 'Ex: Casamento 80 pax'}
+                  onChange={(event) => setTemplateName(event.target.value)}
+                />
+              </label>
+              <button type="button" className="secondary-button" onClick={saveCurrentTemplate} disabled={savingTemplate}>
+                <Save size={16} />
+                {savingTemplate ? 'A guardar...' : 'Guardar template'}
+              </button>
+            </div>
+            {templateError ? <p className="notice">{templateError}</p> : null}
+
             {activeTab === 'summary' ? (
               <div className="service-tab-panel">
                 <section className="service-form-section">
@@ -789,12 +1181,30 @@ export default function Services() {
                         {eventTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                       </select>
                     </label>
-                    <label>Data
+                    <label>{form.isContinuous ? 'Data de inicio' : 'Data'}
                       <input type="date" value={form.date} required onChange={(event) => setForm({ ...form, date: event.target.value })} />
                     </label>
+                    <label className="check-inline service-check">
+                      <input
+                        type="checkbox"
+                        checked={form.isContinuous}
+                        onChange={(event) => setForm({
+                          ...form,
+                          isContinuous: event.target.checked,
+                          endDate: event.target.checked ? (form.endDate || form.date) : '',
+                        })}
+                      />
+                      <span>Evento continuo</span>
+                    </label>
+                    {form.isContinuous ? (
+                      <label>Data de fim
+                        <input type="date" value={form.endDate} min={form.date || undefined} required onChange={(event) => setForm({ ...form, endDate: event.target.value })} />
+                      </label>
+                    ) : null}
                     <label>Nº de Convidados/Participantes
                       <input type="number" min="0" value={form.guestsCount} onChange={(event) => setForm({ ...form, guestsCount: event.target.value })} />
                     </label>
+                    {form.isContinuous ? <p className="muted">Duracao: {eventDays} dia(s). Os calculos usam o horario previsto repetido por dia.</p> : null}
                   </div>
                 </section>
 
@@ -868,17 +1278,22 @@ export default function Services() {
                       <input type="time" value={form.endTime} onChange={(event) => setForm({ ...form, endTime: event.target.value })} />
                     </label>
                     <div className="services-row-3-top span-2">
-                      <label className="check-inline service-check">
-                        <input type="checkbox" checked={form.travelExpenseEnabled} onChange={(event) => setForm({ ...form, travelExpenseEnabled: event.target.checked })} />
-                        <span>Despesa de deslocamento (Kms)</span>
+                      <label>Deslocação
+                        <select value={form.travelType} onChange={(event) => setForm({ ...form, travelType: event.target.value })}>
+                          <option value="none">Nenhuma</option>
+                          <option value="outside_lisbon">Fora Grande Lisboa</option>
+                          <option value="outside_plus_staff">Fora + Staff</option>
+                          <option value="kilometers">Quilómetros</option>
+                          <option value="manual">Valor manual</option>
+                        </select>
                       </label>
-                      {form.travelExpenseEnabled ? (
-                        <label>Valor deslocacao (cliente)
+                      {['outside_plus_staff', 'kilometers'].includes(form.travelType) ? (
+                        <label>Pessoas deslocação
                           <input
-                            type="text"
-                            value={form.travelExpenseAmount}
-                            onChange={(event) => setForm({ ...form, travelExpenseAmount: event.target.value })}
-                            onBlur={(event) => setForm({ ...form, travelExpenseAmount: formatMoneyInline(event.target.value) })}
+                            type="number"
+                            min="1"
+                            value={form.travelPeople}
+                            onChange={(event) => setForm({ ...form, travelPeople: event.target.value })}
                           />
                         </label>
                       ) : <div />}
@@ -894,6 +1309,39 @@ export default function Services() {
                         </select>
                       </label>
                     </div>
+                    {form.travelType === 'kilometers' ? (
+                      <div className="services-row-4 span-2">
+                        <label>KM
+                          <input type="number" min="0" step="0.01" value={form.km} onChange={(event) => setForm({ ...form, km: event.target.value })} />
+                        </label>
+                        <label>Valor/KM
+                          <input type="number" min="0" step="0.01" value={form.kmRate} onChange={(event) => setForm({ ...form, kmRate: event.target.value })} />
+                        </label>
+                        <label>Duração deslocação (h)
+                          <input type="number" min="0" step="0.01" value={form.durationHours} onChange={(event) => setForm({ ...form, durationHours: event.target.value })} />
+                        </label>
+                        <label className="check-inline service-check">
+                          <input type="checkbox" checked={form.split5050} onChange={(event) => setForm({ ...form, split5050: event.target.checked })} />
+                          <span>50/50 no tempo de deslocação</span>
+                        </label>
+                      </div>
+                    ) : null}
+                    {form.travelType === 'manual' ? (
+                      <div className="services-row-3-top span-2">
+                        <label>Valor manual
+                          <input
+                            type="text"
+                            value={form.travelManualAmount}
+                            placeholder="Ex: 35,00€"
+                            onChange={(event) => setForm({ ...form, travelManualAmount: event.target.value })}
+                            onBlur={(event) => setForm({ ...form, travelManualAmount: formatMoneyInline(event.target.value) })}
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                    {form.travelType !== 'none' ? (
+                      <p className="muted span-2">Valor calculado da deslocação: <strong>{formatMoneyInline(travelExpenseAmount) || '0,00€'}</strong></p>
+                    ) : null}
                     <label className="span-2">Descrição
                       <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
                     </label>
@@ -930,22 +1378,45 @@ export default function Services() {
               <div className="service-tab-panel">
                 <section className="service-form-section">
                   <h3>Colaboradores</h3>
+                  {form.isContinuous && teamDays.length ? (
+                    <div className="service-day-tabs">
+                      {teamDays.map((day) => (
+                        <button
+                          key={day}
+                          type="button"
+                          className={`service-tab ${selectedTeamDay === day ? 'service-tab--active' : ''}`}
+                          onClick={() => setSelectedTeamDay(day)}
+                        >
+                          {date.format(new Date(`${day}T00:00:00`))}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="service-assignments-panel">
                     {form.requiredRoles.map((required) => {
                       const roleAssignments = form.assignments
                         .map((item, index) => ({ ...item, index }))
                         .filter((item) => item.role === required.role)
+                        .filter((item) => (!form.isContinuous ? true : (item.assignmentDate || '') === (selectedTeamDay || teamDays[0] || '')))
                         .filter((item) => {
                           const collab = collaboratorsById.get(String(item.collaboratorId));
                           if (!collab) return true;
                           if (collab.status !== 'inactive') return true;
                           return canShowInactiveAssignments;
                         });
+                      const workedAssignments = roleAssignments.filter((item) => !nonBillableStatuses.has(normalizeAssignmentStatus(item.status)));
+                      const totalRoleHours = workedAssignments.reduce((sum, item) => sum + formAssignmentStaffHours(item), 0);
+                      const clientRoleRate = parseMoney(required.agreedRate) || 0;
+                      const totalRoleCost = workedAssignments.reduce(
+                        (sum, item) => sum + assignmentStaffCost(item, formAssignmentStaffHours(item), collaboratorsById, clientRoleRate),
+                        0,
+                      );
                       return (
                         <div key={required.role} className="service-role-block">
                           <header>
                             <strong>{required.role}</strong>
-                            <span className="muted">Solicitados: {required.qty}</span>
+                            <span className="muted">Total horas: {formatHours(totalRoleHours)}</span>
+                            <span className="muted">Total a pagar: {euro(totalRoleCost)}</span>
                             <button type="button" className="secondary-button" onClick={() => addAssignment(required.role)} disabled={prepaidPaymentBlocked}>+ Adicionar colaborador</button>
                           </header>
                           {prepaidPaymentBlocked ? <p className="notice">Cliente com pré-pagamento: recebe o pagamento antes de alocar novos colaboradores.</p> : null}
@@ -991,7 +1462,17 @@ export default function Services() {
                                             key={collab.id}
                                             className="service-collab-option"
                                             onClick={() => {
-                                              updateAssignment(assignment.index, { collaboratorId: String(collab.id) });
+                                              const nextAssignment = {
+                                                ...assignment,
+                                                collaboratorId: String(collab.id),
+                                              };
+                                              const roleRate = parseMoney(required.agreedRate) || 0;
+                                              const staffRate = assignmentStaffRate(nextAssignment, collaboratorsById, roleRate)
+                                                || collaboratorHourlyRate(collab);
+                                              updateAssignment(assignment.index, {
+                                                collaboratorId: String(collab.id),
+                                                hourlyRate: staffRate > 0 ? formatMoneyInline(staffRate) : assignment.hourlyRate,
+                                              });
                                               setActiveCollaboratorPickerIndex(null);
                                             }}
                                           >
@@ -1002,14 +1483,25 @@ export default function Services() {
                                   </div>
                                 ) : null}
                               </div>
+                              {form.isContinuous ? (
+                                <input
+                                  type="date"
+                                  aria-label="Data de trabalho"
+                                  title="Data de trabalho"
+                                  value={assignment.assignmentDate || ''}
+                                  min={form.date || undefined}
+                                  max={(form.endDate || form.date || undefined)}
+                                  onChange={(event) => updateAssignment(assignment.index, { assignmentDate: event.target.value })}
+                                />
+                              ) : null}
                               <input type="time" aria-label="Entrada real" title="Entrada real" value={assignment.checkIn} onChange={(event) => updateAssignment(assignment.index, { checkIn: event.target.value })} />
                               <input type="time" aria-label="Saída real" title="Saída real" value={assignment.checkOut} onChange={(event) => updateAssignment(assignment.index, { checkOut: event.target.value })} />
-                              <input type="text" aria-label="Horas faturaveis" title="Horas faturaveis" readOnly value={`${assignment.hoursWorked || 0} h`} />
+                              <input type="text" aria-label="Horas trabalhadas" title="Horas trabalhadas" readOnly value={formatHours(formAssignmentStaffHours(assignment))} />
                               <input
                                 type="text"
                                 placeholder="Valor/h acordado"
                                 value={assignment.hourlyRate}
-                                onChange={(event) => updateAssignment(assignment.index, { hourlyRate: event.target.value })}
+                                onChange={(event) => updateAssignment(assignment.index, { hourlyRate: event.target.value, manualHourlyRate: true })}
                                 onFocus={(event) => {
                                   const parsed = parseMoney(event.target.value);
                                   updateAssignment(assignment.index, { hourlyRate: parsed === null ? '' : String(parsed).replace('.', ',') });
@@ -1048,64 +1540,8 @@ export default function Services() {
               </div>
             ) : null}
 
-            {activeTab === 'billing' ? (
-              <div className="service-tab-panel">
-                <section className="service-form-section">
-                  <h3>Faturação</h3>
-                  <div className="services-row-4">
-                    <label>Estado da Faturação
-                      <select className={`payment-state payment-state--${form.billingStatus}`} value={form.billingStatus} onChange={(event) => updateBillingStatus(event.target.value)}>
-                        <option value="pending">Pendente</option>
-                        <option value="partial70">Sinalização</option>
-                        <option value="paid">Pago</option>
-                      </select>
-                    </label>
-                    <label>Valor sinalizado
-                      <input
-                        type="text"
-                        value={form.signaledAmount}
-                        disabled={form.billingStatus !== 'partial70'}
-                        onChange={(event) => {
-                          const next = event.target.value;
-                          setForm({ ...form, signaledAmount: next, paidAmount: next });
-                        }}
-                        onBlur={(event) => {
-                          const formatted = formatMoneyInline(event.target.value);
-                          setForm({ ...form, signaledAmount: formatted, paidAmount: formatted });
-                        }}
-                      />
-                    </label>
-                    <label>Valor em falta
-                      <input
-                        type="text"
-                        readOnly
-                        value={euro(form.billingStatus === 'partial70' ? amountMissing : 0)}
-                      />
-                    </label>
-                    <label>Data do restante pagamento
-                      <input
-                        type="date"
-                        disabled={form.billingStatus !== 'partial70'}
-                        value={form.remainingPaymentDate}
-                        onChange={(event) => setForm({ ...form, remainingPaymentDate: event.target.value })}
-                      />
-                    </label>
-                  </div>
-                </section>
-              </div>
-            ) : null}
-
             {formError ? <p className="notice">{formError}</p> : null}
             <footer className="form-actions service-form-actions">
-              {activeTab === 'billing' ? (
-                <div className="billing-total-card billing-total-card--footer" role="status" aria-live="polite">
-                  <div className="billing-total-card__label">
-                    <CircleDollarSign size={18} />
-                    <span>Valor Total</span>
-                  </div>
-                  <strong>{euro(financials.totalRevenue)}</strong>
-                </div>
-              ) : null}
               {editing ? (
                 <button className="secondary-button secondary-button--danger" type="button" onClick={removeEvent} disabled={saving || removing}>
                   <Trash2 size={16} />

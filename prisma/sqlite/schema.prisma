@@ -15,6 +15,18 @@ model User {
   role      String   @default("admin")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  notificationDismissals NotificationDismissal[]
+}
+
+model NotificationDismissal {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, key])
+  @@index([userId])
 }
 
 model Collaborator {
@@ -166,6 +178,8 @@ model Event {
   location     String?
   useDefaultLocation Boolean      @default(true)
   date         DateTime
+  endDate      DateTime?
+  isContinuous Boolean            @default(false)
   startTime    String?
   endTime      String?
   actualStartTime String?
@@ -179,6 +193,13 @@ model Event {
   onsiteContactPhone String?
   travelExpenseEnabled Boolean    @default(false)
   travelExpenseAmount Decimal     @default(0)
+  travelType   String             @default("none")
+  travelPeople Int?
+  km           Decimal?
+  kmRate       Decimal?
+  durationHours Decimal?
+  split5050    Boolean            @default(false)
+  travelManualAmount Decimal      @default(0)
   billingStatus String            @default("pending")
   signaledAmount Decimal          @default(0)
   paidAmount Decimal              @default(0)
@@ -197,12 +218,25 @@ model Event {
   @@index([status])
 }
 
+model EventTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  eventType   String?
+  description String?
+  payload     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([eventType])
+}
+
 model EventAssignment {
   id             Int          @id @default(autoincrement())
   eventId        Int
   event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
   collaboratorId Int
   collaborator   Collaborator @relation(fields: [collaboratorId], references: [id])
+  assignmentDate DateTime?
   role           String?
   checkIn        String?
   checkOut       String?
@@ -223,7 +257,7 @@ model EventAssignment {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  @@unique([eventId, collaboratorId, role])
+  @@index([eventId, collaboratorId, role])
   @@index([collaboratorId])
   @@index([status])
   @@index([paymentStatus])

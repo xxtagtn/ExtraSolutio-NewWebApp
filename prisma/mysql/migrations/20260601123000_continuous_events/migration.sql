@@ -1,0 +1,3 @@
+ALTER TABLE `Event`
+  ADD COLUMN `endDate` DATETIME(3) NULL,
+  ADD COLUMN `isContinuous` BOOLEAN NOT NULL DEFAULT false;
