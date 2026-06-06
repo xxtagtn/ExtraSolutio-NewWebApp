@@ -370,6 +370,7 @@ function toForm(row) {
       hourlyRate: formatMoneyInline(item.hourlyRate),
       validationStatus: item.validationStatus || 'pending',
       validationNotes: item.validationNotes || '',
+      clientSynced: Boolean(item.clientSynced),
       status: normalizeAssignmentStatus(item.status),
     })),
   };
@@ -787,6 +788,7 @@ export default function Services() {
         hourlyRate: '',
         validationStatus: 'pending',
         validationNotes: '',
+        clientSynced: false,
         status: 'pending_confirmation',
       }],
     });
@@ -968,6 +970,7 @@ export default function Services() {
               totalPay: Number((staffHours * hourlyRate).toFixed(2)),
               validationStatus: item.validationStatus || 'pending',
               validationNotes: item.validationNotes || null,
+              clientSynced: Boolean(item.clientSynced),
               status: item.status || 'pending_confirmation',
             };
             if (item.id) return api(`/assignments/${item.id}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -1431,16 +1434,25 @@ export default function Services() {
                           {prepaidPaymentBlocked ? <p className="notice">Cliente com pré-pagamento: recebe o pagamento antes de alocar novos colaboradores.</p> : null}
                           {roleAssignments.map((assignment) => (
                             <div key={`${required.role}-${assignment.index}`} className="service-assignment-row">
-                              <div className="service-collab-picker">
-                                <button
-                                  type="button"
-                                  className="service-collab-trigger"
-                                  onClick={() => setActiveCollaboratorPickerIndex((prev) => (prev === assignment.index ? null : assignment.index))}
-                                >
-                                  {assignment.collaboratorId
-                                    ? collaboratorOptionLabel(collaboratorsById.get(String(assignment.collaboratorId)) || { id: assignment.collaboratorId, name: 'Colaborador' })
-                                    : 'Selecionar colaborador'}
-                                </button>
+                              <div className="service-assignment-collaborator">
+                                <label className="service-client-sync-check" title={assignment.clientSynced ? 'Sincronizado com o cliente' : 'Marcar como sincronizado com o cliente'}>
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(assignment.clientSynced)}
+                                    onChange={(event) => updateAssignment(assignment.index, { clientSynced: event.target.checked })}
+                                  />
+                                  <span aria-hidden="true" />
+                                </label>
+                                <div className="service-collab-picker">
+                                  <button
+                                    type="button"
+                                    className={`service-collab-trigger ${assignment.clientSynced ? 'service-collab-trigger--synced' : ''}`}
+                                    onClick={() => setActiveCollaboratorPickerIndex((prev) => (prev === assignment.index ? null : assignment.index))}
+                                  >
+                                    {assignment.collaboratorId
+                                      ? collaboratorOptionLabel(collaboratorsById.get(String(assignment.collaboratorId)) || { id: assignment.collaboratorId, name: 'Colaborador' })
+                                      : 'Selecionar colaborador'}
+                                  </button>
                                 {activeCollaboratorPickerIndex === assignment.index ? (
                                   <div className="service-collab-menu">
                                     <input
@@ -1491,6 +1503,7 @@ export default function Services() {
                                     </div>
                                   </div>
                                 ) : null}
+                                </div>
                               </div>
                               {form.isContinuous ? (
                                 <input
@@ -1557,8 +1570,8 @@ export default function Services() {
                   {removing ? 'A eliminar...' : 'Eliminar'}
                 </button>
               ) : null}
-              <button className="secondary-button" type="button" onClick={() => setFormOpen(false)}>Cancelar</button>
               <button className="command-button" type="submit" disabled={saving || removing}>{saving ? 'A guardar...' : 'Guardar'}</button>
+              <button className="secondary-button" type="button" onClick={() => setFormOpen(false)}>Cancelar</button>
             </footer>
           </form>
         </Modal>

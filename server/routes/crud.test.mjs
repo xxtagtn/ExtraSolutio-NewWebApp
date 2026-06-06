@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeClient, normalizeEvent } from './crud.js';
+import { normalizeAssignment, normalizeClient, normalizeEvent } from './crud.js';
 
 test('normalizes event billing payment date when provided', () => {
   const payload = normalizeEvent({ billingPaymentDate: '2026-06-05' });
@@ -43,4 +43,9 @@ test('does not change client role rate date when rates are unchanged', () => {
 
   assert.equal(payload.roleRates, JSON.stringify([{ role: 'Barman', rate: 12.5 }]));
   assert.equal(payload.roleRatesUpdatedAt, undefined);
+});
+
+test('normalizes assignment client sync flag', () => {
+  assert.equal(normalizeAssignment({ clientSynced: true }).clientSynced, true);
+  assert.equal(normalizeAssignment({ clientSynced: 'false' }).clientSynced, false);
 });

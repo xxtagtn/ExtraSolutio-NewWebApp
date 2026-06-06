@@ -1146,8 +1146,8 @@ export default function Budgets() {
 
             {formError ? <p className="notice">{formError}</p> : null}
             <footer className="form-actions">
-              <button className="secondary-button" type="button" onClick={() => setOpen(false)}>Cancelar</button>
               <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar Orçamento'}</button>
+              <button className="secondary-button" type="button" onClick={() => setOpen(false)}>Cancelar</button>
             </footer>
           </form>
         </Modal>

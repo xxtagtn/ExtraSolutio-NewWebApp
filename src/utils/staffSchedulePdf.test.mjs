@@ -46,26 +46,45 @@ test('builds printable staff schedule rows from validation rows', () => {
   });
 });
 
-test('includes total value in staff schedule exports', () => {
-  const rows = [{
-    event: {
-      id: 1,
-      name: 'Evento',
-      client: { name: 'Cliente' },
-      date: '2026-07-08',
-      requiredRoles: JSON.stringify([{ role: 'Staff', agreedRate: 10.5 }]),
+test('shows event total without collaborator rates or totals in pdf and excel exports', () => {
+  const rows = [
+    {
+      event: {
+        id: 1,
+        name: 'Evento',
+        client: { name: 'Cliente' },
+        date: '2026-07-08',
+        requiredRoles: JSON.stringify([{ role: 'Staff', agreedRate: 12.5 }]),
+      },
+      assignment: { collaborator: { shortName: 'Ana' }, role: 'Staff', checkIn: '09:00', checkOut: '12:00' },
+      staffScheduleHours: 3,
     },
-    assignment: { collaborator: { shortName: 'Ana' }, role: 'Staff', checkIn: '09:00', checkOut: '12:00' },
-    staffScheduleHours: 3,
-  }];
+    {
+      event: {
+        id: 1,
+        name: 'Evento',
+        client: { name: 'Cliente' },
+        date: '2026-07-08',
+        requiredRoles: JSON.stringify([{ role: 'Staff', agreedRate: 12.5 }]),
+      },
+      assignment: { collaborator: { shortName: 'Rui' }, role: 'Staff', checkIn: '13:00', checkOut: '15:00' },
+      staffScheduleHours: 2,
+    },
+  ];
 
   const pdf = buildStaffSchedulePdfHtml(rows, { clientLabel: 'Cliente', monthLabel: 'julho de 2026' });
-  const csv = buildStaffScheduleCsv(rows);
   const excel = buildStaffScheduleExcelHtml(rows, { clientLabel: 'Cliente', periodLabel: '08/07/2026' });
 
-  assert.equal(pdf.includes('31,50€'), true);
-  assert.equal(csv.includes('31,50€'), true);
-  assert.equal(excel.includes('31,50€'), true);
+  assert.equal(pdf.includes('62,50€'), true);
+  assert.equal(excel.includes('62,50€'), true);
+  assert.equal(pdf.includes('Valor/h'), false);
+  assert.equal(excel.includes('Valor/h'), false);
+  assert.equal(pdf.includes('12,50€'), false);
+  assert.equal(excel.includes('12,50€'), false);
+  assert.equal(pdf.includes('37,50€'), false);
+  assert.equal(pdf.includes('25,00€'), false);
+  assert.equal(excel.includes('37,50€'), false);
+  assert.equal(excel.includes('25,00€'), false);
 });
 
 test('escapes generated schedule pdf html', () => {

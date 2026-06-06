@@ -44,6 +44,7 @@ const AREA_TABS = [
 
 const PAYMENT_STATUS = [
   { value: 'unpaid', label: 'Por pagar' },
+  { value: 'validated_es', label: 'Validado ES' },
   { value: 'paid', label: 'Pago' },
   { value: 'awaiting_data', label: 'Aguardar dados para pagamento' },
 ];
@@ -1936,10 +1937,10 @@ export default function Accounting() {
               />
             </div>
             <footer className="form-actions finance-payment-notes-actions">
-              <button className="secondary-button" type="button" onClick={closePaymentNotes} disabled={savingPaymentNotes}>Cancelar</button>
               <button className="command-button" type="button" onClick={savePaymentNotes} disabled={savingPaymentNotes}>
                 {savingPaymentNotes ? 'A guardar...' : 'Guardar'}
               </button>
+              <button className="secondary-button" type="button" onClick={closePaymentNotes} disabled={savingPaymentNotes}>Cancelar</button>
             </footer>
           </div>
         </Modal>

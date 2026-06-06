@@ -393,8 +393,8 @@ export default function Clients() {
             </div>
             {formError ? <p className="notice">{formError}</p> : null}
             <footer className="form-actions">
-              <button className="secondary-button" type="button" onClick={() => setFormOpen(false)}>Cancelar</button>
               <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar'}</button>
+              <button className="secondary-button" type="button" onClick={() => setFormOpen(false)}>Cancelar</button>
             </footer>
           </form>
         </Modal>

@@ -95,6 +95,13 @@ function parseDecimal(value) {
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
+
+function parseBoolean(value) {
+  if (value === undefined) return undefined;
+  if (value === true || value === 'true' || value === 1 || value === '1') return true;
+  if (value === false || value === 'false' || value === 0 || value === '0') return false;
+  return Boolean(value);
+}
 export function normalizeEvent(input) {
   const requiredRoles = Array.isArray(input.requiredRoles) ? input.requiredRoles : [];
   const parseRate = (value) => {
@@ -246,6 +253,7 @@ export function normalizeAssignment(input) {
     paymentNotes: input.paymentNotes,
     validationStatus: input.validationStatus,
     validationNotes: input.validationNotes,
+    clientSynced: parseBoolean(input.clientSynced),
     status: input.status,
     paymentStatus: input.paymentStatus,
     ...(input.paymentDate !== undefined ? { paymentDate: input.paymentDate ? toDate(input.paymentDate) : null } : {}),

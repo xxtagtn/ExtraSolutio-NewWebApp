@@ -137,7 +137,6 @@ function groupByEvent(rows) {
 export function buildStaffSchedulePdfHtml(rows, options = {}) {
   const scheduleRows = buildStaffScheduleRows(rows);
   const groups = groupByEvent(scheduleRows);
-  const totalValue = scheduleRows.reduce((sum, row) => sum + Number(row.totalValue || 0), 0);
   const generatedAt = options.generatedAt || new Date();
   const generatedAtLabel = new Intl.DateTimeFormat('pt-PT', {
     day: '2-digit',
@@ -181,8 +180,6 @@ export function buildStaffSchedulePdfHtml(rows, options = {}) {
             <th>Entrada Staff</th>
             <th>Saída Staff</th>
             <th>Total</th>
-            <th>Valor/h</th>
-            <th>Valor total</th>
             <th>Notas</th>
           </tr>
         </thead>
@@ -194,8 +191,6 @@ export function buildStaffSchedulePdfHtml(rows, options = {}) {
               <td>${escapeHtml(row.checkIn)}</td>
               <td>${escapeHtml(row.checkOut)}</td>
               <td>${escapeHtml(formatHours(row.hours))}</td>
-              <td>${escapeHtml(formatMoney(row.rate))}</td>
-              <td>${escapeHtml(formatMoney(row.totalValue))}</td>
               <td>${escapeHtml(row.notes || '-')}</td>
             </tr>
           `).join('')}
@@ -313,7 +308,6 @@ export function buildStaffSchedulePdfHtml(rows, options = {}) {
       <div class="report-meta">
         <div><span>Cliente</span><strong>${escapeHtml(options.clientLabel || 'Todos os clientes')}</strong></div>
         <div><span>Período</span><strong>${escapeHtml(options.monthLabel || options.periodLabel || '-')}</strong></div>
-        <div><span>Valor total</span><strong>${escapeHtml(formatMoney(totalValue))}</strong></div>
         <div><span>Gerado em</span><strong>${escapeHtml(generatedAtLabel)}</strong></div>
       </div>
     </header>
@@ -371,21 +365,20 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
     minute: '2-digit',
   }).format(generatedAt);
   const totalHours = scheduleRows.reduce((sum, row) => sum + Number(row.hours || 0), 0);
-  const totalValue = scheduleRows.reduce((sum, row) => sum + Number(row.totalValue || 0), 0);
 
   const groupRows = groups.map((group) => {
     const groupHours = group.rows.reduce((sum, row) => sum + Number(row.hours || 0), 0);
     const groupValue = group.rows.reduce((sum, row) => sum + Number(row.totalValue || 0), 0);
     return `
       <tr class="event-title">
-        <td colspan="12">${escapeHtml(group.eventName)}</td>
+        <td colspan="10">${escapeHtml(group.eventName)}</td>
       </tr>
       <tr class="event-meta">
         <td colspan="2"><strong>Cliente</strong><br>${escapeHtml(group.clientName)}</td>
         <td colspan="2"><strong>Data</strong><br>${escapeHtml(group.eventDate)}</td>
         <td colspan="3"><strong>Local</strong><br>${escapeHtml(group.location)}</td>
         <td colspan="2"><strong>Total horas</strong><br>${escapeHtml(formatHours(groupHours))}</td>
-        <td colspan="3"><strong>Valor total</strong><br>${escapeHtml(formatMoney(groupValue))}</td>
+        <td><strong>Valor total</strong><br>${escapeHtml(formatMoney(groupValue))}</td>
       </tr>
       <tr class="table-head">
         <td>Cliente</td>
@@ -397,8 +390,6 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
         <td>Entrada Staff</td>
         <td>Saída Staff</td>
         <td>Total horas</td>
-        <td>Valor/h</td>
-        <td>Valor total</td>
         <td>Notas</td>
       </tr>
       ${group.rows.map((row) => `
@@ -412,19 +403,15 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
           <td class="time-cell">${escapeHtml(row.checkIn)}</td>
           <td class="time-cell">${escapeHtml(row.checkOut)}</td>
           <td class="number-cell">${escapeHtml(formatHoursNumber(row.hours))}</td>
-          <td class="money-cell">${escapeHtml(formatMoney(row.rate))}</td>
-          <td class="money-cell">${escapeHtml(formatMoney(row.totalValue))}</td>
           <td>${escapeHtml(row.notes || '-')}</td>
         </tr>
       `).join('')}
       <tr class="event-total">
         <td colspan="8">Total evento</td>
         <td class="number-cell">${escapeHtml(formatHoursNumber(groupHours))}</td>
-        <td></td>
         <td class="money-cell">${escapeHtml(formatMoney(groupValue))}</td>
-        <td></td>
       </tr>
-      <tr class="spacer"><td colspan="12"></td></tr>
+      <tr class="spacer"><td colspan="10"></td></tr>
     `;
   }).join('');
 
@@ -518,29 +505,24 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
       <col style="width: 85px" />
       <col style="width: 85px" />
       <col style="width: 85px" />
-      <col style="width: 90px" />
-      <col style="width: 100px" />
       <col style="width: 260px" />
     </colgroup>
     <tr class="report-title">
-      <td colspan="12">Horários registados pelo Staff</td>
+      <td colspan="10">Horários registados pelo Staff</td>
     </tr>
     <tr class="report-meta">
       <td colspan="3"><strong>Cliente</strong><br>${escapeHtml(options.clientLabel || 'Todos os clientes')}</td>
       <td colspan="3"><strong>Período</strong><br>${escapeHtml(options.periodLabel || options.monthLabel || '-')}</td>
       <td colspan="2"><strong>Gerado em</strong><br>${escapeHtml(generatedAtLabel)}</td>
       <td colspan="2"><strong>Registos</strong><br>${scheduleRows.length}</td>
-      <td colspan="2"><strong>Valor total</strong><br>${escapeHtml(formatMoney(totalValue))}</td>
     </tr>
     <tr class="report-total">
       <td colspan="8">Total geral de horas Staff</td>
       <td class="number-cell">${escapeHtml(formatHoursNumber(totalHours))}</td>
       <td></td>
-      <td class="money-cell">${escapeHtml(formatMoney(totalValue))}</td>
-      <td></td>
     </tr>
-    <tr class="spacer"><td colspan="12"></td></tr>
-    ${groupRows || '<tr><td colspan="12">Sem horários Staff registados para os filtros selecionados.</td></tr>'}
+    <tr class="spacer"><td colspan="10"></td></tr>
+    ${groupRows || '<tr><td colspan="10">Sem horários Staff registados para os filtros selecionados.</td></tr>'}
   </table>
 </body>
 </html>`;

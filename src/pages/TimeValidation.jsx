@@ -6,6 +6,7 @@ import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { date } from '../utils/formatters.js';
+import { buildBulkValidationCandidates } from '../utils/hourValidationBulk.js';
 import { hoursValidationState } from '../utils/hourValidationStatus.js';
 import { clientChargeHours, decimalValue } from '../utils/serviceFinance.js';
 import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
@@ -199,6 +200,7 @@ function reopenAssignmentPayload(assignment) {
     validationNotes: assignment.validationNotes || null,
     status: assignment.status,
     paymentStatus: assignment.paymentStatus,
+    clientSynced: Boolean(assignment.clientSynced),
   };
 }
 
@@ -233,6 +235,7 @@ export default function TimeValidation() {
   const [onlyDifferences, setOnlyDifferences] = useState(false);
   const [savingId, setSavingId] = useState(null);
   const [validatingEventId, setValidatingEventId] = useState(null);
+  const [bulkValidatingEventId, setBulkValidatingEventId] = useState(null);
   const [drafts, setDrafts] = useState({});
 
   const allRows = useMemo(
@@ -486,7 +489,7 @@ export default function TimeValidation() {
     window.setTimeout(() => window.URL.revokeObjectURL(url), 500);
   }
 
-  async function persistRow(row, merged, mode = 'auto') {
+  function validationBodyFor(row, merged, mode = 'auto') {
     const clientHours = clientHoursFor(merged, row.event);
     const staffHours = num(merged.staffPayableHours) || staffHoursFor(merged, row.event);
     const normalizedValidatedCheckIn = mode === 'pending' ? null : (merged.validatedCheckIn || null);
@@ -496,28 +499,34 @@ export default function TimeValidation() {
       : mode === 'pending'
         ? 'pending'
         : validationStatusFor(row.event, merged);
+
+    return {
+      eventId: merged.eventId,
+      collaboratorId: merged.collaboratorId,
+      role: merged.role,
+      checkIn: merged.checkIn || null,
+      checkOut: merged.checkOut || null,
+      clientCheckIn: merged.clientCheckIn || null,
+      clientCheckOut: merged.clientCheckOut || null,
+      validatedCheckIn: normalizedValidatedCheckIn,
+      validatedCheckOut: normalizedValidatedCheckOut,
+      hoursWorked: staffHours,
+      clientBillableHours: clientHours,
+      staffPayableHours: staffHours,
+      hourlyRate: num(merged.hourlyRate),
+      totalPay: Number((staffHours * num(merged.hourlyRate)).toFixed(2)),
+      validationStatus,
+      validationNotes: merged.validationNotes || null,
+      clientSynced: Boolean(merged.clientSynced),
+      status: merged.status,
+      paymentStatus: merged.paymentStatus,
+    };
+  }
+
+  async function persistRow(row, merged, mode = 'auto') {
     setSavingId(row.id);
     try {
-      const body = {
-        eventId: merged.eventId,
-        collaboratorId: merged.collaboratorId,
-        role: merged.role,
-        checkIn: merged.checkIn || null,
-        checkOut: merged.checkOut || null,
-        clientCheckIn: merged.clientCheckIn || null,
-        clientCheckOut: merged.clientCheckOut || null,
-        validatedCheckIn: normalizedValidatedCheckIn,
-        validatedCheckOut: normalizedValidatedCheckOut,
-        hoursWorked: staffHours,
-        clientBillableHours: clientHours,
-        staffPayableHours: staffHours,
-        hourlyRate: num(merged.hourlyRate),
-        totalPay: Number((staffHours * num(merged.hourlyRate)).toFixed(2)),
-        validationStatus,
-        validationNotes: merged.validationNotes || null,
-        status: merged.status,
-        paymentStatus: merged.paymentStatus,
-      };
+      const body = validationBodyFor(row, merged, mode);
       await api(`/assignments/${row.id}`, { method: 'PUT', body: JSON.stringify(body) });
 
       const nextAssignments = (row.event.assignments || []).map((assignment) => (
@@ -556,6 +565,55 @@ export default function TimeValidation() {
       return;
     }
     await persistRow(row, { ...merged, validatedCheckIn, validatedCheckOut }, 'validated');
+  }
+
+  async function validateAllRowsForEvent(item) {
+    const eventRows = clientRows.filter((row) => (
+      String(row.event.id) === String(item.event.id)
+      && !NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status))
+    ));
+    const candidates = buildBulkValidationCandidates(eventRows, drafts);
+
+    if (!candidates.ready.length) {
+      window.alert('Não existem colaboradores por validar com horas suficientes neste evento.');
+      return;
+    }
+    if (candidates.missing.length) {
+      window.alert(`Não foi possível validar tudo. Existem ${candidates.missing.length} colaborador(es) sem horas suficientes.`);
+      return;
+    }
+
+    setBulkValidatingEventId(item.event.id);
+    try {
+      const updates = new Map();
+      await Promise.all(candidates.ready.map(({ row, merged }) => {
+        const body = validationBodyFor(row, merged, 'validated');
+        updates.set(row.id, body);
+        return api(`/assignments/${row.id}`, { method: 'PUT', body: JSON.stringify(body) });
+      }));
+
+      const nextAssignments = (item.event.assignments || []).map((assignment) => (
+        updates.has(assignment.id) ? { ...assignment, ...updates.get(assignment.id) } : assignment
+      ));
+      const totals = eventTotals(item.event, nextAssignments);
+      await api(`/services/${item.event.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(totals),
+      });
+
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const { row, merged } of candidates.ready) {
+          next[row.id] = { ...merged, ...updates.get(row.id) };
+        }
+        return next;
+      });
+      reload();
+    } catch (error) {
+      window.alert(error?.message || 'Não foi possível validar todos os colaboradores deste evento.');
+    } finally {
+      setBulkValidatingEventId(null);
+    }
   }
 
   async function reopenRowValidation(row) {
@@ -732,9 +790,19 @@ export default function TimeValidation() {
                     <span>{item.validated}/{item.total} validados</span>
                     <Badge tone={item.ready ? 'success' : 'warning'}>{item.ready ? 'Pronto para fechar' : 'Em validação'}</Badge>
                   </div>
-                  <button className="secondary-button" type="button" disabled={!item.ready || validatingEventId === item.event.id} onClick={() => markEventValidated(item)}>
-                    {validatingEventId === item.event.id ? 'A validar...' : 'Marcar evento validado'}
-                  </button>
+                  <div className="validation-event-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={!item.total || item.validated >= item.total || bulkValidatingEventId === item.event.id}
+                      onClick={() => validateAllRowsForEvent(item)}
+                    >
+                      {bulkValidatingEventId === item.event.id ? 'A validar...' : 'Validar tudo'}
+                    </button>
+                    <button className="secondary-button" type="button" disabled={!item.ready || validatingEventId === item.event.id || bulkValidatingEventId === item.event.id} onClick={() => markEventValidated(item)}>
+                      {validatingEventId === item.event.id ? 'A validar...' : 'Marcar evento validado'}
+                    </button>
+                  </div>
                 </article>
               ))}
               {!loading && !pendingEvents.length ? <p className="muted">Sem eventos pendentes neste mês.</p> : null}
@@ -818,15 +886,15 @@ export default function TimeValidation() {
                       <td>
                         <div className="validation-row-actions">
                           {row.validationState.isValidated ? (
-                            <button className="icon-button" type="button" title="Reabrir validação" aria-label="Reabrir validação" onClick={() => reopenRowValidation(row)} disabled={savingId === row.id}>
+                            <button className="icon-button" type="button" title="Reabrir validação" aria-label="Reabrir validação" onClick={() => reopenRowValidation(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
                               <RotateCcw size={16} />
                             </button>
                           ) : (
-                            <button className="icon-button" type="button" title="Aceitar validação" aria-label="Aceitar validação" onClick={() => acceptRow(row)} disabled={savingId === row.id}>
+                            <button className="icon-button" type="button" title="Aceitar validação" aria-label="Aceitar validação" onClick={() => acceptRow(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
                               <CheckCircle2 size={16} />
                             </button>
                           )}
-                          <button className="icon-button" type="button" title="Guardar validação" onClick={() => saveRow(row)} disabled={savingId === row.id}>
+                          <button className="icon-button" type="button" title="Guardar validação" onClick={() => saveRow(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
                             <Save size={16} />
                           </button>
                         </div>

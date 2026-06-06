@@ -1753,9 +1753,53 @@ th {
   align-items: center;
 }
 
+.service-assignment-collaborator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.service-client-sync-check {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  place-items: center;
+  cursor: pointer;
+}
+
+.service-client-sync-check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.service-client-sync-check span {
+  width: 13px;
+  height: 13px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  border-radius: 3px;
+  background: #0b1114;
+}
+
+.service-client-sync-check input:checked + span {
+  border-color: rgba(34, 197, 94, 0.7);
+  background:
+    linear-gradient(135deg, rgba(34, 197, 94, 0.95), rgba(20, 184, 166, 0.9));
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.12);
+}
+
+.service-client-sync-check input:focus-visible + span {
+  outline: 2px solid rgba(45, 212, 191, 0.7);
+  outline-offset: 2px;
+}
+
 .service-collab-picker {
   display: grid;
   gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
   position: relative;
 }
 
@@ -1768,6 +1812,14 @@ th {
   color: var(--text);
   padding: 0 10px;
   text-align: left;
+}
+
+.service-collab-trigger--synced {
+  border-color: rgba(34, 197, 94, 0.42);
+  background:
+    linear-gradient(135deg, rgba(34, 197, 94, 0.16), rgba(20, 184, 166, 0.08)),
+    #0b1114;
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.06);
 }
 
 .service-collab-menu {
@@ -1926,6 +1978,11 @@ th {
 .payment-state--awaiting_data {
   color: #fbbf24;
   border-color: rgba(245, 158, 11, 0.45);
+}
+
+.payment-state--validated_es {
+  color: #7dd3fc;
+  border-color: rgba(14, 165, 233, 0.45);
 }
 
 .payment-state--unpaid {
@@ -2672,6 +2729,14 @@ th {
 .validation-history-item > div {
   display: grid;
   gap: 4px;
+}
+
+.validation-event-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .validation-event-metrics span,

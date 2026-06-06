@@ -254,6 +254,7 @@ model EventAssignment {
   totalPay       Decimal      @default(0) @db.Decimal(12, 2)
   validationStatus String     @default("pending") @db.VarChar(40)
   validationNotes  String?    @db.Text
+  clientSynced     Boolean    @default(false)
   status         String       @default("assigned") @db.VarChar(40)
   paymentStatus  String       @default("unpaid") @db.VarChar(40)
   paymentDate    DateTime?    @db.DateTime(3)
