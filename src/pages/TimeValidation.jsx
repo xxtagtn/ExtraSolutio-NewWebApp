@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, ArrowRight, CheckCircle2, Hourglass, OctagonAlert, RotateCcw, Save, Siren } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowRight, CheckCircle2, FileDown, FileSpreadsheet, Hourglass, OctagonAlert, RotateCcw, Save, Siren } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
@@ -6,7 +6,10 @@ import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { date } from '../utils/formatters.js';
+import { hoursValidationState } from '../utils/hourValidationStatus.js';
 import { clientChargeHours, decimalValue } from '../utils/serviceFinance.js';
+import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
+import { filterRowsByDateRange } from '../utils/timeValidationFilters.js';
 
 const NON_BILLABLE_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const VALIDATED_EVENT_MARKER = '[EVENT_VALIDATED_HOURS]';
@@ -56,7 +59,7 @@ function assignmentStatus(status) {
 }
 
 function rowIsValidated(assignment) {
-  return assignment.validationStatus === 'validated';
+  return hoursValidationState(assignment).isValidated;
 }
 
 function eventIsMarkedValidated(event) {
@@ -80,11 +83,36 @@ function removeValidatedMarker(notes) {
   return lines.join('\n').trim();
 }
 
-function monthOf(value) {
+function dateKey(value) {
   if (!value) return '';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function currentMonthPeriod(value = new Date()) {
+  const d = new Date(value);
+  return {
+    start: dateKey(new Date(d.getFullYear(), d.getMonth(), 1)),
+    end: dateKey(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
+  };
+}
+
+function periodLabel(start, end) {
+  if (start && end && start === end) return date.format(new Date(start));
+  if (start && end) return `${date.format(new Date(start))} a ${date.format(new Date(end))}`;
+  if (start) return `Desde ${date.format(new Date(start))}`;
+  if (end) return `Até ${date.format(new Date(end))}`;
+  return 'Todos os dias';
+}
+
+function fileSafeName(value) {
+  return String(value || 'horarios-staff')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'horarios-staff';
 }
 
 function clientHoursFor(assignment, event) {
@@ -115,7 +143,7 @@ function hasTimePair(checkIn, checkOut) {
 
 function rowAssessment(assignment) {
   if (!hasTimePair(assignment.checkIn, assignment.checkOut) || !hasTimePair(assignment.clientCheckIn, assignment.clientCheckOut)) {
-    return { tone: 'info', label: 'Aguardar validacao', diffMinutes: null, isDifference: false, needsAttention: true };
+    return { tone: 'info', label: 'Aguardar validação', diffMinutes: null, isDifference: false, needsAttention: true };
   }
 
   const staffMinutes = Math.round(staffColumnHours(assignment) * 60);
@@ -126,15 +154,15 @@ function rowAssessment(assignment) {
     return { tone: 'success', label: 'Dentro da tolerancia', diffMinutes, isDifference: false, needsAttention: false };
   }
   if (diffMinutes <= 30) {
-    return { tone: 'warning', label: 'Atencao', diffMinutes, isDifference: true, needsAttention: true };
+    return { tone: 'warning', label: 'Atenção', diffMinutes, isDifference: true, needsAttention: true };
   }
   if (diffMinutes <= 60) {
-    return { tone: 'orange', label: 'Divergencia relevante', diffMinutes, isDifference: true, needsAttention: true };
+    return { tone: 'orange', label: 'Divergência relevante', diffMinutes, isDifference: true, needsAttention: true };
   }
   if (diffMinutes <= 120) {
-    return { tone: 'danger', label: 'Divergencia critica', diffMinutes, isDifference: true, needsAttention: true };
+    return { tone: 'danger', label: 'Divergência crítica', diffMinutes, isDifference: true, needsAttention: true };
   }
-  return { tone: 'critical', label: 'Possivel erro de registo', diffMinutes, isDifference: true, needsAttention: true };
+  return { tone: 'critical', label: 'Possível erro de registo', diffMinutes, isDifference: true, needsAttention: true };
 }
 
 function DifferenceIcon({ tone }) {
@@ -197,9 +225,11 @@ export default function TimeValidation() {
   const { data: services, loading, error, reload } = useApi('/services', []);
   const [scope, setScope] = useState('pending');
   const [viewMode, setViewMode] = useState('event');
+  const [selectedClientId, setSelectedClientId] = useState('all');
   const [selectedEventId, setSelectedEventId] = useState('all');
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('all');
-  const [monthFilter, setMonthFilter] = useState(() => monthOf(new Date()) || '');
+  const [periodStart, setPeriodStart] = useState(() => currentMonthPeriod().start);
+  const [periodEnd, setPeriodEnd] = useState(() => currentMonthPeriod().end);
   const [onlyDifferences, setOnlyDifferences] = useState(false);
   const [savingId, setSavingId] = useState(null);
   const [validatingEventId, setValidatingEventId] = useState(null);
@@ -218,6 +248,7 @@ export default function TimeValidation() {
           event,
           assignment: merged,
           collaboratorName,
+          validationState: hoursValidationState(merged),
           tone: assessment.tone,
           toneLabel: assessment.label,
           diffMinutes: assessment.diffMinutes,
@@ -230,31 +261,35 @@ export default function TimeValidation() {
     [services, drafts],
   );
 
-  const monthRows = useMemo(
-    () => allRows.filter((row) => !monthFilter || monthOf(row.event.date) === monthFilter),
-    [allRows, monthFilter],
+  const periodRows = useMemo(
+    () => filterRowsByDateRange(allRows, periodStart, periodEnd),
+    [allRows, periodStart, periodEnd],
   );
 
-  const highlightedEventDays = useMemo(() => {
-    if (!monthFilter) return [];
-    const [year, month] = monthFilter.split('-').map(Number);
-    if (!Number.isFinite(year) || !Number.isFinite(month)) return [];
-    const map = new Map();
-    for (const event of services) {
-      const eventDate = new Date(event.date);
-      if (Number.isNaN(eventDate.getTime())) continue;
-      if (eventDate.getFullYear() !== year || (eventDate.getMonth() + 1) !== month) continue;
-      const day = eventDate.getDate();
-      map.set(day, (map.get(day) || 0) + 1);
+  const clientOptions = useMemo(() => {
+    const seen = new Map();
+    for (const row of periodRows) {
+      const id = String(row.event.clientId || row.event.client?.id || '');
+      if (!id || seen.has(id)) continue;
+      seen.set(id, {
+        id,
+        label: row.event.client?.name || '-',
+      });
     }
-    return [...map.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([day, count]) => ({ day, count }));
-  }, [monthFilter, services]);
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
+  }, [periodRows]);
+
+  const clientRows = useMemo(
+    () => periodRows.filter((row) => (
+      selectedClientId === 'all'
+      || String(row.event.clientId || row.event.client?.id || '') === selectedClientId
+    )),
+    [periodRows, selectedClientId],
+  );
 
   const eventOptions = useMemo(() => {
     const seen = new Map();
-    for (const row of monthRows) {
+    for (const row of clientRows) {
       const id = String(row.event.id);
       if (!seen.has(id)) {
         seen.set(id, {
@@ -264,11 +299,11 @@ export default function TimeValidation() {
       }
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
-  }, [monthRows]);
+  }, [clientRows]);
 
   const collaboratorOptions = useMemo(() => {
     const seen = new Map();
-    for (const row of monthRows) {
+    for (const row of clientRows) {
       const id = String(row.assignment.collaboratorId);
       if (!seen.has(id)) {
         seen.set(id, {
@@ -278,11 +313,11 @@ export default function TimeValidation() {
       }
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
-  }, [monthRows]);
+  }, [clientRows]);
 
   const eventProgress = useMemo(() => {
     const map = new Map();
-    for (const row of monthRows) {
+    for (const row of clientRows) {
       const key = String(row.event.id);
       if (!map.has(key)) {
         map.set(key, {
@@ -302,10 +337,16 @@ export default function TimeValidation() {
     return [...map.values()]
       .map((item) => ({ ...item, ready: item.total > 0 && item.validated >= item.total }))
       .sort((a, b) => new Date(b.event.date || 0).getTime() - new Date(a.event.date || 0).getTime());
-  }, [monthRows]);
+  }, [clientRows]);
 
   const pendingEvents = useMemo(() => eventProgress.filter((item) => !item.markedValidated), [eventProgress]);
   const validatedEvents = useMemo(() => eventProgress.filter((item) => item.markedValidated), [eventProgress]);
+
+  useEffect(() => {
+    if (selectedClientId !== 'all' && !clientOptions.some((item) => item.id === selectedClientId)) {
+      setSelectedClientId('all');
+    }
+  }, [clientOptions, selectedClientId]);
 
   useEffect(() => {
     if (selectedEventId !== 'all' && !eventOptions.some((item) => item.id === selectedEventId)) {
@@ -320,7 +361,7 @@ export default function TimeValidation() {
   }, [collaboratorOptions, selectedCollaboratorId]);
 
   const rows = useMemo(
-    () => monthRows
+    () => clientRows
       .filter((row) => {
         const marked = eventIsMarkedValidated(row.event);
         if (scope === 'pending' && marked) return false;
@@ -340,23 +381,41 @@ export default function TimeValidation() {
         if (byEventDate !== 0) return byEventDate;
         return String(a.event.name || '').localeCompare(String(b.event.name || ''), 'pt');
       }),
-    [monthRows, scope, onlyDifferences, selectedCollaboratorId, selectedEventId, viewMode],
+    [clientRows, scope, onlyDifferences, selectedCollaboratorId, selectedEventId, viewMode],
   );
 
+  const staffPdfRows = useMemo(
+    () => clientRows
+      .filter((row) => {
+        const marked = eventIsMarkedValidated(row.event);
+        if (scope === 'pending' && marked) return false;
+        if (scope === 'validated' && !marked) return false;
+        if (viewMode === 'event' && selectedEventId !== 'all' && String(row.event.id) !== selectedEventId) return false;
+        if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
+        return true;
+      })
+      .map((row) => ({ ...row, staffScheduleHours: staffColumnHours(row.assignment) })),
+    [clientRows, scope, selectedCollaboratorId, selectedEventId, viewMode],
+  );
+
+  const selectedClientLabel = selectedClientId === 'all'
+    ? 'Todos os clientes'
+    : clientOptions.find((item) => item.id === selectedClientId)?.label || 'Cliente selecionado';
+
   const stats = useMemo(() => {
-    const divergent = monthRows.filter((row) => row.isDifference).length;
-    const validated = monthRows.filter((row) => rowIsValidated(row.assignment)).length;
-    const clientHours = monthRows.reduce((sum, row) => sum + clientHoursFor(row.assignment, row.event), 0);
-    const staffHours = monthRows.reduce((sum, row) => sum + staffHoursFor(row.assignment, row.event), 0);
+    const divergent = clientRows.filter((row) => row.isDifference).length;
+    const validated = clientRows.filter((row) => rowIsValidated(row.assignment)).length;
+    const clientHours = clientRows.reduce((sum, row) => sum + clientHoursFor(row.assignment, row.event), 0);
+    const staffHours = clientRows.reduce((sum, row) => sum + staffHoursFor(row.assignment, row.event), 0);
     return [
-      { label: 'Registos', value: String(monthRows.length) },
-      { label: 'Divergencias', value: String(divergent) },
-      { label: 'Validados ES', value: String(validated) },
+      { label: 'Registos', value: String(clientRows.length) },
+      { label: 'Divergências', value: String(divergent) },
+      { label: 'Validados', value: String(validated) },
       { label: 'Eventos validados', value: String(validatedEvents.length) },
       { label: 'Horas Cliente', value: `${clientHours.toFixed(2)} h` },
       { label: 'Horas Staff', value: `${staffHours.toFixed(2)} h` },
     ];
-  }, [monthRows, validatedEvents.length]);
+  }, [clientRows, validatedEvents.length]);
 
   function updateDraft(row, patch) {
     setDrafts((prev) => {
@@ -373,18 +432,58 @@ export default function TimeValidation() {
     });
   }
 
-  function copyTimes(row, source) {
-    if (source === 'staff') {
-      updateDraft(row, {
-        validatedCheckIn: row.assignment.checkIn || '',
-        validatedCheckOut: row.assignment.checkOut || '',
-      });
+  function resetPeriodToCurrentMonth() {
+    const current = currentMonthPeriod();
+    setPeriodStart(current.start);
+    setPeriodEnd(current.end);
+  }
+
+  function generateStaffPdf() {
+    if (!staffPdfRows.length) {
+      window.alert('Sem horários Staff para gerar PDF com os filtros selecionados.');
       return;
     }
-    updateDraft(row, {
-      validatedCheckIn: row.assignment.clientCheckIn || '',
-      validatedCheckOut: row.assignment.clientCheckOut || '',
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      window.alert('Não foi possível abrir a janela de impressão. Verifica se o bloqueador de popups está ativo.');
+      return;
+    }
+
+    const html = buildStaffSchedulePdfHtml(staffPdfRows, {
+      clientLabel: selectedClientLabel,
+      monthLabel: periodLabel(periodStart, periodEnd),
     });
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  }
+
+  function downloadStaffExcel() {
+    if (!staffPdfRows.length) {
+      window.alert('Sem horários Staff para gerar Excel com os filtros selecionados.');
+      return;
+    }
+
+    const excelHtml = buildStaffScheduleExcelHtml(staffPdfRows, {
+      clientLabel: selectedClientLabel,
+      periodLabel: periodLabel(periodStart, periodEnd),
+    });
+    const blob = new window.Blob([`\uFEFF${excelHtml}`], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const filename = `horarios-staff-${fileSafeName(selectedClientLabel)}-${fileSafeName(periodLabel(periodStart, periodEnd))}.xls`;
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 500);
   }
 
   async function persistRow(row, merged, mode = 'auto') {
@@ -434,14 +533,10 @@ export default function TimeValidation() {
         console.warn('Falha a atualizar totais do evento apos validar horas:', error);
       }
 
-      setDrafts((prev) => {
-        const next = { ...prev };
-        delete next[row.id];
-        return next;
-      });
+      setDrafts((prev) => ({ ...prev, [row.id]: { ...merged, ...body } }));
       reload();
     } catch (error) {
-      window.alert(error?.message || 'Nao foi possivel guardar esta validacao.');
+      window.alert(error?.message || 'Não foi possível guardar esta validação.');
     } finally {
       setSavingId(null);
     }
@@ -457,7 +552,7 @@ export default function TimeValidation() {
     const validatedCheckIn = merged.validatedCheckIn || merged.clientCheckIn || merged.checkIn || row.event.startTime || '';
     const validatedCheckOut = merged.validatedCheckOut || merged.clientCheckOut || merged.checkOut || row.event.endTime || '';
     if (!validatedCheckIn || !validatedCheckOut) {
-      window.alert('Sem horas suficientes para aceitar esta validacao.');
+      window.alert('Sem horas suficientes para aceitar esta validação.');
       return;
     }
     await persistRow(row, { ...merged, validatedCheckIn, validatedCheckOut }, 'validated');
@@ -471,14 +566,10 @@ export default function TimeValidation() {
         method: 'PUT',
         body: JSON.stringify(reopenAssignmentPayload(merged)),
       });
-      setDrafts((prev) => {
-        const next = { ...prev };
-        delete next[row.id];
-        return next;
-      });
+      setDrafts((prev) => ({ ...prev, [row.id]: { ...merged, ...reopenAssignmentPayload(merged) } }));
       reload();
     } catch (error) {
-      window.alert(error?.message || 'Nao foi possivel reabrir esta validacao.');
+      window.alert(error?.message || 'Não foi possível reabrir esta validação.');
     } finally {
       setSavingId(null);
     }
@@ -534,7 +625,7 @@ export default function TimeValidation() {
       });
       reload();
     } catch (error) {
-      window.alert(error?.message || 'Nao foi possivel voltar a colocar este evento em validacao.');
+      window.alert(error?.message || 'Não foi possível voltar a colocar este evento em validação.');
     } finally {
       setValidatingEventId(null);
     }
@@ -544,20 +635,20 @@ export default function TimeValidation() {
     <div className="page validation-page">
       <div className="page-title-row">
         <div>
-          <h1>Validacao de Horas</h1>
-          <p>Conferencia entre previsto, staff, cliente e validado ES antes da faturacao e pagamento.</p>
+          <h1>Validação de Horas</h1>
+          <p>Conferência entre previsto, staff e cliente antes da faturação e pagamento.</p>
         </div>
       </div>
 
       <Stats items={stats} />
 
-      <Card title="Conferencia Operacional">
+      <Card title="Conferência Operacional">
         <div className="service-tabs budget-tabs">
           <button type="button" className={`service-tab ${scope === 'pending' ? 'service-tab--active' : ''}`} onClick={() => setScope('pending')}>
             Pendentes
           </button>
           <button type="button" className={`service-tab ${scope === 'validated' ? 'service-tab--active' : ''}`} onClick={() => setScope('validated')}>
-            Eventos/Servicos Validados
+            Eventos/Serviços Validados
           </button>
         </div>
 
@@ -567,7 +658,7 @@ export default function TimeValidation() {
             className={`service-tab ${viewMode === 'event' ? 'service-tab--active' : ''}`}
             onClick={() => setViewMode('event')}
           >
-            Evento/Servico
+            Evento/Serviço
           </button>
           <button
             type="button"
@@ -579,9 +670,13 @@ export default function TimeValidation() {
         </div>
 
         <div className="validation-filters">
+          <select className="form-control" value={selectedClientId} onChange={(event) => setSelectedClientId(event.target.value)}>
+            <option value="all">Todos os clientes</option>
+            {clientOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
           {viewMode === 'event' ? (
             <select className="form-control" value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}>
-              <option value="all">Todos os eventos/servicos</option>
+              <option value="all">Todos os eventos/serviços</option>
               {eventOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
           ) : (
@@ -590,25 +685,37 @@ export default function TimeValidation() {
               {collaboratorOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
           )}
-          <div className="validation-month-control">
-            <input className="form-control" type="month" value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)} />
-            <button className="secondary-button" type="button" onClick={() => setMonthFilter(monthOf(new Date()) || '')}>Atual</button>
+          <div className="validation-period-control" aria-label="Período">
+            <input
+              className="form-control"
+              type="date"
+              value={periodStart}
+              onChange={(event) => setPeriodStart(event.target.value)}
+              aria-label="Data inicial"
+            />
+            <span>até</span>
+            <input
+              className="form-control"
+              type="date"
+              value={periodEnd}
+              onChange={(event) => setPeriodEnd(event.target.value)}
+              aria-label="Data final"
+            />
+            <button className="secondary-button" type="button" onClick={resetPeriodToCurrentMonth}>Atual</button>
           </div>
           <label className="check-inline service-check">
             <input type="checkbox" checked={onlyDifferences} onChange={(event) => setOnlyDifferences(event.target.checked)} disabled={scope === 'validated'} />
-            <span>Mostrar apenas divergencias</span>
+            <span>Mostrar apenas divergências</span>
           </label>
+          <button className="secondary-button validation-pdf-button" type="button" onClick={generateStaffPdf} disabled={!staffPdfRows.length}>
+            <FileDown size={16} />
+            <span>PDF Staff</span>
+          </button>
+          <button className="secondary-button validation-pdf-button" type="button" onClick={downloadStaffExcel} disabled={!staffPdfRows.length}>
+            <FileSpreadsheet size={16} />
+            <span>Excel Staff</span>
+          </button>
         </div>
-        {monthFilter ? (
-          <div className="validation-event-days" aria-label="Dias com eventos no mes selecionado">
-            {highlightedEventDays.length ? highlightedEventDays.map((item) => (
-              <span key={item.day} className="validation-event-day" title={`${item.count} evento${item.count === 1 ? '' : 's'} neste dia`}>
-                {item.day}
-              </span>
-            )) : <span className="muted">Sem eventos no mes selecionado.</span>}
-          </div>
-        ) : null}
-
         {error ? <p className="notice">{error}</p> : null}
         {loading ? <p className="muted">A carregar...</p> : null}
 
@@ -623,14 +730,14 @@ export default function TimeValidation() {
                   </div>
                   <div className="validation-event-metrics">
                     <span>{item.validated}/{item.total} validados</span>
-                    <Badge tone={item.ready ? 'success' : 'warning'}>{item.ready ? 'Pronto para fechar' : 'Em validacao'}</Badge>
+                    <Badge tone={item.ready ? 'success' : 'warning'}>{item.ready ? 'Pronto para fechar' : 'Em validação'}</Badge>
                   </div>
                   <button className="secondary-button" type="button" disabled={!item.ready || validatingEventId === item.event.id} onClick={() => markEventValidated(item)}>
                     {validatingEventId === item.event.id ? 'A validar...' : 'Marcar evento validado'}
                   </button>
                 </article>
               ))}
-              {!loading && !pendingEvents.length ? <p className="muted">Sem eventos pendentes neste mes.</p> : null}
+              {!loading && !pendingEvents.length ? <p className="muted">Sem eventos pendentes neste mês.</p> : null}
             </div>
 
             {!loading && !rows.length ? <p className="muted">Sem registos para validar.</p> : null}
@@ -644,8 +751,7 @@ export default function TimeValidation() {
                     <th>Previsto</th>
                     <th>Staff</th>
                     <th>Cliente</th>
-                    <th>Validado ES</th>
-                    <th>Diferenca</th>
+                    <th>Diferença</th>
                     <th>Notas</th>
                     <th />
                   </tr>
@@ -654,7 +760,13 @@ export default function TimeValidation() {
                   {rows.map((row) => (
                     <tr key={row.id} className={`validation-row validation-row--${row.tone}`}>
                       <td>
-                        <strong>{row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-'}</strong>
+                        <div className="validation-collaborator-heading">
+                          <strong>{row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-'}</strong>
+                          <Badge tone={row.validationState.tone}>
+                            {row.validationState.isValidated ? <CheckCircle2 size={13} /> : <Hourglass size={13} />}
+                            <span>{row.validationState.label}</span>
+                          </Badge>
+                        </div>
                         <small>{row.assignment.role || '-'}</small>
                       </td>
                       <td>
@@ -691,17 +803,6 @@ export default function TimeValidation() {
                         </div>
                       </td>
                       <td>
-                        <div className="validation-time-stack">
-                          <input type="time" value={row.assignment.validatedCheckIn || ''} onChange={(event) => updateDraft(row, { validatedCheckIn: event.target.value })} />
-                          <ArrowDown size={14} className="validation-time-arrow" aria-hidden="true" />
-                          <input type="time" value={row.assignment.validatedCheckOut || ''} onChange={(event) => updateDraft(row, { validatedCheckOut: event.target.value })} />
-                        </div>
-                        <div className="validation-copy-actions">
-                          <button type="button" onClick={() => copyTimes(row, 'staff')}>Staff</button>
-                          <button type="button" onClick={() => copyTimes(row, 'client')}>Cliente</button>
-                        </div>
-                      </td>
-                      <td>
                         <Badge tone={row.tone}>
                           <DifferenceIcon tone={row.tone} />
                           <span>{row.toneLabel}{row.diffMinutes === null ? '' : ` (${row.diffMinutes} min)`}</span>
@@ -716,13 +817,16 @@ export default function TimeValidation() {
                       </td>
                       <td>
                         <div className="validation-row-actions">
-                          <button className="icon-button" type="button" title="Reabrir validacao" onClick={() => reopenRowValidation(row)} disabled={savingId === row.id}>
-                            <RotateCcw size={16} />
-                          </button>
-                          <button className="icon-button" type="button" title="Aceitar validacao" onClick={() => acceptRow(row)} disabled={savingId === row.id}>
-                            <CheckCircle2 size={16} />
-                          </button>
-                          <button className="icon-button" type="button" title="Guardar validacao" onClick={() => saveRow(row)} disabled={savingId === row.id}>
+                          {row.validationState.isValidated ? (
+                            <button className="icon-button" type="button" title="Reabrir validação" aria-label="Reabrir validação" onClick={() => reopenRowValidation(row)} disabled={savingId === row.id}>
+                              <RotateCcw size={16} />
+                            </button>
+                          ) : (
+                            <button className="icon-button" type="button" title="Aceitar validação" aria-label="Aceitar validação" onClick={() => acceptRow(row)} disabled={savingId === row.id}>
+                              <CheckCircle2 size={16} />
+                            </button>
+                          )}
+                          <button className="icon-button" type="button" title="Guardar validação" onClick={() => saveRow(row)} disabled={savingId === row.id}>
                             <Save size={16} />
                           </button>
                         </div>
@@ -761,7 +865,7 @@ export default function TimeValidation() {
                 </button>
               </article>
             ))}
-            {!loading && !validatedEvents.length ? <p className="muted">Sem eventos/servicos validados neste mes.</p> : null}
+            {!loading && !validatedEvents.length ? <p className="muted">Sem eventos/serviços validados neste mês.</p> : null}
           </div>
         ) : null}
       </Card>

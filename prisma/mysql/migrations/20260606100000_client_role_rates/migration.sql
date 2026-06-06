@@ -1,0 +1,3 @@
+ALTER TABLE `Client`
+  ADD COLUMN `roleRates` LONGTEXT NULL,
+  ADD COLUMN `roleRatesUpdatedAt` DATETIME(3) NULL;

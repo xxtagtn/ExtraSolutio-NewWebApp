@@ -11,7 +11,7 @@ const ALLOWED_DOCUMENT_TYPES = new Set(['passport', 'citizen_card', 'residence_t
 function parseId(req, res) {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) {
-    res.status(400).json({ message: 'ID invÃ¡lido.' });
+    res.status(400).json({ message: 'ID inválido.' });
     return null;
   }
   return id;
@@ -26,7 +26,7 @@ function normalizeRoles(inputRoles) {
 function toDateOrNull(value, label) {
   if (value === undefined || value === null || value === '') return null;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new Error(`${label} invÃ¡lida.`);
+  if (Number.isNaN(date.getTime())) throw new Error(`${label} inválida.`);
   return date;
 }
 
@@ -34,7 +34,7 @@ function toDecimalOrDefault(value, fallback = 0) {
   if (value === undefined || value === null || value === '') return fallback;
   const raw = String(value)
     .replace('€', '')
-    .replace('â‚¬', '')
+    .replace(/\u00e2\u201a\u00ac/g, '')
     .replace(/\/\s*h(?:ora)?s?/gi, '')
     .replace(/\b(?:eur|euros?)\b/gi, '')
     .replace(/\s/g, '')
@@ -77,13 +77,13 @@ function normalizeCollaboratorBody(input, { requireCore = false } = {}) {
   const hourlyRate = toDecimalOrDefault(input.hourlyRate, 0);
 
   if (rawDocumentType !== undefined && rawDocumentType !== '' && !documentType) {
-    throw new Error('Tipo de documento invÃ¡lido.');
+    throw new Error('Tipo de documento inválido.');
   }
   if (documentType && (!documentNumber || !documentExpiry)) {
-    throw new Error('NÃºmero e validade do documento sÃ£o obrigatÃ³rios.');
+    throw new Error('Número e validade do documento são obrigatórios.');
   }
   if (input.status !== undefined && !ALLOWED_STATUS.has(String(input.status))) {
-    throw new Error('Estado invÃ¡lido.');
+    throw new Error('Estado inválido.');
   }
 
   const data = {
@@ -114,10 +114,10 @@ function normalizeCollaboratorBody(input, { requireCore = false } = {}) {
   };
 
   if (requireCore && (!data.name || !data.email)) {
-    throw new Error('Nome completo e email sÃ£o obrigatÃ³rios.');
+    throw new Error('Nome completo e email são obrigatórios.');
   }
   if (requireCore && roles.length === 0) {
-    throw new Error('Seleciona pelo menos uma funÃ§Ã£o.');
+    throw new Error('Seleciona pelo menos uma função.');
   }
   return { data, roles };
 }
@@ -152,7 +152,7 @@ collaboratorsRouter.get('/:id', asyncHandler(async (req, res) => {
     where: { id },
     include: { roles: { orderBy: { role: 'asc' } } },
   });
-  if (!row) return res.status(404).json({ message: 'Registo nÃ£o encontrado.' });
+  if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
   return res.json(toOutput(row));
 }));
 
@@ -182,7 +182,7 @@ collaboratorsRouter.put('/:id', asyncHandler(async (req, res) => {
   }
   const { data, roles } = normalized;
   const hasRoles = Array.isArray(req.body.roles);
-  if (hasRoles && roles.length === 0) return res.status(400).json({ message: 'Seleciona pelo menos uma funÃ§Ã£o.' });
+  if (hasRoles && roles.length === 0) return res.status(400).json({ message: 'Seleciona pelo menos uma função.' });
   const row = await prisma.collaborator.update({
     where: { id },
     data: {

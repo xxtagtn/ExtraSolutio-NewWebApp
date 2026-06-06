@@ -4,24 +4,42 @@ import {
   ChevronRight,
   FileText,
   Landmark,
+  NotebookPen,
   Plus,
   ReceiptText,
   TrendingUp,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
+import Modal from '../components/UI/Modal.jsx';
 import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import {
+  billingEventIdsForRow,
+  billingPaymentDateForRow,
+  billingStatusForRow,
+  billingValueForRow,
+  dueDateForBillingGroup,
+  expandClientBillingRows,
+  filterBillingGroupsByPeriod,
+  filterInvoicesByPeriod,
+  filterServicesByPeriod,
+  splitClientBillingRows,
+} from '../utils/clientBilling.js';
 import { isFinanceReadyEvent } from '../utils/financeReadiness.js';
 import { date, money } from '../utils/formatters.js';
+import { decimalValue } from '../utils/serviceFinance.js';
+import { staffPaymentTotal } from '../utils/staffPayment.js';
+import { hasPaymentNotes, normalizePaymentNotes } from '../utils/staffPaymentNotes.js';
 
 const AREA_TABS = [
   { id: 'overview', label: 'Visão Geral' },
   { id: 'clients', label: 'Clientes' },
   { id: 'staff', label: 'Staff' },
   { id: 'margins', label: 'Margens' },
+  { id: 'archive', label: 'Arquivo' },
 ];
 
 const PAYMENT_STATUS = [
@@ -67,7 +85,6 @@ const EXPENSE_CATEGORIES = [
 
 const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const CLOSED_BILLING_STATUSES = new Set(['partial70', 'invoiced', 'paid']);
-const COLLABORATOR_VAT_RATE = 0.23;
 const MONTH_OPTIONS = [
   { value: '00', label: 'Todos os meses' },
   { value: '01', label: 'Janeiro' },
@@ -161,8 +178,13 @@ function assignmentBasePay(assignment) {
 function assignmentPayWithVat(assignment) {
   const base = assignmentBasePay(assignment);
   const includesVat = Boolean(assignment?.collaborator?.includeVat);
-  const total = includesVat ? base * (1 + COLLABORATOR_VAT_RATE) : base;
-  return Number(total.toFixed(2));
+  return staffPaymentTotal(base, includesVat, assignment.paymentAdjustment);
+}
+
+function adjustmentInputValue(value) {
+  const parsed = decimalValue(value) || 0;
+  if (parsed === 0) return '';
+  return `${parsed > 0 ? '+' : ''}${parsed.toFixed(2).replace('.', ',')}`;
 }
 
 function eventStaffCost(event) {
@@ -223,12 +245,7 @@ function paymentTermDays(client) {
 }
 
 function dueDateForGroup(group) {
-  if (group.method === 'prepaid') {
-    const eventDate = startOfDay(group.events[0].date);
-    const today = startOfDay(new Date());
-    return eventDate < today ? today : eventDate;
-  }
-  return addDays(group.issueDate, paymentTermDays(group.client));
+  return dueDateForBillingGroup(group);
 }
 
 function dueDateForService(client, service) {
@@ -341,10 +358,18 @@ export default function Accounting() {
   const { data: transactions, reload: reloadTransactions } = useApi('/transactions', []);
   const [activeArea, setActiveArea] = useState('overview');
   const [selectedMonth, setSelectedMonth] = useState(() => monthInputValue());
+  const [archiveMonth, setArchiveMonth] = useState(() => `${new Date().getFullYear()}-00`);
+  const [archiveClientId, setArchiveClientId] = useState('all');
   const [staffFilters, setStaffFilters] = useState({ eventId: 'all', collaboratorId: 'all', date: '' });
   const [staffPaymentTab, setStaffPaymentTab] = useState('unpaid');
   const [staffPaymentDrafts, setStaffPaymentDrafts] = useState({});
+  const [paymentNotesAssignment, setPaymentNotesAssignment] = useState(null);
+  const [paymentNotesDraft, setPaymentNotesDraft] = useState('');
+  const [paymentNotesOverrides, setPaymentNotesOverrides] = useState({});
+  const [savingPaymentNotes, setSavingPaymentNotes] = useState(false);
   const [expandedEventId, setExpandedEventId] = useState(null);
+  const [expandedClientId, setExpandedClientId] = useState(null);
+  const [expandedArchiveClientId, setExpandedArchiveClientId] = useState(null);
   const [updatingAssignmentId, setUpdatingAssignmentId] = useState(null);
   const [updatingInvoiceId, setUpdatingInvoiceId] = useState(null);
   const [updatingEventId, setUpdatingEventId] = useState(null);
@@ -354,6 +379,7 @@ export default function Accounting() {
   const [bankBalance, setBankBalance] = useState('');
   const [savingBankBalance, setSavingBankBalance] = useState(false);
   const [selectedYear, selectedMonthNumber] = String(selectedMonth || monthInputValue()).split('-');
+  const [archiveYear, archiveMonthNumber] = String(archiveMonth || `${new Date().getFullYear()}-00`).split('-');
 
   const financeServices = useMemo(
     () => services.filter((event) => isFinanceReadyEvent(event)),
@@ -439,25 +465,13 @@ export default function Accounting() {
     [eventRows, selectedMonth],
   );
 
-  const directReceivableByClient = useMemo(() => {
-    const map = new Map();
-    for (const event of eventRows) {
-      if (!event.clientId || event.financial.receivable <= 0) continue;
-      if (event.financial.hasInvoice) continue;
-      if (!['paid', 'partial70'].includes(String(event.billingStatus || ''))) continue;
-      const key = Number(event.clientId);
-      map.set(key, (map.get(key) || 0) + num(event.financial.receivable));
-    }
-    return map;
-  }, [eventRows]);
-
   const billingGroups = useMemo(
     () => buildBillingGroups(financeServices, invoices),
     [financeServices, invoices],
   );
 
   const currentBillingGroups = useMemo(
-    () => billingGroups.filter((group) => isSameMonth(group.issueDate, selectedMonth) || group.events.some((event) => isSameMonth(event.date, selectedMonth))),
+    () => filterBillingGroupsByPeriod(billingGroups, selectedMonth),
     [billingGroups, selectedMonth],
   );
 
@@ -484,62 +498,121 @@ export default function Accounting() {
     };
   }, [currentMonthInvoices, currentEventRows, currentMonthExpenses]);
 
-  const clientRows = useMemo(() => clients.map((client) => {
-    const clientInvoices = invoices.filter((invoice) => Number(invoice.clientId) === Number(client.id));
-    const unpaidInvoices = clientInvoices.filter((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled');
-    const clientGroups = billingGroups.filter((group) => Number(group.client?.id) === Number(client.id));
-    const billedOpen = num(directReceivableByClient.get(Number(client.id)));
-    const overdue = unpaidInvoices
-      .map((invoice) => ({ invoice, days: dayDiffFromToday(invoice.dueDate) }))
-      .filter((item) => item.days > 0)
-      .sort((a, b) => b.days - a.days)[0];
-    const invoiceDebt = unpaidInvoices.reduce((sum, invoice) => sum + num(invoice.total), 0);
-    const pendingBilling = clientGroups.reduce((sum, group) => sum + num(group.total), 0);
-    const nonInvoicedServices = eventRows
-      .filter((event) => Number(event.clientId) === Number(client.id) && !event.financial.hasInvoice)
-      .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
-    const actionableService = nonInvoicedServices.find((event) => ['pending', 'partial70', 'paid', 'invoiced'].includes(String(event.billingStatus || '')))
-      || nonInvoicedServices[0]
-      || null;
-    const openServiceReceivable = nonInvoicedServices
-      .filter((event) => ['invoiced', 'paid', 'partial70'].includes(String(event.billingStatus || '')))
-      .reduce((sum, event) => sum + num(event.financial.receivable), 0);
-    const openServiceCount = nonInvoicedServices
-      .filter((event) => ['invoiced', 'paid', 'partial70'].includes(String(event.billingStatus || '')))
-      .length;
-    const totalOpen = invoiceDebt + pendingBilling + openServiceReceivable;
-    const actionableInvoice = unpaidInvoices
-      .sort((a, b) => new Date(a.issueDate || 0).getTime() - new Date(b.issueDate || 0).getTime())[0] || null;
-    return {
-      ...client,
-      invoices: clientInvoices
-        .filter((invoice) => invoice.status !== 'cancelled')
-        .sort((a, b) => new Date(b.issueDate || 0).getTime() - new Date(a.issueDate || 0).getTime()),
-      actionableInvoice,
-      actionableService,
-      invoicesCount: unpaidInvoices.length + openServiceCount,
-      invoiceDebt,
-      pendingBilling,
-      billedOpen,
-      totalOpen,
-      overdueDays: overdue?.days || 0,
-      nextDueDate: (() => {
-        const nextInvoiceDueDate = unpaidInvoices
-          .filter((invoice) => invoice.dueDate)
-          .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate;
-        const nextServiceDueDate = nonInvoicedServices
-          .map((service) => dueDateForService(client, service))
-          .filter(Boolean)
-          .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
-        if (nextInvoiceDueDate && nextServiceDueDate) {
-          return new Date(nextInvoiceDueDate).getTime() <= new Date(nextServiceDueDate).getTime()
-            ? nextInvoiceDueDate
-            : nextServiceDueDate;
-        }
-        return nextInvoiceDueDate || nextServiceDueDate || null;
-      })(),
-    };
-  }).sort((a, b) => b.totalOpen - a.totalOpen), [clients, invoices, billingGroups, directReceivableByClient, eventRows]);
+  const buildClientRowsForPeriod = useCallback((period) => {
+    const periodEventRows = filterServicesByPeriod(eventRows, period);
+    const periodDirectReceivableByClient = new Map();
+    for (const event of periodEventRows) {
+      if (!event.clientId || event.financial.receivable <= 0) continue;
+      if (event.financial.hasInvoice) continue;
+      if (!['paid', 'partial70'].includes(String(event.billingStatus || ''))) continue;
+      const key = Number(event.clientId);
+      periodDirectReceivableByClient.set(key, (periodDirectReceivableByClient.get(key) || 0) + num(event.financial.receivable));
+    }
+
+    return clients.flatMap((client) => {
+      const clientInvoices = invoices.filter((invoice) => Number(invoice.clientId) === Number(client.id));
+      const periodInvoices = filterInvoicesByPeriod(clientInvoices, period);
+      const unpaidInvoices = periodInvoices.filter((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled');
+      const clientGroups = filterBillingGroupsByPeriod(
+        billingGroups.filter((group) => Number(group.client?.id) === Number(client.id)),
+        period,
+      );
+      const billedOpen = num(periodDirectReceivableByClient.get(Number(client.id)));
+      const overdue = unpaidInvoices
+        .map((invoice) => ({ invoice, days: dayDiffFromToday(invoice.dueDate) }))
+        .filter((item) => item.days > 0)
+        .sort((a, b) => b.days - a.days)[0];
+      const invoiceDebt = unpaidInvoices.reduce((sum, invoice) => sum + num(invoice.total), 0);
+      const pendingBilling = clientGroups.reduce((sum, group) => sum + num(group.total), 0);
+      const nonInvoicedServices = periodEventRows
+        .filter((event) => Number(event.clientId) === Number(client.id) && !event.financial.hasInvoice)
+        .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+      const actionableService = nonInvoicedServices.find((event) => ['pending', 'partial70', 'paid', 'invoiced'].includes(String(event.billingStatus || '')))
+        || nonInvoicedServices[0]
+        || null;
+      const openServiceReceivable = nonInvoicedServices
+        .filter((event) => ['invoiced', 'paid', 'partial70'].includes(String(event.billingStatus || '')))
+        .reduce((sum, event) => sum + num(event.financial.receivable), 0);
+      const openServiceCount = nonInvoicedServices
+        .filter((event) => ['invoiced', 'paid', 'partial70'].includes(String(event.billingStatus || '')))
+        .length;
+      const totalOpen = invoiceDebt + pendingBilling + openServiceReceivable;
+      const actionableInvoice = unpaidInvoices
+        .sort((a, b) => new Date(a.issueDate || 0).getTime() - new Date(b.issueDate || 0).getTime())[0] || null;
+      const clientRow = {
+        ...client,
+        invoices: periodInvoices
+          .filter((invoice) => invoice.status !== 'cancelled')
+          .sort((a, b) => new Date(b.issueDate || 0).getTime() - new Date(a.issueDate || 0).getTime()),
+        billingGroups: clientGroups,
+        nonInvoicedServices,
+        actionableInvoice,
+        actionableService,
+        invoicesCount: unpaidInvoices.length + openServiceCount,
+        invoiceDebt,
+        pendingBilling,
+        billedOpen,
+        totalOpen,
+        overdueDays: overdue?.days || 0,
+        nextDueDate: (() => {
+          const nextInvoiceDueDate = unpaidInvoices
+            .filter((invoice) => invoice.dueDate)
+            .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate;
+          const nextServiceDueDate = nonInvoicedServices
+            .map((service) => dueDateForService(client, service))
+            .concat(clientGroups.map((group) => group.dueDate))
+            .filter(Boolean)
+            .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+          if (nextInvoiceDueDate && nextServiceDueDate) {
+            return new Date(nextInvoiceDueDate).getTime() <= new Date(nextServiceDueDate).getTime()
+              ? nextInvoiceDueDate
+              : nextServiceDueDate;
+          }
+          return nextInvoiceDueDate || nextServiceDueDate || null;
+        })(),
+      };
+      return expandClientBillingRows(clientRow, { overdueDaysFromDate: dayDiffFromToday });
+    }).sort((a, b) => {
+      const dateDiff = new Date(a.nextDueDate || 0).getTime() - new Date(b.nextDueDate || 0).getTime();
+      if (dateDiff) return dateDiff;
+      return b.totalOpen - a.totalOpen;
+    });
+  }, [billingGroups, clients, eventRows, invoices]);
+
+  const selectedPeriodClientRows = useMemo(
+    () => buildClientRowsForPeriod(selectedMonth),
+    [buildClientRowsForPeriod, selectedMonth],
+  );
+
+  const { activeRows: clientRows } = useMemo(
+    () => splitClientBillingRows(selectedPeriodClientRows),
+    [selectedPeriodClientRows],
+  );
+
+  const archivePeriodClientRows = useMemo(
+    () => buildClientRowsForPeriod(archiveMonth),
+    [archiveMonth, buildClientRowsForPeriod],
+  );
+
+  const { archivedRows: archivedClientRows } = useMemo(
+    () => splitClientBillingRows(archivePeriodClientRows),
+    [archivePeriodClientRows],
+  );
+
+  const archiveClientOptions = useMemo(() => {
+    const map = new Map();
+    for (const row of archivedClientRows) {
+      map.set(String(row.id), row.name);
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt'));
+  }, [archivedClientRows]);
+
+  const archiveRows = useMemo(
+    () => archivedClientRows.filter((row) => archiveClientId === 'all' || String(row.id) === archiveClientId),
+    [archiveClientId, archivedClientRows],
+  );
 
   const staffEventOptions = useMemo(
     () => [...currentMonthServices]
@@ -570,6 +643,12 @@ export default function Accounting() {
       setStaffFilters((prev) => ({ ...prev, eventId: 'all' }));
     }
   }, [staffEventOptions, staffFilters.eventId]);
+
+  useEffect(() => {
+    if (archiveClientId !== 'all' && !archiveClientOptions.some((client) => client.id === archiveClientId)) {
+      setArchiveClientId('all');
+    }
+  }, [archiveClientId, archiveClientOptions]);
 
   useEffect(() => {
     if (staffFilters.collaboratorId !== 'all' && !staffCollaboratorOptions.some((collaborator) => collaborator.id === staffFilters.collaboratorId)) {
@@ -723,7 +802,12 @@ export default function Accounting() {
     ];
   }, [invoices, currentMonthUnpaidAssignments, currentBillingGroups, dashboard.vatEstimated]);
 
-  async function updatePaymentStatus(assignment, paymentStatus, paymentDate = assignment.paymentDate || null) {
+  async function updatePaymentStatus(
+    assignment,
+    paymentStatus,
+    paymentDate = assignment.paymentDate || null,
+    paymentAdjustment = assignment.paymentAdjustment || 0,
+  ) {
     setUpdatingAssignmentId(assignment.id);
     try {
       const normalizedDate = paymentStatus === 'paid'
@@ -731,7 +815,11 @@ export default function Accounting() {
         : null;
       await api(`/assignments/${assignment.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ paymentStatus, paymentDate: normalizedDate }),
+        body: JSON.stringify({
+          paymentStatus,
+          paymentDate: normalizedDate,
+          paymentAdjustment: decimalValue(paymentAdjustment) || 0,
+        }),
       });
       reload();
     } finally {
@@ -744,6 +832,7 @@ export default function Accounting() {
     return {
       paymentStatus: current.paymentStatus || assignment.paymentStatus || 'unpaid',
       paymentDate: current.paymentDate ?? (assignment.paymentDate ? String(assignment.paymentDate).slice(0, 10) : ''),
+      paymentAdjustment: current.paymentAdjustment ?? adjustmentInputValue(assignment.paymentAdjustment),
     };
   }
 
@@ -758,7 +847,7 @@ export default function Accounting() {
     const draft = paymentDraftFor(assignment);
     const nextStatus = draft.paymentStatus === 'paid' ? 'paid' : 'paid';
     const nextDate = draft.paymentDate || todayIso();
-    await updatePaymentStatus(assignment, nextStatus, nextDate);
+    await updatePaymentStatus(assignment, nextStatus, nextDate, draft.paymentAdjustment);
     setStaffPaymentDrafts((prev) => {
       const next = { ...prev };
       delete next[assignment.id];
@@ -766,13 +855,64 @@ export default function Accounting() {
     });
   }
 
-  async function updateEventBillingStatus(eventId, billingStatus) {
-    setUpdatingEventId(eventId);
+  async function savePaymentAdjustment(assignment) {
+    const draft = paymentDraftFor(assignment);
+    const parsed = decimalValue(draft.paymentAdjustment) || 0;
+    setUpdatingAssignmentId(assignment.id);
     try {
-      await api(`/services/${eventId}`, {
+      await api(`/assignments/${assignment.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ billingStatus }),
+        body: JSON.stringify({ paymentAdjustment: parsed }),
       });
+      updatePaymentDraft(assignment.id, { paymentAdjustment: adjustmentInputValue(parsed) });
+      reload();
+    } finally {
+      setUpdatingAssignmentId(null);
+    }
+  }
+
+  function openPaymentNotes(assignment) {
+    setPaymentNotesAssignment(assignment);
+    setPaymentNotesDraft(paymentNotesOverrides[assignment.id] ?? assignment.paymentNotes ?? '');
+  }
+
+  function closePaymentNotes() {
+    if (savingPaymentNotes) return;
+    setPaymentNotesAssignment(null);
+    setPaymentNotesDraft('');
+  }
+
+  async function savePaymentNotes() {
+    if (!paymentNotesAssignment) return;
+    setSavingPaymentNotes(true);
+    try {
+      const paymentNotes = normalizePaymentNotes(paymentNotesDraft);
+      await api(`/assignments/${paymentNotesAssignment.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ paymentNotes }),
+      });
+      setPaymentNotesOverrides((prev) => ({ ...prev, [paymentNotesAssignment.id]: paymentNotes || '' }));
+      setPaymentNotesAssignment(null);
+      setPaymentNotesDraft('');
+      reload();
+    } finally {
+      setSavingPaymentNotes(false);
+    }
+  }
+
+  async function updateEventBillingStatus(eventIds, billingStatus, updateKey = eventIds) {
+    const ids = (Array.isArray(eventIds) ? eventIds : [eventIds])
+      .map(Number)
+      .filter((id) => Number.isFinite(id));
+    if (!ids.length) return;
+
+    setUpdatingEventId(updateKey);
+    try {
+      const billingPaymentDate = billingStatus === 'paid' ? todayIso() : null;
+      await Promise.all(ids.map((eventId) => api(`/services/${eventId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ billingStatus, billingPaymentDate }),
+      })));
       reload();
     } finally {
       setUpdatingEventId(null);
@@ -787,9 +927,11 @@ export default function Accounting() {
         body: JSON.stringify({ status }),
       });
       const eventIds = parseInvoiceEventIds(invoice);
+      const nextBillingStatus = status === 'paid' ? 'paid' : status === 'cancelled' ? 'pending' : 'invoiced';
+      const billingPaymentDate = status === 'paid' ? todayIso() : null;
       await Promise.all(eventIds.map((eventId) => api(`/services/${eventId}`, {
         method: 'PUT',
-        body: JSON.stringify({ billingStatus: status === 'paid' ? 'paid' : status === 'cancelled' ? 'pending' : 'invoiced' }),
+        body: JSON.stringify({ billingStatus: nextBillingStatus, billingPaymentDate }),
       })));
       reloadInvoices();
       reload();
@@ -963,7 +1105,7 @@ export default function Accounting() {
                   </article>
                 ))}
                 {topItems(clientRows.filter((client) => client.overdueDays > 0), 3).map((client) => (
-                  <article key={`client-${client.id}`} className="finance-action-item finance-action-item--danger">
+                  <article key={`client-${client.rowId}`} className="finance-action-item finance-action-item--danger">
                     <FileText size={18} />
                     <div>
                       <strong>{client.name}</strong>
@@ -983,7 +1125,7 @@ export default function Accounting() {
             <Card title="Clientes com Valor em Aberto">
               <div className="finance-list">
                 {topItems(clientRows.filter((client) => client.totalOpen > 0), 6).map((client) => (
-                  <article key={client.id} className="finance-list-item finance-list-item--wide">
+                  <article key={client.rowId} className="finance-list-item finance-list-item--wide">
                     <div>
                       <strong>{client.name}</strong>
                       <small>{client.invoicesCount} fatura(s) em aberto · {BILLING_METHOD_LABELS[client.billingMethod] || '-'}</small>
@@ -1034,9 +1176,28 @@ export default function Accounting() {
                 </tr>
               </thead>
               <tbody>
-                {clientRows.map((client) => (
-                  <tr key={client.id}>
-                    <td>{client.name}</td>
+                {clientRows.map((client) => {
+                  const isExpanded = expandedClientId === client.rowId;
+                  const groupedEventIds = new Set(
+                    client.billingGroups.flatMap((group) => group.events.map((event) => Number(event.id))),
+                  );
+                  const billingEventIds = billingEventIdsForRow(client);
+                  const billingStatus = billingStatusForRow(client);
+                  const standaloneServices = client.nonInvoicedServices.filter((event) => !groupedEventIds.has(Number(event.id)));
+                  const hasDetails = client.billingGroups.length || client.invoices.length || standaloneServices.length;
+
+                  return (
+                    <Fragment key={client.rowId}>
+                      <tr
+                        className="finance-client-row"
+                        onClick={() => setExpandedClientId((current) => (current === client.rowId ? null : client.rowId))}
+                      >
+                        <td>
+                          <div className="finance-client-cell">
+                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            <strong>{client.name}</strong>
+                          </div>
+                        </td>
                     <td>{BILLING_METHOD_LABELS[client.billingMethod] || '-'}</td>
                     <td>{client.invoicesCount}</td>
                     <td>{money.format(client.totalOpen)}</td>
@@ -1049,6 +1210,7 @@ export default function Accounting() {
                           className={`payment-state payment-state--${client.actionableInvoice.status === 'paid' ? 'paid' : client.actionableInvoice.status === 'issued' ? 'pending' : 'awaiting_data'}`}
                           value={client.actionableInvoice.status || 'issued'}
                           disabled={updatingInvoiceId === client.actionableInvoice.id}
+                          onClick={(event) => event.stopPropagation()}
                           onChange={(event) => updateInvoiceStatus(client.actionableInvoice, event.target.value)}
                         >
                           {INVOICE_STATUS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -1060,10 +1222,11 @@ export default function Accounting() {
                     <td>
                       {client.actionableService ? (
                         <select
-                          className={`payment-state payment-state--${client.actionableService.billingStatus || 'pending'}`}
-                          value={client.actionableService.billingStatus || 'pending'}
-                          disabled={updatingEventId === client.actionableService.id}
-                          onChange={(event) => updateEventBillingStatus(client.actionableService.id, event.target.value)}
+                          className={`payment-state payment-state--${billingStatus}`}
+                          value={billingStatus}
+                          disabled={updatingEventId === client.rowId}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => updateEventBillingStatus(billingEventIds, event.target.value, client.rowId)}
                         >
                           {BILLING_STATUS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
@@ -1076,10 +1239,224 @@ export default function Accounting() {
                         : client.overdueDays > 0 ? <Badge tone="warning">Vencida há {client.overdueDays} dias</Badge>
                           : <Badge tone="success">Sem atraso</Badge>}
                     </td>
-                  </tr>
-                ))}
+                      </tr>
+                      {isExpanded ? (
+                        <tr className="finance-client-detail-row">
+                          <td colSpan={10}>
+                            <div className="finance-client-detail">
+                              {client.billingGroups.map((group) => (
+                                <article key={group.key} className="finance-client-billing-group">
+                                  <header>
+                                    <div>
+                                      <small>Período de faturação</small>
+                                      <strong>{group.label}</strong>
+                                    </div>
+                                    <Badge tone="info">{BILLING_METHOD_LABELS[group.method] || group.method}</Badge>
+                                    <span>Vencimento: {group.dueDate ? date.format(new Date(group.dueDate)) : '-'}</span>
+                                    <strong>{money.format(group.total)}</strong>
+                                  </header>
+                                  <div className="finance-client-services">
+                                    {group.events.map((service) => (
+                                      <div key={service.id} className="finance-client-service">
+                                        <span>{service.date ? date.format(new Date(service.date)) : '-'}</span>
+                                        <strong>{service.name}</strong>
+                                        <small>{service.eventType || service.location || '-'}</small>
+                                        <span>{money.format(service.financial?.revenue || eventRevenue(service))}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </article>
+                              ))}
+
+                              {client.invoices.map((invoice) => (
+                                <article key={`invoice-${invoice.id}`} className="finance-client-billing-group">
+                                  <header>
+                                    <div>
+                                      <small>Fatura existente</small>
+                                      <strong>{invoice.number || invoice.description || `Fatura #${invoice.id}`}</strong>
+                                    </div>
+                                    <Badge tone={invoiceIsPaid(invoice) ? 'success' : 'warning'}>{statusLabel(INVOICE_STATUS, invoice.status)}</Badge>
+                                    <span>Vencimento: {invoice.dueDate ? date.format(new Date(invoice.dueDate)) : '-'}</span>
+                                    <strong>{money.format(invoice.total)}</strong>
+                                  </header>
+                                </article>
+                              ))}
+
+                              {standaloneServices.map((service) => (
+                                <article key={`service-${service.id}`} className="finance-client-billing-group">
+                                  <header>
+                                    <div>
+                                      <small>Evento/Serviço sem fatura</small>
+                                      <strong>{service.name}</strong>
+                                    </div>
+                                    <Badge tone="warning">{statusLabel(BILLING_STATUS, service.billingStatus || 'pending')}</Badge>
+                                    <span>Vencimento: {date.format(new Date(dueDateForService(client, service)))}</span>
+                                    <strong>{money.format(service.financial?.receivable || service.financial?.revenue || 0)}</strong>
+                                  </header>
+                                </article>
+                              ))}
+
+                              {!hasDetails ? <p className="muted">Sem serviços ou faturas no período selecionado.</p> : null}
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
+          </div>
+        </Card>
+      ) : null}
+
+      {activeArea === 'archive' ? (
+        <Card title="Arquivo">
+          <div className="finance-month-control finance-archive-filters">
+            <label>
+              Cliente
+              <select value={archiveClientId} onChange={(event) => setArchiveClientId(event.target.value)}>
+                <option value="all">Todos os clientes</option>
+                {archiveClientOptions.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+              </select>
+            </label>
+            <label>
+              Mês
+              <select
+                value={archiveMonthNumber || '00'}
+                onChange={(event) => setArchiveMonth(`${archiveYear || new Date().getFullYear()}-${event.target.value}`)}
+              >
+                {MONTH_OPTIONS.map((month) => <option key={month.value} value={month.value}>{month.label}</option>)}
+              </select>
+            </label>
+            <label>
+              Ano
+              <select
+                value={archiveYear || String(new Date().getFullYear())}
+                onChange={(event) => setArchiveMonth(`${event.target.value}-${archiveMonthNumber || '00'}`)}
+              >
+                {yearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
+              </select>
+            </label>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                setArchiveClientId('all');
+                setArchiveMonth(`${new Date().getFullYear()}-00`);
+              }}
+            >
+              Atual
+            </button>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Método</th>
+                  <th>Eventos/Serviços</th>
+                  <th>Valor</th>
+                  <th>Data de Pagamento</th>
+                  <th>Estado Evento/Serviço</th>
+                </tr>
+              </thead>
+              <tbody>
+                {archiveRows.map((client) => {
+                  const isExpanded = expandedArchiveClientId === client.rowId;
+                  const groupedEventIds = new Set(
+                    client.billingGroups.flatMap((group) => group.events.map((event) => Number(event.id))),
+                  );
+                  const billingEventIds = billingEventIdsForRow(client);
+                  const billingStatus = billingStatusForRow(client);
+                  const billingValue = billingValueForRow(client);
+                  const billingPaymentDate = billingPaymentDateForRow(client);
+                  const standaloneServices = client.nonInvoicedServices.filter((event) => !groupedEventIds.has(Number(event.id)));
+                  const hasDetails = client.billingGroups.length || client.invoices.length || standaloneServices.length;
+                  const updateKey = `archive:${client.rowId}`;
+
+                  return (
+                    <Fragment key={client.rowId}>
+                      <tr
+                        className="finance-client-row"
+                        onClick={() => setExpandedArchiveClientId((current) => (current === client.rowId ? null : client.rowId))}
+                      >
+                        <td>
+                          <div className="finance-client-cell">
+                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            <strong>{client.name}</strong>
+                          </div>
+                        </td>
+                        <td>{BILLING_METHOD_LABELS[client.billingMethod] || '-'}</td>
+                        <td>{billingEventIds.length}</td>
+                        <td>{money.format(billingValue)}</td>
+                        <td>{billingPaymentDate ? date.format(billingPaymentDate) : '-'}</td>
+                        <td>
+                          <select
+                            className={`payment-state payment-state--${billingStatus}`}
+                            value={billingStatus}
+                            disabled={updatingEventId === updateKey}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => updateEventBillingStatus(billingEventIds, event.target.value, updateKey)}
+                          >
+                            {BILLING_STATUS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          </select>
+                        </td>
+                      </tr>
+                      {isExpanded ? (
+                        <tr className="finance-client-detail-row">
+                          <td colSpan={6}>
+                            <div className="finance-client-detail">
+                              {client.billingGroups.map((group) => (
+                                <article key={group.key} className="finance-client-billing-group">
+                                  <header>
+                                    <div>
+                                      <small>Período de faturação</small>
+                                      <strong>{group.label}</strong>
+                                    </div>
+                                    <Badge tone="success">Pago</Badge>
+                                    <span>Vencimento: {group.dueDate ? date.format(new Date(group.dueDate)) : '-'}</span>
+                                    <strong>{money.format(group.total)}</strong>
+                                  </header>
+                                  <div className="finance-client-services">
+                                    {group.events.map((service) => (
+                                      <div key={service.id} className="finance-client-service">
+                                        <span>{service.date ? date.format(new Date(service.date)) : '-'}</span>
+                                        <strong>{service.name}</strong>
+                                        <small>{service.eventType || service.location || '-'}</small>
+                                        <span>{money.format(service.financial?.revenue || eventRevenue(service))}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </article>
+                              ))}
+
+                              {standaloneServices.map((service) => (
+                                <article key={`service-${service.id}`} className="finance-client-billing-group">
+                                  <header>
+                                    <div>
+                                      <small>Evento/Serviço pago</small>
+                                      <strong>{service.name}</strong>
+                                    </div>
+                                    <Badge tone="success">{statusLabel(BILLING_STATUS, service.billingStatus || 'paid')}</Badge>
+                                    <span>Vencimento: {date.format(new Date(dueDateForService(client, service)))}</span>
+                                    <strong>{money.format(service.financial?.revenue || 0)}</strong>
+                                  </header>
+                                </article>
+                              ))}
+
+                              {!hasDetails ? <p className="muted">Sem serviços arquivados para os filtros selecionados.</p> : null}
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+            {!archiveRows.length ? <p className="muted">Sem serviços pagos no arquivo para os filtros selecionados.</p> : null}
           </div>
         </Card>
       ) : null}
@@ -1182,6 +1559,7 @@ export default function Accounting() {
                     <th>Data</th>
                     <th>Horas</th>
                     <th>Valor/h</th>
+                    <th>Ajustes</th>
                     <th>Total</th>
                     <th>Estado</th>
                     <th>Data pagamento</th>
@@ -1192,11 +1570,24 @@ export default function Accounting() {
               {visibleStaffPayments.map((assignment) => (
                     (() => {
                       const draft = paymentDraftFor(assignment);
+                      const paymentNotes = paymentNotesOverrides[assignment.id] ?? assignment.paymentNotes ?? '';
                       return (
                     <tr key={assignment.id} className={assignment.collaborator?.includeVat ? 'finance-row-vat' : ''}>
                       <td>
                         <div className="finance-staff-name">
-                          <span>{assignment.collaborator?.shortName || assignment.collaborator?.name || '-'}</span>
+                          <div className="finance-staff-name__line">
+                            <span>{assignment.collaborator?.shortName || assignment.collaborator?.name || '-'}</span>
+                            <button
+                              type="button"
+                              className={`icon-button finance-note-button ${hasPaymentNotes(paymentNotes) ? 'finance-note-button--active' : ''}`}
+                              title={hasPaymentNotes(paymentNotes) ? 'Consultar notas internas' : 'Adicionar nota interna'}
+                              aria-label={hasPaymentNotes(paymentNotes) ? 'Consultar notas internas' : 'Adicionar nota interna'}
+                              onClick={() => openPaymentNotes(assignment)}
+                            >
+                              <NotebookPen size={14} />
+                              {hasPaymentNotes(paymentNotes) ? <span className="finance-note-indicator" aria-hidden="true" /> : null}
+                            </button>
+                          </div>
                           {assignment.collaborator?.includeVat ? <Badge tone="warning">Inclui IVA 23%</Badge> : null}
                         </div>
                       </td>
@@ -1204,16 +1595,28 @@ export default function Accounting() {
                       <td>{assignment.event.date ? date.format(new Date(assignment.event.date)) : '-'}</td>
                       <td>{assignmentHours(assignment).toFixed(2)} h</td>
                       <td>{money.format(num(assignment.hourlyRate))}</td>
-                      <td>{money.format(assignmentPayWithVat(assignment))}</td>
+                      <td>
+                        <input
+                          className="finance-adjustment-input"
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="+2,50 / -2,43"
+                          value={draft.paymentAdjustment}
+                          disabled={updatingAssignmentId === assignment.id}
+                          onChange={(event) => updatePaymentDraft(assignment.id, { paymentAdjustment: event.target.value })}
+                          onBlur={() => savePaymentAdjustment(assignment)}
+                        />
+                      </td>
+                      <td>{money.format(assignmentPayWithVat({ ...assignment, paymentAdjustment: draft.paymentAdjustment }))}</td>
                       <td>
                         <select
-                          className={`payment-state payment-state--${draft.paymentStatus || 'unpaid'}`}
+                          className={`payment-state finance-staff-payment-state payment-state--${draft.paymentStatus || 'unpaid'}`}
                           disabled={updatingAssignmentId === assignment.id}
                           value={draft.paymentStatus || 'unpaid'}
                           onChange={(event) => (
                             staffPaymentTab === 'unpaid'
                               ? updatePaymentDraft(assignment.id, { paymentStatus: event.target.value })
-                              : updatePaymentStatus(assignment, event.target.value, assignment.paymentDate || null)
+                              : updatePaymentStatus(assignment, event.target.value, assignment.paymentDate || null, draft.paymentAdjustment)
                           )}
                         >
                           {PAYMENT_STATUS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -1227,7 +1630,7 @@ export default function Accounting() {
                           onChange={(event) => (
                             staffPaymentTab === 'unpaid'
                               ? updatePaymentDraft(assignment.id, { paymentDate: event.target.value || '' })
-                              : updatePaymentStatus(assignment, assignment.paymentStatus || 'unpaid', event.target.value || null)
+                              : updatePaymentStatus(assignment, assignment.paymentStatus || 'unpaid', event.target.value || null, draft.paymentAdjustment)
                           )}
                         />
                       </td>
@@ -1510,6 +1913,36 @@ export default function Accounting() {
             {!expenses.some((expense) => expense.documentName) ? <p className="muted">Sem documentos carregados.</p> : null}
           </div>
         </Card>
+      ) : null}
+
+      {paymentNotesAssignment ? (
+        <Modal title="Notas internas do pagamento" onClose={closePaymentNotes}>
+          <div className="resource-form finance-payment-notes-form">
+            <div className="finance-payment-notes-context">
+              <span className="finance-payment-notes-context__icon" aria-hidden="true">
+                <NotebookPen size={18} />
+              </span>
+              <div>
+                <strong>{paymentNotesAssignment.collaborator?.shortName || paymentNotesAssignment.collaborator?.name || '-'}</strong>
+                <span>{paymentNotesAssignment.event?.name || '-'}</span>
+              </div>
+            </div>
+            <div className="finance-payment-notes-editor">
+              <textarea
+                autoFocus
+                value={paymentNotesDraft}
+                placeholder="Escreva aqui as notas internas deste pagamento..."
+                onChange={(event) => setPaymentNotesDraft(event.target.value)}
+              />
+            </div>
+            <footer className="form-actions finance-payment-notes-actions">
+              <button className="secondary-button" type="button" onClick={closePaymentNotes} disabled={savingPaymentNotes}>Cancelar</button>
+              <button className="command-button" type="button" onClick={savePaymentNotes} disabled={savingPaymentNotes}>
+                {savingPaymentNotes ? 'A guardar...' : 'Guardar'}
+              </button>
+            </footer>
+          </div>
+        </Modal>
       ) : null}
     </div>
   );

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Edit2, Plus, Trash2 } from 'lucide-react';
+import { Edit2, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import Card from '../components/UI/Card.jsx';
 import Badge from '../components/UI/Badge.jsx';
@@ -16,7 +16,7 @@ const typeLabels = {
 };
 
 const billingMethodLabels = {
-  prepaid: 'Pre-pagamento',
+  prepaid: 'Pré-pagamento',
   per_event: 'Por evento',
   biweekly: 'Quinzenal',
   monthly: 'Mensal',
@@ -46,13 +46,79 @@ function emptyForm() {
     billingCustomRule: '',
     paymentTerm: 'days_30',
     paymentTermDays: '',
+    roleRates: [],
     status: 'active',
     notes: '',
   };
 }
 
+function parseRate(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const raw = String(value)
+    .replace(/€/g, '')
+    .replace(/\b(?:eur|euros?)\b/gi, '')
+    .replace(/\s/g, '')
+    .trim();
+  const commaIndex = raw.lastIndexOf(',');
+  const dotIndex = raw.lastIndexOf('.');
+  let normalized = raw;
+
+  if (commaIndex >= 0 && dotIndex >= 0) {
+    normalized = commaIndex > dotIndex
+      ? raw.replace(/\./g, '').replace(',', '.')
+      : raw.replace(/,/g, '');
+  } else if (commaIndex >= 0) {
+    normalized = raw.replace(',', '.');
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatRate(value) {
+  const parsed = parseRate(value);
+  if (!parsed || parsed <= 0) return '';
+  return `${parsed.toFixed(2).replace('.', ',')}€`;
+}
+
+function parseRoleRates(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function roleRateValue(roleRates, role) {
+  const item = (roleRates || []).find((entry) => entry.role === role);
+  return item?.rate ?? '';
+}
+
+function roleRatesPayload(roleOptions, roleRates) {
+  return roleOptions
+    .map((role) => ({ role, rate: roleRateValue(roleRates, role) }))
+    .filter((item) => parseRate(item.rate) !== null && parseRate(item.rate) > 0);
+}
+
+function formatDateTime(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return new Intl.DateTimeFormat('pt-PT', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d);
+}
+
 export default function Clients() {
   const { data, loading, error, reload } = useApi('/clients', []);
+  const { data: catalogRoles } = useApi('/collaborators/roles', []);
   const [expanded, setExpanded] = useState({});
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -74,6 +140,17 @@ export default function Clients() {
       })
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt'));
   }, [data, search]);
+
+  const roleOptions = useMemo(
+    () => [...new Set([...(catalogRoles || []), ...parseRoleRates(form.roleRates).map((item) => item.role)])]
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'pt')),
+    [catalogRoles, form.roleRates],
+  );
+
+  function toggleExpanded(id) {
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
 
   function openCreate() {
     setEditing(null);
@@ -98,6 +175,7 @@ export default function Clients() {
       billingCustomRule: row.billingCustomRule || '',
       paymentTerm: row.paymentTerm || 'days_30',
       paymentTermDays: row.paymentTermDays ?? '',
+      roleRates: parseRoleRates(row.roleRates).map((item) => ({ role: item.role, rate: formatRate(item.rate) })),
       status: row.status || 'active',
       notes: row.notes || '',
     });
@@ -114,6 +192,7 @@ export default function Clients() {
         ...form,
         paymentTermDays: form.paymentTerm === 'custom' && form.paymentTermDays !== '' ? Number(form.paymentTermDays) : null,
         billingCustomRule: form.billingMethod === 'custom' ? form.billingCustomRule : null,
+        roleRates: roleRatesPayload(roleOptions, form.roleRates),
       };
       await api(`/clients${editing ? `/${editing.id}` : ''}`, {
         method: editing ? 'PUT' : 'POST',
@@ -155,60 +234,77 @@ export default function Clients() {
           />
         </div>
         <div className="collab-details-list">
-          {(loading ? [] : rows).map((row) => (
-            <article className="collab-detail-card" key={row.id}>
-              <header>
-                <div className="collab-top-grid">
-                  <div className="collab-col">
-                    <strong>{row.name}</strong>
-                    <small>{typeLabels[row.type] || row.type || '-'}</small>
-                  </div>
-                  <div className="collab-col">
-                    <span>NIF</span>
-                    <strong>{row.nif || '-'}</strong>
-                  </div>
-                  <div className="collab-col">
-                    <span>Contacto</span>
-                    <strong>{row.phone || '-'}</strong>
-                  </div>
-                  <div className="collab-col">
-                    <span>Representante</span>
-                    <strong>{row.representativeName || '-'}</strong>
-                  </div>
-                  <div className="collab-detail-meta">
-                    <Badge tone={row.status === 'active' ? 'success' : 'neutral'}>
-                      {row.status === 'active' ? 'Ativo' : row.status === 'inactive' ? 'Inativo' : 'Pausado'}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="row-actions">
-                  <IconButton label={expanded[row.id] ? 'Ocultar detalhes' : 'Ver detalhes'} onClick={() => setExpanded((prev) => ({ ...prev, [row.id]: !prev[row.id] }))}>
-                    {expanded[row.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                  </IconButton>
-                </div>
-              </header>
-              {expanded[row.id] ? (
-                <>
-                  <div className="collab-detail-body" style={{ gridTemplateColumns: '1fr' }}>
-                    <div className="collab-detail-grid">
-                      <p><span>Email</span><strong>{row.email || '-'}</strong></p>
-                      <p><span>NIF</span><strong>{row.nif || '-'}</strong></p>
-                      <p><span>Morada</span><strong>{row.address || '-'}</strong></p>
-                      <p><span>Código postal</span><strong>{row.postalCode || '-'}</strong></p>
-                      <p><span>Cidade</span><strong>{row.city || '-'}</strong></p>
-                      <p><span>Método de faturação</span><strong>{billingMethodLabels[row.billingMethod] || '-'}</strong></p>
-                      <p><span>Prazo de pagamento</span><strong>{paymentTermLabels[row.paymentTerm] || `${row.paymentTermDays || '-'} dias`}</strong></p>
-                      <p className="span-2"><span>Notas</span><strong>{row.notes || '-'}</strong></p>
+          {(loading ? [] : rows).map((row) => {
+            const rowRoleRates = parseRoleRates(row.roleRates);
+            return (
+              <article className="collab-detail-card collab-detail-card--clickable" key={row.id}>
+                <header
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleExpanded(row.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      toggleExpanded(row.id);
+                    }
+                  }}
+                >
+                  <div className="collab-top-grid">
+                    <div className="collab-col">
+                      <strong>{row.name}</strong>
+                      <small>{typeLabels[row.type] || row.type || '-'}</small>
+                    </div>
+                    <div className="collab-col">
+                      <span>NIF</span>
+                      <strong>{row.nif || '-'}</strong>
+                    </div>
+                    <div className="collab-col">
+                      <span>Contacto</span>
+                      <strong>{row.phone || '-'}</strong>
+                    </div>
+                    <div className="collab-col">
+                      <span>Representante</span>
+                      <strong>{row.representativeName || '-'}</strong>
+                    </div>
+                    <div className="collab-detail-meta">
+                      <Badge tone={row.status === 'active' ? 'success' : 'neutral'}>
+                        {row.status === 'active' ? 'Ativo' : row.status === 'inactive' ? 'Inativo' : 'Pausado'}
+                      </Badge>
                     </div>
                   </div>
-                  <footer className="collab-detail-actions">
-                    <IconButton label="Editar" onClick={() => openEdit(row)}><Edit2 size={16} /></IconButton>
-                    <IconButton label="Eliminar" tone="danger" onClick={() => removeRow(row)}><Trash2 size={16} /></IconButton>
-                  </footer>
-                </>
-              ) : null}
-            </article>
-          ))}
+                </header>
+                {expanded[row.id] ? (
+                  <>
+                    <div className="collab-detail-body" style={{ gridTemplateColumns: '1fr' }}>
+                      <div className="collab-detail-grid">
+                        <p><span>Email</span><strong>{row.email || '-'}</strong></p>
+                        <p><span>NIF</span><strong>{row.nif || '-'}</strong></p>
+                        <p><span>Morada</span><strong>{row.address || '-'}</strong></p>
+                        <p><span>Código postal</span><strong>{row.postalCode || '-'}</strong></p>
+                        <p><span>Cidade</span><strong>{row.city || '-'}</strong></p>
+                        <p><span>Método de faturação</span><strong>{billingMethodLabels[row.billingMethod] || '-'}</strong></p>
+                        <p><span>Prazo de pagamento</span><strong>{paymentTermLabels[row.paymentTerm] || `${row.paymentTermDays || '-'} dias`}</strong></p>
+                        <p><span>Valores/h alterados em</span><strong>{formatDateTime(row.roleRatesUpdatedAt)}</strong></p>
+                        <div className="collab-event-stats span-2">
+                          {(rowRoleRates.length ? rowRoleRates : [{ role: 'Sem valores definidos', rate: 0 }]).map((item) => (
+                            <div key={`${row.id}-${item.role}`}>
+                              <small>{item.role}</small>
+                              <strong>{item.rate ? formatRate(item.rate) : '-'}</strong>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="span-2"><span>Notas</span><strong>{row.notes || '-'}</strong></p>
+                      </div>
+                    </div>
+                    <footer className="collab-detail-actions">
+                      <IconButton label="Editar" onClick={() => openEdit(row)}><Edit2 size={16} /></IconButton>
+                      <IconButton label="Eliminar" tone="danger" onClick={() => removeRow(row)}><Trash2 size={16} /></IconButton>
+                    </footer>
+                  </>
+                ) : null}
+              </article>
+            );
+          })}
           {!loading && rows.length === 0 ? <p className="muted">Nenhum cliente encontrado.</p> : null}
         </div>
       </Card>
@@ -258,6 +354,34 @@ export default function Clients() {
               {form.billingMethod === 'custom' ? (
                 <label className="span-2">Regra personalizada<textarea value={form.billingCustomRule} onChange={(event) => setForm({ ...form, billingCustomRule: event.target.value })} /></label>
               ) : null}
+              <div className="span-2 client-role-rates">
+                <header>
+                  <div>
+                    <strong>Valores/h por função</strong>
+                    <small>Última alteração: {editing ? formatDateTime(editing.roleRatesUpdatedAt) : '-'}</small>
+                  </div>
+                </header>
+                <div className="client-role-rate-grid">
+                  {roleOptions.map((role) => (
+                    <label key={role}>
+                      <span>{role}</span>
+                      <input
+                        placeholder="Ex: 12,50€"
+                        value={roleRateValue(form.roleRates, role)}
+                        onChange={(event) => {
+                          const nextRates = form.roleRates.filter((item) => item.role !== role);
+                          setForm({ ...form, roleRates: [...nextRates, { role, rate: event.target.value }] });
+                        }}
+                        onBlur={(event) => {
+                          const nextRates = form.roleRates.filter((item) => item.role !== role);
+                          setForm({ ...form, roleRates: [...nextRates, { role, rate: formatRate(event.target.value) }] });
+                        }}
+                      />
+                    </label>
+                  ))}
+                  {!roleOptions.length ? <p className="muted">Cria funções nos colaboradores para definir valores por função.</p> : null}
+                </div>
+              </div>
               <label>Estado
                 <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
                   <option value="active">Ativo</option>

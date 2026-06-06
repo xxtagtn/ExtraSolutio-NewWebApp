@@ -93,6 +93,8 @@ model Client {
   billingCustomRule String? @db.Text
   paymentTerm   String    @default("days_30") @db.VarChar(40)
   paymentTermDays Int?
+  roleRates     String?   @db.LongText
+  roleRatesUpdatedAt DateTime? @db.DateTime(3)
   status        String    @default("active") @db.VarChar(40)
   notes         String?   @db.Text
   createdAt     DateTime  @default(now()) @db.DateTime(3)
@@ -201,6 +203,7 @@ model Event {
   split5050    Boolean           @default(false)
   travelManualAmount Decimal     @default(0) @db.Decimal(12, 2)
   billingStatus String           @default("pending") @db.VarChar(40)
+  billingPaymentDate DateTime?   @db.DateTime(3)
   signaledAmount Decimal         @default(0) @db.Decimal(12, 2)
   paidAmount Decimal             @default(0) @db.Decimal(12, 2)
   remainingPaymentDate DateTime? @db.DateTime(3)
@@ -254,6 +257,8 @@ model EventAssignment {
   status         String       @default("assigned") @db.VarChar(40)
   paymentStatus  String       @default("unpaid") @db.VarChar(40)
   paymentDate    DateTime?    @db.DateTime(3)
+  paymentAdjustment Decimal   @default(0) @db.Decimal(12, 2)
+  paymentNotes   String?      @db.LongText
   createdAt      DateTime     @default(now()) @db.DateTime(3)
   updatedAt      DateTime     @updatedAt @db.DateTime(3)
 

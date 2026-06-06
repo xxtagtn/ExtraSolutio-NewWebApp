@@ -17,13 +17,17 @@ export async function requireAuth(req, res, next) {
     });
 
     if (!user) {
-      return res.status(401).json({ message: 'Utilizador invalido.' });
+      return res.status(401).json({ message: 'Utilizador inválido.' });
     }
 
     req.user = user;
     return next();
-  } catch {
-    return res.status(401).json({ message: 'Token invalido.' });
+  } catch (error) {
+    if (error?.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Login Expirado' });
+    }
+
+    return res.status(401).json({ message: 'Token inválido.' });
   }
 }
 

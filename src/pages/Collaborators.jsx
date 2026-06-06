@@ -1,4 +1,4 @@
-﻿import { ChevronDown, ChevronRight, Edit2, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
+import { Edit2, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
@@ -266,8 +266,18 @@ export default function Collaborators() {
           {(loading ? [] : rows).map((row) => {
             const stats = eventStatsByCollaborator.get(Number(row.id)) || { confirmed: 0, refused: 0, missedJustified: 0, missedUnjustified: 0 };
             return (
-              <article className="collab-detail-card" key={row.id}>
-                <header>
+              <article className="collab-detail-card collab-detail-card--clickable" key={row.id}>
+                <header
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleExpanded(row.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      toggleExpanded(row.id);
+                    }
+                  }}
+                >
                   <div className="collab-top-grid">
                     <div className="collab-col"><strong>{row.shortName || row.name}</strong><small>{row.name}</small></div>
                     <div className="collab-col"><span>NIF</span><strong>{row.nif || '-'}</strong></div>
@@ -275,9 +285,8 @@ export default function Collaborators() {
                     <div className="collab-col"><span>Funções</span><div className="collab-role-list">{(row.roles || []).length ? row.roles.map((role) => <span className="collab-role-chip" key={`${row.id}-${role}`}>{role}</span>) : <span className="collab-role-chip">-</span>}</div></div>
                     <div className="collab-detail-meta"><Badge tone={row.status === 'active' ? 'success' : 'neutral'}>{row.status === 'active' ? 'Ativo' : row.status === 'inactive' ? 'Inativo' : 'Pausado'}</Badge></div>
                   </div>
-                  <div className="row-actions">
+                  <div className="row-actions" onClick={(event) => event.stopPropagation()}>
                     <IconButton label={row.isPreferred ? 'Remover preferência' : 'Marcar como preferência'} onClick={() => togglePreferred(row)}>{row.isPreferred ? <Star size={16} style={{ color: '#facc15', fill: '#facc15' }} /> : <StarOff size={16} style={{ color: '#8a96a0' }} />}</IconButton>
-                    <IconButton label={expandedRows[row.id] ? 'Ocultar detalhes' : 'Ver detalhes'} onClick={() => toggleExpanded(row.id)}>{expandedRows[row.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</IconButton>
                   </div>
                 </header>
                 {expandedRows[row.id] ? (
@@ -419,8 +428,8 @@ export default function Collaborators() {
             </div>
             {formError ? <p className="notice">{formError}</p> : null}
             <footer className="form-actions">
-              <button className="secondary-button" type="button" onClick={closeForm}>Cancelar</button>
               <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar'}</button>
+              <button className="secondary-button" type="button" onClick={closeForm}>Cancelar</button>
             </footer>
           </form>
         </Modal>

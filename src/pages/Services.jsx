@@ -235,6 +235,17 @@ function safeArrayJson(value) {
   }
 }
 
+function clientRoleRates(client) {
+  return safeArrayJson(client?.roleRates)
+    .filter((item) => item?.role && parseMoney(item.rate) !== null);
+}
+
+function clientRateForRole(client, role) {
+  const item = clientRoleRates(client).find((entry) => entry.role === role);
+  const value = parseMoney(item?.rate);
+  return value === null ? '' : formatMoneyInline(value);
+}
+
 function extractBudgetReference(text) {
   const raw = String(text || '');
   const tagged = raw.match(/\[BUDGET_REF:([^\]]+)\]/i);
@@ -722,12 +733,21 @@ export default function Services() {
       location: prev.useDefaultLocation ? (client?.address || '') : prev.location,
       onsiteContactName: prev.onsiteContactName || client?.representativeName || client?.contactPerson || '',
       onsiteContactPhone: prev.onsiteContactPhone || client?.phone || '',
+      requiredRoles: prev.requiredRoles.map((item) => ({
+        ...item,
+        agreedRate: item.agreedRate || clientRateForRole(client, item.role),
+      })),
     }));
   }
 
   function updateRoleRequirement(role, patch) {
+    const clientDefaultRate = clientRateForRole(selectedClient, role);
     const current = form.requiredRoles.find((item) => item.role === role) || { role, qty: '', agreedRate: '' };
-    const nextItem = { ...current, ...patch };
+    const nextItem = {
+      ...current,
+      ...patch,
+      agreedRate: patch.agreedRate !== undefined ? patch.agreedRate : (current.agreedRate || clientDefaultRate),
+    };
     const qty = Number(nextItem.qty || 0);
     const nextRoles = form.requiredRoles.filter((item) => item.role !== role);
     if (qty > 0) {
@@ -844,11 +864,6 @@ export default function Services() {
       setActiveTab('summary');
       return;
     }
-    if (!form.requiredRoles.length && !form.isContinuous) {
-      setFormError('Define pelo menos uma função necessária com número de colaboradores.');
-      setActiveTab('summary');
-      return;
-    }
     const invalidAssignment = form.assignments.some((item) => item.role && !item.collaboratorId);
     if (invalidAssignment) {
       setFormError('Existem funções com colaborador por selecionar.');
@@ -859,12 +874,6 @@ export default function Services() {
       const missingDate = form.assignments.some((item) => item.role && item.collaboratorId && !item.assignmentDate);
       if (missingDate) {
         setFormError('Nos eventos continuos, cada colaborador tem de ter a data de trabalho preenchida.');
-        setActiveTab('team');
-        return;
-      }
-      const hasPlannedDailyStaff = form.assignments.some((item) => item.role && item.collaboratorId && item.assignmentDate);
-      if (!hasPlannedDailyStaff) {
-        setFormError('Nos eventos continuos, adiciona pelo menos uma linha de colaborador com data.');
         setActiveTab('team');
         return;
       }

@@ -4,7 +4,7 @@ import { pick, toDate, asyncHandler } from '../utils/http.js';
 function parseId(req, res) {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) {
-    res.status(400).json({ message: 'ID invÃ¡lido.' });
+    res.status(400).json({ message: 'ID inválido.' });
     return null;
   }
   return id;
@@ -26,7 +26,7 @@ export function createCrudRouter(model, fields, options = {}) {
     const id = parseId(req, res);
     if (!id) return;
     const row = await model.findUnique({ where: { id }, include });
-    if (!row) return res.status(404).json({ message: 'Registo nÃ£o encontrado.' });
+    if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
     return res.json(row);
   }));
 
@@ -39,7 +39,11 @@ export function createCrudRouter(model, fields, options = {}) {
   router.put('/:id', asyncHandler(async (req, res) => {
     const id = parseId(req, res);
     if (!id) return;
-    const data = options.normalizeUpdate?.(req.body) ?? pick(req.body, fields);
+    const existing = options.loadExistingForUpdate
+      ? await model.findUnique({ where: { id } })
+      : null;
+    if (options.loadExistingForUpdate && !existing) return res.status(404).json({ message: 'Registo não encontrado.' });
+    const data = options.normalizeUpdate?.(req.body, existing) ?? pick(req.body, fields);
     const row = await model.update({ where: { id }, data, include });
     res.json(row);
   }));
@@ -66,7 +70,7 @@ function parseDecimal(value) {
   if (value === undefined || value === '' || value === null) return undefined;
   const raw = String(value)
     .replace('€', '')
-    .replace('â‚¬', '')
+    .replace(/\u00e2\u201a\u00ac/g, '')
     .replace(/\/\s*h(?:ora)?s?/gi, '')
     .replace(/\b(?:eur|euros?)\b/gi, '')
     .replace(/\s/g, '')
@@ -102,7 +106,7 @@ export function normalizeEvent(input) {
       'name', 'eventType', 'description', 'location', 'useDefaultLocation', 'isContinuous', 'startTime', 'endTime',
       'actualStartTime', 'actualEndTime', 'uniform', 'meetingPoint', 'onsiteContactName',
       'onsiteContactPhone', 'travelExpenseEnabled', 'travelType', 'split5050', 'billingStatus', 'signaledAmount', 'paidAmount',
-      'remainingPaymentDate', 'status', 'totalCost', 'totalRevenue', 'notes',
+      'billingPaymentDate', 'remainingPaymentDate', 'status', 'totalCost', 'totalRevenue', 'notes',
     ]),
     travelExpenseAmount: parseDecimal(input.travelExpenseAmount),
     travelPeople: asInt(input.travelPeople),
@@ -122,8 +126,67 @@ export function normalizeEvent(input) {
     clientId: asInt(input.clientId),
     ...(input.date ? { date: toDate(input.date) } : {}),
     ...(input.endDate !== undefined ? (input.endDate ? { endDate: toDate(input.endDate) } : { endDate: null }) : {}),
+    ...(input.billingPaymentDate !== undefined ? (input.billingPaymentDate ? { billingPaymentDate: toDate(input.billingPaymentDate) } : { billingPaymentDate: null }) : {}),
     ...(input.remainingPaymentDate !== undefined ? (input.remainingPaymentDate ? { remainingPaymentDate: toDate(input.remainingPaymentDate) } : { remainingPaymentDate: null }) : {}),
   });
+}
+
+function normalizeRoleRates(value) {
+  const source = Array.isArray(value)
+    ? value
+    : (() => {
+        try {
+          const parsed = typeof value === 'string' ? JSON.parse(value) : [];
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      })();
+
+  return source
+    .map((item) => ({
+      role: item?.role ? String(item.role).trim() : '',
+      rate: parseDecimal(item?.rate ?? item?.agreedRate),
+    }))
+    .filter((item) => item.role && item.rate !== undefined && item.rate > 0)
+    .sort((a, b) => a.role.localeCompare(b.role, 'pt'));
+}
+
+export function normalizeClient(input, existing = null) {
+  const base = compact({
+    ...pick(input, [
+      'name',
+      'email',
+      'phone',
+      'nif',
+      'address',
+      'postalCode',
+      'city',
+      'contactPerson',
+      'representativeName',
+      'type',
+      'billingMethod',
+      'billingCustomRule',
+      'paymentTerm',
+      'status',
+      'notes',
+    ]),
+    paymentTermDays: asInt(input.paymentTermDays),
+  });
+
+  if (input.roleRates !== undefined) {
+    const roleRates = normalizeRoleRates(input.roleRates);
+    const serialized = JSON.stringify(roleRates);
+    base.roleRates = roleRates.length ? serialized : null;
+
+    const previous = existing?.roleRates || null;
+    const next = base.roleRates || null;
+    if (previous !== next) {
+      base.roleRatesUpdatedAt = new Date();
+    }
+  }
+
+  return base;
 }
 
 export function normalizeEventTemplate(input) {
@@ -179,6 +242,8 @@ export function normalizeAssignment(input) {
     staffPayableHours: parseDecimal(input.staffPayableHours),
     hourlyRate: parseDecimal(input.hourlyRate),
     totalPay: parseDecimal(input.totalPay),
+    paymentAdjustment: parseDecimal(input.paymentAdjustment),
+    paymentNotes: input.paymentNotes,
     validationStatus: input.validationStatus,
     validationNotes: input.validationNotes,
     status: input.status,

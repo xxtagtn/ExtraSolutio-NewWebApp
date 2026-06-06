@@ -1,13 +1,26 @@
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useMemo } from 'react';
+import { Activity, CalendarCheck2, CircleDollarSign, ReceiptText, TrendingUp, UsersRound, WalletCards } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Card from '../components/UI/Card.jsx';
 import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { countRealizedServices } from '../utils/dashboardMetrics.js';
 import { asNumber, money } from '../utils/formatters.js';
 
 const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const activeServiceStatuses = ['drafting', 'partial', 'team_complete', 'pending', 'confirmed', 'in_progress', 'ongoing', 'to_validate', 'to_validate_staff', 'to_validate_client'];
+const activeServiceStatuses = [
+  'drafting',
+  'partial',
+  'team_complete',
+  'pending',
+  'confirmed',
+  'in_progress',
+  'ongoing',
+  'to_validate',
+  'to_validate_staff',
+  'to_validate_client',
+];
 
 function serviceStatusLabel(status) {
   if (status === 'drafting') return 'A preencher';
@@ -57,7 +70,7 @@ export default function Dashboard() {
     .reduce((sum, tx) => sum + asNumber(tx.amount), 0);
   const expense = Math.max(serviceExpense, transactionExpense);
   const activeServices = services.filter((service) => activeServiceStatuses.includes(service.status)).length;
-  const activeCollaborators = collaborators.filter((c) => c.status === 'active').length;
+  const activeCollaborators = collaborators.filter((collaborator) => collaborator.status === 'active').length;
   const receivable = useMemo(() => {
     const totalPaidInvoices = invoices
       .filter((invoice) => invoice.status === 'paid')
@@ -79,6 +92,7 @@ export default function Dashboard() {
 
   const today = new Date();
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const realizedServices = countRealizedServices(services, todayStart);
   const upcomingServices = [...services]
     .filter((service) => service.date && new Date(serviceEndDate(service) || service.date) >= todayStart)
     .sort((a, b) => new Date(a.date) - new Date(b.date))
@@ -87,16 +101,61 @@ export default function Dashboard() {
   const error = servicesError || collaboratorsError || invoicesError;
 
   return (
-    <div className="page">
+    <div className="page dashboard-page">
       {error ? <p className="notice">{error}</p> : null}
       <Stats
+        className="dashboard-stats"
         items={[
-          { label: 'Valor total dos eventos', value: money.format(revenue), detail: 'Total cobrado ao cliente' },
-          { label: 'Despesas totais', value: money.format(expense), detail: 'Pagamentos a colaboradores' },
-          { label: 'Margem', value: money.format(revenue - expense), detail: 'Receita - despesa' },
-          { label: 'Por receber', value: money.format(receivable), detail: `${pendingInvoices} faturas pendentes` },
-          { label: 'Serviços ativos', value: activeServices, detail: 'Em preparação ou execução' },
-          { label: 'Colaboradores ativos', value: activeCollaborators, detail: `${collaborators.length} registados` },
+          {
+            label: 'Valor total dos eventos',
+            value: money.format(revenue),
+            detail: 'Total cobrado ao cliente',
+            icon: <CircleDollarSign size={19} />,
+            tone: 'accent',
+            featured: true,
+          },
+          {
+            label: 'Despesas totais',
+            value: money.format(expense),
+            detail: 'Pagamentos a colaboradores',
+            icon: <ReceiptText size={18} />,
+            tone: 'warning',
+          },
+          {
+            label: 'Margem',
+            value: money.format(revenue - expense),
+            detail: 'Receita - despesa',
+            icon: <TrendingUp size={18} />,
+            tone: revenue - expense < 0 ? 'danger' : 'success',
+          },
+          {
+            label: 'Por receber',
+            value: money.format(receivable),
+            detail: `${pendingInvoices} faturas pendentes`,
+            icon: <WalletCards size={18} />,
+            tone: receivable > 0 ? 'info' : 'success',
+          },
+          {
+            label: 'Serviços ativos',
+            value: activeServices,
+            detail: 'Em preparação ou execução',
+            icon: <Activity size={18} />,
+            tone: 'info',
+          },
+          {
+            label: 'Eventos Realizados',
+            value: realizedServices,
+            detail: 'Concluídos ou com data passada',
+            icon: <CalendarCheck2 size={18} />,
+            tone: 'neutral',
+          },
+          {
+            label: 'Nº Colaboradores (Ativos)',
+            value: activeCollaborators,
+            detail: `${collaborators.length} registados`,
+            icon: <UsersRound size={18} />,
+            tone: 'accent',
+          },
         ]}
       />
 
@@ -130,7 +189,9 @@ export default function Dashboard() {
               <Link className="stack-row" key={service.id} to={`/services?serviceId=${service.id}`}>
                 <div>
                   <strong>{service.name}</strong>
-                  <span>{service.client?.name || 'Cliente por associar'} · {formatServiceDateRange(service)}</span>
+                  <span>
+                    {service.client?.name || 'Cliente por associar'} · {formatServiceDateRange(service)}
+                  </span>
                 </div>
                 <small>{serviceStatusLabel(service.status)}</small>
               </Link>
@@ -143,4 +204,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

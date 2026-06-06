@@ -10,6 +10,7 @@ import {
   normalizeTransaction,
   normalizeBudget,
   normalizeEventTemplate,
+  normalizeClient,
 } from './crud.js';
 import { authRouter } from './auth.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -47,9 +48,15 @@ apiRouter.use('/clients', createCrudRouter(prisma.client, [
   'billingCustomRule',
   'paymentTerm',
   'paymentTermDays',
+  'roleRates',
+  'roleRatesUpdatedAt',
   'status',
   'notes',
-]));
+], {
+  normalizeCreate: normalizeClient,
+  normalizeUpdate: normalizeClient,
+  loadExistingForUpdate: true,
+}));
 
 apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   include: {
@@ -74,6 +81,8 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   'hoursWorked',
   'hourlyRate',
   'totalPay',
+  'paymentAdjustment',
+  'paymentNotes',
   'status',
 ], {
   include: { event: true, collaborator: true },
