@@ -102,6 +102,12 @@ export default function Dashboard() {
 
   return (
     <div className="page dashboard-page">
+      <div className="page-title-row">
+        <div>
+          <span className="eyebrow">Gestão</span>
+          <h1>Balancete</h1>
+        </div>
+      </div>
       {error ? <p className="notice">{error}</p> : null}
       <Stats
         className="dashboard-stats"

@@ -15,6 +15,16 @@ test('normalizes empty event billing payment date to null', () => {
   assert.equal(payload.billingPaymentDate, null);
 });
 
+test('normalizes event financial totals from budget conversion values', () => {
+  const payload = normalizeEvent({
+    totalRevenue: '284,50 EUR',
+    totalCost: '120,25 EUR',
+  });
+
+  assert.equal(payload.totalRevenue, 284.5);
+  assert.equal(payload.totalCost, 120.25);
+});
+
 test('normalizes client role rates and marks the change date when values change', () => {
   const previous = {
     roleRates: JSON.stringify([{ role: 'Barman', rate: 10 }]),
@@ -48,4 +58,9 @@ test('does not change client role rate date when rates are unchanged', () => {
 test('normalizes assignment client sync flag', () => {
   assert.equal(normalizeAssignment({ clientSynced: true }).clientSynced, true);
   assert.equal(normalizeAssignment({ clientSynced: 'false' }).clientSynced, false);
+});
+
+test('normalizes assignment deferred payment month', () => {
+  assert.equal(normalizeAssignment({ paymentDeferredMonth: '2026-08' }).paymentDeferredMonth, '2026-08');
+  assert.equal(normalizeAssignment({ paymentDeferredMonth: '' }).paymentDeferredMonth, null);
 });

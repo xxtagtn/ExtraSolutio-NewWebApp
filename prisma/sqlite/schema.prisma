@@ -258,6 +258,7 @@ model EventAssignment {
   status         String       @default("assigned")
   paymentStatus  String       @default("unpaid")
   paymentDate    DateTime?
+  paymentDeferredMonth String?
   paymentAdjustment Decimal   @default(0)
   paymentNotes   String?
   createdAt      DateTime     @default(now())
@@ -267,6 +268,7 @@ model EventAssignment {
   @@index([collaboratorId])
   @@index([status])
   @@index([paymentStatus])
+  @@index([paymentDeferredMonth])
 }
 
 model Invoice {

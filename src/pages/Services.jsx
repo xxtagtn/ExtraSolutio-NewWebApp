@@ -6,7 +6,12 @@ import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import { resolveEventRevenue } from '../utils/eventRevenue.js';
 import { date } from '../utils/formatters.js';
+import {
+  buildPrepaymentSummary,
+  shouldBlockPrepaidStaffAllocation,
+} from '../utils/prepaymentPolicy.js';
 import { assignmentStaffCost, assignmentStaffRate, clientChargeHours, collaboratorHourlyRate, decimalValue } from '../utils/serviceFinance.js';
 import { calculateTravelAmount } from '../utils/travelCalculator.js';
 
@@ -97,6 +102,7 @@ function emptyForm() {
     signaledAmount: '',
     paidAmount: '',
     remainingPaymentDate: '',
+    totalRevenue: '',
     requiredRoles: [],
     assignments: [],
   };
@@ -348,6 +354,7 @@ function toForm(row) {
     signaledAmount: row.signaledAmount === undefined || row.signaledAmount === null ? '' : formatMoneyInline(row.signaledAmount),
     paidAmount: row.paidAmount === undefined || row.paidAmount === null ? '' : formatMoneyInline(row.paidAmount),
     remainingPaymentDate: row.remainingPaymentDate ? String(row.remainingPaymentDate).slice(0, 10) : '',
+    totalRevenue: row.totalRevenue === undefined || row.totalRevenue === null ? '' : formatMoneyInline(row.totalRevenue),
     requiredRoles: parsedRequiredRoles.map((item) => ({
       ...item,
       agreedRate: formatMoneyInline(item.agreedRate),
@@ -465,7 +472,6 @@ export default function Services() {
     () => clients.find((client) => String(client.id) === String(form.clientId)),
     [clients, form.clientId],
   );
-  const prepaidPaymentBlocked = selectedClient?.billingMethod === 'prepaid' && form.billingStatus !== 'paid';
   const canShowInactiveAssignments = isPastEvent(form.isContinuous && form.endDate ? form.endDate : form.date);
 
   function collaboratorOptionLabel(collab) {
@@ -527,14 +533,55 @@ export default function Services() {
     const hasAssignments = assignments.length > 0;
     const revenueWithoutTravel = hasAssignments ? totalRevenue : expectedRevenueByRoles;
     const expectedWithoutTravel = hasAssignments ? expectedRevenue : expectedRevenueByRoles;
-    const revenue = revenueWithoutTravel + travelExpenseAmount;
+    const calculatedExpectedRevenue = expectedWithoutTravel + travelExpenseAmount;
+    const calculatedTotalRevenue = revenueWithoutTravel + travelExpenseAmount;
+    const resolvedTotalRevenue = resolveEventRevenue({
+      calculatedTotalRevenue,
+      calculatedExpectedRevenue,
+      storedTotalRevenue: form.totalRevenue,
+    });
+    const resolvedExpectedRevenue = resolveEventRevenue({
+      calculatedTotalRevenue: calculatedExpectedRevenue,
+      calculatedExpectedRevenue,
+      storedTotalRevenue: form.totalRevenue,
+    });
     return {
-      expectedRevenue: Number((expectedWithoutTravel + travelExpenseAmount).toFixed(2)),
-      totalRevenue: Number(revenue.toFixed(2)),
+      expectedRevenue: resolvedExpectedRevenue,
+      totalRevenue: resolvedTotalRevenue,
       totalCost: Number(totalCost.toFixed(2)),
-      profit: Number((revenue - totalCost).toFixed(2)),
+      profit: Number((resolvedTotalRevenue - totalCost).toFixed(2)),
     };
-  }, [form.requiredRoles, form.assignments, expectedHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentStaffHours, collaboratorsById]);
+  }, [form.requiredRoles, form.assignments, expectedHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentStaffHours, collaboratorsById, form.totalRevenue]);
+  const prepaymentSummary = buildPrepaymentSummary({
+    total: financials.totalRevenue || financials.expectedRevenue || 0,
+    serviceDate: form.date,
+    billingStatus: form.billingStatus,
+  });
+  const prepaidPaymentBlocked = shouldBlockPrepaidStaffAllocation(
+    selectedClient,
+    form.billingStatus,
+    form.billingStatus === 'partial70' ? prepaymentSummary.signaledAmount : form.signaledAmount,
+  );
+
+  function updatePrepaymentStatus(billingStatus) {
+    const nextSummary = buildPrepaymentSummary({
+      total: financials.totalRevenue || financials.expectedRevenue || 0,
+      serviceDate: form.date,
+      billingStatus,
+    });
+
+    setForm({
+      ...form,
+      billingStatus,
+      signaledAmount: billingStatus === 'pending' ? '' : formatMoneyInline(nextSummary.signaledAmount),
+      paidAmount: billingStatus === 'pending' ? '' : formatMoneyInline(nextSummary.paidAmount),
+      remainingPaymentDate: billingStatus === 'partial70' ? nextSummary.remainingPaymentDate : '',
+    });
+  }
+
+  function markPrepaymentSignal() {
+    updatePrepaymentStatus('partial70');
+  }
 
   function getAutoOperationalStatus(currentForm) {
     const requested = currentForm.isContinuous
@@ -766,7 +813,7 @@ export default function Services() {
 
   function addAssignment(role) {
     if (prepaidPaymentBlocked) {
-      window.alert('Cliente com pré-pagamento: marca o evento como pago antes de alocar staff.');
+      window.alert('Cliente com pré-pagamento: regista a sinalização antes de alocar staff.');
       return;
     }
     setForm({
@@ -907,6 +954,11 @@ export default function Services() {
     setFormError('');
     try {
       const effectiveLocation = form.useDefaultLocation ? (selectedClient?.address || form.location) : form.location;
+      const prepaymentForPayload = buildPrepaymentSummary({
+        total: financials.totalRevenue,
+        serviceDate: form.date,
+        billingStatus: form.billingStatus,
+      });
       const payload = {
         ...form,
         status: form.billingStatus === 'paid' ? 'paid' : form.status,
@@ -928,9 +980,13 @@ export default function Services() {
         durationHours: form.durationHours || null,
         split5050: Boolean(form.split5050),
         travelManualAmount: form.travelType === 'manual' ? (parseMoney(form.travelManualAmount) || 0) : 0,
-        signaledAmount: form.billingStatus === 'partial70' ? (parseMoney(form.signaledAmount) || 0) : 0,
-        paidAmount: form.billingStatus === 'partial70' ? (parseMoney(form.signaledAmount) || 0) : 0,
-        remainingPaymentDate: form.billingStatus === 'partial70' && form.remainingPaymentDate ? form.remainingPaymentDate : null,
+        signaledAmount: ['partial70', 'paid'].includes(form.billingStatus) ? prepaymentForPayload.signaledAmount : 0,
+        paidAmount: form.billingStatus === 'paid'
+          ? prepaymentForPayload.total
+          : form.billingStatus === 'partial70'
+            ? prepaymentForPayload.paidAmount
+            : 0,
+        remainingPaymentDate: form.billingStatus === 'partial70' ? prepaymentForPayload.remainingPaymentDate : null,
       };
       const saved = await api(`/services${editing ? `/${editing.id}` : ''}`, {
         method: editing ? 'PUT' : 'POST',
@@ -1023,6 +1079,51 @@ export default function Services() {
     } finally {
       setRemoving(false);
     }
+  }
+
+  function renderPrepaymentPanel() {
+    if (selectedClient?.billingMethod !== 'prepaid') return null;
+
+    return (
+      <section className="service-form-section">
+        <h3>Pré-pagamento</h3>
+        <div className="service-prepayment-panel">
+          <div className="service-prepayment-summary">
+            <strong>Pré-pagamento do cliente</strong>
+            <span>Habitual: 70% na sinalização e 30% uma semana antes do evento.</span>
+          </div>
+          <div className="service-prepayment-grid">
+            <label>Estado do pagamento
+              <select value={form.billingStatus || 'pending'} onChange={(event) => updatePrepaymentStatus(event.target.value)}>
+                <option value="pending">Aguardar sinalização</option>
+                <option value="partial70">Sinalização 70%</option>
+                <option value="paid">Pago</option>
+              </select>
+            </label>
+            <label>Valor sinalizado
+              <input value={euro(prepaymentSummary.signaledAmount)} readOnly />
+            </label>
+            <label>Valor total do Evento/Serviço
+              <input value={euro(prepaymentSummary.total)} readOnly />
+            </label>
+            <label>Valor restante
+              <input value={euro(prepaymentSummary.remainingAmount)} readOnly />
+            </label>
+            <label>Alerta do restante pagamento
+              <input value={prepaymentSummary.remainingPaymentDate || 'A definir após escolher a data'} readOnly />
+            </label>
+          </div>
+          {prepaidPaymentBlocked ? (
+            <div className="service-prepayment-actions">
+              <p className="notice">Regista a sinalização de 70% antes de alocar novos colaboradores.</p>
+              <button type="button" className="secondary-button" onClick={markPrepaymentSignal}>
+                Registar sinalização 70%
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </section>
+    );
   }
 
   const tabs = editing
@@ -1280,6 +1381,8 @@ export default function Services() {
                   </div>
                 </section>
 
+                {renderPrepaymentPanel()}
+
                 <section className="service-form-section">
                   <h3>Horario e estado</h3>
                   <div className="form-grid">
@@ -1431,7 +1534,7 @@ export default function Services() {
                             <span className="muted">Total a pagar: {euro(totalRoleCost)}</span>
                             <button type="button" className="secondary-button" onClick={() => addAssignment(required.role)} disabled={prepaidPaymentBlocked}>+ Adicionar colaborador</button>
                           </header>
-                          {prepaidPaymentBlocked ? <p className="notice">Cliente com pré-pagamento: recebe o pagamento antes de alocar novos colaboradores.</p> : null}
+                          {prepaidPaymentBlocked ? <p className="notice">Cliente com pré-pagamento: regista a sinalização antes de alocar novos colaboradores.</p> : null}
                           {roleAssignments.map((assignment) => (
                             <div key={`${required.role}-${assignment.index}`} className="service-assignment-row">
                               <div className="service-assignment-collaborator">

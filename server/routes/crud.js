@@ -113,8 +113,10 @@ export function normalizeEvent(input) {
       'name', 'eventType', 'description', 'location', 'useDefaultLocation', 'isContinuous', 'startTime', 'endTime',
       'actualStartTime', 'actualEndTime', 'uniform', 'meetingPoint', 'onsiteContactName',
       'onsiteContactPhone', 'travelExpenseEnabled', 'travelType', 'split5050', 'billingStatus', 'signaledAmount', 'paidAmount',
-      'billingPaymentDate', 'remainingPaymentDate', 'status', 'totalCost', 'totalRevenue', 'notes',
+      'billingPaymentDate', 'remainingPaymentDate', 'status', 'notes',
     ]),
+    totalCost: parseDecimal(input.totalCost),
+    totalRevenue: parseDecimal(input.totalRevenue),
     travelExpenseAmount: parseDecimal(input.travelExpenseAmount),
     travelPeople: asInt(input.travelPeople),
     km: parseDecimal(input.km),
@@ -256,6 +258,7 @@ export function normalizeAssignment(input) {
     clientSynced: parseBoolean(input.clientSynced),
     status: input.status,
     paymentStatus: input.paymentStatus,
+    paymentDeferredMonth: input.paymentDeferredMonth === undefined ? undefined : input.paymentDeferredMonth || null,
     ...(input.paymentDate !== undefined ? { paymentDate: input.paymentDate ? toDate(input.paymentDate) : null } : {}),
   });
 }

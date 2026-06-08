@@ -18,26 +18,22 @@ import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import {
+  buildBudgetConversionDraft,
+  buildEventPayloadFromBudgetConversion,
+} from '../utils/budgetConversion.js';
+import {
+  budgetStatusFlow,
+  budgetStatusLabels,
+  normalizeBudgetStatus,
+} from '../utils/budgetPipeline.js';
+import { calculateBudgetTotals } from '../utils/budgetTotals.js';
 import { date, money } from '../utils/formatters.js';
+import { decimalValue } from '../utils/serviceFinance.js';
 import { calculateTravelAmount } from '../utils/travelCalculator.js';
 
-const pipelineTabs = [
-  { id: 'new_request', label: 'Novos Pedidos' },
-  { id: 'analysis', label: 'Em Análise' },
-  { id: 'sent', label: 'Orçamentos Enviados' },
-  { id: 'accepted', label: 'Adjudicados' },
-  { id: 'lost', label: 'Perdidos' },
-];
-
-const statusLabels = {
-  draft: 'Novo Pedido',
-  new_request: 'Novo Pedido',
-  analysis: 'Em Análise',
-  sent: 'Orçamento Enviado',
-  accepted: 'Adjudicado',
-  rejected: 'Perdido',
-  lost: 'Perdido',
-};
+const pipelineTabs = budgetStatusFlow;
+const statusLabels = budgetStatusLabels;
 
 const leadSourceOptions = [
   'Google Ads',
@@ -168,89 +164,8 @@ function safeJson(value, fallback) {
   }
 }
 
-function normalizeStatus(status) {
-  if (status === 'draft') return 'new_request';
-  if (status === 'rejected') return 'lost';
-  return status || 'new_request';
-}
-
-function parseTime(value) {
-  const [h, m] = String(value || '').split(':').map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
-  return (h * 60 + m) / 60;
-}
-
-function calcHours(start, end) {
-  const s = parseTime(start);
-  const e = parseTime(end);
-  const hasStart = String(start || '').includes(':');
-  const hasEnd = String(end || '').includes(':');
-  if (!hasStart || !hasEnd) return 0;
-  if (e === s) return 0;
-  if (e > s) return e - s;
-  // Overnight shift (e.g. 19:00 -> 02:00)
-  return (24 - s) + e;
-}
-
 function num(value) {
-  if (value === null || value === undefined || value === '') return 0;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  const normalized = String(value).replace(/\s/g, '').replace(',', '.');
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function calcTotals(form) {
-  const allDaysRaw = form.eventDays || [];
-  const allDaysWithDate = allDaysRaw.filter((day) => day.date);
-  const dayByDate = new Map(allDaysWithDate.map((day) => [day.date, day]));
-
-  function categoryHours(category) {
-    // If category has explicit time range, keep that as the source of truth.
-    if (category.start || category.end) {
-      const explicitHours = calcHours(category.start, category.end);
-      if (explicitHours > 0) return explicitHours;
-    }
-
-    // If a specific day is selected, inherit that day's time range.
-    if (category.date) {
-      const day = dayByDate.get(category.date);
-      if (day) return calcHours(day.startTime, day.endTime);
-      const fallbackDay = allDaysRaw.find((item) => item.startTime || item.endTime);
-      if (fallbackDay) return calcHours(fallbackDay.startTime, fallbackDay.endTime);
-      return calcHours(form.startTime, form.endTime);
-    }
-
-    // "Todos os dias": sum the hours of every configured day.
-    if (allDaysRaw.length) {
-      const totalFromDays = allDaysRaw.reduce((sum, day) => sum + calcHours(day.startTime, day.endTime), 0);
-      if (totalFromDays > 0) return totalFromDays;
-    }
-
-    return calcHours(form.startTime, form.endTime);
-  }
-
-  const baseAmount = form.categories.reduce((sum, c) => {
-    const hours = categoryHours(c);
-    return sum + (num(c.qty) * num(c.rate) * hours);
-  }, 0);
-
-  const travelAmount = calculateTravelAmount(form);
-
-  const subtotal = baseAmount + travelAmount;
-  const taxRate = form.vatMode === 'exempt' ? 0 : num(form.vatRate);
-  const taxAmount = subtotal * (taxRate / 100);
-  const totalWithTax = subtotal + taxAmount;
-  const discountAmount = totalWithTax * (num(form.discountRate) / 100);
-  const totalAmount = totalWithTax - discountAmount;
-  return {
-    baseAmount: Number(baseAmount.toFixed(2)),
-    travelAmount: Number(travelAmount.toFixed(2)),
-    taxAmount: Number(taxAmount.toFixed(2)),
-    totalWithTax: Number(totalWithTax.toFixed(2)),
-    discountAmount: Number(discountAmount.toFixed(2)),
-    totalAmount: Number(totalAmount.toFixed(2)),
-  };
+  return decimalValue(value) || 0;
 }
 
 function getSmartSuggestion(form) {
@@ -300,7 +215,7 @@ function buildCommercialText(kind, form, totals, client) {
     : (form.eventDate ? date.format(new Date(form.eventDate)) : 'data a confirmar');
   const team = form.categories
     .filter((item) => item.role)
-    .map((item) => `${item.qty || 0} ${item.role} (${money.format(Number(item.rate || 0))}/h)`)
+    .map((item) => `${item.qty || 0} ${item.role} (${money.format(num(item.rate))}/h)`)
     .join(', ') || 'equipa a definir';
   const travel = totals.travelAmount > 0 ? `Deslocação: ${money.format(totals.travelAmount)}` : 'Sem deslocação adicional';
   const vatIsExempt = form.vatMode === 'exempt' || Number(form.vatRate || 0) === 0;
@@ -382,15 +297,19 @@ export default function Budgets() {
   const [formError, setFormError] = useState('');
   const [followUpText, setFollowUpText] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
+  const [conversionSource, setConversionSource] = useState(null);
+  const [conversionDraft, setConversionDraft] = useState(null);
+  const [conversionSaving, setConversionSaving] = useState(false);
+  const [conversionError, setConversionError] = useState('');
 
   const rows = useMemo(() => data.map((row) => ({
     ...row,
-    status: normalizeStatus(row.status),
+    status: normalizeBudgetStatus(row.status),
     categoriesParsed: safeJson(row.categories, []),
     followUpParsed: safeJson(row.followUpHistory, []),
   })), [data]);
 
-  const totals = useMemo(() => calcTotals(form), [form]);
+  const totals = useMemo(() => calculateBudgetTotals(form), [form]);
   const selectedClient = clients.find((client) => String(client.id) === String(form.clientId));
 
   const stats = useMemo(() => {
@@ -399,14 +318,14 @@ export default function Budgets() {
     const lost = count('lost');
     const conversionBase = accepted + lost;
     const negotiation = rows
-      .filter((row) => ['new_request', 'analysis', 'sent'].includes(row.status))
+      .filter((row) => ['new_request', 'sent'].includes(row.status))
       .reduce((sum, row) => sum + Number(row.totalAmount || row.amount || 0), 0);
     return {
       newRequests: count('new_request'),
       sent: count('sent'),
       accepted,
       lost,
-      pending: rows.filter((row) => ['new_request', 'analysis', 'sent'].includes(row.status)).length,
+      pending: rows.filter((row) => ['new_request', 'sent'].includes(row.status)).length,
       conversion: conversionBase ? Math.round((accepted / conversionBase) * 100) : 0,
       negotiation,
     };
@@ -424,7 +343,7 @@ export default function Budgets() {
     setSmartMode(isSmart);
     setForm({
       ...emptyForm(generateReference()),
-      status: isSmart ? 'analysis' : 'new_request',
+      status: 'new_request',
     });
     setOpen(true);
     setFormError('');
@@ -688,72 +607,72 @@ export default function Budgets() {
     return created.id;
   }
 
-  async function convertToEvent(row) {
-    try {
-      const eventDays = safeJson(row.paymentPlan, []).filter((item) => item.date);
-      const firstDay = eventDays[0];
-      const serviceDate = firstDay?.date || row.eventDate;
-      if (!serviceDate) throw new Error('Indica a data do evento antes de converter.');
-      const clientId = await ensureClient(row);
-      const categories = row.categoriesParsed.length ? row.categoriesParsed : safeJson(row.categories, []);
-      const travelAmount = Number(row.travelAmount || 0);
-      const convertedTravelType = ['manual', 'long_trip'].includes(row.travelType) && (num(row.km) > 0 || num(row.durationHours) > 0)
-        ? 'kilometers'
-        : row.travelType === 'automatic'
-          ? (row.locationScope === 'outside_lisbon' ? 'outside_lisbon' : 'none')
-          : (row.travelType || 'none');
-      const uniformsByRole = categories
-        .filter((item) => item.role && item.uniform)
-        .map((item) => ({ role: String(item.role), uniform: String(item.uniform) }));
-      const uniqueUniforms = [...new Set(uniformsByRole.map((item) => item.uniform))];
-      const eventUniform = uniqueUniforms[0] || '';
-      const uniformDetails = uniformsByRole.length > 1
-        ? `\n\nUniformes (orçamento):\n${uniformsByRole.map((item) => `${item.role}: ${item.uniform}`).join('\n')}`
-        : '';
-      const budgetRefTag = row.reference ? `[BUDGET_REF:${row.reference}]` : '';
-      const requiredRoles = categories
-        .filter((item) => item.role && Number(item.qty || 0) > 0)
-        .map((item) => ({ role: item.role, qty: Number(item.qty || 0), agreedRate: Number(item.rate || 0) }));
-      const eventName = row.eventType
-        ? `${row.eventType} - ${row.companyName || row.leadName || row.client?.name || row.reference}`
-        : row.description || row.reference;
-      await api('/services', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: eventName,
-          eventType: row.eventType || row.serviceType || '',
-          clientId,
-          date: String(serviceDate).slice(0, 10),
-          useDefaultLocation: false,
-          location: firstDay?.location || row.location || '',
-          guestsCount: firstDay?.guestsCount || row.guestsCount || null,
-          startTime: firstDay?.startTime || row.startTime || '',
-          endTime: firstDay?.endTime || row.endTime || '',
-          description: `${[row.description, row.notes].filter(Boolean).join('\n\n')}${uniformDetails}`,
-          uniform: eventUniform,
-          requiredRoles,
-          status: 'drafting',
-          billingStatus: row.budgetType === 'individual' ? 'pending' : 'pending',
-          travelExpenseEnabled: Number.isFinite(travelAmount) && travelAmount > 0,
-          travelExpenseAmount: Number.isFinite(travelAmount) && travelAmount > 0 ? travelAmount : 0,
-          travelType: convertedTravelType,
-          travelPeople: row.travelPeople || null,
-          km: row.km || null,
-          kmRate: row.kmRate || null,
-          durationHours: row.durationHours || null,
-          split5050: Boolean(row.split5050),
-          travelManualAmount: convertedTravelType === 'manual' ? travelAmount : 0,
-          totalRevenue: Number(row.totalAmount || row.amount || 0),
-          notes: budgetRefTag,
-        }),
-      });
-      await updateBudgetStatus(row, 'accepted', { clientId });
-      window.alert('Evento/Serviço criado com sucesso.');
-    } catch (err) {
-      window.alert(err.message);
-    }
+  function openConversion(row) {
+    setConversionSource(row);
+    setConversionDraft(buildBudgetConversionDraft(row));
+    setConversionError('');
   }
 
+  function closeConversion() {
+    setConversionSource(null);
+    setConversionDraft(null);
+    setConversionError('');
+  }
+
+  function updateConversionDraft(patch) {
+    setConversionDraft((prev) => ({ ...prev, ...patch }));
+  }
+
+  function updateConversionRole(index, patch) {
+    setConversionDraft((prev) => ({
+      ...prev,
+      requiredRoles: prev.requiredRoles.map((item, idx) => (idx === index ? { ...item, ...patch } : item)),
+    }));
+  }
+
+  function addConversionRole() {
+    setConversionDraft((prev) => ({
+      ...prev,
+      requiredRoles: [
+        ...prev.requiredRoles,
+        { role: '', qty: '', agreedRate: '', day: prev.date || '', start: prev.startTime || '', end: prev.endTime || '' },
+      ],
+    }));
+  }
+
+  function removeConversionRole(index) {
+    setConversionDraft((prev) => ({
+      ...prev,
+      requiredRoles: prev.requiredRoles.filter((_, idx) => idx !== index),
+    }));
+  }
+
+  async function submitConversion(event) {
+    event.preventDefault();
+    if (!conversionDraft || !conversionSource) return;
+    setConversionSaving(true);
+    setConversionError('');
+    try {
+      if (!conversionDraft.name.trim()) throw new Error('Indica o nome do evento/serviço.');
+      if (!conversionDraft.date) throw new Error('Indica a data inicial do evento/serviço.');
+      if (!conversionDraft.clientId && !conversionDraft.clientLabel) {
+        throw new Error('Indica o cliente antes de converter em evento/serviço.');
+      }
+      const clientId = conversionDraft.clientId || await ensureClient(conversionSource);
+      const payload = buildEventPayloadFromBudgetConversion(conversionDraft, clientId);
+      await api('/services', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      await updateBudgetStatus(conversionSource, 'accepted', { clientId });
+      closeConversion();
+      window.alert('Evento/Serviço criado com sucesso.');
+    } catch (err) {
+      setConversionError(err.message);
+    } finally {
+      setConversionSaving(false);
+    }
+  }
   const generatedText = form.responseTemplate === 'whatsapp'
     ? form.commercialWhatsappText
     : form.responseTemplate === 'pdf'
@@ -843,15 +762,9 @@ export default function Budgets() {
                 <footer className="budget-card-actions">
                   {row.status === 'new_request' ? (
                     <>
-                      <button type="button" className="secondary-button" onClick={() => updateBudgetStatus(row, 'analysis')}><BrainCircuit size={15} />Analisar</button>
-                      <button type="button" className="secondary-button" onClick={() => markLost(row)}><XCircle size={15} />Perdido</button>
-                      <button type="button" className="secondary-button" onClick={() => openEdit(row)}><FileText size={15} />Criar Orçamento</button>
-                    </>
-                  ) : null}
-                  {row.status === 'analysis' ? (
-                    <>
                       <button type="button" className="secondary-button" onClick={() => updateBudgetStatus(row, 'sent')}><Send size={15} />Marcar Enviado</button>
                       <button type="button" className="secondary-button" onClick={() => markLost(row)}><XCircle size={15} />Perdido</button>
+                      <button type="button" className="secondary-button" onClick={() => openEdit(row)}><FileText size={15} />Criar Orçamento</button>
                     </>
                   ) : null}
                   {row.status === 'sent' ? (
@@ -861,13 +774,13 @@ export default function Budgets() {
                     </>
                   ) : null}
                   {row.status === 'accepted' ? (
-                    <button type="button" className="command-button" onClick={() => convertToEvent(row)}><ArrowRight size={15} />Converter em Evento</button>
+                    <button type="button" className="command-button" onClick={() => openConversion(row)}><ArrowRight size={15} />Converter em Evento</button>
                   ) : null}
                   {row.status === 'lost' ? (
                     <button
                       type="button"
                       className="secondary-button"
-                      onClick={() => updateBudgetStatus(row, 'analysis', { lostReason: null })}
+                      onClick={() => updateBudgetStatus(row, 'new_request', { lostReason: null })}
                     >
                       <ArrowRight size={15} />
                       Reabrir
@@ -1148,6 +1061,187 @@ export default function Budgets() {
             <footer className="form-actions">
               <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar Orçamento'}</button>
               <button className="secondary-button" type="button" onClick={() => setOpen(false)}>Cancelar</button>
+            </footer>
+          </form>
+        </Modal>
+      ) : null}
+
+      {conversionDraft ? (
+        <Modal title={`Converter Orçamento ${conversionDraft.budgetReference || ''} em Evento/Serviço`} onClose={closeConversion} size="wide">
+          <form className="resource-form budget-form" onSubmit={submitConversion}>
+            <div className="budget-layout">
+              <div className="budget-main">
+                <section className="budget-panel">
+                  <h3>Dados principais</h3>
+                  <div className="form-grid">
+                    <label>Cliente
+                      <select value={conversionDraft.clientId} onChange={(event) => updateConversionDraft({ clientId: event.target.value })}>
+                        <option value="">
+                          {conversionDraft.clientLabel ? `Usar cliente do orçamento: ${conversionDraft.clientLabel}` : 'Selecionar cliente'}
+                        </option>
+                        {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+                      </select>
+                    </label>
+                    <label>Nome do evento/serviço
+                      <input value={conversionDraft.name} onChange={(event) => updateConversionDraft({ name: event.target.value })} />
+                    </label>
+                    <label>Tipo de evento
+                      <select value={conversionDraft.eventType} onChange={(event) => updateConversionDraft({ eventType: event.target.value })}>
+                        <option value="">Selecionar</option>
+                        {eventTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </label>
+                    <label>Nº de convidados/participantes
+                      <input type="number" min="0" value={conversionDraft.guestsCount ?? ''} onChange={(event) => updateConversionDraft({ guestsCount: event.target.value })} />
+                    </label>
+                    <label>Data inicial
+                      <input type="date" value={conversionDraft.date} onChange={(event) => updateConversionDraft({ date: event.target.value })} />
+                    </label>
+                    <label>Data final
+                      <input
+                        type="date"
+                        value={conversionDraft.endDate || ''}
+                        disabled={!conversionDraft.isContinuous}
+                        onChange={(event) => updateConversionDraft({ endDate: event.target.value })}
+                      />
+                    </label>
+                    <label className="check-inline budget-check">
+                      <input
+                        type="checkbox"
+                        checked={conversionDraft.isContinuous}
+                        onChange={(event) => updateConversionDraft({
+                          isContinuous: event.target.checked,
+                          endDate: event.target.checked ? conversionDraft.endDate : '',
+                        })}
+                      />
+                      <span>Evento contínuo</span>
+                    </label>
+                    <label>Local
+                      <input value={conversionDraft.location || ''} onChange={(event) => updateConversionDraft({ location: event.target.value })} />
+                    </label>
+                    <label>Entrada prevista
+                      <input type="time" value={conversionDraft.startTime || ''} onChange={(event) => updateConversionDraft({ startTime: event.target.value })} />
+                    </label>
+                    <label>Saída prevista
+                      <input type="time" value={conversionDraft.endTime || ''} onChange={(event) => updateConversionDraft({ endTime: event.target.value })} />
+                    </label>
+                    <label>Uniforme
+                      <select value={conversionDraft.uniform || ''} onChange={(event) => updateConversionDraft({ uniform: event.target.value })}>
+                        <option value="">Selecionar</option>
+                        {uniformOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </label>
+                    <label className="span-2">Descrição
+                      <textarea value={conversionDraft.description || ''} onChange={(event) => updateConversionDraft({ description: event.target.value })} />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="budget-panel">
+                  <h3>Funções necessárias</h3>
+                  <div className="budget-category-actions">
+                    <button className="secondary-button" type="button" onClick={addConversionRole}>
+                      <Plus size={15} />
+                      Adicionar função
+                    </button>
+                  </div>
+                  {!conversionDraft.requiredRoles.length ? <p className="muted">Sem funções definidas no orçamento.</p> : null}
+                  {conversionDraft.requiredRoles.map((role, index) => (
+                    <div className="budget-category" key={`${role.role}-${index}`}>
+                      <header>
+                        <strong>Função {index + 1}</strong>
+                        <button type="button" className="icon-button icon-button--danger" onClick={() => removeConversionRole(index)}><Trash2 size={15} /></button>
+                      </header>
+                      <div className="budget-category-grid">
+                        <label>Função
+                          <select value={role.role || ''} onChange={(event) => updateConversionRole(index, { role: event.target.value })}>
+                            <option value="">Selecionar</option>
+                            {role.role && !roleOptions.includes(role.role) ? <option value={role.role}>{role.role}</option> : null}
+                            {roleOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                        </label>
+                        <label>Nº de colaboradores
+                          <input type="number" min="0" value={role.qty ?? ''} onChange={(event) => updateConversionRole(index, { qty: event.target.value })} />
+                        </label>
+                        <label>Valor/h cliente
+                          <input inputMode="decimal" value={role.agreedRate ?? ''} placeholder="Ex: 10,50" onChange={(event) => updateConversionRole(index, { agreedRate: event.target.value })} />
+                        </label>
+                        <label>Dia
+                          <input type="date" value={role.day || ''} onChange={(event) => updateConversionRole(index, { day: event.target.value })} />
+                        </label>
+                        <label>Entrada
+                          <input type="time" value={role.start || ''} onChange={(event) => updateConversionRole(index, { start: event.target.value })} />
+                        </label>
+                        <label>Saída
+                          <input type="time" value={role.end || ''} onChange={(event) => updateConversionRole(index, { end: event.target.value })} />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+
+                <section className="budget-panel">
+                  <h3>Deslocação</h3>
+                  <div className="form-grid">
+                    <label>Tipo
+                      <select value={conversionDraft.travelType || 'none'} onChange={(event) => updateConversionDraft({ travelType: event.target.value })}>
+                        <option value="none">Nenhuma</option>
+                        <option value="outside_lisbon">Fora Grande Lisboa</option>
+                        <option value="outside_plus_staff">Fora + Staff</option>
+                        <option value="kilometers">Quilómetros</option>
+                        <option value="manual">Valor manual</option>
+                      </select>
+                    </label>
+                    {['outside_plus_staff', 'kilometers'].includes(conversionDraft.travelType) ? (
+                      <label>Pessoas deslocação
+                        <input type="number" min="1" value={conversionDraft.travelPeople ?? ''} onChange={(event) => updateConversionDraft({ travelPeople: event.target.value })} />
+                      </label>
+                    ) : null}
+                    {conversionDraft.travelType === 'kilometers' ? (
+                      <>
+                        <label>KM
+                          <input type="number" min="0" step="0.01" value={conversionDraft.km ?? ''} onChange={(event) => updateConversionDraft({ km: event.target.value })} />
+                        </label>
+                        <label>Valor/KM
+                          <input type="number" min="0" step="0.01" value={conversionDraft.kmRate ?? ''} onChange={(event) => updateConversionDraft({ kmRate: event.target.value })} />
+                        </label>
+                        <label>Duração deslocação (h)
+                          <input type="number" min="0" step="0.01" value={conversionDraft.durationHours ?? ''} onChange={(event) => updateConversionDraft({ durationHours: event.target.value })} />
+                        </label>
+                        <label className="check-inline budget-check">
+                          <input type="checkbox" checked={Boolean(conversionDraft.split5050)} onChange={(event) => updateConversionDraft({ split5050: event.target.checked })} />
+                          <span>50/50 no tempo de deslocação</span>
+                        </label>
+                      </>
+                    ) : null}
+                    {conversionDraft.travelType === 'manual' ? (
+                      <label>Valor manual
+                        <input inputMode="decimal" value={conversionDraft.travelManualAmount ?? ''} placeholder="Ex: 35,00" onChange={(event) => updateConversionDraft({ travelManualAmount: event.target.value })} />
+                      </label>
+                    ) : null}
+                  </div>
+                </section>
+              </div>
+
+              <aside className="budget-side">
+                <section className="budget-panel">
+                  <h3>Resumo da conversão</h3>
+                  <div className="budget-summary">
+                    <div><span>Estado inicial</span><strong>A preencher</strong></div>
+                    <div><span>Valor previsto</span><strong>{money.format(Number(conversionDraft.totalRevenue || 0))}</strong></div>
+                    <div><span>Deslocação</span><strong>{money.format(calculateTravelAmount(conversionDraft))}</strong></div>
+                    <div><span>Funções</span><strong>{conversionDraft.requiredRoles.filter((item) => item.role).length}</strong></div>
+                  </div>
+                </section>
+              </aside>
+            </div>
+
+            {conversionError ? <p className="notice">{conversionError}</p> : null}
+            <footer className="form-actions">
+              <button className="command-button" type="submit" disabled={conversionSaving}>
+                {conversionSaving ? 'A criar...' : 'Guardar e criar Evento/Serviço'}
+              </button>
+              <button className="secondary-button" type="button" onClick={closeConversion}>Cancelar</button>
             </footer>
           </form>
         </Modal>

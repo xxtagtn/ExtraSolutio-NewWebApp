@@ -10,6 +10,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
@@ -31,7 +32,11 @@ import {
 import { isFinanceReadyEvent } from '../utils/financeReadiness.js';
 import { date, money } from '../utils/formatters.js';
 import { decimalValue } from '../utils/serviceFinance.js';
-import { staffPaymentTotal } from '../utils/staffPayment.js';
+import {
+  nextStaffPaymentMonth,
+  staffPaymentTiming,
+  staffPaymentTotal,
+} from '../utils/staffPayment.js';
 import { hasPaymentNotes, normalizePaymentNotes } from '../utils/staffPaymentNotes.js';
 
 const AREA_TABS = [
@@ -186,6 +191,29 @@ function adjustmentInputValue(value) {
   const parsed = decimalValue(value) || 0;
   if (parsed === 0) return '';
   return `${parsed > 0 ? '+' : ''}${parsed.toFixed(2).replace('.', ',')}`;
+}
+
+function paymentMonthMatches(assignment, period) {
+  const paymentMonth = staffPaymentTiming(assignment).paymentMonth;
+  if (!paymentMonth) return false;
+  const [year, month] = String(period || monthInputValue()).split('-');
+  if (month === '00') return paymentMonth.startsWith(`${year}-`);
+  return paymentMonth === period;
+}
+
+function paymentWindowLabel(timing) {
+  if (!timing?.start || !timing?.end) return '-';
+  const start = String(timing.start.getDate()).padStart(2, '0');
+  const end = String(timing.end.getDate()).padStart(2, '0');
+  return `${start}-${end} ${new Intl.DateTimeFormat('pt-PT', { month: 'short', year: 'numeric' }).format(timing.start)}`;
+}
+
+function paymentTimingLabel(status) {
+  if (status === 'not_open') return 'Ainda não aberto';
+  if (status === 'open') return 'Período aberto';
+  if (status === 'overdue') return 'Em atraso';
+  if (status === 'paid') return 'Pago';
+  return 'Sem data';
 }
 
 function eventStaffCost(event) {
@@ -353,11 +381,15 @@ function topItems(items, count = 5) {
 }
 
 export default function Accounting() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', []);
   const { data: invoices, reload: reloadInvoices } = useApi('/invoices', []);
   const { data: clients } = useApi('/clients', []);
   const { data: transactions, reload: reloadTransactions } = useApi('/transactions', []);
-  const [activeArea, setActiveArea] = useState('overview');
+  const [activeArea, setActiveArea] = useState(() => {
+    const area = searchParams.get('area');
+    return AREA_TABS.some((tab) => tab.id === area) ? area : 'overview';
+  });
   const [selectedMonth, setSelectedMonth] = useState(() => monthInputValue());
   const [archiveMonth, setArchiveMonth] = useState(() => `${new Date().getFullYear()}-00`);
   const [archiveClientId, setArchiveClientId] = useState('all');
@@ -382,6 +414,21 @@ export default function Accounting() {
   const [selectedYear, selectedMonthNumber] = String(selectedMonth || monthInputValue()).split('-');
   const [archiveYear, archiveMonthNumber] = String(archiveMonth || `${new Date().getFullYear()}-00`).split('-');
 
+  useEffect(() => {
+    const area = searchParams.get('area');
+    if (AREA_TABS.some((tab) => tab.id === area) && area !== activeArea) {
+      setActiveArea(area);
+    }
+  }, [activeArea, searchParams]);
+
+  function selectArea(area) {
+    setActiveArea(area);
+    const nextParams = new window.URLSearchParams(searchParams);
+    if (area === 'overview') nextParams.delete('area');
+    else nextParams.set('area', area);
+    setSearchParams(nextParams, { replace: true });
+  }
+
   const financeServices = useMemo(
     () => services.filter((event) => isFinanceReadyEvent(event)),
     [services],
@@ -403,11 +450,6 @@ export default function Accounting() {
     if (latestBankBalance) setBankBalance(String(num(latestBankBalance.amount)));
   }, [latestBankBalance]);
 
-  const currentMonthServices = useMemo(
-    () => financeServices.filter((event) => isSameMonth(event.date, selectedMonth)),
-    [financeServices, selectedMonth],
-  );
-
   const currentMonthInvoices = useMemo(
     () => invoices.filter((invoice) => isSameMonth(invoice.issueDate, selectedMonth)),
     [invoices, selectedMonth],
@@ -422,6 +464,10 @@ export default function Accounting() {
     const years = new Set([String(new Date().getFullYear())]);
     for (const event of services) {
       if (event?.date) years.add(String(new Date(event.date).getFullYear()));
+      for (const assignment of billableAssignments(event)) {
+        const paymentMonth = staffPaymentTiming({ ...assignment, event }).paymentMonth;
+        if (paymentMonth) years.add(paymentMonth.slice(0, 4));
+      }
     }
     for (const invoice of invoices) {
       if (invoice?.issueDate) years.add(String(new Date(invoice.issueDate).getFullYear()));
@@ -615,29 +661,32 @@ export default function Accounting() {
     [archiveClientId, archivedClientRows],
   );
 
+  const selectedPaymentStaffEntries = useMemo(() => financeServices
+    .flatMap((event) => billableAssignments(event).map((assignment) => ({ ...assignment, event })))
+    .filter((assignment) => paymentMonthMatches(assignment, selectedMonth)),
+  [financeServices, selectedMonth]);
+
   const staffEventOptions = useMemo(
-    () => [...currentMonthServices]
+    () => [...new Map(selectedPaymentStaffEntries.map((assignment) => [String(assignment.event.id), assignment.event])).values()]
       .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
       .map((event) => ({
         id: String(event.id),
         label: `${event.date ? date.format(new Date(event.date)) : '-'} · ${event.name}`,
       })),
-    [currentMonthServices],
+    [selectedPaymentStaffEntries],
   );
 
   const staffCollaboratorOptions = useMemo(() => {
     const map = new Map();
-    for (const event of currentMonthServices) {
-      for (const assignment of billableAssignments(event)) {
-        if (!assignment.collaboratorId || map.has(String(assignment.collaboratorId))) continue;
-        map.set(String(assignment.collaboratorId), {
-          id: String(assignment.collaboratorId),
-          label: `${assignment.collaborator?.shortName || assignment.collaborator?.name || '-'} | ${assignment.collaborator?.nif || '-'}`,
-        });
-      }
+    for (const assignment of selectedPaymentStaffEntries) {
+      if (!assignment.collaboratorId || map.has(String(assignment.collaboratorId))) continue;
+      map.set(String(assignment.collaboratorId), {
+        id: String(assignment.collaboratorId),
+        label: `${assignment.collaborator?.shortName || assignment.collaborator?.name || '-'} | ${assignment.collaborator?.nif || '-'}`,
+      });
     }
     return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
-  }, [currentMonthServices]);
+  }, [selectedPaymentStaffEntries]);
 
   useEffect(() => {
     if (staffFilters.eventId !== 'all' && !staffEventOptions.some((event) => event.id === staffFilters.eventId)) {
@@ -658,31 +707,27 @@ export default function Accounting() {
   }, [staffCollaboratorOptions, staffFilters.collaboratorId]);
 
   useEffect(() => {
-    if (staffFilters.date && staffFilters.date.slice(0, 7) !== selectedMonth) {
+    if (staffFilters.date && !selectedPaymentStaffEntries.some((assignment) => dateInputValue(assignment.event.date) === staffFilters.date)) {
       setStaffFilters((prev) => ({ ...prev, date: '' }));
     }
-  }, [selectedMonth, staffFilters.date]);
+  }, [selectedPaymentStaffEntries, staffFilters.date]);
 
-  const filteredStaffEntries = useMemo(() => currentMonthServices
-    .filter((event) => {
-      if (staffFilters.eventId !== 'all' && String(event.id) !== staffFilters.eventId) return false;
-      if (staffFilters.date && dateInputValue(event.date) !== staffFilters.date) return false;
+  const filteredStaffEntries = useMemo(() => selectedPaymentStaffEntries
+    .filter((assignment) => {
+      if (staffFilters.eventId !== 'all' && String(assignment.event.id) !== staffFilters.eventId) return false;
+      if (staffFilters.date && dateInputValue(assignment.event.date) !== staffFilters.date) return false;
+      if (staffFilters.collaboratorId !== 'all' && String(assignment.collaboratorId) !== staffFilters.collaboratorId) return false;
       return true;
-    })
-    .flatMap((event) => billableAssignments(event)
-      .filter((assignment) => staffFilters.collaboratorId === 'all' || String(assignment.collaboratorId) === staffFilters.collaboratorId)
-      .map((assignment) => ({ ...assignment, event }))),
-  [currentMonthServices, staffFilters]);
+    }),
+  [selectedPaymentStaffEntries, staffFilters]);
 
   const currentStaffCollaboratorCount = useMemo(() => {
     const ids = new Set();
-    for (const event of currentMonthServices) {
-      for (const assignment of billableAssignments(event)) {
-        if (assignment.collaboratorId) ids.add(String(assignment.collaboratorId));
-      }
+    for (const assignment of selectedPaymentStaffEntries) {
+      if (assignment.collaboratorId) ids.add(String(assignment.collaboratorId));
     }
     return ids.size;
-  }, [currentMonthServices]);
+  }, [selectedPaymentStaffEntries]);
 
   const staffByCollaborator = useMemo(() => {
     const map = new Map();
@@ -711,20 +756,20 @@ export default function Accounting() {
     for (const event of financeServices) {
       if (staffFilters.eventId !== 'all' && String(event.id) !== staffFilters.eventId) continue;
       if (staffFilters.date && dateInputValue(event.date) !== staffFilters.date) continue;
-      const assignments = billableAssignments(event)
-        .filter((assignment) => staffFilters.collaboratorId === 'all' || String(assignment.collaboratorId) === staffFilters.collaboratorId);
-      const total = assignments.reduce((sum, assignment) => sum + assignmentPayWithVat(assignment), 0);
-      if (total <= 0) continue;
-      const key = monthKey(event.date);
-      map.set(key, (map.get(key) || 0) + total);
+      for (const assignment of billableAssignments(event)) {
+        if (staffFilters.collaboratorId !== 'all' && String(assignment.collaboratorId) !== staffFilters.collaboratorId) continue;
+        const total = assignmentPayWithVat(assignment);
+        if (total <= 0) continue;
+        const key = staffPaymentTiming({ ...assignment, event }).paymentMonth || monthKey(event.date);
+        map.set(key, (map.get(key) || 0) + total);
+      }
     }
     return [...map.entries()].sort(([a], [b]) => b.localeCompare(a)).slice(0, 8);
   }, [financeServices, staffFilters]);
 
-  const currentMonthUnpaidAssignments = useMemo(() => currentMonthServices.flatMap((event) => billableAssignments(event)
+  const currentMonthUnpaidAssignments = useMemo(() => selectedPaymentStaffEntries
     .filter((assignment) => assignment.paymentStatus !== 'paid')
-    .map((assignment) => ({ ...assignment, event })))
-    .sort((a, b) => new Date(a.event.date || 0).getTime() - new Date(b.event.date || 0).getTime()), [currentMonthServices]);
+    .sort((a, b) => new Date(a.event.date || 0).getTime() - new Date(b.event.date || 0).getTime()), [selectedPaymentStaffEntries]);
 
   const filteredAssignments = useMemo(() => filteredStaffEntries
     .sort((a, b) => new Date(a.event.date || 0).getTime() - new Date(b.event.date || 0).getTime()),
@@ -808,6 +853,7 @@ export default function Accounting() {
     paymentStatus,
     paymentDate = assignment.paymentDate || null,
     paymentAdjustment = assignment.paymentAdjustment || 0,
+    paymentDeferredMonth = assignment.paymentDeferredMonth || null,
   ) {
     setUpdatingAssignmentId(assignment.id);
     try {
@@ -820,12 +866,37 @@ export default function Accounting() {
           paymentStatus,
           paymentDate: normalizedDate,
           paymentAdjustment: decimalValue(paymentAdjustment) || 0,
+          paymentDeferredMonth,
         }),
       });
       reload();
     } finally {
       setUpdatingAssignmentId(null);
     }
+  }
+
+  async function updatePaymentDeferredMonth(assignment, paymentDeferredMonth) {
+    setUpdatingAssignmentId(assignment.id);
+    try {
+      await api(`/assignments/${assignment.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ paymentDeferredMonth }),
+      });
+      reload();
+    } finally {
+      setUpdatingAssignmentId(null);
+    }
+  }
+
+  async function deferPaymentToNextMonth(assignment) {
+    const timing = staffPaymentTiming(assignment);
+    const targetMonth = nextStaffPaymentMonth(timing.paymentMonth || timing.defaultMonth);
+    if (!targetMonth) return;
+    await updatePaymentDeferredMonth(assignment, targetMonth);
+  }
+
+  async function resetPaymentMonth(assignment) {
+    await updatePaymentDeferredMonth(assignment, null);
   }
 
   function paymentDraftFor(assignment) {
@@ -1074,7 +1145,7 @@ export default function Accounting() {
             key={tab.id}
             type="button"
             className={`service-tab ${activeArea === tab.id ? 'service-tab--active' : ''}`}
-            onClick={() => setActiveArea(tab.id)}
+            onClick={() => selectArea(tab.id)}
           >
             {tab.label}
           </button>
@@ -1562,6 +1633,7 @@ export default function Accounting() {
                     <th>Valor/h</th>
                     <th>Ajustes</th>
                     <th>Total</th>
+                    <th>Vencimento</th>
                     <th>Estado</th>
                     <th>Data pagamento</th>
                     {staffPaymentTab === 'unpaid' ? <th>Ação</th> : null}
@@ -1572,8 +1644,9 @@ export default function Accounting() {
                     (() => {
                       const draft = paymentDraftFor(assignment);
                       const paymentNotes = paymentNotesOverrides[assignment.id] ?? assignment.paymentNotes ?? '';
+                      const timing = staffPaymentTiming(assignment);
                       return (
-                    <tr key={assignment.id} className={assignment.collaborator?.includeVat ? 'finance-row-vat' : ''}>
+                    <tr key={assignment.id} className={`${assignment.collaborator?.includeVat ? 'finance-row-vat' : ''} finance-row-payment--${timing.status}`.trim()}>
                       <td>
                         <div className="finance-staff-name">
                           <div className="finance-staff-name__line">
@@ -1610,6 +1683,15 @@ export default function Accounting() {
                       </td>
                       <td>{money.format(assignmentPayWithVat({ ...assignment, paymentAdjustment: draft.paymentAdjustment }))}</td>
                       <td>
+                        <div className="finance-payment-window">
+                          <Badge tone={timing.status === 'overdue' ? 'danger' : timing.status === 'open' ? 'warning' : timing.status === 'paid' ? 'success' : 'info'}>
+                            {paymentTimingLabel(timing.status)}
+                          </Badge>
+                          <small>{paymentWindowLabel(timing)}</small>
+                          {timing.deferred ? <Badge tone="info">Acumulado</Badge> : null}
+                        </div>
+                      </td>
+                      <td>
                         <select
                           className={`payment-state finance-staff-payment-state payment-state--${draft.paymentStatus || 'unpaid'}`}
                           disabled={updatingAssignmentId === assignment.id}
@@ -1637,14 +1719,35 @@ export default function Accounting() {
                       </td>
                       {staffPaymentTab === 'unpaid' ? (
                         <td>
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            disabled={updatingAssignmentId === assignment.id}
-                            onClick={() => confirmMoveToPaid(assignment)}
-                          >
-                            Mover para pagos
-                          </button>
+                          <div className="finance-staff-actions">
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={updatingAssignmentId === assignment.id}
+                              onClick={() => confirmMoveToPaid(assignment)}
+                            >
+                              Mover para pagos
+                            </button>
+                            {timing.deferred ? (
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={updatingAssignmentId === assignment.id}
+                                onClick={() => resetPaymentMonth(assignment)}
+                              >
+                                Repor mês normal
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={updatingAssignmentId === assignment.id}
+                                onClick={() => deferPaymentToNextMonth(assignment)}
+                              >
+                                Adiar mês
+                              </button>
+                            )}
+                          </div>
                         </td>
                       ) : null}
                     </tr>

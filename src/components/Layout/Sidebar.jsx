@@ -1,9 +1,9 @@
-import { BarChart3, BriefcaseBusiness, CalendarCheck2, CalendarDays, CalendarRange, FileText, LayoutDashboard, ShieldCheck, Users, X } from 'lucide-react';
+import { BarChart3, BriefcaseBusiness, CalendarCheck2, CalendarDays, CalendarRange, FileText, LayoutDashboard, ListChecks, ShieldCheck, Users, X } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
 
 const links = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/calendar', label: 'Calendário', icon: CalendarRange },
   { to: '/collaborators', label: 'Colaboradores', icon: Users },
   { to: '/clients', label: 'Clientes', icon: BriefcaseBusiness },
@@ -11,6 +11,7 @@ const links = [
   { to: '/services', label: 'Eventos/Serviços', icon: CalendarDays },
   { to: '/time-validation', label: 'Validação de Horas', icon: CalendarCheck2 },
   { to: '/finance', label: 'Financeiro', icon: BarChart3 },
+  { to: '/', label: 'Balancete', icon: ListChecks },
 ];
 
 export default function Sidebar({ mobileOpen = false, onClose }) {

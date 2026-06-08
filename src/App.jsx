@@ -9,6 +9,7 @@ import Clients from './pages/Clients.jsx';
 import Collaborators from './pages/Collaborators.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Login from './pages/Login.jsx';
+import PendingActions from './pages/PendingActions.jsx';
 import Profile from './pages/Profile.jsx';
 import Services from './pages/Services.jsx';
 import TimeValidation from './pages/TimeValidation.jsx';
@@ -24,6 +25,8 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
+        <Route path="dashboard" element={<PendingActions />} />
+        <Route path="actions" element={<Navigate to="/dashboard" replace />} />
         <Route path="collaborators" element={<Collaborators />} />
         <Route path="clients" element={<Clients />} />
         <Route path="services" element={<Services />} />
