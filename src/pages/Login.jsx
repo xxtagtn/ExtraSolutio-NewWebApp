@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.jsx';
+import { DEFAULT_AUTHENTICATED_PATH } from '../utils/navigation.js';
 
 export default function Login() {
   const { authenticated, login } = useAuth();
@@ -11,7 +12,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   if (authenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={DEFAULT_AUTHENTICATED_PATH} replace />;
   }
 
   async function submit(event) {
@@ -21,7 +22,7 @@ export default function Login() {
 
     try {
       await login(email, password);
-      navigate('/');
+      navigate(DEFAULT_AUTHENTICATED_PATH);
     } catch (err) {
       setError(err.message);
     } finally {

@@ -11,6 +11,14 @@ test('includes an event explicitly marked as having validated hours', () => {
   }), true);
 });
 
+test('includes finalized events in finance', () => {
+  assert.equal(isFinanceReadyEvent({
+    status: 'finalized',
+    billingStatus: 'pending',
+    assignments: [],
+  }), true);
+});
+
 test('includes an event when all billable assignments are validated', () => {
   assert.equal(isFinanceReadyEvent({
     status: 'team_complete',

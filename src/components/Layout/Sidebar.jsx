@@ -1,9 +1,10 @@
 import { BarChart3, BriefcaseBusiness, CalendarCheck2, CalendarDays, CalendarRange, FileText, LayoutDashboard, ListChecks, ShieldCheck, Users, X } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
+import { BALANCETE_PATH, DEFAULT_AUTHENTICATED_PATH } from '../../utils/navigation.js';
 
 const links = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: DEFAULT_AUTHENTICATED_PATH, label: 'Dashboard', icon: LayoutDashboard },
   { to: '/calendar', label: 'Calendário', icon: CalendarRange },
   { to: '/collaborators', label: 'Colaboradores', icon: Users },
   { to: '/clients', label: 'Clientes', icon: BriefcaseBusiness },
@@ -11,7 +12,7 @@ const links = [
   { to: '/services', label: 'Eventos/Serviços', icon: CalendarDays },
   { to: '/time-validation', label: 'Validação de Horas', icon: CalendarCheck2 },
   { to: '/finance', label: 'Financeiro', icon: BarChart3 },
-  { to: '/', label: 'Balancete', icon: ListChecks },
+  { to: BALANCETE_PATH, label: 'Balancete', icon: ListChecks },
 ];
 
 export default function Sidebar({ mobileOpen = false, onClose }) {
@@ -36,7 +37,7 @@ export default function Sidebar({ mobileOpen = false, onClose }) {
       </div>
       <nav>
         {visibleLinks.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} end={to === '/'} onClick={onClose}>
+          <NavLink key={to} to={to} end onClick={onClose}>
             <Icon size={18} />
             <span>{label}</span>
           </NavLink>

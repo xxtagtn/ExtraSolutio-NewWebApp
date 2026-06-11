@@ -1,4 +1,4 @@
-const realizedServiceStatuses = ['completed', 'invoiced', 'paid'];
+const realizedServiceStatuses = ['finalized', 'completed', 'invoiced', 'paid'];
 
 function dateOnly(value) {
   if (!value) return '';

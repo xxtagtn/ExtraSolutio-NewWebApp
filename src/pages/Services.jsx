@@ -13,6 +13,13 @@ import {
   shouldBlockPrepaidStaffAllocation,
 } from '../utils/prepaymentPolicy.js';
 import { assignmentStaffCost, assignmentStaffRate, clientChargeHours, collaboratorHourlyRate, decimalValue } from '../utils/serviceFinance.js';
+import {
+  isArchivedService,
+  nextAutomaticServiceStatus,
+  operationalStatusOptions,
+  SERVICE_STATUS,
+  statusLabel,
+} from '../utils/serviceStatus.js';
 import { calculateTravelAmount } from '../utils/travelCalculator.js';
 
 const eventTypeOptions = [
@@ -26,17 +33,6 @@ const eventTypeOptions = [
   'Hotel',
   'Reforço Operacional',
   'Serviço Protocolar',
-];
-
-const operationalStatusOptions = [
-  { value: 'drafting', label: 'A preencher' },
-  { value: 'team_complete', label: 'Equipa completa' },
-  { value: 'in_progress', label: 'Em execução' },
-  { value: 'completed', label: 'Concluído' },
-  { value: 'to_validate_staff', label: 'Por validar horários (Staff)' },
-  { value: 'to_validate_client', label: 'Por validar horários (Cliente)' },
-  { value: 'invoiced', label: 'Faturado' },
-  { value: 'paid', label: 'Pago' },
 ];
 
 const uniformOptions = [
@@ -223,13 +219,6 @@ function timeRangesOverlap(aStart, aEnd, bStart, bEnd) {
   return sA < eB && sB < eA;
 }
 
-function statusLabel(status) {
-  const found = operationalStatusOptions.find((option) => option.value === status);
-  if (found) return found.label;
-  if (status === 'cancelled') return 'Cancelado';
-  return status || '-';
-}
-
 function safeArrayJson(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -258,6 +247,15 @@ function extractBudgetReference(text) {
   if (tagged?.[1]) return tagged[1].trim();
   const fallback = raw.match(/\bORC-\d+\b/i);
   return fallback ? fallback[0].toUpperCase() : '';
+}
+
+function removeValidatedMarker(notes) {
+  return String(notes || '')
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => !line.includes('[EVENT_VALIDATED_HOURS]'))
+    .join('\n')
+    .trim();
 }
 
 function parseTemplatePayload(template) {
@@ -421,6 +419,7 @@ export default function Services() {
   const [fromDate, setFromDate] = useState('');
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [listScope, setListScope] = useState('active');
   const [formOpen, setFormOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('summary');
   const [editing, setEditing] = useState(null);
@@ -437,13 +436,18 @@ export default function Services() {
   const [templateName, setTemplateName] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState('');
+  const [statusSyncing, setStatusSyncing] = useState(false);
 
   const rows = useMemo(() => data.filter((row) => {
+    const byArchive = listScope === 'archive' ? isArchivedService(row) : !isArchivedService(row);
     const byDate = fromDate ? dateOnly(eventRangeEnd(row)) >= fromDate : true;
     const byClient = clientFilter ? String(row.clientId) === clientFilter : true;
-    const byStatus = statusFilter ? row.status === statusFilter : true;
-    return byDate && byClient && byStatus;
-  }), [data, fromDate, clientFilter, statusFilter]);
+    const byStatus = statusFilter ? nextAutomaticServiceStatus(row) === statusFilter : true;
+    return byArchive && byDate && byClient && byStatus;
+  }), [data, listScope, fromDate, clientFilter, statusFilter]);
+
+  const activeCount = useMemo(() => data.filter((row) => !isArchivedService(row)).length, [data]);
+  const archiveCount = useMemo(() => data.filter((row) => isArchivedService(row)).length, [data]);
 
   const availableRoles = useMemo(
     () => [...new Set((roleCatalog || []).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt')),
@@ -583,30 +587,39 @@ export default function Services() {
     updatePrepaymentStatus('partial70');
   }
 
-  function getAutoOperationalStatus(currentForm) {
-    const requested = currentForm.isContinuous
-      ? currentForm.assignments.filter((item) => item.role && item.collaboratorId && item.assignmentDate).length
-      : currentForm.requiredRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0);
-    const confirmed = currentForm.assignments.filter((item) => item.status === 'confirmed').length;
-    const now = new Date();
-    const finalDate = currentForm.isContinuous && currentForm.endDate ? currentForm.endDate : currentForm.date;
-    if (finalDate && currentForm.endTime) {
-      const endDt = new Date(`${finalDate}T${currentForm.endTime}:00`);
-      if (!Number.isNaN(endDt.getTime()) && now >= endDt) return 'to_validate_staff';
-    }
-    if (currentForm.date && currentForm.startTime) {
-      const startDt = new Date(`${currentForm.date}T${currentForm.startTime}:00`);
-      if (!Number.isNaN(startDt.getTime()) && now >= startDt) return 'in_progress';
-    }
-    if (requested > 0 && confirmed >= requested) return 'team_complete';
-    return 'drafting';
-  }
-
   useEffect(() => {
     if (!formOpen || statusManualOverride) return;
-    const autoStatus = getAutoOperationalStatus(form);
+    const autoStatus = nextAutomaticServiceStatus(form);
     if (form.status !== autoStatus) setForm((prev) => ({ ...prev, status: autoStatus }));
   }, [formOpen, statusManualOverride, form]);
+
+  useEffect(() => {
+    if (loading || statusSyncing || formOpen || !data.length) return;
+    const updates = data
+      .map((row) => ({ row, nextStatus: nextAutomaticServiceStatus(row) }))
+      .filter(({ row, nextStatus }) => nextStatus && nextStatus !== row.status);
+    if (!updates.length) return;
+
+    let cancelled = false;
+    setStatusSyncing(true);
+    Promise.all(updates.map(({ row, nextStatus }) => api(`/services/${row.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: nextStatus }),
+    })))
+      .then(() => {
+        if (!cancelled) reload();
+      })
+      .catch((err) => {
+        console.warn('Falha ao sincronizar estados dos eventos/serviços:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setStatusSyncing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data, loading, reload, statusSyncing, formOpen]);
 
   useEffect(() => {
     if (!formOpen) return;
@@ -823,8 +836,8 @@ export default function Services() {
         collaboratorId: '',
         assignmentDate: form.isContinuous ? (selectedTeamDay || form.date || '') : '',
         collaboratorSearch: '',
-        checkIn: form.startTime || '',
-        checkOut: form.endTime || '',
+        checkIn: '',
+        checkOut: '',
         clientCheckIn: '',
         clientCheckOut: '',
         validatedCheckIn: '',
@@ -961,7 +974,7 @@ export default function Services() {
       });
       const payload = {
         ...form,
-        status: form.billingStatus === 'paid' ? 'paid' : form.status,
+        status: statusManualOverride ? form.status : nextAutomaticServiceStatus(form),
         endDate: form.isContinuous && form.endDate ? form.endDate : null,
         location: effectiveLocation,
         uniform: form.uniform === 'Outros' ? form.uniformOther : form.uniform,
@@ -1081,6 +1094,30 @@ export default function Services() {
     }
   }
 
+  async function restoreEventFromArchive() {
+    if (!editing?.id || saving) return;
+    setSaving(true);
+    setFormError('');
+    try {
+      const nextNotes = removeValidatedMarker(editing.notes) || null;
+      await api(`/services/${editing.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          status: SERVICE_STATUS.toValidateStaff,
+          notes: nextNotes,
+        }),
+      });
+      setForm((prev) => ({ ...prev, status: SERVICE_STATUS.toValidateStaff }));
+      setEditing((prev) => (prev ? { ...prev, status: SERVICE_STATUS.toValidateStaff, notes: nextNotes } : prev));
+      setListScope('active');
+      reload();
+    } catch (err) {
+      setFormError(err.message || 'Não foi possível retirar o evento/serviço do arquivo.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function renderPrepaymentPanel() {
     if (selectedClient?.billingMethod !== 'prepaid') return null;
 
@@ -1145,6 +1182,22 @@ export default function Services() {
           </button>
         )}
       >
+        <div className="service-tabs budget-tabs">
+          <button
+            type="button"
+            className={`service-tab ${listScope === 'active' ? 'service-tab--active' : ''}`}
+            onClick={() => setListScope('active')}
+          >
+            Ativos ({activeCount})
+          </button>
+          <button
+            type="button"
+            className={`service-tab ${listScope === 'archive' ? 'service-tab--active' : ''}`}
+            onClick={() => setListScope('archive')}
+          >
+            Arquivo ({archiveCount})
+          </button>
+        </div>
         <div className="filters">
           <input className="form-control" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
           <select className="form-control" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}>
@@ -1188,7 +1241,7 @@ export default function Services() {
                   <span className="service-status-count service-status-count--confirmed">Confirmados: {confirmedTotal}</span>
                   {pendingTotal > 0 ? <span className="service-status-count service-status-count--pending">A aguardar: {pendingTotal}</span> : null}
                   <span className="service-status-count">Valor: {euro(getRowForecast(row))}</span>
-                  <Badge tone="info">{statusLabel(row.status)}</Badge>
+                  <Badge tone={isArchivedService(row) ? 'success' : 'info'}>{statusLabel(row.status)}</Badge>
                   <ChevronRight size={16} />
                 </div>
               </button>
@@ -1671,6 +1724,11 @@ export default function Services() {
                 <button className="secondary-button secondary-button--danger" type="button" onClick={removeEvent} disabled={saving || removing}>
                   <Trash2 size={16} />
                   {removing ? 'A eliminar...' : 'Eliminar'}
+                </button>
+              ) : null}
+              {editing && isArchivedService(form) ? (
+                <button className="secondary-button" type="button" onClick={restoreEventFromArchive} disabled={saving || removing}>
+                  Retirar do arquivo
                 </button>
               ) : null}
               <button className="command-button" type="submit" disabled={saving || removing}>{saving ? 'A guardar...' : 'Guardar'}</button>

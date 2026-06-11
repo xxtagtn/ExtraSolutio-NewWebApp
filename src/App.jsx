@@ -13,6 +13,7 @@ import PendingActions from './pages/PendingActions.jsx';
 import Profile from './pages/Profile.jsx';
 import Services from './pages/Services.jsx';
 import TimeValidation from './pages/TimeValidation.jsx';
+import { BALANCETE_PATH, DEFAULT_AUTHENTICATED_PATH } from './utils/navigation.js';
 
 function ProtectedRoute({ children }) {
   const { authenticated } = useAuth();
@@ -24,7 +25,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route index element={<Dashboard />} />
+        <Route index element={<Navigate to={DEFAULT_AUTHENTICATED_PATH} replace />} />
         <Route path="dashboard" element={<PendingActions />} />
         <Route path="actions" element={<Navigate to="/dashboard" replace />} />
         <Route path="collaborators" element={<Collaborators />} />
@@ -35,10 +36,11 @@ export default function App() {
         <Route path="budgets" element={<Budgets />} />
         <Route path="finance" element={<Accounting />} />
         <Route path="accounting" element={<Navigate to="/finance" replace />} />
+        <Route path={BALANCETE_PATH.replace(/^\//, '')} element={<Dashboard />} />
         <Route path="profile" element={<Profile />} />
         <Route path="admin" element={<Admin />} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to={DEFAULT_AUTHENTICATED_PATH} replace />} />
     </Routes>
   );
 }

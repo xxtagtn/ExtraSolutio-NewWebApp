@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Card from '../components/UI/Card.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { statusLabel } from '../utils/serviceStatus.js';
 
 const MONTHS_PT = ['Janeiro', 'Fevereiro', 'Marco', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const WEEKDAYS_PT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
@@ -13,19 +14,7 @@ function toWeekIndex(jsDay) {
   return jsDay === 0 ? 6 : jsDay - 1;
 }
 
-function serviceStatusLabel(status) {
-  if (status === 'drafting') return 'A preencher';
-  if (status === 'team_complete') return 'Equipa completa';
-  if (status === 'pending') return 'Pendente';
-  if (status === 'in_progress') return 'Em execução';
-  if (status === 'completed') return 'Concluído';
-  if (status === 'to_validate_staff') return 'Por validar horários (Staff)';
-  if (status === 'to_validate_client') return 'Por validar horários (Cliente)';
-  if (status === 'invoiced') return 'Faturado';
-  if (status === 'paid') return 'Pago';
-  if (status === 'cancelled') return 'Cancelado';
-  return status || '-';
-}
+const serviceStatusLabel = statusLabel;
 
 function parseDate(value) {
   if (!value) return null;

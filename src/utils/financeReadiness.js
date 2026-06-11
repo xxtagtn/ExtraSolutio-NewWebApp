@@ -1,6 +1,6 @@
 const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const CLOSED_BILLING_STATUSES = new Set(['partial70', 'invoiced', 'paid']);
-const FINANCE_READY_EVENT_STATUSES = new Set(['to_validate_client', 'paid']);
+const FINANCE_READY_EVENT_STATUSES = new Set(['finalized', 'completed', 'invoiced', 'paid']);
 const VALIDATED_EVENT_MARKER = '[EVENT_VALIDATED_HOURS]';
 
 function normalized(value) {

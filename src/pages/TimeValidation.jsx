@@ -9,6 +9,7 @@ import { date } from '../utils/formatters.js';
 import { buildBulkValidationCandidates } from '../utils/hourValidationBulk.js';
 import { hoursValidationState } from '../utils/hourValidationStatus.js';
 import { clientChargeHours, decimalValue } from '../utils/serviceFinance.js';
+import { nextAutomaticServiceStatus, SERVICE_STATUS } from '../utils/serviceStatus.js';
 import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
 import { filterRowsByDateRange } from '../utils/timeValidationFilters.js';
 
@@ -64,7 +65,7 @@ function rowIsValidated(assignment) {
 }
 
 function eventIsMarkedValidated(event) {
-  return String(event?.notes || '').includes(VALIDATED_EVENT_MARKER);
+  return event?.status === SERVICE_STATUS.finalized || String(event?.notes || '').includes(VALIDATED_EVENT_MARKER);
 }
 
 function extractValidatedAt(event) {
@@ -236,7 +237,36 @@ export default function TimeValidation() {
   const [savingId, setSavingId] = useState(null);
   const [validatingEventId, setValidatingEventId] = useState(null);
   const [bulkValidatingEventId, setBulkValidatingEventId] = useState(null);
+  const [statusSyncing, setStatusSyncing] = useState(false);
   const [drafts, setDrafts] = useState({});
+
+  useEffect(() => {
+    if (loading || statusSyncing || !services.length) return;
+    const updates = services
+      .map((event) => ({ event, nextStatus: nextAutomaticServiceStatus(event) }))
+      .filter(({ event, nextStatus }) => nextStatus && nextStatus !== event.status);
+    if (!updates.length) return;
+
+    let cancelled = false;
+    setStatusSyncing(true);
+    Promise.all(updates.map(({ event, nextStatus }) => api(`/services/${event.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: nextStatus }),
+    })))
+      .then(() => {
+        if (!cancelled) reload();
+      })
+      .catch((err) => {
+        console.warn('Falha ao sincronizar estados dos eventos/serviços:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setStatusSyncing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, reload, services, statusSyncing]);
 
   const allRows = useMemo(
     () => services.flatMap((event) => (event.assignments || [])
@@ -533,10 +563,14 @@ export default function TimeValidation() {
         assignment.id === row.id ? { ...assignment, ...body } : assignment
       ));
       const totals = eventTotals(row.event, nextAssignments);
+      const nextStatus = nextAutomaticServiceStatus({ ...row.event, assignments: nextAssignments });
       try {
         await api(`/services/${row.event.id}`, {
           method: 'PUT',
-          body: JSON.stringify(totals),
+          body: JSON.stringify({
+            ...totals,
+            status: nextStatus,
+          }),
         });
       } catch (error) {
         console.warn('Falha a atualizar totais do evento apos validar horas:', error);
@@ -596,9 +630,13 @@ export default function TimeValidation() {
         updates.has(assignment.id) ? { ...assignment, ...updates.get(assignment.id) } : assignment
       ));
       const totals = eventTotals(item.event, nextAssignments);
+      const nextStatus = nextAutomaticServiceStatus({ ...item.event, assignments: nextAssignments });
       await api(`/services/${item.event.id}`, {
         method: 'PUT',
-        body: JSON.stringify(totals),
+        body: JSON.stringify({
+          ...totals,
+          status: nextStatus,
+        }),
       });
 
       setDrafts((prev) => {
@@ -624,6 +662,13 @@ export default function TimeValidation() {
         method: 'PUT',
         body: JSON.stringify(reopenAssignmentPayload(merged)),
       });
+      await api(`/services/${row.event.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          notes: removeValidatedMarker(row.event.notes) || null,
+          status: SERVICE_STATUS.toValidateStaff,
+        }),
+      });
       setDrafts((prev) => ({ ...prev, [row.id]: { ...merged, ...reopenAssignmentPayload(merged) } }));
       reload();
     } catch (error) {
@@ -645,7 +690,7 @@ export default function TimeValidation() {
         method: 'PUT',
         body: JSON.stringify({
           notes: nextNotes,
-          status: 'to_validate_client',
+          status: SERVICE_STATUS.finalized,
         }),
       });
       reload();
@@ -671,7 +716,7 @@ export default function TimeValidation() {
         method: 'PUT',
         body: JSON.stringify({
           notes: nextNotes || null,
-          status: 'pending',
+          status: SERVICE_STATUS.toValidateStaff,
         }),
       });
       setDrafts((prev) => {

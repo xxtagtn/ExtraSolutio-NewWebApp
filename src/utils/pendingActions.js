@@ -109,6 +109,7 @@ function documentDescription(days) {
 function addTeamActions(actions, services, today) {
   for (const event of services || []) {
     if (CLOSED_SERVICE_STATUSES.has(normalized(event?.status))) continue;
+    if (isFinanceReadyEvent(event)) continue;
 
     const requested = requiredTotal(event);
     if (!requested) continue;

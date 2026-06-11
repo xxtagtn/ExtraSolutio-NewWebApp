@@ -39,6 +39,23 @@ test('detects urgent operational and validation actions from services', () => {
   assert.ok(actions.every((action) => action.to));
 });
 
+test('does not create team actions for finalized services', () => {
+  const actions = buildPendingActions({
+    services: [
+      {
+        id: 12,
+        name: 'Evento arquivado',
+        date: '2026-06-07T09:00:00.000Z',
+        status: 'finalized',
+        requiredRoles: JSON.stringify([{ role: 'Barman', qty: 2 }]),
+        assignments: [],
+      },
+    ],
+  }, { today });
+
+  assert.equal(actions.some((action) => action.id === 'service-team-12'), false);
+});
+
 test('detects collaborator document expiry windows', () => {
   const actions = buildPendingActions({
     collaborators: [

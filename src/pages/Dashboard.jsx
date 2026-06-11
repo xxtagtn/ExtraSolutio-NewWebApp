@@ -7,38 +7,23 @@ import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { countRealizedServices } from '../utils/dashboardMetrics.js';
 import { asNumber, money } from '../utils/formatters.js';
+import { SERVICE_STATUS, statusLabel } from '../utils/serviceStatus.js';
 
 const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const activeServiceStatuses = [
-  'drafting',
+  SERVICE_STATUS.drafting,
   'partial',
-  'team_complete',
+  SERVICE_STATUS.teamComplete,
   'pending',
   'confirmed',
-  'in_progress',
+  SERVICE_STATUS.inProgress,
   'ongoing',
   'to_validate',
-  'to_validate_staff',
-  'to_validate_client',
+  SERVICE_STATUS.toValidateStaff,
+  SERVICE_STATUS.toValidateClient,
 ];
 
-function serviceStatusLabel(status) {
-  if (status === 'drafting') return 'A preencher';
-  if (status === 'partial') return 'Parcialmente preenchido';
-  if (status === 'team_complete') return 'Equipa completa';
-  if (status === 'pending') return 'Pendente';
-  if (status === 'confirmed') return 'Confirmado';
-  if (status === 'in_progress') return 'Em execução';
-  if (status === 'ongoing') return 'Em curso';
-  if (status === 'completed') return 'Concluído';
-  if (status === 'to_validate') return 'Por validar';
-  if (status === 'to_validate_staff') return 'Por validar horários (Staff)';
-  if (status === 'to_validate_client') return 'Por validar horários (Cliente)';
-  if (status === 'invoiced') return 'Faturado';
-  if (status === 'paid') return 'Pago';
-  if (status === 'cancelled') return 'Cancelado';
-  return status || '-';
-}
+const serviceStatusLabel = statusLabel;
 
 function dateOnly(value) {
   if (!value) return '';
@@ -151,7 +136,7 @@ export default function Dashboard() {
           {
             label: 'Eventos Realizados',
             value: realizedServices,
-            detail: 'Concluídos ou com data passada',
+            detail: 'Finalizados ou com data passada',
             icon: <CalendarCheck2 size={18} />,
             tone: 'neutral',
           },
