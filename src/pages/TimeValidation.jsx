@@ -9,9 +9,14 @@ import { date } from '../utils/formatters.js';
 import { buildBulkValidationCandidates } from '../utils/hourValidationBulk.js';
 import { hoursValidationState } from '../utils/hourValidationStatus.js';
 import { clientChargeHours, decimalValue } from '../utils/serviceFinance.js';
-import { nextAutomaticServiceStatus, SERVICE_STATUS } from '../utils/serviceStatus.js';
+import { nextAutomaticServiceStatus, nextTimeValidationServiceStatus, SERVICE_STATUS } from '../utils/serviceStatus.js';
 import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
-import { filterRowsByDateRange } from '../utils/timeValidationFilters.js';
+import {
+  compareTimeValidationRows,
+  dateKeysFrom,
+  effectiveRowDateKey,
+  filterRowsByDateRange,
+} from '../utils/timeValidationFilters.js';
 
 const NON_BILLABLE_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const VALIDATED_EVENT_MARKER = '[EVENT_VALIDATED_HOURS]';
@@ -106,6 +111,13 @@ function periodLabel(start, end) {
   if (start) return `Desde ${date.format(new Date(start))}`;
   if (end) return `Até ${date.format(new Date(end))}`;
   return 'Todos os dias';
+}
+
+function dateRangeLabelFromKeys(keys) {
+  const dates = [...new Set(dateKeysFrom(keys))].sort();
+  if (!dates.length) return '-';
+  if (dates.length === 1) return date.format(new Date(dates[0]));
+  return `${date.format(new Date(dates[0]))} a ${date.format(new Date(dates[dates.length - 1]))}`;
 }
 
 function fileSafeName(value) {
@@ -276,10 +288,13 @@ export default function TimeValidation() {
         const merged = { ...assignment, ...draft };
         const assessment = rowAssessment(merged);
         const collaboratorName = merged.collaborator?.shortName || merged.collaborator?.name || '';
+        const workDateKey = effectiveRowDateKey({ event, assignment: merged });
         return {
           id: assignment.id,
           event,
           assignment: merged,
+          workDateKey,
+          workDateLabel: workDateKey ? date.format(new Date(workDateKey)) : '-',
           collaboratorName,
           validationState: hoursValidationState(merged),
           tone: assessment.tone,
@@ -327,11 +342,15 @@ export default function TimeValidation() {
       if (!seen.has(id)) {
         seen.set(id, {
           id,
-          label: `${row.event.name || '-'} · ${row.event.date ? date.format(new Date(row.event.date)) : '-'}`,
+          name: row.event.name || '-',
+          dates: new Set(),
         });
       }
+      seen.get(id).dates.add(row.workDateKey);
     }
-    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
+    return [...seen.values()]
+      .map((item) => ({ id: item.id, label: `${item.name} · ${dateRangeLabelFromKeys(item.dates)}` }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'pt'));
   }, [clientRows]);
 
   const collaboratorOptions = useMemo(() => {
@@ -359,17 +378,28 @@ export default function TimeValidation() {
           validated: 0,
           markedValidated: eventIsMarkedValidated(row.event),
           validatedAt: extractValidatedAt(row.event),
+          workDateKeys: new Set(),
         });
       }
       const current = map.get(key);
+      current.workDateKeys.add(row.workDateKey);
       if (!NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status))) {
         current.total += 1;
         if (rowIsValidated(row.assignment)) current.validated += 1;
       }
     }
     return [...map.values()]
-      .map((item) => ({ ...item, ready: item.total > 0 && item.validated >= item.total }))
-      .sort((a, b) => new Date(b.event.date || 0).getTime() - new Date(a.event.date || 0).getTime());
+      .map((item) => {
+        const workDateKeys = [...item.workDateKeys].filter(Boolean).sort();
+        const latestWorkDateKey = workDateKeys[workDateKeys.length - 1] || item.event.date || '';
+        return {
+          ...item,
+          dateLabel: dateRangeLabelFromKeys(workDateKeys),
+          latestWorkDateKey,
+          ready: item.total > 0 && item.validated >= item.total,
+        };
+      })
+      .sort((a, b) => new Date(b.latestWorkDateKey || 0).getTime() - new Date(a.latestWorkDateKey || 0).getTime());
   }, [clientRows]);
 
   const pendingEvents = useMemo(() => eventProgress.filter((item) => !item.markedValidated), [eventProgress]);
@@ -408,11 +438,9 @@ export default function TimeValidation() {
         if (viewMode === 'collaborator') {
           const byName = String(a.collaboratorName || '').localeCompare(String(b.collaboratorName || ''), 'pt');
           if (byName !== 0) return byName;
-          return new Date(b.event.date || 0).getTime() - new Date(a.event.date || 0).getTime();
+          return compareTimeValidationRows(a, b);
         }
-        const byEventDate = new Date(b.event.date || 0).getTime() - new Date(a.event.date || 0).getTime();
-        if (byEventDate !== 0) return byEventDate;
-        return String(a.event.name || '').localeCompare(String(b.event.name || ''), 'pt');
+        return compareTimeValidationRows(a, b);
       }),
     [clientRows, scope, onlyDifferences, selectedCollaboratorId, selectedEventId, viewMode],
   );
@@ -563,7 +591,7 @@ export default function TimeValidation() {
         assignment.id === row.id ? { ...assignment, ...body } : assignment
       ));
       const totals = eventTotals(row.event, nextAssignments);
-      const nextStatus = nextAutomaticServiceStatus({ ...row.event, assignments: nextAssignments });
+      const nextStatus = nextTimeValidationServiceStatus({ ...row.event, assignments: nextAssignments });
       try {
         await api(`/services/${row.event.id}`, {
           method: 'PUT',
@@ -630,7 +658,7 @@ export default function TimeValidation() {
         updates.has(assignment.id) ? { ...assignment, ...updates.get(assignment.id) } : assignment
       ));
       const totals = eventTotals(item.event, nextAssignments);
-      const nextStatus = nextAutomaticServiceStatus({ ...item.event, assignments: nextAssignments });
+      const nextStatus = nextTimeValidationServiceStatus({ ...item.event, assignments: nextAssignments });
       await api(`/services/${item.event.id}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -829,7 +857,7 @@ export default function TimeValidation() {
                 <article key={item.event.id} className="validation-event-item">
                   <div>
                     <strong>{item.event.name || '-'}</strong>
-                    <small>{item.event.client?.name || '-'} · {item.event.date ? date.format(new Date(item.event.date)) : '-'}</small>
+                    <small>{item.event.client?.name || '-'} · {item.dateLabel}</small>
                   </div>
                   <div className="validation-event-metrics">
                     <span>{item.validated}/{item.total} validados</span>
@@ -884,7 +912,7 @@ export default function TimeValidation() {
                       </td>
                       <td>
                         <strong>{row.event.name}</strong>
-                        <small>{row.event.client?.name || '-'} · {row.event.date ? date.format(new Date(row.event.date)) : '-'}</small>
+                        <small>{row.event.client?.name || '-'} · {row.workDateLabel}</small>
                       </td>
                       <td>
                         <div className="validation-time-stack">
@@ -958,7 +986,7 @@ export default function TimeValidation() {
               <article key={item.event.id} className="validation-history-item">
                 <div>
                   <strong>{item.event.name || '-'}</strong>
-                  <small>{item.event.client?.name || '-'} · {item.event.date ? date.format(new Date(item.event.date)) : '-'}</small>
+                  <small>{item.event.client?.name || '-'} · {item.dateLabel}</small>
                 </div>
                 <div>
                   <span>Validado</span>

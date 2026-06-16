@@ -76,6 +76,8 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   'eventId',
   'collaboratorId',
   'role',
+  'plannedCheckIn',
+  'plannedCheckOut',
   'checkIn',
   'checkOut',
   'hoursWorked',
@@ -83,6 +85,7 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   'totalPay',
   'paymentAdjustment',
   'paymentNotes',
+  'advancePayments',
   'status',
 ], {
   include: { event: true, collaborator: true },

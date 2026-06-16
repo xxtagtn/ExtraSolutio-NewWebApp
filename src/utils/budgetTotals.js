@@ -55,16 +55,18 @@ export function calculateBudgetTotals(form = {}) {
   }, 0);
 
   const travelAmount = calculateTravelAmount(form);
-  const subtotal = baseAmount + travelAmount;
+  const grossSubtotal = baseAmount + travelAmount;
+  const discountAmount = grossSubtotal * (numberValue(form.discountRate) / 100);
+  const subtotalAmount = Math.max(0, grossSubtotal - discountAmount);
   const taxRate = form.vatMode === 'exempt' ? 0 : numberValue(form.vatRate);
-  const taxAmount = subtotal * (taxRate / 100);
-  const totalWithTax = subtotal + taxAmount;
-  const discountAmount = totalWithTax * (numberValue(form.discountRate) / 100);
-  const totalAmount = totalWithTax - discountAmount;
+  const taxAmount = subtotalAmount * (taxRate / 100);
+  const totalWithTax = subtotalAmount + taxAmount;
+  const totalAmount = totalWithTax;
 
   return {
     baseAmount: Number(baseAmount.toFixed(2)),
     travelAmount: Number(travelAmount.toFixed(2)),
+    subtotalAmount: Number(subtotalAmount.toFixed(2)),
     taxAmount: Number(taxAmount.toFixed(2)),
     totalWithTax: Number(totalWithTax.toFixed(2)),
     discountAmount: Number(discountAmount.toFixed(2)),

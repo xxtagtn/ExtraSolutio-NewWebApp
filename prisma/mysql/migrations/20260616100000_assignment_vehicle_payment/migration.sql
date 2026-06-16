@@ -1,0 +1,3 @@
+ALTER TABLE `EventAssignment`
+  ADD COLUMN `usesOwnVehicle` BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN `vehicleAmount` DECIMAL(12, 2) NOT NULL DEFAULT 0;

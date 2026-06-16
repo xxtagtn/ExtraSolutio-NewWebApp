@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   billingEventIdsForRow,
   billingPaymentDateForRow,
+  clientBillingRowsForActiveEvents,
   billingStatusForRow,
   billingValueForRow,
   dueDateForBillingGroup,
@@ -224,4 +225,35 @@ test('returns the latest payment date from paid services in a billing row', () =
   };
 
   assert.equal(localDateKey(billingPaymentDateForRow(row)), '2026-06-18');
+});
+
+test('shows only client rows with active events and orders them alphabetically', () => {
+  const rows = clientBillingRowsForActiveEvents([
+    {
+      rowId: 'client:2:empty',
+      id: 2,
+      name: 'Zulu',
+      billingGroups: [],
+      nonInvoicedServices: [],
+      nextDueDate: '2026-06-10',
+    },
+    {
+      rowId: 'client:3:event',
+      id: 3,
+      name: 'BLACK',
+      billingGroups: [{ events: [{ id: 20, billingStatus: 'pending' }] }],
+      nonInvoicedServices: [],
+      nextDueDate: '2026-06-12',
+    },
+    {
+      rowId: 'client:1:event',
+      id: 1,
+      name: 'Ana Eventos',
+      billingGroups: [],
+      nonInvoicedServices: [{ id: 10, billingStatus: 'pending' }],
+      nextDueDate: '2026-06-15',
+    },
+  ]);
+
+  assert.deepEqual(rows.map((row) => row.name), ['Ana Eventos', 'BLACK']);
 });

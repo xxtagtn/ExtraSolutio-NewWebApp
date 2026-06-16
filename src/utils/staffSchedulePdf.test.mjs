@@ -46,6 +46,49 @@ test('builds printable staff schedule rows from validation rows', () => {
   });
 });
 
+test('uses assignment date as printable schedule date when present', () => {
+  const rows = buildStaffScheduleRows([
+    {
+      event: {
+        id: 7,
+        name: 'Evento Continuo',
+        client: { name: 'Cliente A' },
+        date: '2026-07-01',
+        location: 'Lisboa',
+      },
+      assignment: {
+        assignmentDate: '2026-07-04',
+        collaborator: { shortName: 'Ana Silva' },
+        role: 'Staff',
+        checkIn: '10:00',
+        checkOut: '16:00',
+      },
+      staffScheduleHours: 6,
+    },
+  ]);
+
+  assert.equal(rows[0].eventDate, '04/07/2026');
+});
+
+test('groups printable schedules by event date for continuous services', () => {
+  const html = buildStaffSchedulePdfHtml([
+    {
+      event: { id: 7, name: 'Evento Continuo', client: { name: 'Cliente A' }, date: '2026-07-01' },
+      assignment: { assignmentDate: '2026-07-04', collaborator: { shortName: 'Ana' }, role: 'Staff', checkIn: '10:00', checkOut: '16:00' },
+      staffScheduleHours: 6,
+    },
+    {
+      event: { id: 7, name: 'Evento Continuo', client: { name: 'Cliente A' }, date: '2026-07-01' },
+      assignment: { assignmentDate: '2026-07-05', collaborator: { shortName: 'Rui' }, role: 'Staff', checkIn: '10:00', checkOut: '16:00' },
+      staffScheduleHours: 6,
+    },
+  ], { clientLabel: 'Cliente A', monthLabel: 'julho de 2026' });
+
+  assert.equal((html.match(/Evento Continuo/g) || []).length, 2);
+  assert.equal(html.includes('04/07/2026'), true);
+  assert.equal(html.includes('05/07/2026'), true);
+});
+
 test('shows event total without collaborator rates or totals in pdf and excel exports', () => {
   const rows = [
     {

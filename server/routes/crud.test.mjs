@@ -60,6 +60,19 @@ test('normalizes assignment client sync flag', () => {
   assert.equal(normalizeAssignment({ clientSynced: 'false' }).clientSynced, false);
 });
 
+test('normalizes assignment advance payments', () => {
+  const payload = normalizeAssignment({
+    advancePayments: [
+      { id: 'a1', date: '2026-06-10', amount: '12,50€', note: 'Deslocação', car: true },
+      { id: 'a2', date: '2026-06-11', amount: '', note: 'Sem valor' },
+    ],
+  });
+
+  assert.equal(payload.advancePayments, JSON.stringify([
+    { id: 'a1', date: '2026-06-10', amount: 12.5, note: 'Deslocação', car: true },
+  ]));
+});
+
 test('normalizes assignment deferred payment month', () => {
   assert.equal(normalizeAssignment({ paymentDeferredMonth: '2026-08' }).paymentDeferredMonth, '2026-08');
   assert.equal(normalizeAssignment({ paymentDeferredMonth: '' }).paymentDeferredMonth, null);

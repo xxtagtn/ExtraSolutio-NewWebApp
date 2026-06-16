@@ -102,6 +102,46 @@ function parseBoolean(value) {
   if (value === false || value === 'false' || value === 0 || value === '0') return false;
   return Boolean(value);
 }
+
+function parseArray(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizeAdvanceDate(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+}
+
+function normalizeAdvancePayments(value) {
+  if (value === undefined) return undefined;
+  const normalized = parseArray(value)
+    .map((item, index) => {
+      const amount = parseDecimal(item?.amount) || 0;
+      return {
+        id: String(item?.id || `advance-${index + 1}`),
+        date: normalizeAdvanceDate(item?.date),
+        amount: Number(amount.toFixed(2)),
+        note: String(item?.note || '').trim(),
+        car: Boolean(item?.car),
+      };
+    })
+    .filter((item) => item.amount > 0);
+  return normalized.length ? JSON.stringify(normalized) : null;
+}
 export function normalizeEvent(input) {
   const requiredRoles = Array.isArray(input.requiredRoles) ? input.requiredRoles : [];
   const parseRate = (value) => {
@@ -240,6 +280,8 @@ export function normalizeAssignment(input) {
     collaboratorId: asInt(input.collaboratorId),
     ...(input.assignmentDate !== undefined ? { assignmentDate: input.assignmentDate ? toDate(input.assignmentDate) : null } : {}),
     role: input.role,
+    plannedCheckIn: input.plannedCheckIn === undefined ? undefined : input.plannedCheckIn,
+    plannedCheckOut: input.plannedCheckOut === undefined ? undefined : input.plannedCheckOut,
     checkIn: input.checkIn === undefined ? undefined : input.checkIn,
     checkOut: input.checkOut === undefined ? undefined : input.checkOut,
     clientCheckIn: input.clientCheckIn === undefined ? undefined : input.clientCheckIn,
@@ -253,6 +295,7 @@ export function normalizeAssignment(input) {
     totalPay: parseDecimal(input.totalPay),
     paymentAdjustment: parseDecimal(input.paymentAdjustment),
     paymentNotes: input.paymentNotes,
+    advancePayments: normalizeAdvancePayments(input.advancePayments),
     validationStatus: input.validationStatus,
     validationNotes: input.validationNotes,
     clientSynced: parseBoolean(input.clientSynced),

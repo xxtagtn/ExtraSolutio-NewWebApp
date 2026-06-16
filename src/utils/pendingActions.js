@@ -1,6 +1,7 @@
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { decimalValue } from './serviceFinance.js';
 import { staffPaymentTiming } from './staffPayment.js';
+import { dueDateForBillingGroup } from './clientBilling.js';
 
 const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const CLOSED_SERVICE_STATUSES = new Set(['cancelled']);
@@ -37,6 +38,16 @@ function startOfDay(value) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function addDays(value, days) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function lastDayOfMonth(year, month) {
+  return new Date(year, month + 1, 0);
+}
+
 function validDate(value) {
   if (!value) return null;
   const date = new Date(value);
@@ -66,6 +77,32 @@ function eventDateTime(event) {
   const base = String(event.date).slice(0, 10);
   const time = event.startTime || '00:00';
   return validDate(`${base}T${time}`);
+}
+
+function billingIssueDateForEvent(event) {
+  const serviceDate = validDate(event?.date);
+  if (!serviceDate) return null;
+  const client = event?.client || {};
+  const method = client.billingMethod || 'per_event';
+  const year = serviceDate.getFullYear();
+  const month = serviceDate.getMonth();
+  const day = serviceDate.getDate();
+
+  if (method === 'monthly' || method === 'custom') return lastDayOfMonth(year, month);
+  if (method === 'biweekly') return day <= 15 ? new Date(year, month, 15) : lastDayOfMonth(year, month);
+  if (method === 'prepaid') return startOfDay(serviceDate);
+  return addDays(serviceDate, 1);
+}
+
+function billingDueDateForEvent(event, today) {
+  const issueDate = billingIssueDateForEvent(event);
+  if (!issueDate) return null;
+  return dueDateForBillingGroup({
+    method: event?.client?.billingMethod || 'per_event',
+    issueDate,
+    client: event?.client || {},
+    events: [event],
+  }, today);
 }
 
 function requiredTotal(event) {
@@ -188,9 +225,12 @@ function addBillingActions(actions, services, today) {
     }
 
     if (billingStatus === 'pending' || billingStatus === 'invoiced') {
-      const days = daysUntil(event.date, today);
-      const ready = isFinanceReadyEvent(event) || (days !== null && days <= 0);
-      if (!ready) continue;
+      const issueDate = billingIssueDateForEvent(event);
+      const dueDate = billingDueDateForEvent(event, today) || issueDate;
+      const actionDate = billingStatus === 'invoiced' ? dueDate : issueDate;
+      const days = daysUntil(actionDate, today);
+      if (days === null || days > 0) continue;
+      if (billingStatus === 'pending' && !isFinanceReadyEvent(event)) continue;
       addAction(actions, {
         id: `service-billing-${event.id}`,
         category: 'Clientes',
@@ -198,7 +238,7 @@ function addBillingActions(actions, services, today) {
         description: `${clientName(event)} - ${event.name || 'Evento/Serviço'}.`,
         priority: billingStatus === 'invoiced' ? 'high' : 'medium',
         tone: billingStatus === 'invoiced' ? 'warning' : 'info',
-        dueDate: event.date,
+        dueDate: actionDate,
         to: `/finance?area=clients&eventId=${event.id}`,
         meta: [`Valor: ${numeric(event.totalRevenue).toFixed(2)} €`],
       });
@@ -213,15 +253,15 @@ function addStaffPaymentActions(actions, services, today) {
     for (const assignment of billableAssignments(event)) {
       if (normalized(assignment?.paymentStatus || 'unpaid') === 'paid') continue;
       const timing = staffPaymentTiming({ ...assignment, event }, today);
-      if (!['open', 'overdue'].includes(timing.status)) continue;
+      if (timing.status !== 'open') continue;
       const collaborator = assignment.collaborator || {};
       addAction(actions, {
         id: `staff-payment-${assignment.id}`,
         category: 'Staff',
         title: 'Pagamento de staff pendente',
         description: `${collaboratorName(collaborator)} - ${event.name || 'Evento/Serviço'}.`,
-        priority: timing.status === 'overdue' ? 'high' : 'medium',
-        tone: timing.status === 'overdue' ? 'danger' : 'warning',
+        priority: 'medium',
+        tone: 'warning',
         dueDate: timing.start || event.date,
         to: `/finance?area=staff&assignmentId=${assignment.id}`,
         meta: [clientName(event), timing.deferred ? `Acumulado para ${timing.paymentMonth}` : `Pagamento ${timing.paymentMonth}`],

@@ -5,10 +5,20 @@ export function localDayNumber(value) {
   return date.getDate();
 }
 
+export function dateKeysFrom(keys) {
+  if (!keys) return [];
+  const values = Array.isArray(keys)
+    ? keys
+    : typeof keys[Symbol.iterator] === 'function'
+      ? [...keys]
+      : [];
+  return values.filter(Boolean);
+}
+
 export function filterRowsBySelectedDays(rows, selectedDays = []) {
   if (!selectedDays.length) return rows || [];
   const selected = new Set(selectedDays.map(Number));
-  return (rows || []).filter((row) => selected.has(localDayNumber(row?.event?.date)));
+  return (rows || []).filter((row) => selected.has(localDayNumber(effectiveRowDateKey(row))));
 }
 
 function localDateKey(value) {
@@ -18,14 +28,49 @@ function localDateKey(value) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+export function effectiveRowDateKey(row) {
+  return localDateKey(row?.assignment?.assignmentDate || row?.event?.date);
+}
+
+export function effectiveRowStartTime(row) {
+  return row?.assignment?.plannedCheckIn
+    || row?.assignment?.checkIn
+    || row?.assignment?.clientCheckIn
+    || row?.assignment?.validatedCheckIn
+    || row?.event?.startTime
+    || '';
+}
+
+function timeToMinutes(value) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const [hours, minutes] = String(value).split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return Number.POSITIVE_INFINITY;
+  return (hours * 60) + minutes;
+}
+
+export function compareTimeValidationRows(a, b) {
+  const byDate = String(effectiveRowDateKey(a) || '').localeCompare(String(effectiveRowDateKey(b) || ''));
+  if (byDate) return byDate;
+
+  const byTime = timeToMinutes(effectiveRowStartTime(a)) - timeToMinutes(effectiveRowStartTime(b));
+  if (byTime) return byTime;
+
+  const byEvent = String(a?.event?.name || '').localeCompare(String(b?.event?.name || ''), 'pt');
+  if (byEvent) return byEvent;
+
+  const aName = a?.collaboratorName || a?.assignment?.collaborator?.shortName || a?.assignment?.collaborator?.name || '';
+  const bName = b?.collaboratorName || b?.assignment?.collaborator?.shortName || b?.assignment?.collaborator?.name || '';
+  return String(aName).localeCompare(String(bName), 'pt');
+}
+
 export function filterRowsByDateRange(rows, startDate, endDate) {
   const start = startDate || '';
   const end = endDate || '';
   return (rows || []).filter((row) => {
-    const eventDate = localDateKey(row?.event?.date);
-    if (!eventDate) return false;
-    if (start && eventDate < start) return false;
-    if (end && eventDate > end) return false;
+    const rowDate = effectiveRowDateKey(row);
+    if (!rowDate) return false;
+    if (start && rowDate < start) return false;
+    if (end && rowDate > end) return false;
     return true;
   });
 }

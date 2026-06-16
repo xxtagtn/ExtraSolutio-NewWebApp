@@ -1,5 +1,5 @@
-import { Edit2, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Edit2, Minus, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import IconButton from '../components/UI/IconButton.jsx';
@@ -9,6 +9,9 @@ import { api } from '../utils/api.js';
 import { money } from '../utils/formatters.js';
 
 const roleOptions = ['Emp.Mesa', 'Copa Fina', 'Barman', 'Chefe de Sala', 'Cozinheiro', 'Ajd.Cozinha', 'Logista'];
+const PHOTO_VIEWER_BASE_WIDTH = 420;
+const PHOTO_VIEWER_MAX_ZOOM = 2;
+const PHOTO_VIEWER_ZOOM_STEP = 0.1;
 
 function emptyForm() {
   return {
@@ -87,6 +90,29 @@ export default function Collaborators() {
   const [rolesOpen, setRolesOpen] = useState(false);
   const [shortNameTouched, setShortNameTouched] = useState(false);
   const [expandedRows, setExpandedRows] = useState({});
+  const [photoViewer, setPhotoViewer] = useState(null);
+  const [photoZoom, setPhotoZoom] = useState(1);
+  const rolesDropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!rolesOpen) return undefined;
+
+    function closeOnOutsidePointerDown(event) {
+      if (rolesDropdownRef.current?.contains(event.target)) return;
+      setRolesOpen(false);
+    }
+
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') setRolesOpen(false);
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePointerDown);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointerDown);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [rolesOpen]);
 
   const rows = useMemo(() => data.filter((row) => {
     const byName = nameFilter ? String(row.name || '').toLowerCase().includes(nameFilter.toLowerCase()) : true;
@@ -161,6 +187,21 @@ export default function Collaborators() {
 
   function toggleExpanded(id) {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  function openPhotoViewer(photo, name = 'Colaborador') {
+    if (!photo) return;
+    setPhotoViewer({ photo, name });
+    setPhotoZoom(1);
+  }
+
+  function closePhotoViewer() {
+    setPhotoViewer(null);
+    setPhotoZoom(1);
+  }
+
+  function changePhotoZoom(delta) {
+    setPhotoZoom((current) => Math.min(PHOTO_VIEWER_MAX_ZOOM, Math.max(1, Number((current + delta).toFixed(2)))));
   }
 
   function onNameChange(value) {
@@ -314,7 +355,18 @@ export default function Collaborators() {
                         <p><span>Disponibilidade</span><strong>{row.availability || '-'}</strong></p>
                         <p className="span-2"><span>Notas</span><strong>{row.notes || '-'}</strong></p>
                       </div>
-                      <aside className="collab-detail-photo">{row.photo ? <img src={row.photo} alt={`Foto de ${row.name}`} /> : <span>Sem foto</span>}</aside>
+                      <aside className="collab-detail-photo">
+                        {row.photo ? (
+                          <button
+                            type="button"
+                            className="photo-zoom-trigger"
+                            onClick={() => openPhotoViewer(row.photo, row.shortName || row.name)}
+                            aria-label={`Ampliar foto de ${row.name}`}
+                          >
+                            <img src={row.photo} alt={`Foto de ${row.name}`} />
+                          </button>
+                        ) : <span>Sem foto</span>}
+                      </aside>
                     </div>
                     <footer className="collab-detail-actions">
                       <IconButton label="Editar" onClick={() => openEdit(row)}><Edit2 size={16} /></IconButton>
@@ -340,7 +392,7 @@ export default function Collaborators() {
                   <div><label>NIF</label><input placeholder="Ex: 123456789" value={form.nif} onChange={(event) => onNifChange(event.target.value)} /></div>
                   <div><label>Nome curto</label><input placeholder="Ex: João Miguel Silva" value={form.shortName} onChange={(event) => { setShortNameTouched(true); setForm({ ...form, shortName: event.target.value }); }} /></div>
                 </div>
-                <div className="collab-row-2">
+                <div className="collab-document-row">
                   <div>
                     <label>Documento de Identificação</label>
                     <select value={form.documentType} onChange={(event) => setForm({ ...form, documentType: event.target.value, documentNumber: '' })}>
@@ -354,11 +406,8 @@ export default function Collaborators() {
                     <label>{form.documentType === 'passport' ? 'N.º do Passaporte' : form.documentType === 'citizen_card' ? 'N.º de Identificação' : form.documentType === 'residence_title' ? 'N.º de Residência' : 'Número'}</label>
                     <input placeholder="Ex: CC123456" value={form.documentNumber} disabled={!form.documentType} onChange={(event) => setForm({ ...form, documentNumber: event.target.value })} />
                   </div>
-                </div>
-                <div className="collab-row-3">
                   <div><label>Validade</label><input type="date" value={form.documentExpiry} disabled={!form.documentType} onChange={(event) => setForm({ ...form, documentExpiry: event.target.value })} /></div>
                   <div className="check-inline"><input type="checkbox" checked={form.documentExtended} disabled={!form.documentType} onChange={(event) => setForm({ ...form, documentExtended: event.target.checked })} /><span>Prorrogação</span></div>
-                  <div />
                 </div>
                 <div className="collab-row-3">
                   <div><label>Data de Nascimento</label><input type="date" value={form.birthDate} onChange={(event) => setForm({ ...form, birthDate: event.target.value })} /></div>
@@ -392,7 +441,7 @@ export default function Collaborators() {
                   <div><label>Disponibilidades</label><textarea placeholder="Ex: Fins de semana e noites" value={form.availability} onChange={(event) => setForm({ ...form, availability: event.target.value })} /></div>
                 </div>
                 <label>Funções</label>
-                <div className="role-multi">
+                <div className="role-multi" ref={rolesDropdownRef}>
                   <button type="button" className="secondary-button" onClick={() => setRolesOpen((v) => !v)}>{form.roles.length ? form.roles.join(', ') : 'Ex: Barman, Empregado de Mesa'}</button>
                   {rolesOpen ? (
                     <div className="role-multi-menu">
@@ -410,7 +459,18 @@ export default function Collaborators() {
               </div>
               <aside className="collab-side">
                 <label>Fotografia</label>
-                <div className="photo-box">{form.photo ? <img alt="Fotografia colaborador" src={form.photo} /> : <span>Sem fotografia (3x4)</span>}</div>
+                <div className="photo-box">
+                  {form.photo ? (
+                    <button
+                      type="button"
+                      className="photo-zoom-trigger"
+                      onClick={() => openPhotoViewer(form.photo, form.shortName || form.name || 'Colaborador')}
+                      aria-label="Ampliar fotografia do colaborador"
+                    >
+                      <img alt="Fotografia colaborador" src={form.photo} />
+                    </button>
+                  ) : <span>Sem fotografia (3x4)</span>}
+                </div>
                 <div className="photo-actions">
                   <label className="icon-button" title="Adicionar foto" aria-label="Adicionar foto">
                     <Upload size={16} />
@@ -432,6 +492,32 @@ export default function Collaborators() {
               <button className="secondary-button" type="button" onClick={closeForm}>Cancelar</button>
             </footer>
           </form>
+        </Modal>
+      ) : null}
+      {photoViewer ? (
+        <Modal title={`Fotografia - ${photoViewer.name}`} onClose={closePhotoViewer} size="wide">
+          <div className="photo-viewer">
+            <div className="photo-viewer__toolbar">
+              <button className="icon-button" type="button" onClick={() => changePhotoZoom(-PHOTO_VIEWER_ZOOM_STEP)} disabled={photoZoom <= 1} title="Diminuir zoom" aria-label="Diminuir zoom">
+                <Minus size={16} />
+              </button>
+              <span>{Math.round(photoZoom * 100)}%</span>
+              <button className="icon-button" type="button" onClick={() => changePhotoZoom(PHOTO_VIEWER_ZOOM_STEP)} disabled={photoZoom >= PHOTO_VIEWER_MAX_ZOOM} title="Aumentar zoom" aria-label="Aumentar zoom">
+                <Plus size={16} />
+              </button>
+              <button className="secondary-button" type="button" onClick={() => setPhotoZoom(1)}>Repor</button>
+            </div>
+            <div className="photo-viewer__frame">
+              <img
+                src={photoViewer.photo}
+                alt={`Fotografia de ${photoViewer.name}`}
+                style={{
+                  width: `${Math.round(PHOTO_VIEWER_BASE_WIDTH * photoZoom)}px`,
+                  maxWidth: photoZoom > 1 ? 'none' : '100%',
+                }}
+              />
+            </div>
+          </div>
         </Modal>
       ) : null}
     </div>

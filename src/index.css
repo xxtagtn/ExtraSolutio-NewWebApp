@@ -56,7 +56,7 @@ textarea {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 252px minmax(0, 1fr);
   min-height: 100vh;
   min-width: 0;
   max-width: 100%;
@@ -1185,6 +1185,13 @@ th {
   gap: 10px;
 }
 
+.collab-document-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.35fr) minmax(150px, 1fr) minmax(140px, 0.85fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
 .collab-rate-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1237,6 +1244,27 @@ th {
   text-align: center;
   font-size: 0.85rem;
   padding: 8px;
+}
+
+.photo-zoom-trigger {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.photo-zoom-trigger img {
+  transition: transform 0.18s ease;
+}
+
+.photo-zoom-trigger:hover img {
+  transform: scale(1.04);
 }
 
 .photo-actions {
@@ -1809,9 +1837,18 @@ th {
 
 .service-assignment-row {
   display: grid;
-  grid-template-columns: minmax(300px, 1.35fr) 120px 96px 96px 78px 110px 1fr auto;
+  grid-template-columns: minmax(290px, 1.35fr) 96px 96px 78px 108px minmax(128px, 0.75fr) 124px auto;
   gap: 8px;
   align-items: center;
+}
+
+.service-assignment-row--dated {
+  grid-template-columns: minmax(290px, 1.35fr) 112px 88px 88px 74px 104px minmax(126px, 0.72fr) 124px auto;
+}
+
+.service-assignment-group {
+  display: grid;
+  gap: 8px;
 }
 
 .service-assignment-collaborator {
@@ -1884,23 +1921,23 @@ th {
 }
 
 .service-collab-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 30;
+  position: fixed;
+  z-index: 120;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #0e1519;
   padding: 8px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+  overflow: hidden;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
 }
 
 .service-collab-options {
   display: grid;
   gap: 4px;
-  max-height: 180px;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -1917,6 +1954,83 @@ th {
 
 .service-collab-option:hover {
   background: #162127;
+}
+
+.service-advance-toggle {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(11, 17, 20, 0.88);
+  color: var(--muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.service-advance-toggle strong {
+  color: #bfdbfe;
+  font-size: 0.74rem;
+}
+
+.service-advance-toggle--active {
+  border-color: rgba(96, 165, 250, 0.45);
+  background: rgba(59, 130, 246, 0.12);
+  color: #dbeafe;
+}
+
+.service-advance-panel {
+  display: grid;
+  gap: 8px;
+  margin-left: 24px;
+  padding: 10px;
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.service-advance-panel header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.service-advance-panel header span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.service-advance-row {
+  display: grid;
+  grid-template-columns: 130px 110px minmax(180px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.service-advance-car-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.08);
+  color: #bbf7d0;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.service-advance-car-check input {
+  width: 13px;
+  height: 13px;
+  accent-color: #22c55e;
 }
 
 .service-status-select--confirmed {
@@ -2604,6 +2718,184 @@ th {
   width: 112px;
   min-width: 112px;
   text-align: right;
+}
+
+.finance-bulk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  margin: 10px 0;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 27, 0.72);
+}
+
+.finance-selection-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.finance-selection-check input,
+.finance-staff-payment-table input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+}
+
+.finance-bulk-status {
+  width: 160px;
+}
+
+.finance-bulk-date {
+  width: 150px;
+}
+
+.finance-staff-payment-table {
+  min-width: 1480px;
+  table-layout: fixed;
+}
+
+.finance-staff-payment-table th,
+.finance-staff-payment-table td {
+  padding: 11px 8px;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.finance-staff-payment-table th:nth-child(1),
+.finance-staff-payment-table td:nth-child(1) {
+  width: 36px;
+}
+
+.finance-staff-payment-table th:nth-child(2),
+.finance-staff-payment-table td:nth-child(2) {
+  width: 170px;
+  min-width: 170px;
+}
+
+.finance-staff-payment-table th:nth-child(3),
+.finance-staff-payment-table td:nth-child(3) {
+  width: 190px;
+  min-width: 190px;
+}
+
+.finance-staff-payment-table th:nth-child(4),
+.finance-staff-payment-table td:nth-child(4) {
+  width: 96px;
+}
+
+.finance-staff-payment-table th:nth-child(5),
+.finance-staff-payment-table td:nth-child(5) {
+  width: 72px;
+}
+
+.finance-staff-payment-table th:nth-child(6),
+.finance-staff-payment-table td:nth-child(6) {
+  width: 74px;
+}
+
+.finance-staff-payment-table th:nth-child(7),
+.finance-staff-payment-table td:nth-child(7) {
+  width: 118px;
+}
+
+.finance-staff-payment-table th:nth-child(8),
+.finance-staff-payment-table td:nth-child(8),
+.finance-staff-payment-table th:nth-child(9),
+.finance-staff-payment-table td:nth-child(9) {
+  width: 84px;
+}
+
+.finance-staff-payment-table th:nth-child(10),
+.finance-staff-payment-table td:nth-child(10) {
+  width: 106px;
+}
+
+.finance-staff-payment-table th:nth-child(11),
+.finance-staff-payment-table td:nth-child(11) {
+  width: 132px;
+}
+
+.finance-staff-payment-table th:nth-child(12),
+.finance-staff-payment-table td:nth-child(12) {
+  width: 128px;
+}
+
+.finance-staff-payment-table th:nth-child(13),
+.finance-staff-payment-table td:nth-child(13) {
+  width: 148px;
+}
+
+.finance-staff-payment-table th:nth-child(14),
+.finance-staff-payment-table td:nth-child(14) {
+  width: 124px;
+}
+
+.finance-staff-payment-table th:nth-child(4),
+.finance-staff-payment-table td:nth-child(4),
+.finance-staff-payment-table th:nth-child(5),
+.finance-staff-payment-table td:nth-child(5),
+.finance-staff-payment-table th:nth-child(6),
+.finance-staff-payment-table td:nth-child(6),
+.finance-staff-payment-table th:nth-child(7),
+.finance-staff-payment-table td:nth-child(7),
+.finance-staff-payment-table th:nth-child(8),
+.finance-staff-payment-table td:nth-child(8),
+.finance-staff-payment-table th:nth-child(9),
+.finance-staff-payment-table td:nth-child(9),
+.finance-staff-payment-table th:nth-child(10),
+.finance-staff-payment-table td:nth-child(10),
+.finance-staff-payment-table th:nth-child(12),
+.finance-staff-payment-table td:nth-child(12),
+.finance-staff-payment-table th:nth-child(13),
+.finance-staff-payment-table td:nth-child(13) {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.finance-staff-payment-table td:nth-child(5),
+.finance-staff-payment-table td:nth-child(6),
+.finance-staff-payment-table td:nth-child(8),
+.finance-staff-payment-table td:nth-child(9),
+.finance-staff-payment-table td:nth-child(10) {
+  font-variant-numeric: tabular-nums;
+}
+
+.finance-row-selected td {
+  background: rgba(20, 184, 166, 0.08);
+}
+
+.finance-row-advance td {
+  background: rgba(59, 130, 246, 0.045);
+}
+
+.finance-row-selected.finance-row-advance td {
+  background: rgba(20, 184, 166, 0.08);
+}
+
+.finance-advance-cell,
+.finance-pay-total {
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  min-width: 96px;
+}
+
+.finance-advance-cell small,
+.finance-pay-total small {
+  max-width: 170px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.finance-pay-total strong {
+  font-size: 0.9rem;
 }
 
 .finance-staff-payment-state {
@@ -3843,6 +4135,43 @@ th {
   padding-top: 8px;
 }
 
+.photo-viewer {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.photo-viewer__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.photo-viewer__toolbar span {
+  min-width: 54px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+.photo-viewer__frame {
+  min-height: min(68vh, 620px);
+  max-height: 68vh;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #05090b;
+}
+
+.photo-viewer__frame img {
+  height: auto;
+  object-fit: contain;
+}
+
 .login-page {
   display: grid;
   min-height: 100vh;
@@ -3886,7 +4215,7 @@ th {
 
 @media (max-width: 1440px) {
   .app-shell {
-    grid-template-columns: 248px minmax(0, 1fr);
+    grid-template-columns: 228px minmax(0, 1fr);
   }
 
   .sidebar {
@@ -3936,13 +4265,17 @@ th {
   }
 
   .service-assignment-row {
-    grid-template-columns: minmax(220px, 1.2fr) 110px 86px 86px 72px 100px minmax(130px, 0.8fr) auto;
+    grid-template-columns: minmax(220px, 1.2fr) 86px 86px 72px 100px minmax(130px, 0.8fr) 118px auto;
+  }
+
+  .service-assignment-row--dated {
+    grid-template-columns: minmax(220px, 1.2fr) 104px 82px 82px 72px 96px minmax(120px, 0.72fr) 118px auto;
   }
 }
 
 @media (max-width: 1200px) {
   .app-shell {
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: 204px minmax(0, 1fr);
   }
 
   .sidebar {
@@ -4033,6 +4366,14 @@ th {
   .validation-filters,
   .validation-event-item,
   .validation-history-item {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .service-assignment-row--dated {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .service-advance-row {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -4194,7 +4535,8 @@ th {
 
   .collab-form-grid,
   .collab-row-2,
-  .collab-row-3 {
+  .collab-row-3,
+  .collab-document-row {
     grid-template-columns: 1fr;
   }
 
@@ -4334,6 +4676,11 @@ th {
   }
 
   .service-assignment-row {
+    grid-template-columns: 1fr;
+  }
+
+  .service-assignment-row--dated,
+  .service-advance-row {
     grid-template-columns: 1fr;
   }
 

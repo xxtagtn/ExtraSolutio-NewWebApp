@@ -241,6 +241,8 @@ model EventAssignment {
   collaborator   Collaborator @relation(fields: [collaboratorId], references: [id])
   assignmentDate DateTime?
   role           String?
+  plannedCheckIn String?
+  plannedCheckOut String?
   checkIn        String?
   checkOut       String?
   clientCheckIn  String?
@@ -261,6 +263,7 @@ model EventAssignment {
   paymentDeferredMonth String?
   paymentAdjustment Decimal   @default(0)
   paymentNotes   String?
+  advancePayments String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 

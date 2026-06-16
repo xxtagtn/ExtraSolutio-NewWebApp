@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   isArchivedService,
   nextAutomaticServiceStatus,
+  nextTimeValidationServiceStatus,
   operationalStatusOptions,
   statusLabel,
 } from './serviceStatus.js';
@@ -35,7 +36,7 @@ test('moves service to staff hour validation on the day after the service', () =
   }, new Date('2026-06-11T09:00:00')), 'to_validate_staff');
 });
 
-test('moves service to client hour validation when all billable staff times are filled', () => {
+test('does not move service to client hour validation during automatic status sync', () => {
   assert.equal(nextAutomaticServiceStatus({
     status: 'to_validate_staff',
     date: '2026-06-10',
@@ -43,7 +44,50 @@ test('moves service to client hour validation when all billable staff times are 
       { status: 'confirmed', checkIn: '09:00', checkOut: '17:00' },
       { status: 'missed_justified' },
     ],
-  }, new Date('2026-06-11T09:00:00')), 'to_validate_client');
+  }, new Date('2026-06-11T09:00:00')), 'to_validate_staff');
+});
+
+test('time validation moves service to client hour validation when staff column is complete', () => {
+  assert.equal(nextTimeValidationServiceStatus({
+    status: 'to_validate_staff',
+    date: '2026-06-10',
+    assignments: [
+      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00' },
+      { status: 'missed_justified' },
+    ],
+  }), 'to_validate_client');
+});
+
+test('time validation keeps service in staff validation until staff column is complete', () => {
+  assert.equal(nextTimeValidationServiceStatus({
+    status: 'to_validate_staff',
+    date: '2026-06-10',
+    assignments: [
+      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00' },
+      { status: 'confirmed', checkIn: '09:00', checkOut: '' },
+    ],
+  }), 'to_validate_staff');
+});
+
+test('time validation ignores planned collaborator times as manual staff times', () => {
+  assert.equal(nextTimeValidationServiceStatus({
+    status: 'to_validate_staff',
+    date: '2026-06-10',
+    assignments: [
+      { status: 'confirmed', plannedCheckIn: '09:00', plannedCheckOut: '17:00' },
+    ],
+  }), 'to_validate_staff');
+});
+
+test('time validation finalizes service when client column is complete', () => {
+  assert.equal(nextTimeValidationServiceStatus({
+    status: 'to_validate_client',
+    date: '2026-06-10',
+    assignments: [
+      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00', clientCheckIn: '09:10', clientCheckOut: '17:15' },
+      { status: 'missed_justified' },
+    ],
+  }), 'finalized');
 });
 
 test('does not move a future service to client validation just because planned staff times exist', () => {

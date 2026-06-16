@@ -30,12 +30,23 @@ test('detects urgent operational and validation actions from services', () => {
         status: 'to_validate_staff',
         totalRevenue: 90,
       },
+      {
+        id: 12,
+        name: 'Evento validado',
+        date: '2026-06-05T18:00:00.000Z',
+        client: { name: 'FIC' },
+        requiredRoles: JSON.stringify([{ role: 'Emp.Mesa', qty: 1 }]),
+        assignments: [{ id: 3, role: 'Emp.Mesa', status: 'confirmed', validationStatus: 'validated', paymentStatus: 'unpaid' }],
+        billingStatus: 'pending',
+        status: 'finalized',
+        totalRevenue: 90,
+      },
     ],
   }, { today });
 
   assert.ok(actions.some((action) => action.id === 'service-team-10'));
   assert.ok(actions.some((action) => action.id === 'hours-validation-11'));
-  assert.ok(actions.some((action) => action.id === 'service-billing-11'));
+  assert.ok(actions.some((action) => action.id === 'service-billing-12'));
   assert.ok(actions.every((action) => action.to));
 });
 
@@ -129,7 +140,7 @@ test('groups pending actions by operational urgency', () => {
   assert.deepEqual(groups[3].actions.map((action) => action.id), ['later']);
 });
 
-test('only shows staff payment actions when payment window is open or overdue', () => {
+test('only shows staff payment actions inside the salary processing window', () => {
   const data = {
     services: [
       {
@@ -151,5 +162,36 @@ test('only shows staff payment actions when payment window is open or overdue', 
 
   assert.equal(buildPendingActions(data, { today: new Date('2026-07-07') }).some((action) => action.id === 'staff-payment-600'), false);
   assert.equal(buildPendingActions(data, { today: new Date('2026-07-08') }).some((action) => action.id === 'staff-payment-600'), true);
-  assert.equal(buildPendingActions(data, { today: new Date('2026-07-15') }).find((action) => action.id === 'staff-payment-600').priority, 'high');
+  assert.equal(buildPendingActions(data, { today: new Date('2026-07-14') }).some((action) => action.id === 'staff-payment-600'), true);
+  assert.equal(buildPendingActions(data, { today: new Date('2026-07-15') }).some((action) => action.id === 'staff-payment-600'), false);
+});
+
+test('waits for the client billing period before showing monthly billing actions', () => {
+  const data = {
+    services: [
+      {
+        id: 70,
+        name: 'SSH Junho',
+        date: '2026-06-10',
+        totalRevenue: 600,
+        billingStatus: 'pending',
+        client: {
+          id: 7,
+          name: 'SSH - Supreme Sport Hospitality',
+          billingMethod: 'monthly',
+          paymentTerm: 'days_30',
+        },
+        assignments: [{
+          id: 700,
+          status: 'confirmed',
+          validationStatus: 'validated',
+        }],
+      },
+    ],
+  };
+
+  assert.equal(buildPendingActions(data, { today: new Date('2026-06-20') }).some((action) => action.id === 'service-billing-70'), false);
+  const action = buildPendingActions(data, { today: new Date('2026-06-30') }).find((item) => item.id === 'service-billing-70');
+  assert.ok(action);
+  assert.equal(new Date(action.dueDate).getDate(), 30);
 });

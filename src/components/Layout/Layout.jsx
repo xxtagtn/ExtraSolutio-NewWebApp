@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useApi } from '../../hooks/useApi.js';
 import { api } from '../../utils/api.js';
+import { isFinanceReadyEvent } from '../../utils/financeReadiness.js';
+import { staffPaymentTiming } from '../../utils/staffPayment.js';
 import Header from './Header.jsx';
 import Sidebar from './Sidebar.jsx';
 
@@ -80,20 +82,26 @@ export default function Layout() {
     }
 
     for (const service of services || []) {
+      if (!isFinanceReadyEvent(service)) continue;
       const assignments = Array.isArray(service.assignments) ? service.assignments : [];
-      const unpaidCount = assignments.filter((assignment) => {
+      const paymentRows = assignments.filter((assignment) => {
         const status = String(assignment.status || '').toLowerCase();
         if (status === 'cancelled' || status === 'missed_justified' || status === 'missed_unjustified') return false;
-        return String(assignment.paymentStatus || 'unpaid') !== 'paid';
-      }).length;
-      if (unpaidCount > 0) {
-        const serviceDate = service.date ? new Date(service.date) : null;
+        if (String(assignment.paymentStatus || 'unpaid') === 'paid') return false;
+        const timing = staffPaymentTiming({ ...assignment, event: service }, now);
+        return timing.status === 'open';
+      });
+      if (paymentRows.length > 0) {
+        const dueDates = paymentRows
+          .map((assignment) => staffPaymentTiming({ ...assignment, event: service }, now).start)
+          .filter((value) => value && !Number.isNaN(value.getTime()))
+          .sort((a, b) => a.getTime() - b.getTime());
         items.push({
           id: `staff-unpaid-${service.id}`,
           kind: 'staff_payment',
           title: service.name || `Evento #${service.id}`,
-          subtitle: `${unpaidCount} colaborador(es) por pagar`,
-          dueDate: serviceDate && !Number.isNaN(serviceDate.getTime()) ? serviceDate : null,
+          subtitle: `${paymentRows.length} colaborador(es) por pagar`,
+          dueDate: dueDates[0] || todayStart,
         });
       }
     }

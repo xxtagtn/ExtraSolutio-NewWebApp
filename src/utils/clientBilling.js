@@ -236,6 +236,16 @@ export function splitClientBillingRows(rows) {
   }, { activeRows: [], archivedRows: [] });
 }
 
+export function clientBillingRowsForActiveEvents(rows) {
+  return (rows || [])
+    .filter((row) => billingEventIdsForRow(row).length > 0)
+    .sort((a, b) => {
+      const byName = String(a?.name || '').localeCompare(String(b?.name || ''), 'pt');
+      if (byName) return byName;
+      return new Date(a?.nextDueDate || 0).getTime() - new Date(b?.nextDueDate || 0).getTime();
+    });
+}
+
 export function isDateInBillingPeriod(value, period) {
   if (!value) return false;
   const d = new Date(value);

@@ -53,3 +53,24 @@ test('sums all configured event days for roles applied to every day', () => {
   assert.equal(totals.baseAmount, 99);
   assert.equal(totals.totalAmount, 99);
 });
+
+test('applies discount before VAT in the commercial summary', () => {
+  const totals = calculateBudgetTotals({
+    categories: [
+      { role: 'Emp.Mesa', qty: 2, rate: 10, start: '10:00', end: '15:00' },
+    ],
+    eventDays: [],
+    vatMode: 'normal_23',
+    vatRate: 23,
+    travelType: 'manual',
+    travelManualAmount: 50,
+    discountRate: 10,
+  });
+
+  assert.equal(totals.baseAmount, 100);
+  assert.equal(totals.travelAmount, 50);
+  assert.equal(totals.discountAmount, 15);
+  assert.equal(totals.subtotalAmount, 135);
+  assert.equal(totals.taxAmount, 31.05);
+  assert.equal(totals.totalAmount, 166.05);
+});

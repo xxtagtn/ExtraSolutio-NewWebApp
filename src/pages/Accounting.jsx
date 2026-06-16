@@ -22,6 +22,7 @@ import {
   billingPaymentDateForRow,
   billingStatusForRow,
   billingValueForRow,
+  clientBillingRowsForActiveEvents,
   dueDateForBillingGroup,
   expandClientBillingRows,
   filterBillingGroupsByPeriod,
@@ -32,6 +33,16 @@ import {
 import { isFinanceReadyEvent } from '../utils/financeReadiness.js';
 import { date, money } from '../utils/formatters.js';
 import { decimalValue } from '../utils/serviceFinance.js';
+import {
+  normalizeStaffAdvances,
+  staffAdvancesTotal,
+  staffCarAdvancesTotal,
+  staffPaymentRemaining,
+} from '../utils/staffAdvances.js';
+import {
+  buildMoveToPaidPayload,
+  buildStaffPaymentStatusPayload,
+} from '../utils/staffPaymentBulk.js';
 import {
   nextStaffPaymentMonth,
   staffPaymentTiming,
@@ -51,7 +62,7 @@ const PAYMENT_STATUS = [
   { value: 'unpaid', label: 'Por pagar' },
   { value: 'validated_es', label: 'Validado ES' },
   { value: 'paid', label: 'Pago' },
-  { value: 'awaiting_data', label: 'Aguardar dados para pagamento' },
+  { value: 'awaiting_data', label: 'Aguardar por RV' },
 ];
 
 const BILLING_STATUS = [
@@ -187,6 +198,26 @@ function assignmentPayWithVat(assignment) {
   return staffPaymentTotal(base, includesVat, assignment.paymentAdjustment);
 }
 
+function assignmentAdvances(assignment) {
+  return normalizeStaffAdvances(assignment.advancePayments);
+}
+
+function assignmentAdvanceTotal(assignment) {
+  return staffAdvancesTotal(assignmentAdvances(assignment));
+}
+
+function assignmentCarAdvanceTotal(assignment) {
+  return staffCarAdvancesTotal(assignmentAdvances(assignment));
+}
+
+function assignmentStaffCostTotal(assignment) {
+  return Number((assignmentPayWithVat(assignment) + assignmentCarAdvanceTotal(assignment)).toFixed(2));
+}
+
+function assignmentOutstandingPay(assignment) {
+  return staffPaymentRemaining(assignmentPayWithVat(assignment), assignmentAdvances(assignment));
+}
+
 function adjustmentInputValue(value) {
   const parsed = decimalValue(value) || 0;
   if (parsed === 0) return '';
@@ -217,7 +248,7 @@ function paymentTimingLabel(status) {
 }
 
 function eventStaffCost(event) {
-  const total = billableAssignments(event).reduce((sum, assignment) => sum + assignmentPayWithVat(assignment), 0);
+  const total = billableAssignments(event).reduce((sum, assignment) => sum + assignmentStaffCostTotal(assignment), 0);
   return total || num(event.totalCost);
 }
 
@@ -396,6 +427,10 @@ export default function Accounting() {
   const [staffFilters, setStaffFilters] = useState({ eventId: 'all', collaboratorId: 'all', date: '' });
   const [staffPaymentTab, setStaffPaymentTab] = useState('unpaid');
   const [staffPaymentDrafts, setStaffPaymentDrafts] = useState({});
+  const [selectedStaffPaymentIds, setSelectedStaffPaymentIds] = useState([]);
+  const [bulkPaymentStatus, setBulkPaymentStatus] = useState('paid');
+  const [bulkPaymentDate, setBulkPaymentDate] = useState(todayIso());
+  const [bulkUpdatingPayments, setBulkUpdatingPayments] = useState(false);
   const [paymentNotesAssignment, setPaymentNotesAssignment] = useState(null);
   const [paymentNotesDraft, setPaymentNotesDraft] = useState('');
   const [paymentNotesOverrides, setPaymentNotesOverrides] = useState({});
@@ -631,9 +666,14 @@ export default function Accounting() {
     [buildClientRowsForPeriod, selectedMonth],
   );
 
-  const { activeRows: clientRows } = useMemo(
+  const { activeRows: activeClientRows } = useMemo(
     () => splitClientBillingRows(selectedPeriodClientRows),
     [selectedPeriodClientRows],
+  );
+
+  const clientRows = useMemo(
+    () => clientBillingRowsForActiveEvents(activeClientRows),
+    [activeClientRows],
   );
 
   const archivePeriodClientRows = useMemo(
@@ -743,8 +783,8 @@ export default function Accounting() {
         events: 0,
       };
       current.hours += assignmentHours(assignment);
-      current.total += assignmentPayWithVat(assignment);
-      current.unpaid += assignment.paymentStatus === 'paid' ? 0 : assignmentPayWithVat(assignment);
+      current.total += assignmentStaffCostTotal(assignment);
+      current.unpaid += assignment.paymentStatus === 'paid' ? 0 : assignmentOutstandingPay(assignment);
       current.events += 1;
       map.set(key, current);
     }
@@ -758,7 +798,7 @@ export default function Accounting() {
       if (staffFilters.date && dateInputValue(event.date) !== staffFilters.date) continue;
       for (const assignment of billableAssignments(event)) {
         if (staffFilters.collaboratorId !== 'all' && String(assignment.collaboratorId) !== staffFilters.collaboratorId) continue;
-        const total = assignmentPayWithVat(assignment);
+        const total = assignmentStaffCostTotal(assignment);
         if (total <= 0) continue;
         const key = staffPaymentTiming({ ...assignment, event }).paymentMonth || monthKey(event.date);
         map.set(key, (map.get(key) || 0) + total);
@@ -786,6 +826,24 @@ export default function Accounting() {
   );
 
   const visibleStaffPayments = staffPaymentTab === 'paid' ? filteredPaidAssignments : filteredPendingAssignments;
+  const visibleStaffPaymentIds = useMemo(
+    () => visibleStaffPayments.map((assignment) => String(assignment.id)),
+    [visibleStaffPayments],
+  );
+  const selectedStaffPaymentIdSet = useMemo(
+    () => new Set(selectedStaffPaymentIds),
+    [selectedStaffPaymentIds],
+  );
+  const allVisibleStaffPaymentsSelected = visibleStaffPaymentIds.length > 0
+    && visibleStaffPaymentIds.every((id) => selectedStaffPaymentIdSet.has(id));
+  const selectedVisibleStaffPayments = useMemo(
+    () => visibleStaffPayments.filter((assignment) => selectedStaffPaymentIdSet.has(String(assignment.id))),
+    [selectedStaffPaymentIdSet, visibleStaffPayments],
+  );
+
+  useEffect(() => {
+    setSelectedStaffPaymentIds((prev) => prev.filter((id) => visibleStaffPaymentIds.includes(id)));
+  }, [visibleStaffPaymentIds]);
 
   const vatByCategory = useMemo(() => {
     const map = new Map();
@@ -810,7 +868,7 @@ export default function Accounting() {
     const pendingBilling = billingGroups.reduce((sum, group) => sum + num(group.total), 0);
     const payable = financeServices.reduce((sum, event) => sum + billableAssignments(event)
       .filter((assignment) => assignment.paymentStatus !== 'paid')
-      .reduce((assignmentSum, assignment) => assignmentSum + assignmentPayWithVat(assignment), 0), 0);
+      .reduce((assignmentSum, assignment) => assignmentSum + assignmentOutstandingPay(assignment), 0), 0);
     const bank = num(bankBalance || latestBankBalance?.amount);
     return {
       bank,
@@ -823,7 +881,7 @@ export default function Accounting() {
   const alerts = useMemo(() => {
     const overdueInvoices = invoices.filter((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled' && dayDiffFromToday(invoice.dueDate) > 0);
     const overdue30 = overdueInvoices.filter((invoice) => dayDiffFromToday(invoice.dueDate) >= 30);
-    const unpaidStaff = currentMonthUnpaidAssignments.reduce((sum, assignment) => sum + assignmentPayWithVat(assignment), 0);
+    const unpaidStaff = currentMonthUnpaidAssignments.reduce((sum, assignment) => sum + assignmentOutstandingPay(assignment), 0);
     return [
       {
         tone: overdue30.length ? 'danger' : overdueInvoices.length ? 'warning' : 'success',
@@ -857,17 +915,14 @@ export default function Accounting() {
   ) {
     setUpdatingAssignmentId(assignment.id);
     try {
-      const normalizedDate = paymentStatus === 'paid'
-        ? (paymentDate || todayIso())
-        : null;
       await api(`/assignments/${assignment.id}`, {
         method: 'PUT',
-        body: JSON.stringify({
+        body: JSON.stringify(buildStaffPaymentStatusPayload({
           paymentStatus,
-          paymentDate: normalizedDate,
-          paymentAdjustment: decimalValue(paymentAdjustment) || 0,
+          paymentDate,
+          paymentAdjustment,
           paymentDeferredMonth,
-        }),
+        }, todayIso())),
       });
       reload();
     } finally {
@@ -917,14 +972,69 @@ export default function Accounting() {
 
   async function confirmMoveToPaid(assignment) {
     const draft = paymentDraftFor(assignment);
-    const nextStatus = draft.paymentStatus === 'paid' ? 'paid' : 'paid';
-    const nextDate = draft.paymentDate || todayIso();
-    await updatePaymentStatus(assignment, nextStatus, nextDate, draft.paymentAdjustment);
-    setStaffPaymentDrafts((prev) => {
-      const next = { ...prev };
-      delete next[assignment.id];
-      return next;
+    setUpdatingAssignmentId(assignment.id);
+    try {
+      await api(`/assignments/${assignment.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(buildMoveToPaidPayload({
+          paymentDate: draft.paymentDate,
+          paymentAdjustment: draft.paymentAdjustment,
+          paymentDeferredMonth: assignment.paymentDeferredMonth || null,
+        }, todayIso())),
+      });
+      setStaffPaymentDrafts((prev) => {
+        const next = { ...prev };
+        delete next[assignment.id];
+        return next;
+      });
+      setSelectedStaffPaymentIds((prev) => prev.filter((id) => id !== String(assignment.id)));
+      reload();
+    } finally {
+      setUpdatingAssignmentId(null);
+    }
+  }
+
+  function toggleStaffPaymentSelection(assignmentId, checked) {
+    const id = String(assignmentId);
+    setSelectedStaffPaymentIds((prev) => {
+      const current = new Set(prev);
+      if (checked) current.add(id);
+      else current.delete(id);
+      return [...current];
     });
+  }
+
+  function toggleAllVisibleStaffPayments(checked) {
+    setSelectedStaffPaymentIds(checked ? visibleStaffPaymentIds : []);
+  }
+
+  async function applyBulkPaymentStatus() {
+    if (!selectedVisibleStaffPayments.length || bulkUpdatingPayments) return;
+    const paymentDate = bulkPaymentStatus === 'paid' ? (bulkPaymentDate || todayIso()) : '';
+    setBulkUpdatingPayments(true);
+    try {
+      await Promise.all(selectedVisibleStaffPayments.map((assignment) => {
+        const draft = paymentDraftFor(assignment);
+        return api(`/assignments/${assignment.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(buildStaffPaymentStatusPayload({
+            paymentStatus: bulkPaymentStatus,
+            paymentDate,
+            paymentAdjustment: draft.paymentAdjustment,
+            paymentDeferredMonth: assignment.paymentDeferredMonth || null,
+          }, todayIso())),
+        });
+      }));
+      setStaffPaymentDrafts((prev) => {
+        const next = { ...prev };
+        for (const assignment of selectedVisibleStaffPayments) delete next[assignment.id];
+        return next;
+      });
+      setSelectedStaffPaymentIds([]);
+      reload();
+    } finally {
+      setBulkUpdatingPayments(false);
+    }
   }
 
   async function savePaymentAdjustment(assignment) {
@@ -1622,17 +1732,76 @@ export default function Accounting() {
                 Colaboradores pagos ({filteredPaidAssignments.length})
               </button>
             </div>
+            <div className="finance-bulk-toolbar">
+              <label className="finance-selection-check">
+                <input
+                  type="checkbox"
+                  checked={allVisibleStaffPaymentsSelected}
+                  disabled={!visibleStaffPaymentIds.length || bulkUpdatingPayments}
+                  onChange={(event) => toggleAllVisibleStaffPayments(event.target.checked)}
+                />
+                <span>Selecionar todos</span>
+              </label>
+              <span className="muted">{selectedVisibleStaffPayments.length} selecionado(s)</span>
+              <select
+                className="form-control finance-bulk-status"
+                value={bulkPaymentStatus}
+                disabled={bulkUpdatingPayments}
+                onChange={(event) => {
+                  setBulkPaymentStatus(event.target.value);
+                  if (event.target.value === 'paid' && !bulkPaymentDate) setBulkPaymentDate(todayIso());
+                }}
+              >
+                {PAYMENT_STATUS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <input
+                className="form-control finance-bulk-date"
+                type="date"
+                value={bulkPaymentDate}
+                disabled={bulkPaymentStatus !== 'paid' || bulkUpdatingPayments}
+                onChange={(event) => setBulkPaymentDate(event.target.value)}
+              />
+              <button
+                type="button"
+                className="command-button"
+                disabled={!selectedVisibleStaffPayments.length || bulkUpdatingPayments}
+                onClick={applyBulkPaymentStatus}
+              >
+                {bulkUpdatingPayments ? 'A aplicar...' : 'Aplicar alteração'}
+              </button>
+              {selectedVisibleStaffPayments.length ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={bulkUpdatingPayments}
+                  onClick={() => setSelectedStaffPaymentIds([])}
+                >
+                  Limpar seleção
+                </button>
+              ) : null}
+            </div>
             <div className="table-wrap">
-              <table>
+              <table className="finance-staff-payment-table">
                 <thead>
                   <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        aria-label="Selecionar todos os pagamentos visíveis"
+                        checked={allVisibleStaffPaymentsSelected}
+                        disabled={!visibleStaffPaymentIds.length || bulkUpdatingPayments}
+                        onChange={(event) => toggleAllVisibleStaffPayments(event.target.checked)}
+                      />
+                    </th>
                     <th>Colaborador</th>
                     <th>Evento</th>
                     <th>Data</th>
                     <th>Horas</th>
                     <th>Valor/h</th>
                     <th>Ajustes</th>
-                    <th>Total</th>
+                    <th>Adiant.</th>
+                    <th>Carro</th>
+                    <th>A pagar</th>
                     <th>Vencimento</th>
                     <th>Estado</th>
                     <th>Data pagamento</th>
@@ -1645,8 +1814,25 @@ export default function Accounting() {
                       const draft = paymentDraftFor(assignment);
                       const paymentNotes = paymentNotesOverrides[assignment.id] ?? assignment.paymentNotes ?? '';
                       const timing = staffPaymentTiming(assignment);
+                      const rowSelected = selectedStaffPaymentIdSet.has(String(assignment.id));
+                      const advances = assignmentAdvances(assignment);
+                      const advanceTotal = staffAdvancesTotal(advances);
+                      const carAdvanceTotal = staffCarAdvancesTotal(advances);
+                      const grossTotal = assignmentPayWithVat({ ...assignment, paymentAdjustment: draft.paymentAdjustment });
+                      const outstandingTotal = staffPaymentRemaining(grossTotal, advances);
+                      const salaryAdvanceNotes = advances.filter((advance) => !advance.car).map((advance) => advance.note).filter(Boolean);
+                      const carAdvanceNotes = advances.filter((advance) => advance.car).map((advance) => advance.note).filter(Boolean);
                       return (
-                    <tr key={assignment.id} className={`${assignment.collaborator?.includeVat ? 'finance-row-vat' : ''} finance-row-payment--${timing.status}`.trim()}>
+                    <tr key={assignment.id} className={`${assignment.collaborator?.includeVat ? 'finance-row-vat' : ''} ${advanceTotal > 0 || carAdvanceTotal > 0 ? 'finance-row-advance' : ''} ${rowSelected ? 'finance-row-selected' : ''} finance-row-payment--${timing.status}`.trim()}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`Selecionar pagamento de ${assignment.collaborator?.shortName || assignment.collaborator?.name || 'colaborador'}`}
+                          checked={rowSelected}
+                          disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
+                          onChange={(event) => toggleStaffPaymentSelection(assignment.id, event.target.checked)}
+                        />
+                      </td>
                       <td>
                         <div className="finance-staff-name">
                           <div className="finance-staff-name__line">
@@ -1676,12 +1862,33 @@ export default function Accounting() {
                           inputMode="decimal"
                           placeholder="+2,50 / -2,43"
                           value={draft.paymentAdjustment}
-                          disabled={updatingAssignmentId === assignment.id}
+                          disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
                           onChange={(event) => updatePaymentDraft(assignment.id, { paymentAdjustment: event.target.value })}
                           onBlur={() => savePaymentAdjustment(assignment)}
                         />
                       </td>
-                      <td>{money.format(assignmentPayWithVat({ ...assignment, paymentAdjustment: draft.paymentAdjustment }))}</td>
+                      <td>
+                        {advanceTotal > 0 ? (
+                          <div className="finance-advance-cell">
+                            <Badge tone="info">{money.format(advanceTotal)}</Badge>
+                            <small>{salaryAdvanceNotes.join(' | ') || 'Desconta ao pagamento'}</small>
+                          </div>
+                        ) : '-'}
+                      </td>
+                      <td>
+                        {carAdvanceTotal > 0 ? (
+                          <div className="finance-advance-cell finance-advance-cell--car">
+                            <Badge tone="success">{money.format(carAdvanceTotal)}</Badge>
+                            <small>{carAdvanceNotes.join(' | ') || 'Viatura própria'}</small>
+                          </div>
+                        ) : '-'}
+                      </td>
+                      <td>
+                        <div className="finance-pay-total">
+                          <strong>{money.format(outstandingTotal)}</strong>
+                          {advanceTotal > 0 ? <small>Bruto {money.format(grossTotal)}</small> : null}
+                        </div>
+                      </td>
                       <td>
                         <div className="finance-payment-window">
                           <Badge tone={timing.status === 'overdue' ? 'danger' : timing.status === 'open' ? 'warning' : timing.status === 'paid' ? 'success' : 'info'}>
@@ -1694,7 +1901,7 @@ export default function Accounting() {
                       <td>
                         <select
                           className={`payment-state finance-staff-payment-state payment-state--${draft.paymentStatus || 'unpaid'}`}
-                          disabled={updatingAssignmentId === assignment.id}
+                          disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
                           value={draft.paymentStatus || 'unpaid'}
                           onChange={(event) => (
                             staffPaymentTab === 'unpaid'
@@ -1709,7 +1916,7 @@ export default function Accounting() {
                         <input
                           type="date"
                           value={draft.paymentDate}
-                          disabled={updatingAssignmentId === assignment.id}
+                          disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
                           onChange={(event) => (
                             staffPaymentTab === 'unpaid'
                               ? updatePaymentDraft(assignment.id, { paymentDate: event.target.value || '' })
@@ -1723,7 +1930,7 @@ export default function Accounting() {
                             <button
                               type="button"
                               className="secondary-button"
-                              disabled={updatingAssignmentId === assignment.id}
+                              disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
                               onClick={() => confirmMoveToPaid(assignment)}
                             >
                               Mover para pagos
@@ -1732,7 +1939,7 @@ export default function Accounting() {
                               <button
                                 type="button"
                                 className="secondary-button"
-                                disabled={updatingAssignmentId === assignment.id}
+                                disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
                                 onClick={() => resetPaymentMonth(assignment)}
                               >
                                 Repor mês normal
@@ -1741,7 +1948,7 @@ export default function Accounting() {
                               <button
                                 type="button"
                                 className="secondary-button"
-                                disabled={updatingAssignmentId === assignment.id}
+                                disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
                                 onClick={() => deferPaymentToNextMonth(assignment)}
                               >
                                 Adiar mês
@@ -1909,7 +2116,9 @@ export default function Accounting() {
                             <th>Função</th>
                             <th>Horas</th>
                             <th>Valor/hora</th>
-                            <th>Total a pagar</th>
+                            <th>Adiantamentos</th>
+                            <th>Carro</th>
+                            <th>A pagar</th>
                             <th>Estado de pagamento</th>
                             <th>Data pagamento</th>
                           </tr>
@@ -1921,7 +2130,9 @@ export default function Accounting() {
                               <td>{assignment.role || '-'}</td>
                               <td>{assignmentHours(assignment).toFixed(2)} h</td>
                               <td>{money.format(num(assignment.hourlyRate))}</td>
-                              <td>{money.format(assignmentPayWithVat(assignment))}</td>
+                              <td>{assignmentAdvanceTotal(assignment) > 0 ? money.format(assignmentAdvanceTotal(assignment)) : '-'}</td>
+                              <td>{assignmentCarAdvanceTotal(assignment) > 0 ? money.format(assignmentCarAdvanceTotal(assignment)) : '-'}</td>
+                              <td>{money.format(assignmentOutstandingPay(assignment))}</td>
                               <td>
                                 <select
                                   className={`payment-state payment-state--${assignment.paymentStatus || 'unpaid'}`}

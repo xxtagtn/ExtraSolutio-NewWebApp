@@ -70,6 +70,16 @@ export function eventHasCompleteStaffSchedule(event) {
   return assignments.length > 0 && assignments.every((assignment) => Boolean(assignment.checkIn && assignment.checkOut));
 }
 
+export function eventHasCompleteClientSchedule(event) {
+  const assignments = billableAssignments(event?.assignments || []);
+  return assignments.length > 0 && assignments.every((assignment) => (
+    assignment.checkIn
+    && assignment.checkOut
+    && assignment.clientCheckIn
+    && assignment.clientCheckOut
+  ));
+}
+
 function eventHasCompleteTeam(event) {
   const requested = safeRequiredRoles(event?.requiredRoles).reduce((sum, item) => sum + Number(item.qty || 0), 0);
   if (requested <= 0) return false;
@@ -92,9 +102,6 @@ export function nextAutomaticServiceStatus(event = {}, now = new Date()) {
   const dateState = serviceDateState(event, now);
 
   if (current === SERVICE_STATUS.finalized || current === 'cancelled') return current;
-  if ((current === SERVICE_STATUS.toValidateStaff || dateState === 'after') && eventHasCompleteStaffSchedule(event)) {
-    return SERVICE_STATUS.toValidateClient;
-  }
   if (current === SERVICE_STATUS.toValidateClient) return current;
 
   if (dateState === 'after') return SERVICE_STATUS.toValidateStaff;
@@ -102,6 +109,15 @@ export function nextAutomaticServiceStatus(event = {}, now = new Date()) {
   if (dateState === 'current') return SERVICE_STATUS.inProgress;
   if (eventHasCompleteTeam(event)) return SERVICE_STATUS.teamComplete;
   return SERVICE_STATUS.drafting;
+}
+
+export function nextTimeValidationServiceStatus(event = {}) {
+  const current = normalizeStatus(event.status);
+
+  if (current === 'cancelled') return current;
+  if (eventHasCompleteClientSchedule(event)) return SERVICE_STATUS.finalized;
+  if (eventHasCompleteStaffSchedule(event)) return SERVICE_STATUS.toValidateClient;
+  return SERVICE_STATUS.toValidateStaff;
 }
 
 export function isArchivedService(event = {}) {

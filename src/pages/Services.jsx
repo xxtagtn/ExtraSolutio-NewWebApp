@@ -13,6 +13,7 @@ import {
   shouldBlockPrepaidStaffAllocation,
 } from '../utils/prepaymentPolicy.js';
 import { assignmentStaffCost, assignmentStaffRate, clientChargeHours, collaboratorHourlyRate, decimalValue } from '../utils/serviceFinance.js';
+import { normalizeStaffAdvances, staffAdvancesTotal, staffCarAdvancesTotal } from '../utils/staffAdvances.js';
 import {
   isArchivedService,
   nextAutomaticServiceStatus,
@@ -122,6 +123,11 @@ function euro(value) {
 function formatHours(value) {
   const amount = Number(value || 0);
   return `${amount.toFixed(2).replace('.', ',')} h`;
+}
+
+function todayInputValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
 function toMinutes(time) {
@@ -357,27 +363,44 @@ function toForm(row) {
       ...item,
       agreedRate: formatMoneyInline(item.agreedRate),
     })),
-    assignments: (row.assignments || []).map((item) => ({
-      id: item.id,
-      role: item.role || '',
-      collaboratorId: item.collaboratorId ? String(item.collaboratorId) : '',
-      assignmentDate: item.assignmentDate ? dateOnly(item.assignmentDate) : '',
-      collaboratorSearch: '',
-      checkIn: item.checkIn || '',
-      checkOut: item.checkOut || '',
-      clientCheckIn: item.clientCheckIn || '',
-      clientCheckOut: item.clientCheckOut || '',
-      validatedCheckIn: item.validatedCheckIn || '',
-      validatedCheckOut: item.validatedCheckOut || '',
-      hoursWorked: Number(item.hoursWorked || 0),
-      clientBillableHours: Number(item.clientBillableHours || 0),
-      staffPayableHours: Number(item.staffPayableHours || 0),
-      hourlyRate: formatMoneyInline(item.hourlyRate),
-      validationStatus: item.validationStatus || 'pending',
-      validationNotes: item.validationNotes || '',
-      clientSynced: Boolean(item.clientSynced),
-      status: normalizeAssignmentStatus(item.status),
-    })),
+    assignments: (row.assignments || []).map((item) => {
+      const validationStatus = item.validationStatus || 'pending';
+      const legacyTimesArePlanned = !item.plannedCheckIn
+        && !item.plannedCheckOut
+        && ['pending', 'reopened'].includes(validationStatus)
+        && !item.clientCheckIn
+        && !item.clientCheckOut
+        && !item.validatedCheckIn
+        && !item.validatedCheckOut
+        && !['to_validate_client', 'finalized'].includes(row.status);
+      return {
+        id: item.id,
+        role: item.role || '',
+        collaboratorId: item.collaboratorId ? String(item.collaboratorId) : '',
+        assignmentDate: item.assignmentDate ? dateOnly(item.assignmentDate) : '',
+        collaboratorSearch: '',
+        plannedCheckIn: item.plannedCheckIn || (legacyTimesArePlanned ? item.checkIn || '' : ''),
+        plannedCheckOut: item.plannedCheckOut || (legacyTimesArePlanned ? item.checkOut || '' : ''),
+        checkIn: legacyTimesArePlanned ? '' : item.checkIn || '',
+        checkOut: legacyTimesArePlanned ? '' : item.checkOut || '',
+        clientCheckIn: item.clientCheckIn || '',
+        clientCheckOut: item.clientCheckOut || '',
+        validatedCheckIn: item.validatedCheckIn || '',
+        validatedCheckOut: item.validatedCheckOut || '',
+        hoursWorked: legacyTimesArePlanned ? 0 : Number(item.hoursWorked || 0),
+        clientBillableHours: legacyTimesArePlanned ? 0 : Number(item.clientBillableHours || 0),
+        staffPayableHours: legacyTimesArePlanned ? 0 : Number(item.staffPayableHours || 0),
+        hourlyRate: formatMoneyInline(item.hourlyRate),
+        validationStatus,
+        validationNotes: item.validationNotes || '',
+        clientSynced: Boolean(item.clientSynced),
+        advancePayments: normalizeStaffAdvances(item.advancePayments).map((advance) => ({
+          ...advance,
+          amount: formatMoneyInline(advance.amount),
+        })),
+        status: normalizeAssignmentStatus(item.status),
+      };
+    }),
   };
 }
 
@@ -430,6 +453,8 @@ export default function Services() {
   const [openedFromQuery, setOpenedFromQuery] = useState(false);
   const [statusManualOverride, setStatusManualOverride] = useState(false);
   const [activeCollaboratorPickerIndex, setActiveCollaboratorPickerIndex] = useState(null);
+  const [collaboratorPickerPlacement, setCollaboratorPickerPlacement] = useState(null);
+  const [activeAdvanceIndex, setActiveAdvanceIndex] = useState(null);
   const [selectedTeamDay, setSelectedTeamDay] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
@@ -505,16 +530,19 @@ export default function Services() {
     return clientChargeHours(assignment, form.startTime, form.endTime);
   }, [form.endTime, form.startTime]);
 
+  const formAssignmentPlannedHours = useCallback((assignment) => {
+    return calcRoundedBillableHours(assignment.plannedCheckIn || form.startTime, assignment.plannedCheckOut || form.endTime);
+  }, [form.endTime, form.startTime]);
+
   const formAssignmentStaffHours = useCallback((assignment) => {
-    const checked = calcRoundedBillableHours(assignment.checkIn || form.startTime, assignment.checkOut || form.endTime);
-    if (assignment.timesTouched && checked > 0) return checked;
-    const explicit = Number(assignment.staffPayableHours || 0);
-    if (explicit > 0) return explicit;
     const validated = calcRoundedBillableHours(assignment.validatedCheckIn, assignment.validatedCheckOut);
     if (validated > 0) return validated;
+    const checked = calcRoundedBillableHours(assignment.checkIn, assignment.checkOut);
     if (checked > 0) return checked;
+    const explicit = Number(assignment.staffPayableHours || 0);
+    if (explicit > 0) return explicit;
     return Number(assignment.hoursWorked || 0);
-  }, [form.endTime, form.startTime]);
+  }, []);
 
   const financials = useMemo(() => {
     const roleRateMap = new Map(form.requiredRoles.map((item) => [item.role, parseMoney(item.agreedRate) || 0]));
@@ -532,7 +560,7 @@ export default function Services() {
       const collaboratorRate = assignmentStaffRate(assignment, collaboratorsById, clientRate);
       expectedRevenue += clientHours * clientRate;
       totalRevenue += clientHours * clientRate;
-      totalCost += staffHours * collaboratorRate;
+      totalCost += (staffHours * collaboratorRate) + staffCarAdvancesTotal(assignment.advancePayments);
     }
     const hasAssignments = assignments.length > 0;
     const revenueWithoutTravel = hasAssignments ? totalRevenue : expectedRevenueByRoles;
@@ -594,6 +622,40 @@ export default function Services() {
   }, [formOpen, statusManualOverride, form]);
 
   useEffect(() => {
+    if (!formOpen) {
+      setActiveCollaboratorPickerIndex(null);
+      setCollaboratorPickerPlacement(null);
+    }
+  }, [formOpen]);
+
+  useEffect(() => {
+    if (activeCollaboratorPickerIndex === null) return undefined;
+
+    function closePickerFromOutside(event) {
+      if (event.target?.closest?.('.service-collab-picker')) return;
+      setActiveCollaboratorPickerIndex(null);
+      setCollaboratorPickerPlacement(null);
+    }
+
+    function closePickerOnEscape(event) {
+      if (event.key !== 'Escape') return;
+      setActiveCollaboratorPickerIndex(null);
+      setCollaboratorPickerPlacement(null);
+    }
+
+    document.addEventListener('pointerdown', closePickerFromOutside);
+    document.addEventListener('keydown', closePickerOnEscape);
+    window.addEventListener('resize', closePickerFromOutside);
+    window.addEventListener('scroll', closePickerFromOutside, true);
+    return () => {
+      document.removeEventListener('pointerdown', closePickerFromOutside);
+      document.removeEventListener('keydown', closePickerOnEscape);
+      window.removeEventListener('resize', closePickerFromOutside);
+      window.removeEventListener('scroll', closePickerFromOutside, true);
+    };
+  }, [activeCollaboratorPickerIndex]);
+
+  useEffect(() => {
     if (loading || statusSyncing || formOpen || !data.length) return;
     const updates = data
       .map((row) => ({ row, nextStatus: nextAutomaticServiceStatus(row) }))
@@ -647,6 +709,9 @@ export default function Services() {
     setSelectedTemplateId('');
     setStatusManualOverride(false);
     setSelectedTeamDay('');
+    setActiveCollaboratorPickerIndex(null);
+    setCollaboratorPickerPlacement(null);
+    setActiveAdvanceIndex(null);
   }
 
   const formWithStaffRates = useCallback((nextForm) => {
@@ -671,7 +736,36 @@ export default function Services() {
     setSelectedTemplateId('');
     setStatusManualOverride(false);
     setSelectedTeamDay('');
+    setActiveCollaboratorPickerIndex(null);
+    setCollaboratorPickerPlacement(null);
+    setActiveAdvanceIndex(null);
   }, [formWithStaffRates]);
+
+  function toggleCollaboratorPicker(event, index) {
+    if (activeCollaboratorPickerIndex === index) {
+      setActiveCollaboratorPickerIndex(null);
+      setCollaboratorPickerPlacement(null);
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || 720;
+    const gap = 6;
+    const edgePadding = 16;
+    const spaceBelow = viewportHeight - rect.bottom - edgePadding;
+    const spaceAbove = rect.top - edgePadding;
+    const openAbove = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const availableSpace = Math.max(160, (openAbove ? spaceAbove : spaceBelow) - gap);
+
+    setCollaboratorPickerPlacement({
+      left: Math.max(edgePadding, rect.left),
+      top: openAbove ? undefined : rect.bottom + gap,
+      bottom: openAbove ? viewportHeight - rect.top + gap : undefined,
+      width: rect.width,
+      maxHeight: Math.min(320, availableSpace),
+    });
+    setActiveCollaboratorPickerIndex(index);
+  }
 
   useEffect(() => {
     const idParam = searchParams.get('serviceId');
@@ -836,6 +930,8 @@ export default function Services() {
         collaboratorId: '',
         assignmentDate: form.isContinuous ? (selectedTeamDay || form.date || '') : '',
         collaboratorSearch: '',
+        plannedCheckIn: '',
+        plannedCheckOut: '',
         checkIn: '',
         checkOut: '',
         clientCheckIn: '',
@@ -849,6 +945,7 @@ export default function Services() {
         validationStatus: 'pending',
         validationNotes: '',
         clientSynced: false,
+        advancePayments: [],
         status: 'pending_confirmation',
       }],
     });
@@ -858,11 +955,16 @@ export default function Services() {
     const next = form.assignments.map((item, i) => {
       if (i !== index) return item;
       const merged = { ...item, ...patch };
+      const plannedTimesTouched = patch.plannedCheckIn !== undefined || patch.plannedCheckOut !== undefined;
       const timesTouched = patch.checkIn !== undefined || patch.checkOut !== undefined;
-      const workedHours = calcRoundedBillableHours(merged.checkIn, merged.checkOut);
-      const updated = { ...merged, hoursWorked: workedHours };
+      const updated = { ...merged };
+      if (plannedTimesTouched) {
+        updated.plannedHours = calcRoundedBillableHours(merged.plannedCheckIn, merged.plannedCheckOut);
+      }
       if (timesTouched) {
+        const workedHours = calcRoundedBillableHours(merged.checkIn, merged.checkOut);
         updated.timesTouched = true;
+        updated.hoursWorked = workedHours;
         updated.staffPayableHours = workedHours;
         if (!merged.clientCheckIn && !merged.clientCheckOut && !merged.validatedCheckIn && !merged.validatedCheckOut) {
           updated.clientBillableHours = workedHours;
@@ -876,16 +978,16 @@ export default function Services() {
       const selectedId = Number(selected.collaboratorId);
       const selectedDate = selected.assignmentDate || form.date || '';
       const selectedEndDate = selectedDate;
-      const selectedStart = selected.checkIn || form.startTime;
-      const selectedEnd = selected.checkOut || form.endTime;
+      const selectedStart = selected.plannedCheckIn || selected.checkIn || form.startTime;
+      const selectedEnd = selected.plannedCheckOut || selected.checkOut || form.endTime;
       if (selectedId && selectedDate && selectedStart && selectedEnd) {
         const overlapInCurrentForm = next.some((item, i) => {
           if (i === index) return false;
           if (Number(item.collaboratorId) !== selectedId) return false;
           const itemDate = item.assignmentDate || form.date || '';
           if (itemDate !== selectedDate) return false;
-          const otherStart = item.checkIn || form.startTime;
-          const otherEnd = item.checkOut || form.endTime;
+          const otherStart = item.plannedCheckIn || item.checkIn || form.startTime;
+          const otherEnd = item.plannedCheckOut || item.checkOut || form.endTime;
           return otherStart && otherEnd && timeRangesOverlap(selectedStart, selectedEnd, otherStart, otherEnd);
         });
         const overlapInOtherServices = data.some((service) => {
@@ -897,8 +999,8 @@ export default function Services() {
             if (Number(assignment.collaboratorId) !== selectedId) return false;
             const assignmentDay = dateOnly(assignment.assignmentDate || service.date);
             if (assignmentDay !== selectedDate) return false;
-            const otherStart = assignment.checkIn || service.startTime;
-            const otherEnd = assignment.checkOut || service.endTime;
+            const otherStart = assignment.plannedCheckIn || assignment.checkIn || service.startTime;
+            const otherEnd = assignment.plannedCheckOut || assignment.checkOut || service.endTime;
             return otherStart && otherEnd && timeRangesOverlap(selectedStart, selectedEnd, otherStart, otherEnd);
           });
         });
@@ -917,6 +1019,44 @@ export default function Services() {
 
   function removeAssignment(index) {
     setForm({ ...form, assignments: form.assignments.filter((_, i) => i !== index) });
+    setActiveAdvanceIndex(null);
+  }
+
+  function updateAssignmentAdvances(index, nextAdvances) {
+    updateAssignment(index, { advancePayments: nextAdvances });
+  }
+
+  function addAssignmentAdvance(index) {
+    const assignment = form.assignments[index];
+    if (!assignment) return;
+    const current = Array.isArray(assignment.advancePayments) ? assignment.advancePayments : [];
+    updateAssignmentAdvances(index, [
+      ...current,
+      {
+        id: `advance-${Date.now()}-${current.length + 1}`,
+        date: todayInputValue(),
+        amount: '',
+        note: '',
+        car: false,
+      },
+    ]);
+    setActiveAdvanceIndex(index);
+  }
+
+  function updateAssignmentAdvance(index, advanceId, patch) {
+    const assignment = form.assignments[index];
+    if (!assignment) return;
+    const current = Array.isArray(assignment.advancePayments) ? assignment.advancePayments : [];
+    updateAssignmentAdvances(index, current.map((advance) => (
+      String(advance.id) === String(advanceId) ? { ...advance, ...patch } : advance
+    )));
+  }
+
+  function removeAssignmentAdvance(index, advanceId) {
+    const assignment = form.assignments[index];
+    if (!assignment) return;
+    const current = Array.isArray(assignment.advancePayments) ? assignment.advancePayments : [];
+    updateAssignmentAdvances(index, current.filter((advance) => String(advance.id) !== String(advanceId)));
   }
 
   async function submit(event) {
@@ -944,8 +1084,8 @@ export default function Services() {
       const current = form.assignments[i];
       if (!current.role || !current.collaboratorId) continue;
       const currentDate = current.assignmentDate || form.date || '';
-      const currentStart = current.checkIn || form.startTime;
-      const currentEnd = current.checkOut || form.endTime;
+      const currentStart = current.plannedCheckIn || current.checkIn || form.startTime;
+      const currentEnd = current.plannedCheckOut || current.checkOut || form.endTime;
       if (!currentDate || !currentStart || !currentEnd) continue;
       for (let j = i + 1; j < form.assignments.length; j += 1) {
         const other = form.assignments[j];
@@ -953,8 +1093,8 @@ export default function Services() {
         if (String(other.collaboratorId) !== String(current.collaboratorId)) continue;
         const otherDate = other.assignmentDate || form.date || '';
         if (otherDate !== currentDate) continue;
-        const otherStart = other.checkIn || form.startTime;
-        const otherEnd = other.checkOut || form.endTime;
+        const otherStart = other.plannedCheckIn || other.checkIn || form.startTime;
+        const otherEnd = other.plannedCheckOut || other.checkOut || form.endTime;
         if (!otherStart || !otherEnd) continue;
         if (timeRangesOverlap(currentStart, currentEnd, otherStart, otherEnd)) {
           setFormError('O mesmo colaborador não pode ter horários sobrepostos no mesmo dia.');
@@ -1017,7 +1157,10 @@ export default function Services() {
           .filter((item) => item.role && item.collaboratorId)
           .map((item) => {
             const staffHours = formAssignmentStaffHours(item);
-            const clientHours = formAssignmentClientHours(item);
+            const hasManualStaffTimes = Boolean(item.checkIn && item.checkOut);
+            const hasManualClientTimes = Boolean(item.clientCheckIn && item.clientCheckOut);
+            const clientHours = hasManualClientTimes ? formAssignmentClientHours(item) : 0;
+            const payableStaffHours = hasManualStaffTimes ? staffHours : 0;
             const roleConfig = form.requiredRoles.find((required) => required.role === item.role);
             const clientRoleRate = parseMoney(roleConfig?.agreedRate) || 0;
             const hourlyRate = assignmentStaffRate(item, collaboratorsById, clientRoleRate);
@@ -1026,20 +1169,23 @@ export default function Services() {
               collaboratorId: Number(item.collaboratorId),
               assignmentDate: form.isContinuous ? (item.assignmentDate || null) : null,
               role: item.role,
+              plannedCheckIn: item.plannedCheckIn || null,
+              plannedCheckOut: item.plannedCheckOut || null,
               checkIn: item.checkIn || null,
               checkOut: item.checkOut || null,
               clientCheckIn: item.clientCheckIn || null,
               clientCheckOut: item.clientCheckOut || null,
               validatedCheckIn: item.validatedCheckIn || null,
               validatedCheckOut: item.validatedCheckOut || null,
-              hoursWorked: staffHours,
+              hoursWorked: payableStaffHours,
               clientBillableHours: clientHours,
-              staffPayableHours: staffHours,
+              staffPayableHours: payableStaffHours,
               hourlyRate,
-              totalPay: Number((staffHours * hourlyRate).toFixed(2)),
+              totalPay: Number((payableStaffHours * hourlyRate).toFixed(2)),
               validationStatus: item.validationStatus || 'pending',
               validationNotes: item.validationNotes || null,
               clientSynced: Boolean(item.clientSynced),
+              advancePayments: item.advancePayments || [],
               status: item.status || 'pending_confirmation',
             };
             if (item.id) return api(`/assignments/${item.id}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -1576,7 +1722,9 @@ export default function Services() {
                       const totalRoleHours = workedAssignments.reduce((sum, item) => sum + formAssignmentStaffHours(item), 0);
                       const clientRoleRate = parseMoney(required.agreedRate) || 0;
                       const totalRoleCost = workedAssignments.reduce(
-                        (sum, item) => sum + assignmentStaffCost(item, formAssignmentStaffHours(item), collaboratorsById, clientRoleRate),
+                        (sum, item) => sum
+                          + assignmentStaffCost(item, formAssignmentStaffHours(item), collaboratorsById, clientRoleRate)
+                          + staffCarAdvancesTotal(item.advancePayments),
                         0,
                       );
                       return (
@@ -1588,112 +1736,189 @@ export default function Services() {
                             <button type="button" className="secondary-button" onClick={() => addAssignment(required.role)} disabled={prepaidPaymentBlocked}>+ Adicionar colaborador</button>
                           </header>
                           {prepaidPaymentBlocked ? <p className="notice">Cliente com pré-pagamento: regista a sinalização antes de alocar novos colaboradores.</p> : null}
-                          {roleAssignments.map((assignment) => (
-                            <div key={`${required.role}-${assignment.index}`} className="service-assignment-row">
-                              <div className="service-assignment-collaborator">
-                                <label className="service-client-sync-check" title={assignment.clientSynced ? 'Sincronizado com o cliente' : 'Marcar como sincronizado com o cliente'}>
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(assignment.clientSynced)}
-                                    onChange={(event) => updateAssignment(assignment.index, { clientSynced: event.target.checked })}
-                                  />
-                                  <span aria-hidden="true" />
-                                </label>
-                                <div className="service-collab-picker">
-                                  <button
-                                    type="button"
-                                    className={`service-collab-trigger ${assignment.clientSynced ? 'service-collab-trigger--synced' : ''}`}
-                                    onClick={() => setActiveCollaboratorPickerIndex((prev) => (prev === assignment.index ? null : assignment.index))}
-                                  >
-                                    {assignment.collaboratorId
-                                      ? collaboratorOptionLabel(collaboratorsById.get(String(assignment.collaboratorId)) || { id: assignment.collaboratorId, name: 'Colaborador' })
-                                      : 'Selecionar colaborador'}
-                                  </button>
-                                {activeCollaboratorPickerIndex === assignment.index ? (
-                                  <div className="service-collab-menu">
-                                    <input
-                                      type="text"
-                                      placeholder="Filtrar por nome"
-                                      value={assignment.collaboratorSearch || ''}
-                                      onChange={(event) => updateAssignment(assignment.index, { collaboratorSearch: event.target.value })}
-                                    />
-                                    <div className="service-collab-options">
-                                      {[
-                                        ...activeCollaborators.filter((collab) => collaboratorHasRole(collab, required.role)),
-                                        ...((assignment.collaboratorId && !activeCollaborators.some((c) => String(c.id) === String(assignment.collaboratorId)))
-                                          ? [collaboratorsById.get(String(assignment.collaboratorId))].filter(Boolean)
-                                          : []),
-                                      ]
-                                        .filter((collab, index, arr) => collab && arr.findIndex((item) => String(item.id) === String(collab.id)) === index)
-                                        .filter((collab) => collaboratorHasRole(collab, required.role) || String(collab.id) === String(assignment.collaboratorId))
-                                        .filter((collab) => {
-                                          const q = String(assignment.collaboratorSearch || '').trim().toLowerCase();
-                                          if (!q) return true;
-                                          return String(collab.name || '').toLowerCase().includes(q)
-                                            || String(collab.shortName || '').toLowerCase().includes(q)
-                                            || String(collab.nif || '').includes(q);
-                                        })
-                                        .map((collab) => (
-                                          <button
-                                            type="button"
-                                            key={collab.id}
-                                            className="service-collab-option"
-                                            onClick={() => {
-                                              const nextAssignment = {
-                                                ...assignment,
-                                                collaboratorId: String(collab.id),
-                                              };
-                                              const roleRate = parseMoney(required.agreedRate) || 0;
-                                              const staffRate = assignmentStaffRate(nextAssignment, collaboratorsById, roleRate)
-                                                || collaboratorHourlyRate(collab);
-                                              updateAssignment(assignment.index, {
-                                                collaboratorId: String(collab.id),
-                                                hourlyRate: staffRate > 0 ? formatMoneyInline(staffRate) : assignment.hourlyRate,
-                                              });
-                                              setActiveCollaboratorPickerIndex(null);
-                                            }}
-                                          >
-                                            {collaboratorOptionLabel(collab)}
-                                          </button>
-                                        ))}
+                          {roleAssignments.map((assignment) => {
+                            const advances = Array.isArray(assignment.advancePayments) ? assignment.advancePayments : [];
+                            const advanceTotal = staffAdvancesTotal(advances);
+                            const carAdvanceTotal = staffCarAdvancesTotal(advances);
+                            const combinedAdvanceTotal = advanceTotal + carAdvanceTotal;
+                            const advancesOpen = activeAdvanceIndex === assignment.index;
+                            return (
+                              <div key={`${required.role}-${assignment.index}`} className="service-assignment-group">
+                                <div className={`service-assignment-row ${form.isContinuous ? 'service-assignment-row--dated' : ''}`}>
+                                  <div className="service-assignment-collaborator">
+                                    <label className="service-client-sync-check" title={assignment.clientSynced ? 'Sincronizado com o cliente' : 'Marcar como sincronizado com o cliente'}>
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(assignment.clientSynced)}
+                                        onChange={(event) => updateAssignment(assignment.index, { clientSynced: event.target.checked })}
+                                      />
+                                      <span aria-hidden="true" />
+                                    </label>
+                                    <div className="service-collab-picker">
+                                      <button
+                                        type="button"
+                                        className={`service-collab-trigger ${assignment.clientSynced ? 'service-collab-trigger--synced' : ''}`}
+                                        onClick={(event) => toggleCollaboratorPicker(event, assignment.index)}
+                                      >
+                                        {assignment.collaboratorId
+                                          ? collaboratorOptionLabel(collaboratorsById.get(String(assignment.collaboratorId)) || { id: assignment.collaboratorId, name: 'Colaborador' })
+                                          : 'Selecionar colaborador'}
+                                      </button>
+                                    {activeCollaboratorPickerIndex === assignment.index ? (
+                                      <div
+                                        className="service-collab-menu"
+                                        style={collaboratorPickerPlacement ? {
+                                          left: collaboratorPickerPlacement.left,
+                                          top: collaboratorPickerPlacement.top,
+                                          bottom: collaboratorPickerPlacement.bottom,
+                                          width: collaboratorPickerPlacement.width,
+                                          maxHeight: collaboratorPickerPlacement.maxHeight,
+                                        } : undefined}
+                                      >
+                                        <input
+                                          type="text"
+                                          placeholder="Filtrar por nome"
+                                          value={assignment.collaboratorSearch || ''}
+                                          onChange={(event) => updateAssignment(assignment.index, { collaboratorSearch: event.target.value })}
+                                        />
+                                        <div className="service-collab-options">
+                                          {[
+                                            ...activeCollaborators.filter((collab) => collaboratorHasRole(collab, required.role)),
+                                            ...((assignment.collaboratorId && !activeCollaborators.some((c) => String(c.id) === String(assignment.collaboratorId)))
+                                              ? [collaboratorsById.get(String(assignment.collaboratorId))].filter(Boolean)
+                                              : []),
+                                          ]
+                                            .filter((collab, index, arr) => collab && arr.findIndex((item) => String(item.id) === String(collab.id)) === index)
+                                            .filter((collab) => collaboratorHasRole(collab, required.role) || String(collab.id) === String(assignment.collaboratorId))
+                                            .filter((collab) => {
+                                              const q = String(assignment.collaboratorSearch || '').trim().toLowerCase();
+                                              if (!q) return true;
+                                              return String(collab.name || '').toLowerCase().includes(q)
+                                                || String(collab.shortName || '').toLowerCase().includes(q)
+                                                || String(collab.nif || '').includes(q);
+                                            })
+                                            .map((collab) => (
+                                              <button
+                                                type="button"
+                                                key={collab.id}
+                                                className="service-collab-option"
+                                                onClick={() => {
+                                                  const nextAssignment = {
+                                                    ...assignment,
+                                                    collaboratorId: String(collab.id),
+                                                  };
+                                                  const roleRate = parseMoney(required.agreedRate) || 0;
+                                                  const staffRate = assignmentStaffRate(nextAssignment, collaboratorsById, roleRate)
+                                                    || collaboratorHourlyRate(collab);
+                                                  updateAssignment(assignment.index, {
+                                                    collaboratorId: String(collab.id),
+                                                    hourlyRate: staffRate > 0 ? formatMoneyInline(staffRate) : assignment.hourlyRate,
+                                                  });
+                                                  setActiveCollaboratorPickerIndex(null);
+                                                  setCollaboratorPickerPlacement(null);
+                                                }}
+                                              >
+                                                {collaboratorOptionLabel(collab)}
+                                              </button>
+                                            ))}
+                                        </div>
+                                      </div>
+                                    ) : null}
                                     </div>
                                   </div>
-                                ) : null}
+                                  {form.isContinuous ? (
+                                    <input
+                                      type="date"
+                                      aria-label="Data de trabalho"
+                                      title="Data de trabalho"
+                                      value={assignment.assignmentDate || ''}
+                                      min={form.date || undefined}
+                                      max={(form.endDate || form.date || undefined)}
+                                      onChange={(event) => updateAssignment(assignment.index, { assignmentDate: event.target.value })}
+                                    />
+                                  ) : null}
+                                  <input type="time" aria-label="Entrada prevista" title="Entrada prevista" value={assignment.plannedCheckIn || ''} onChange={(event) => updateAssignment(assignment.index, { plannedCheckIn: event.target.value })} />
+                                  <input type="time" aria-label="Saída prevista" title="Saída prevista" value={assignment.plannedCheckOut || ''} onChange={(event) => updateAssignment(assignment.index, { plannedCheckOut: event.target.value })} />
+                                  <input type="text" aria-label="Horas previstas" title="Horas previstas" readOnly value={formatHours(formAssignmentPlannedHours(assignment))} />
+                                  <input
+                                    type="text"
+                                    placeholder="Valor/h acordado"
+                                    value={assignment.hourlyRate}
+                                    onChange={(event) => updateAssignment(assignment.index, { hourlyRate: event.target.value, manualHourlyRate: true })}
+                                    onFocus={(event) => {
+                                      const parsed = parseMoney(event.target.value);
+                                      updateAssignment(assignment.index, { hourlyRate: parsed === null ? '' : String(parsed).replace('.', ',') });
+                                    }}
+                                    onBlur={(event) => updateAssignment(assignment.index, { hourlyRate: formatMoneyInline(event.target.value) })}
+                                  />
+                                  <select className={`service-status-select service-status-select--${assignment.status || 'pending_confirmation'}`} value={assignment.status || 'pending_confirmation'} onChange={(event) => updateAssignment(assignment.index, { status: event.target.value })}>
+                                    {assignmentStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    className={`service-advance-toggle ${combinedAdvanceTotal > 0 ? 'service-advance-toggle--active' : ''}`}
+                                    onClick={() => setActiveAdvanceIndex(advancesOpen ? null : assignment.index)}
+                                  >
+                                    Adiantamentos
+                                    {combinedAdvanceTotal > 0 ? <strong>{euro(combinedAdvanceTotal)}</strong> : null}
+                                  </button>
+                                  <button type="button" className="icon-button icon-button--danger" onClick={() => removeAssignment(assignment.index)}>
+                                    <Trash2 size={16} />
+                                  </button>
                                 </div>
+                                {advancesOpen ? (
+                                  <div className="service-advance-panel">
+                                    <header>
+                                      <strong>Adiantamentos</strong>
+                                      <span>Descontar: {euro(advanceTotal)}</span>
+                                      <span>Carro: {euro(carAdvanceTotal)}</span>
+                                      <button type="button" className="secondary-button" onClick={() => addAssignmentAdvance(assignment.index)}>+ Adiantamento</button>
+                                    </header>
+                                    {advances.map((advance) => (
+                                      <div key={advance.id} className="service-advance-row">
+                                        <input
+                                          type="date"
+                                          aria-label="Data do adiantamento"
+                                          value={advance.date || ''}
+                                          onChange={(event) => updateAssignmentAdvance(assignment.index, advance.id, { date: event.target.value })}
+                                        />
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          placeholder="Valor"
+                                          value={advance.amount || ''}
+                                          onChange={(event) => updateAssignmentAdvance(assignment.index, advance.id, { amount: event.target.value })}
+                                          onFocus={(event) => {
+                                            const parsed = parseMoney(event.target.value);
+                                            updateAssignmentAdvance(assignment.index, advance.id, { amount: parsed === null ? '' : String(parsed).replace('.', ',') });
+                                          }}
+                                          onBlur={(event) => updateAssignmentAdvance(assignment.index, advance.id, { amount: formatMoneyInline(event.target.value) })}
+                                        />
+                                        <input
+                                          type="text"
+                                          placeholder="Motivo/observação"
+                                          value={advance.note || ''}
+                                          onChange={(event) => updateAssignmentAdvance(assignment.index, advance.id, { note: event.target.value })}
+                                        />
+                                        <label className="service-advance-car-check">
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(advance.car)}
+                                            onChange={(event) => updateAssignmentAdvance(assignment.index, advance.id, { car: event.target.checked })}
+                                          />
+                                          <span>Carro</span>
+                                        </label>
+                                        <button type="button" className="icon-button icon-button--danger" onClick={() => removeAssignmentAdvance(assignment.index, advance.id)}>
+                                          <Trash2 size={16} />
+                                        </button>
+                                      </div>
+                                    ))}
+                                    {!advances.length ? <p className="muted">Sem adiantamentos registados.</p> : null}
+                                  </div>
+                                ) : null}
                               </div>
-                              {form.isContinuous ? (
-                                <input
-                                  type="date"
-                                  aria-label="Data de trabalho"
-                                  title="Data de trabalho"
-                                  value={assignment.assignmentDate || ''}
-                                  min={form.date || undefined}
-                                  max={(form.endDate || form.date || undefined)}
-                                  onChange={(event) => updateAssignment(assignment.index, { assignmentDate: event.target.value })}
-                                />
-                              ) : null}
-                              <input type="time" aria-label="Entrada real" title="Entrada real" value={assignment.checkIn} onChange={(event) => updateAssignment(assignment.index, { checkIn: event.target.value })} />
-                              <input type="time" aria-label="Saída real" title="Saída real" value={assignment.checkOut} onChange={(event) => updateAssignment(assignment.index, { checkOut: event.target.value })} />
-                              <input type="text" aria-label="Horas trabalhadas" title="Horas trabalhadas" readOnly value={formatHours(formAssignmentStaffHours(assignment))} />
-                              <input
-                                type="text"
-                                placeholder="Valor/h acordado"
-                                value={assignment.hourlyRate}
-                                onChange={(event) => updateAssignment(assignment.index, { hourlyRate: event.target.value, manualHourlyRate: true })}
-                                onFocus={(event) => {
-                                  const parsed = parseMoney(event.target.value);
-                                  updateAssignment(assignment.index, { hourlyRate: parsed === null ? '' : String(parsed).replace('.', ',') });
-                                }}
-                                onBlur={(event) => updateAssignment(assignment.index, { hourlyRate: formatMoneyInline(event.target.value) })}
-                              />
-                              <select className={`service-status-select service-status-select--${assignment.status || 'pending_confirmation'}`} value={assignment.status || 'pending_confirmation'} onChange={(event) => updateAssignment(assignment.index, { status: event.target.value })}>
-                                {assignmentStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                              </select>
-                              <button type="button" className="icon-button icon-button--danger" onClick={() => removeAssignment(assignment.index)}>
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          ))}
+                            );
+                          })}
                           {!roleAssignments.length ? <p className="muted">Sem colaboradores atribuídos.</p> : null}
                         </div>
                       );

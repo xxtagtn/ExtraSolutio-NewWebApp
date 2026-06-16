@@ -1,3 +1,5 @@
+import { effectiveRowDateKey, effectiveRowStartTime } from './timeValidationFilters.js';
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -84,7 +86,8 @@ function csvCell(value) {
 
 function rowSortValue(row) {
   return [
-    new Date(row?.event?.date || 0).getTime(),
+    new Date(effectiveRowDateKey(row) || 0).getTime(),
+    effectiveRowStartTime(row),
     String(row?.event?.name || ''),
     String(row?.assignment?.collaborator?.shortName || row?.assignment?.collaborator?.name || ''),
   ].join('|');
@@ -101,7 +104,7 @@ export function buildStaffScheduleRows(rows) {
         eventId: row.event.id,
         eventName: row.event.name || '-',
         clientName: row.event.client?.name || '-',
-        eventDate: formatDate(row.event.date),
+        eventDate: formatDate(effectiveRowDateKey(row)),
         location: row.event.location || '-',
         collaboratorName: row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-',
         role: row.assignment.role || '-',
@@ -118,7 +121,7 @@ export function buildStaffScheduleRows(rows) {
 function groupByEvent(rows) {
   const map = new Map();
   for (const row of rows) {
-    const key = String(row.eventId || `${row.eventName}-${row.eventDate}`);
+    const key = String(row.eventId ? `${row.eventId}-${row.eventDate}` : `${row.eventName}-${row.eventDate}`);
     if (!map.has(key)) {
       map.set(key, {
         eventId: row.eventId,

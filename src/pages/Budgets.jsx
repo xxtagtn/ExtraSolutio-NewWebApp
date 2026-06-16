@@ -23,6 +23,11 @@ import {
   buildEventPayloadFromBudgetConversion,
 } from '../utils/budgetConversion.js';
 import {
+  budgetWorkDays,
+  normalizeBudgetCategoryDates,
+  shouldSelectBudgetCategoryDay,
+} from '../utils/budgetCategoryDates.js';
+import {
   budgetStatusFlow,
   budgetStatusLabels,
   normalizeBudgetStatus,
@@ -53,6 +58,7 @@ const serviceTypeOptions = [
   { value: 'volante', label: 'Volante' },
   { value: 'cocktail', label: 'Cocktail' },
   { value: 'coffee_break', label: 'Coffee Break' },
+  { value: 'trinchar', label: 'Trinchar' },
 ];
 
 const eventLevelOptions = [
@@ -181,6 +187,7 @@ function getSmartSuggestion(form) {
     volante: { 'Emp.Mesa': 24, 'Copa Fina': 55 },
     cocktail: { 'Emp.Mesa': 28, Barman: 45, 'Copa Fina': 60 },
     coffee_break: { 'Emp.Mesa': 35, 'Copa Fina': 70 },
+    trinchar: { 'Emp.Mesa': 25, Cozinheiro: 80 },
   };
   const selected = ratios[form.serviceType] || ratios.buffet;
   const categories = Object.entries(selected).map(([role, ratio]) => ({
@@ -291,7 +298,6 @@ export default function Budgets() {
   const [activeTab, setActiveTab] = useState('new_request');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [smartMode, setSmartMode] = useState(false);
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
@@ -309,8 +315,18 @@ export default function Budgets() {
     followUpParsed: safeJson(row.followUpHistory, []),
   })), [data]);
 
-  const totals = useMemo(() => calculateBudgetTotals(form), [form]);
+  const budgetDayOptions = useMemo(() => budgetWorkDays(form.eventDays), [form.eventDays]);
+  const showCategoryDaySelect = shouldSelectBudgetCategoryDay(form.eventDays);
+  const normalizedCategories = useMemo(
+    () => normalizeBudgetCategoryDates(form.categories, form.eventDays),
+    [form.categories, form.eventDays],
+  );
+  const totals = useMemo(
+    () => calculateBudgetTotals({ ...form, categories: normalizedCategories }),
+    [form, normalizedCategories],
+  );
   const selectedClient = clients.find((client) => String(client.id) === String(form.clientId));
+  const showDepositLine = form.budgetType === 'individual' || selectedClient?.type === 'particular';
 
   const stats = useMemo(() => {
     const count = (status) => rows.filter((row) => row.status === status).length;
@@ -338,9 +354,8 @@ export default function Budgets() {
     return `ORC-${String(next).padStart(4, '0')}`;
   }
 
-  function openCreate(isSmart = false) {
+  function openCreate() {
     setEditing(null);
-    setSmartMode(isSmart);
     setForm({
       ...emptyForm(generateReference()),
       status: 'new_request',
@@ -360,7 +375,6 @@ export default function Budgets() {
         ? 'kilometers'
         : row.travelType;
     setEditing(row);
-    setSmartMode(false);
     setForm({
       ...emptyForm(),
       ...row,
@@ -516,7 +530,7 @@ export default function Budgets() {
     setSaving(true);
     setFormError('');
     try {
-      const cleanCategories = form.categories
+      const cleanCategories = normalizedCategories
         .map((item) => ({
           role: item.role,
           qty: num(item.qty),
@@ -695,11 +709,7 @@ export default function Budgets() {
         title="Orçamentos"
         action={(
           <div className="card-actions">
-            <button className="secondary-button" type="button" onClick={() => openCreate(true)}>
-              <BrainCircuit size={17} />
-              Criar Orçamento Inteligente
-            </button>
-            <button className="command-button" type="button" onClick={() => openCreate(false)}>
+            <button className="command-button" type="button" onClick={openCreate}>
               <Plus size={17} />
               Novo Pedido
             </button>
@@ -796,7 +806,7 @@ export default function Budgets() {
       </Card>
 
       {open ? (
-        <Modal title={editing ? `Editar Orçamento ${form.reference}` : smartMode ? 'Criar Orçamento Inteligente' : 'Novo Pedido'} onClose={() => setOpen(false)} size="wide">
+        <Modal title={editing ? `Editar Orçamento ${form.reference}` : 'Novo Pedido'} onClose={() => setOpen(false)} size="wide">
           <form className="resource-form budget-form" onSubmit={submit}>
             <div className="budget-layout">
               <div className="budget-main">
@@ -891,16 +901,6 @@ export default function Budgets() {
                         {eventLevelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </label>
-                    <label>Localização
-                      <select value={form.locationScope} onChange={(event) => setForm({ ...form, locationScope: event.target.value })}>
-                        <option value="lisbon">Grande Lisboa</option>
-                        <option value="outside_lisbon">Fora Grande Lisboa</option>
-                      </select>
-                    </label>
-                    <label className="check-inline budget-check">
-                      <input type="checkbox" checked={form.regularClient} onChange={(event) => setForm({ ...form, regularClient: event.target.checked })} />
-                      <span>Cliente habitual</span>
-                    </label>
                   </div>
                   <button className="secondary-button budget-assistant-button" type="button" onClick={applySuggestion}>
                     <BrainCircuit size={16} />
@@ -931,14 +931,16 @@ export default function Budgets() {
                         </label>
                         <label>Quantidade<input type="number" min="1" value={cat.qty} onChange={(event) => updateCategory(idx, { qty: event.target.value })} /></label>
                         <label>Valor/h<input type="number" step="0.01" value={cat.rate} onChange={(event) => updateCategory(idx, { rate: event.target.value })} /></label>
-                        <label>Dia
-                          <select value={cat.date || ''} onChange={(event) => updateCategory(idx, { date: event.target.value })}>
-                            <option value="">Todos os dias</option>
-                            {(form.eventDays || []).filter((d) => d.date).map((d) => (
-                              <option key={d.date} value={d.date}>{d.date}</option>
-                            ))}
-                          </select>
-                        </label>
+                        {showCategoryDaySelect ? (
+                          <label>Dia
+                            <select value={cat.date || ''} onChange={(event) => updateCategory(idx, { date: event.target.value })}>
+                              <option value="">Todos os dias</option>
+                              {budgetDayOptions.map((day) => (
+                                <option key={day.date} value={day.date}>{day.date}</option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : null}
                         <label>Entrada<input type="time" value={cat.start} onChange={(event) => updateCategory(idx, { start: event.target.value })} /></label>
                         <label>Saída<input type="time" value={cat.end} onChange={(event) => updateCategory(idx, { end: event.target.value })} /></label>
                         <label>Uniforme
@@ -1006,13 +1008,14 @@ export default function Budgets() {
                 <section className="budget-panel">
                   <h3>Resumo Comercial</h3>
                   <div className="budget-summary">
-                    <div><span>Receita prevista</span><strong>{money.format(totals.baseAmount + totals.travelAmount)}</strong></div>
+                    <div><span>Valor Staff</span><strong>{money.format(totals.baseAmount)}</strong></div>
+                    <div><span>Valor Deslocação</span><strong>{money.format(totals.travelAmount)}</strong></div>
+                    <div><span>Valor Desconto</span><strong>- {money.format(totals.discountAmount)}</strong></div>
                     <div><span>IVA</span><strong>{money.format(totals.taxAmount)}</strong></div>
-                    <div><span>Valor final</span><strong>{money.format(totals.totalAmount)}</strong></div>
-                    <div><span>Sinalização 70%</span><strong>{money.format(totals.totalAmount * 0.7)}</strong></div>
-                    <div><span>Deslocação</span><strong>{money.format(totals.travelAmount)}</strong></div>
-                    <div><span>Desconto</span><strong>- {money.format(totals.discountAmount)}</strong></div>
-                    <div className="budget-total"><span>Total</span><strong>{money.format(totals.totalAmount)}</strong></div>
+                    {showDepositLine ? (
+                      <div><span>Sinalização 70%</span><strong>{money.format(totals.totalAmount * 0.7)}</strong></div>
+                    ) : null}
+                    <div className="budget-total"><span>Total Final</span><strong>{money.format(totals.totalAmount)}</strong></div>
                   </div>
                 </section>
 
