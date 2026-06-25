@@ -53,6 +53,25 @@ test('passes adjudicated budget total with cents to the converted event payload'
   assert.equal(payload.totalRevenue, 284.5);
 });
 
+test('preserves the legacy staff travel rate when converting a kilometer budget', () => {
+  const draft = buildBudgetConversionDraft({
+    reference: 'ORC-0103',
+    companyName: 'BLACK',
+    eventDate: '2026-07-12',
+    travelType: 'kilometers',
+    travelPeople: 3,
+    km: 100,
+    kmRate: 0.4,
+    durationHours: 2,
+  });
+
+  const payload = buildEventPayloadFromBudgetConversion(draft, 7);
+
+  assert.equal(draft.travelStaffHourlyRate, 10);
+  assert.equal(payload.travelStaffHourlyRate, 10);
+  assert.equal(payload.travelExpenseAmount, 100);
+});
+
 test('preserves multi-day budget dates, role quantities and client rates for conversion', () => {
   const draft = buildBudgetConversionDraft({
     reference: 'ORC-0202',

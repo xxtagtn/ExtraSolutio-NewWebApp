@@ -310,6 +310,11 @@ main {
   color: #c7d2fe;
 }
 
+.notification-kind--birthday {
+  background: rgba(236, 72, 153, 0.16);
+  color: #f9a8d4;
+}
+
 .notification-row strong,
 .notification-row span,
 .notification-row small {
@@ -500,6 +505,35 @@ main {
 
 .dashboard-stats .stat--featured strong {
   font-size: 2rem;
+}
+
+.balance-period-control {
+  display: inline-flex;
+  gap: 10px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.balance-period-control label {
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.balance-period-control select,
+.balance-period-control input {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b1114;
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.balance-period-control .secondary-button {
+  min-height: 38px;
 }
 
 .stat--accent {
@@ -1185,6 +1219,19 @@ th {
   gap: 10px;
 }
 
+.collab-row-4-profile {
+  display: grid;
+  grid-template-columns: minmax(155px, 1fr) minmax(80px, 0.5fr) minmax(130px, 0.85fr) minmax(190px, 1.25fr);
+  gap: 10px;
+}
+
+.collab-row-4-financial {
+  display: grid;
+  grid-template-columns: minmax(230px, 1.35fr) minmax(190px, 0.9fr) minmax(130px, 0.65fr) minmax(190px, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+
 .collab-document-row {
   display: grid;
   grid-template-columns: minmax(180px, 1.35fr) minmax(150px, 1fr) minmax(140px, 0.85fr) auto;
@@ -1365,7 +1412,7 @@ th {
 
 .services-row-4 {
   display: grid;
-  grid-template-columns: 1.4fr 1.2fr repeat(2, minmax(0, 0.8fr));
+  grid-template-columns: 0.8fr 0.9fr 1fr 1.25fr minmax(150px, 0.9fr);
   gap: 14px;
 }
 
@@ -3399,6 +3446,55 @@ th {
   gap: 16px;
 }
 
+.validation-stage-tabs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 2px 0 10px;
+  margin-bottom: 10px;
+  scrollbar-width: thin;
+}
+
+.validation-stage-tab {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b1114;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.validation-stage-tab strong {
+  min-width: 21px;
+  height: 21px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.18);
+  color: var(--text);
+  font-size: 0.7rem;
+}
+
+.validation-stage-tab.is-active {
+  border-color: #14b8a6;
+  background: rgba(20, 184, 166, 0.12);
+  color: #ccfbf1;
+}
+
+.validation-stage-tab.is-active strong {
+  background: #14b8a6;
+  color: #06110f;
+}
+
 .validation-filters {
   display: grid;
   grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(300px, 1.15fr) auto auto auto;
@@ -3418,6 +3514,34 @@ th {
   color: var(--muted);
   font-size: 0.78rem;
   white-space: nowrap;
+}
+
+.validation-period-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b1114;
+}
+
+.validation-period-presets button {
+  min-height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.validation-period-presets button:hover {
+  background: rgba(20, 184, 166, 0.12);
+  color: #ccfbf1;
 }
 
 .validation-pdf-button {
@@ -3482,6 +3606,26 @@ th {
   vertical-align: top;
 }
 
+.validation-date-group th {
+  padding: 8px 10px;
+  border-top: 1px solid rgba(20, 184, 166, 0.35);
+  border-bottom: 1px solid rgba(20, 184, 166, 0.2);
+  background: #0c1518;
+  color: #ccfbf1;
+  text-align: left;
+}
+
+.validation-date-group th span,
+.validation-date-group th small {
+  display: inline-block;
+}
+
+.validation-date-group th small {
+  margin-left: 8px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .validation-table td strong,
 .validation-table td small {
   display: block;
@@ -3542,6 +3686,17 @@ th {
   grid-template-columns: 86px;
   gap: 4px;
   justify-items: start;
+}
+
+.validation-time-input {
+  width: 86px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b1114;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .validation-time-arrow {
@@ -3611,6 +3766,26 @@ th {
   color: var(--muted);
   padding: 0 6px;
   font-size: 0.72rem;
+}
+
+.validation-copy-button {
+  min-height: 23px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #111a1f;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+}
+
+.validation-copy-button:hover {
+  border-color: rgba(20, 184, 166, 0.5);
+  color: #ccfbf1;
 }
 
 .validation-hours {
@@ -3795,6 +3970,31 @@ th {
   padding: 0 10px;
 }
 
+.calendar-view-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b1114;
+}
+
+.calendar-view-switch button {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.calendar-view-switch button.is-active {
+  background: rgba(20, 184, 166, 0.18);
+  color: #ccfbf1;
+}
+
 .calendar-nav-pickers {
   display: inline-flex;
   align-items: center;
@@ -3854,6 +4054,76 @@ th {
   color: #5eead4;
 }
 
+.calendar-birthdays {
+  position: relative;
+  min-width: 0;
+}
+
+.calendar-birthday-trigger {
+  width: 100%;
+  min-height: 25px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px;
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #fde68a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.calendar-birthday-trigger span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-birthday-trigger:hover,
+.calendar-birthday-trigger[aria-expanded="true"] {
+  border-color: rgba(245, 158, 11, 0.58);
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.calendar-birthday-details {
+  position: absolute;
+  z-index: 15;
+  top: calc(100% + 4px);
+  left: 0;
+  width: max-content;
+  min-width: 170px;
+  max-width: 240px;
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  border-radius: 7px;
+  background: #11191d;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.42);
+}
+
+.calendar-birthday-details > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.calendar-birthday-details strong {
+  font-size: 0.72rem;
+}
+
+.calendar-birthday-details small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  white-space: nowrap;
+}
+
 .calendar-events {
   display: grid;
   gap: 4px;
@@ -3881,9 +4151,130 @@ th {
   line-height: 1.15;
 }
 
+.calendar-agenda {
+  display: grid;
+  gap: 8px;
+}
+
+.calendar-agenda--week {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendar-agenda--day {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.calendar-agenda-day {
+  min-width: 0;
+  min-height: 240px;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0f1519;
+}
+
+.calendar-agenda-day--today {
+  border-color: rgba(20, 184, 166, 0.75);
+  box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.35) inset;
+}
+
+.calendar-agenda-day > header {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.calendar-agenda-day > header strong {
+  font-size: 0.76rem;
+  text-transform: capitalize;
+}
+
+.calendar-agenda-day > header span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.calendar-empty-day {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
 .collab-details-list {
   display: grid;
   gap: 8px;
+}
+
+.collab-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.collab-pagination__summary {
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.collab-pagination__size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.collab-pagination__size .form-control {
+  width: 72px;
+  min-height: 36px;
+}
+
+.collab-pagination__pages {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.collab-pagination__pages .icon-button,
+.collab-pagination__page {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+}
+
+.collab-pagination__page {
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b1114;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.collab-pagination__page:hover {
+  border-color: rgba(20, 184, 166, 0.5);
+}
+
+.collab-pagination__page.is-active {
+  border-color: #14b8a6;
+  background: rgba(20, 184, 166, 0.16);
+  color: #d9fffa;
+  font-weight: 700;
 }
 
 .collab-detail-card {
@@ -3981,8 +4372,9 @@ th {
 
 .collab-top-grid {
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr 0.9fr 1.4fr auto;
-  gap: 10px;
+  grid-template-columns: minmax(210px, 1.25fr) minmax(130px, 0.7fr) minmax(145px, 0.8fr) minmax(260px, 1.55fr) auto;
+  column-gap: 6px;
+  row-gap: 8px;
   align-items: center;
   width: 100%;
 }
@@ -4305,6 +4697,14 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .collab-row-4-financial {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .collab-row-4-profile {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .budget-side {
     position: static;
   }
@@ -4529,6 +4929,20 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .collab-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .collab-pagination__size {
+    justify-content: space-between;
+    margin-left: 0;
+  }
+
+  .collab-pagination__pages {
+    justify-content: center;
+  }
+
   .checkbox-group {
     grid-template-columns: 1fr;
   }
@@ -4536,8 +4950,19 @@ th {
   .collab-form-grid,
   .collab-row-2,
   .collab-row-3,
+  .collab-row-4-profile,
+  .collab-row-4-financial,
   .collab-document-row {
     grid-template-columns: 1fr;
+  }
+
+  .balance-period-control {
+    width: 100%;
+  }
+
+  .balance-period-control label {
+    min-width: 0;
+    flex: 1 1 160px;
   }
 
   .collab-rate-row {
@@ -4698,6 +5123,27 @@ th {
 
   .calendar-grid--head {
     display: none;
+  }
+
+  .calendar-cell--empty {
+    display: none;
+  }
+
+  .calendar-title-wrap {
+    flex-wrap: wrap;
+  }
+
+  .calendar-view-switch {
+    order: 3;
+    width: 100%;
+  }
+
+  .calendar-view-switch button {
+    flex: 1 1 0;
+  }
+
+  .calendar-agenda--week {
+    grid-template-columns: 1fr;
   }
 
   .calendar-nav-pickers {

@@ -93,6 +93,7 @@ model Client {
   billingCustomRule String? @db.Text
   paymentTerm   String    @default("days_30") @db.VarChar(40)
   paymentTermDays Int?
+  minimumHours  Decimal   @default(0) @db.Decimal(8, 2)
   roleRates     String?   @db.LongText
   roleRatesUpdatedAt DateTime? @db.DateTime(3)
   status        String    @default("active") @db.VarChar(40)
@@ -186,7 +187,9 @@ model Event {
   endTime      String?           @db.VarChar(20)
   actualStartTime String?        @db.VarChar(20)
   actualEndTime   String?        @db.VarChar(20)
+  realHours       Decimal        @default(0) @db.Decimal(8, 2)
   billableHours   Decimal        @default(0) @db.Decimal(8, 2)
+  minimumHoursSnapshot Decimal   @default(0) @db.Decimal(8, 2)
   guestsCount  Int?
   requiredRoles String?          @db.LongText
   uniform      String?           @db.VarChar(80)
@@ -200,6 +203,7 @@ model Event {
   km           Decimal?          @db.Decimal(10, 2)
   kmRate       Decimal?          @db.Decimal(8, 2)
   durationHours Decimal?         @db.Decimal(8, 2)
+  travelStaffHourlyRate Decimal  @default(0) @db.Decimal(8, 2)
   split5050    Boolean           @default(false)
   travelManualAmount Decimal     @default(0) @db.Decimal(12, 2)
   billingStatus String           @default("pending") @db.VarChar(40)
@@ -250,6 +254,7 @@ model EventAssignment {
   validatedCheckIn String?    @db.VarChar(20)
   validatedCheckOut String?   @db.VarChar(20)
   hoursWorked    Decimal      @default(0) @db.Decimal(8, 2)
+  clientRealHours Decimal     @default(0) @db.Decimal(8, 2)
   clientBillableHours Decimal @default(0) @db.Decimal(8, 2)
   staffPayableHours Decimal   @default(0) @db.Decimal(8, 2)
   hourlyRate     Decimal      @default(0) @db.Decimal(12, 2)

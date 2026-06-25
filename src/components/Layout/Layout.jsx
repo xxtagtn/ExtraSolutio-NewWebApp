@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useApi } from '../../hooks/useApi.js';
 import { api } from '../../utils/api.js';
+import { birthdayNotification } from '../../utils/birthdays.js';
 import { isFinanceReadyEvent } from '../../utils/financeReadiness.js';
 import { staffPaymentTiming } from '../../utils/staffPayment.js';
 import Header from './Header.jsx';
@@ -37,6 +38,7 @@ export default function Layout() {
   const [dismissed, setDismissed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [ignoredNotifications, setIgnoredNotifications] = useState([]);
+  const [notificationReferenceDate, setNotificationReferenceDate] = useState(() => new Date());
   const location = useLocation();
   const { data: services } = useApi('/services', []);
   const { data: budgets } = useApi('/budgets', []);
@@ -51,7 +53,7 @@ export default function Layout() {
   const showReminder = reminders.length > 0 && !dismissed;
 
   const notifications = useMemo(() => {
-    const now = new Date();
+    const now = notificationReferenceDate;
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const items = [];
 
@@ -189,6 +191,9 @@ export default function Layout() {
       });
     }
 
+    const todayBirthdayNotification = birthdayNotification(collaborators, now);
+    if (todayBirthdayNotification) items.push(todayBirthdayNotification);
+
     const ignored = new Set(ignoredNotifications);
     const allItems = items
       .map((item) => ({ ...item, ignored: ignored.has(item.id) }))
@@ -205,7 +210,18 @@ export default function Layout() {
       items: visibleItems,
       total: visibleItems.length,
     };
-  }, [budgets, invoices, services, collaborators, ignoredNotifications]);
+  }, [budgets, invoices, services, collaborators, ignoredNotifications, notificationReferenceDate]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      setNotificationReferenceDate((current) => (
+        current.toDateString() === now.toDateString() ? current : now
+      ));
+    }, 60 * 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     setMobileNavOpen(false);

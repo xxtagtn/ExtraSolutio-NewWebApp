@@ -2,8 +2,10 @@ import { hoursValidationState } from './hourValidationStatus.js';
 
 export function buildAcceptedValidation(row, draft = {}) {
   const merged = { ...(row?.assignment || {}), ...(draft || {}) };
-  const validatedCheckIn = merged.validatedCheckIn || merged.clientCheckIn || merged.checkIn || row?.event?.startTime || '';
-  const validatedCheckOut = merged.validatedCheckOut || merged.clientCheckOut || merged.checkOut || row?.event?.endTime || '';
+  const staffComplete = Boolean(merged.checkIn && merged.checkOut);
+  const clientComplete = Boolean(merged.clientCheckIn && merged.clientCheckOut);
+  const validatedCheckIn = clientComplete ? merged.clientCheckIn : '';
+  const validatedCheckOut = clientComplete ? merged.clientCheckOut : '';
 
   return {
     row,
@@ -12,7 +14,7 @@ export function buildAcceptedValidation(row, draft = {}) {
       validatedCheckIn,
       validatedCheckOut,
     },
-    canValidate: Boolean(validatedCheckIn && validatedCheckOut),
+    canValidate: staffComplete && clientComplete,
   };
 }
 

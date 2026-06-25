@@ -56,21 +56,39 @@ export function roundedBillableHours(start, end) {
   return Number(((e - s) / 60).toFixed(2));
 }
 
-export function clientChargeHours(assignment, fallbackStart = '', fallbackEnd = '') {
+export function clientRealHours(assignment) {
   const validated = roundedBillableHours(assignment?.validatedCheckIn, assignment?.validatedCheckOut);
   if (validated > 0) return validated;
 
   const clientReported = roundedBillableHours(assignment?.clientCheckIn, assignment?.clientCheckOut);
   if (clientReported > 0) return clientReported;
 
-  const checked = roundedBillableHours(assignment?.checkIn || fallbackStart, assignment?.checkOut || fallbackEnd);
-  if (assignment?.timesTouched && checked > 0) return checked;
-
-  const explicit = decimalValue(assignment?.clientBillableHours) || 0;
+  const explicit = decimalValue(assignment?.clientRealHours) || 0;
   if (explicit > 0) return explicit;
 
+  const checked = roundedBillableHours(assignment?.checkIn, assignment?.checkOut);
   if (checked > 0) return checked;
-  return decimalValue(assignment?.hoursWorked) || 0;
+
+  return 0;
+}
+
+export function clientChargeHours(assignment, fallbackStart = '', fallbackEnd = '', minimumHours = 0) {
+  const minimum = Math.max(0, decimalValue(minimumHours) || 0);
+  const validated = roundedBillableHours(assignment?.validatedCheckIn, assignment?.validatedCheckOut);
+  if (validated > 0) return Math.max(validated, minimum);
+
+  const clientReported = roundedBillableHours(assignment?.clientCheckIn, assignment?.clientCheckOut);
+  if (clientReported > 0) return Math.max(clientReported, minimum);
+
+  const checked = roundedBillableHours(assignment?.checkIn || fallbackStart, assignment?.checkOut || fallbackEnd);
+  if (assignment?.timesTouched && checked > 0) return Math.max(checked, minimum);
+
+  const explicit = decimalValue(assignment?.clientBillableHours) || 0;
+  if (explicit > 0) return Math.max(explicit, minimum);
+
+  if (checked > 0) return Math.max(checked, minimum);
+  const worked = decimalValue(assignment?.hoursWorked) || 0;
+  return worked > 0 ? Math.max(worked, minimum) : 0;
 }
 
 export function collaboratorHourlyRate(collaborator) {

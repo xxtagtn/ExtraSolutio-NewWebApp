@@ -12,7 +12,9 @@ export function calculateTravelAmount(input = {}) {
       return Number((35 + (numberValue(input.travelPeople) * 10)).toFixed(2));
     case 'kilometers': {
       const kilometerAmount = numberValue(input.km) * numberValue(input.kmRate);
-      const timeAmount = numberValue(input.durationHours) * numberValue(input.travelPeople) * 10;
+      const hasManualStaffRate = Object.prototype.hasOwnProperty.call(input, 'travelStaffHourlyRate');
+      const staffHourlyRate = hasManualStaffRate ? numberValue(input.travelStaffHourlyRate) : 10;
+      const timeAmount = numberValue(input.durationHours) * numberValue(input.travelPeople) * staffHourlyRate;
       return Number((kilometerAmount + (input.split5050 ? timeAmount / 2 : timeAmount)).toFixed(2));
     }
     case 'manual':

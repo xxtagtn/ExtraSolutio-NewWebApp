@@ -35,6 +35,40 @@ test('applies 50/50 only to the travel time amount', () => {
   }), 70);
 });
 
+test('uses the manually entered staff travel hourly rate', () => {
+  assert.equal(calculateTravelAmount({
+    travelType: 'kilometers',
+    travelPeople: 3,
+    km: 100,
+    kmRate: 0.4,
+    durationHours: 2,
+    travelStaffHourlyRate: 15,
+  }), 130);
+});
+
+test('does not add an automatic staff amount when the manual rate is zero', () => {
+  assert.equal(calculateTravelAmount({
+    travelType: 'kilometers',
+    travelPeople: 3,
+    km: 100,
+    kmRate: 0.4,
+    durationHours: 2,
+    travelStaffHourlyRate: 0,
+  }), 40);
+});
+
+test('applies 50/50 to the manually calculated staff travel amount', () => {
+  assert.equal(calculateTravelAmount({
+    travelType: 'kilometers',
+    travelPeople: 3,
+    km: 100,
+    kmRate: 0.4,
+    durationHours: 2,
+    travelStaffHourlyRate: 15,
+    split5050: true,
+  }), 85);
+});
+
 test('uses a direct custom amount in manual mode', () => {
   assert.equal(calculateTravelAmount({ travelType: 'manual', travelManualAmount: '87,50€' }), 87.5);
 });

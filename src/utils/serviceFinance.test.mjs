@@ -4,6 +4,7 @@ import {
   assignmentStaffCost,
   assignmentStaffRate,
   clientChargeHours,
+  clientRealHours,
   collaboratorHourlyRate,
   decimalValue,
 } from './serviceFinance.js';
@@ -92,4 +93,41 @@ test('keeps explicit client hours when no validated or client times exist', () =
     }),
     10,
   );
+});
+
+test('keeps real client hours separate from the client minimum', () => {
+  const assignment = {
+    clientCheckIn: '09:00',
+    clientCheckOut: '12:00',
+  };
+
+  assert.equal(clientRealHours(assignment), 3);
+  assert.equal(clientChargeHours(assignment, '', '', 5), 5);
+});
+
+test('uses real client hours when they exceed the client minimum', () => {
+  const assignment = {
+    clientCheckIn: '09:00',
+    clientCheckOut: '15:00',
+  };
+
+  assert.equal(clientRealHours(assignment), 6);
+  assert.equal(clientChargeHours(assignment, '', '', 5), 6);
+});
+
+test('does not apply a minimum when the client has none configured', () => {
+  const assignment = {
+    clientCheckIn: '09:00',
+    clientCheckOut: '13:30',
+  };
+
+  assert.equal(clientChargeHours(assignment, '', '', 0), 4.5);
+});
+
+test('uses persisted real client hours before different staff hours', () => {
+  assert.equal(clientRealHours({
+    checkIn: '09:00',
+    checkOut: '15:00',
+    clientRealHours: 4.5,
+  }), 4.5);
 });

@@ -19,10 +19,29 @@ test('normalizes event financial totals from budget conversion values', () => {
   const payload = normalizeEvent({
     totalRevenue: '284,50 EUR',
     totalCost: '120,25 EUR',
+    realHours: '12,50',
+    billableHours: '15,00',
+    minimumHoursSnapshot: '5',
   });
 
   assert.equal(payload.totalRevenue, 284.5);
   assert.equal(payload.totalCost, 120.25);
+  assert.equal(payload.realHours, 12.5);
+  assert.equal(payload.billableHours, 15);
+  assert.equal(payload.minimumHoursSnapshot, 5);
+});
+
+test('normalizes the manual staff travel hourly rate', () => {
+  const payload = normalizeEvent({
+    travelStaffHourlyRate: '7,50€',
+  });
+
+  assert.equal(payload.travelStaffHourlyRate, 7.5);
+});
+
+test('normalizes client minimum hours as an optional decimal', () => {
+  assert.equal(normalizeClient({ minimumHours: '4,5' }).minimumHours, 4.5);
+  assert.equal(normalizeClient({ minimumHours: '' }).minimumHours, 0);
 });
 
 test('normalizes client role rates and marks the change date when values change', () => {
@@ -58,6 +77,16 @@ test('does not change client role rate date when rates are unchanged', () => {
 test('normalizes assignment client sync flag', () => {
   assert.equal(normalizeAssignment({ clientSynced: true }).clientSynced, true);
   assert.equal(normalizeAssignment({ clientSynced: 'false' }).clientSynced, false);
+});
+
+test('normalizes assignment real and billable client hours', () => {
+  const payload = normalizeAssignment({
+    clientRealHours: '3,5',
+    clientBillableHours: '5',
+  });
+
+  assert.equal(payload.clientRealHours, 3.5);
+  assert.equal(payload.clientBillableHours, 5);
 });
 
 test('normalizes assignment advance payments', () => {

@@ -80,11 +80,26 @@ export function eventHasCompleteClientSchedule(event) {
   ));
 }
 
+function requestedStaffCount(event) {
+  return safeRequiredRoles(event?.requiredRoles).reduce((sum, item) => sum + Number(item.qty || 0), 0);
+}
+
 function eventHasCompleteTeam(event) {
-  const requested = safeRequiredRoles(event?.requiredRoles).reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const requested = requestedStaffCount(event);
   if (requested <= 0) return false;
   const confirmed = (event?.assignments || []).filter((assignment) => assignmentStatus(assignment.status) === 'confirmed').length;
   return confirmed >= requested;
+}
+
+function eventHasConfirmedAssignedTeam(event) {
+  const assignments = billableAssignments(event?.assignments || []);
+  return assignments.length > 0 && assignments.every((assignment) => assignmentStatus(assignment.status) === 'confirmed');
+}
+
+function eventHasReadyTeam(event) {
+  return requestedStaffCount(event) > 0
+    ? eventHasCompleteTeam(event)
+    : eventHasConfirmedAssignedTeam(event);
 }
 
 function serviceDateState(event, now = new Date()) {
@@ -100,14 +115,26 @@ function serviceDateState(event, now = new Date()) {
 export function nextAutomaticServiceStatus(event = {}, now = new Date()) {
   const current = normalizeStatus(event.status);
   const dateState = serviceDateState(event, now);
+  const hasReadyTeam = eventHasReadyTeam(event);
 
   if (current === SERVICE_STATUS.finalized || current === 'cancelled') return current;
   if (current === SERVICE_STATUS.toValidateClient) return current;
 
-  if (dateState === 'after') return SERVICE_STATUS.toValidateStaff;
-  if (current === SERVICE_STATUS.toValidateStaff) return current;
+  if (current === SERVICE_STATUS.toValidateStaff) {
+    if (dateState === 'after' && hasReadyTeam) return current;
+    if (dateState === 'current') return SERVICE_STATUS.inProgress;
+    if (hasReadyTeam) return SERVICE_STATUS.teamComplete;
+    return SERVICE_STATUS.drafting;
+  }
+
+  if (dateState === 'after') {
+    if (current === SERVICE_STATUS.inProgress || current === SERVICE_STATUS.teamComplete || hasReadyTeam) {
+      return SERVICE_STATUS.toValidateStaff;
+    }
+    return SERVICE_STATUS.drafting;
+  }
   if (dateState === 'current') return SERVICE_STATUS.inProgress;
-  if (eventHasCompleteTeam(event)) return SERVICE_STATUS.teamComplete;
+  if (hasReadyTeam) return SERVICE_STATUS.teamComplete;
   return SERVICE_STATUS.drafting;
 }
 
@@ -115,7 +142,6 @@ export function nextTimeValidationServiceStatus(event = {}) {
   const current = normalizeStatus(event.status);
 
   if (current === 'cancelled') return current;
-  if (eventHasCompleteClientSchedule(event)) return SERVICE_STATUS.finalized;
   if (eventHasCompleteStaffSchedule(event)) return SERVICE_STATUS.toValidateClient;
   return SERVICE_STATUS.toValidateStaff;
 }

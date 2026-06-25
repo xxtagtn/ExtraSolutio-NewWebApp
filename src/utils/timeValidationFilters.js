@@ -15,6 +15,8 @@ export function dateKeysFrom(keys) {
   return values.filter(Boolean);
 }
 
+export { normalizeTimeInput, sanitizeTimeInput } from './timeInput.js';
+
 export function filterRowsBySelectedDays(rows, selectedDays = []) {
   if (!selectedDays.length) return rows || [];
   const selected = new Set(selectedDays.map(Number));
@@ -52,15 +54,23 @@ export function compareTimeValidationRows(a, b) {
   const byDate = String(effectiveRowDateKey(a) || '').localeCompare(String(effectiveRowDateKey(b) || ''));
   if (byDate) return byDate;
 
-  const byTime = timeToMinutes(effectiveRowStartTime(a)) - timeToMinutes(effectiveRowStartTime(b));
-  if (byTime) return byTime;
-
   const byEvent = String(a?.event?.name || '').localeCompare(String(b?.event?.name || ''), 'pt');
   if (byEvent) return byEvent;
 
   const aName = a?.collaboratorName || a?.assignment?.collaborator?.shortName || a?.assignment?.collaborator?.name || '';
   const bName = b?.collaboratorName || b?.assignment?.collaborator?.shortName || b?.assignment?.collaborator?.name || '';
-  return String(aName).localeCompare(String(bName), 'pt');
+  const byName = String(aName).localeCompare(String(bName), 'pt', { sensitivity: 'base' });
+  if (byName) return byName;
+
+  const byPlannedTime = timeToMinutes(a?.assignment?.plannedCheckIn)
+    - timeToMinutes(b?.assignment?.plannedCheckIn);
+  if (byPlannedTime) return byPlannedTime;
+
+  return String(a?.id || a?.assignment?.id || '').localeCompare(
+    String(b?.id || b?.assignment?.id || ''),
+    'pt',
+    { numeric: true },
+  );
 }
 
 export function filterRowsByDateRange(rows, startDate, endDate) {

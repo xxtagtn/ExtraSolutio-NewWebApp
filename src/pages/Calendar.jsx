@@ -3,12 +3,21 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Card from '../components/UI/Card.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { birthdaysByDayForMonth, birthdaysOnDate } from '../utils/birthdays.js';
+import {
+  calendarDateKey,
+  calendarDateWithMonth,
+  calendarWeekDates,
+  serviceOccursOnDate,
+} from '../utils/calendarDates.js';
 import { statusLabel } from '../utils/serviceStatus.js';
 
-const MONTHS_PT = ['Janeiro', 'Fevereiro', 'Marco', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const MONTHS_PT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const WEEKDAYS_PT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
 const HIDDEN_STATUS = new Set(['cancelled']);
 const MONTH_MARKERS = ['🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '🟤', '⚫', '🟥', '🟧', '🟨', '🟩'];
+const WEEKDAY_FORMAT = new Intl.DateTimeFormat('pt-PT', { weekday: 'long' });
+const DAY_MONTH_FORMAT = new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' });
 
 function toWeekIndex(jsDay) {
   return jsDay === 0 ? 6 : jsDay - 1;
@@ -70,15 +79,119 @@ function parseJsonArray(value) {
   }
 }
 
+function birthdayTooltip(birthdays) {
+  return birthdays
+    .map((birthday) => `${birthday.name}${Number.isFinite(birthday.age) ? ` — ${birthday.age} anos` : ''}`)
+    .join('\n');
+}
+
+function CalendarBirthdays({ birthdays, dateKey, expandedKey, onToggle }) {
+  if (!birthdays.length) return null;
+  const expanded = expandedKey === dateKey;
+
+  return (
+    <div className="calendar-birthdays">
+      <button
+        type="button"
+        className="calendar-birthday-trigger"
+        aria-expanded={expanded}
+        title={birthdayTooltip(birthdays)}
+        onClick={() => onToggle(expanded ? null : dateKey)}
+      >
+        <span aria-hidden="true">🎂</span>
+        <span>{birthdays.length === 1 ? birthdays[0].name : `${birthdays.length} aniversários`}</span>
+      </button>
+      {expanded ? (
+        <div className="calendar-birthday-details">
+          {birthdays.map((birthday) => (
+            <div key={birthday.collaboratorId}>
+              <strong>{birthday.name}</strong>
+              {Number.isFinite(birthday.age) ? <small>{birthday.age} anos</small> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CalendarEvents({ items, showEmpty = false }) {
+  if (!items.length) return showEmpty ? <p className="calendar-empty-day">Sem eventos ou lembretes.</p> : null;
+
+  return (
+    <div className="calendar-events">
+      {items.map((item) => (
+        <Link
+          key={item._calendarKey || item.id}
+          to={item._budgetReminder ? '/budgets' : `/services?serviceId=${item.id}`}
+          className="calendar-event"
+        >
+          <strong>
+            {item._budgetReminder
+              ? `Follow-up: ${item.reference || 'Orçamento'}`
+              : (item._reminder ? `Restante sinalização: ${item.name}` : item.name)}
+          </strong>
+          <small>
+            {item._budgetReminder
+              ? `${item.clientName} · ${item.text || 'Follow-up'}`
+              : `${item.client?.name || 'Sem cliente'}${item._reminder ? ' · Pagamento restante' : ` · ${serviceStatusLabel(item.status)}`}`}
+          </small>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function calendarItemsForDate(date, services, budgetFollowUps) {
+  const key = calendarDateKey(date);
+  const items = [];
+
+  for (const service of services) {
+    if (serviceOccursOnDate(service, date)) {
+      items.push({ ...service, _reminder: false, _calendarKey: `service-${service.id}-${key}` });
+    }
+    if (
+      service.billingStatus === 'partial70'
+      && calendarDateKey(service.remainingPaymentDate) === key
+    ) {
+      items.push({ ...service, _reminder: true, _calendarKey: `reminder-${service.id}-${key}` });
+    }
+  }
+
+  for (const reminder of budgetFollowUps) {
+    if (calendarDateKey(reminder.reminderDate) === key) {
+      items.push({ ...reminder, _budgetReminder: true });
+    }
+  }
+
+  return items.sort((a, b) => {
+    if (a._budgetReminder !== b._budgetReminder) return a._budgetReminder ? -1 : 1;
+    if (a._reminder !== b._reminder) return a._reminder ? 1 : -1;
+    return String(a.startTime || '').localeCompare(String(b.startTime || ''));
+  });
+}
+
 export default function Calendar() {
   const today = useMemo(() => new Date(), []);
   const todayDay = today.getDate();
   const todayMonth = today.getMonth();
   const todayYear = today.getFullYear();
-  const [cursor, setCursor] = useState(new Date(todayYear, todayMonth, 1));
+  const [cursor, setCursor] = useState(new Date(todayYear, todayMonth, todayDay));
+  const [calendarView, setCalendarView] = useState('month');
   const [cursorInitialized, setCursorInitialized] = useState(false);
+  const [expandedBirthdayKey, setExpandedBirthdayKey] = useState(null);
   const { data: services, loading, error } = useApi('/services', []);
   const { data: budgets } = useApi('/budgets', []);
+  const { data: collaborators } = useApi('/collaborators', []);
+
+  const birthdaysByDay = useMemo(
+    () => birthdaysByDayForMonth(collaborators, cursor.getFullYear(), cursor.getMonth()),
+    [collaborators, cursor],
+  );
+
+  useEffect(() => {
+    setExpandedBirthdayKey(null);
+  }, [calendarView, cursor]);
 
   const visibleServices = useMemo(
     () => services.filter((service) => !HIDDEN_STATUS.has(service.status) && service.date),
@@ -116,7 +229,7 @@ export default function Calendar() {
       .filter(Boolean)
       .sort((a, b) => a.getTime() - b.getTime());
     const next = sorted.find((d) => d.getTime() >= nowTs) || sorted[0];
-    setCursor(new Date(next.getFullYear(), next.getMonth(), 1));
+    setCursor(new Date(next.getFullYear(), next.getMonth(), next.getDate()));
     setCursorInitialized(true);
   }, [visibleServices, loading, cursorInitialized, todayDay, todayMonth, todayYear]);
 
@@ -212,27 +325,73 @@ export default function Calendar() {
     return set;
   }, [visibleServices, budgetFollowUps, cursor]);
 
+  const agendaDates = useMemo(
+    () => (calendarView === 'week' ? calendarWeekDates(cursor) : [cursor]),
+    [calendarView, cursor],
+  );
+
+  function moveCursor(direction) {
+    if (calendarView === 'month') {
+      const target = new Date(cursor.getFullYear(), cursor.getMonth() + direction, 1);
+      setCursor(calendarDateWithMonth(cursor, target.getFullYear(), target.getMonth()));
+      return;
+    }
+    const next = new Date(cursor);
+    next.setDate(next.getDate() + (calendarView === 'week' ? 7 : 1) * direction);
+    setCursor(next);
+  }
+
+  function selectMonth(monthIndex) {
+    setCursor(calendarDateWithMonth(cursor, cursor.getFullYear(), monthIndex));
+  }
+
+  function selectYear(year) {
+    setCursor(calendarDateWithMonth(cursor, year, cursor.getMonth()));
+  }
+
+  function isTodayDate(value) {
+    return calendarDateKey(value) === calendarDateKey(today);
+  }
+
   return (
     <div className="page">
       <Card
         title={(
           <span className="calendar-title-wrap">
-            <span>Calendario</span>
-            <button className="secondary-button" type="button" onClick={() => setCursor(new Date(todayYear, todayMonth, 1))}>
+            <span>Calendário</span>
+            <button className="secondary-button" type="button" onClick={() => setCursor(new Date(todayYear, todayMonth, todayDay))}>
               Atual
             </button>
+            <span className="calendar-view-switch" role="tablist" aria-label="Vista do calendário">
+              {[
+                ['month', 'Mês'],
+                ['week', 'Semana'],
+                ['day', 'Dia'],
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={calendarView === value}
+                  className={calendarView === value ? 'is-active' : ''}
+                  key={value}
+                  onClick={() => setCalendarView(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
           </span>
         )}
         action={(
           <div className="calendar-nav">
-            <button className="icon-button" type="button" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>
+            <button className="icon-button" type="button" aria-label="Período anterior" onClick={() => moveCursor(-1)}>
               <ChevronLeft size={16} />
             </button>
             <div className="calendar-nav-pickers">
               <select
                 className="form-control"
                 value={cursor.getMonth()}
-                onChange={(event) => setCursor(new Date(cursor.getFullYear(), Number(event.target.value), 1))}
+                onChange={(event) => selectMonth(Number(event.target.value))}
               >
                 {MONTHS_PT.map((month, index) => (
                   <option key={month} value={index}>
@@ -243,12 +402,12 @@ export default function Calendar() {
               <select
                 className="form-control"
                 value={cursor.getFullYear()}
-                onChange={(event) => setCursor(new Date(Number(event.target.value), cursor.getMonth(), 1))}
+                onChange={(event) => selectYear(Number(event.target.value))}
               >
                 {yearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
               </select>
             </div>
-            <button className="icon-button" type="button" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}>
+            <button className="icon-button" type="button" aria-label="Período seguinte" onClick={() => moveCursor(1)}>
               <ChevronRight size={16} />
             </button>
           </div>
@@ -256,45 +415,65 @@ export default function Calendar() {
       >
         {error ? <p className="notice">{error}</p> : null}
         {loading ? <p className="muted">A carregar...</p> : null}
-        <div className="calendar-grid calendar-grid--head">
-          {WEEKDAYS_PT.map((day) => <div key={day} className="calendar-weekday">{day}</div>)}
-        </div>
-        <div className="calendar-grid">
-          {cells.map((day, index) => (
-            <div
-              key={`${day || 'x'}-${index}`}
-              className={`calendar-cell ${day ? '' : 'calendar-cell--empty'} ${
-                day && cursor.getMonth() === todayMonth && cursor.getFullYear() === todayYear && day === todayDay ? 'calendar-cell--today' : ''
-              }`}
-            >
-              {day ? (
-                <>
-                  <header>{day}</header>
-                  <div className="calendar-events">
-                    {(eventsByDay.get(day) || []).map((item) => (
-                      <Link
-                        key={item._calendarKey || item.id}
-                        to={item._budgetReminder ? '/budgets' : `/services?serviceId=${item.id}`}
-                        className="calendar-event"
-                      >
-                        <strong>
-                          {item._budgetReminder
-                            ? `Follow-up: ${item.reference || 'Orçamento'}`
-                            : (item._reminder ? `Restante sinalização: ${item.name}` : item.name)}
-                        </strong>
-                        <small>
-                          {item._budgetReminder
-                            ? `${item.clientName} · ${item.text || 'Follow-up'}`
-                            : `${item.client?.name || 'Sem cliente'}${item._reminder ? ' · Pagamento restante' : ` · ${serviceStatusLabel(item.status)}`}`}
-                        </small>
-                      </Link>
-                    ))}
-                  </div>
-                </>
-              ) : null}
+        {calendarView === 'month' ? (
+          <>
+            <div className="calendar-grid calendar-grid--head">
+              {WEEKDAYS_PT.map((day) => <div key={day} className="calendar-weekday">{day}</div>)}
             </div>
-          ))}
-        </div>
+            <div className="calendar-grid">
+              {cells.map((day, index) => {
+                const cellDate = day ? new Date(cursor.getFullYear(), cursor.getMonth(), day) : null;
+                const cellDateKey = calendarDateKey(cellDate);
+                return (
+                  <div
+                    key={`${day || 'x'}-${index}`}
+                    className={`calendar-cell ${day ? '' : 'calendar-cell--empty'} ${cellDate && isTodayDate(cellDate) ? 'calendar-cell--today' : ''}`}
+                  >
+                    {day ? (
+                      <>
+                        <header>{day}</header>
+                        <CalendarBirthdays
+                          birthdays={birthdaysByDay.get(day) || []}
+                          dateKey={cellDateKey}
+                          expandedKey={expandedBirthdayKey}
+                          onToggle={setExpandedBirthdayKey}
+                        />
+                        <CalendarEvents items={eventsByDay.get(day) || []} />
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <div className={`calendar-agenda calendar-agenda--${calendarView}`}>
+            {agendaDates.map((agendaDate) => {
+              const dateKey = calendarDateKey(agendaDate);
+              return (
+                <article
+                  className={`calendar-agenda-day ${isTodayDate(agendaDate) ? 'calendar-agenda-day--today' : ''}`}
+                  key={dateKey}
+                >
+                  <header>
+                    <strong>{WEEKDAY_FORMAT.format(agendaDate)}</strong>
+                    <span>{DAY_MONTH_FORMAT.format(agendaDate)}</span>
+                  </header>
+                  <CalendarBirthdays
+                    birthdays={birthdaysOnDate(collaborators, agendaDate)}
+                    dateKey={dateKey}
+                    expandedKey={expandedBirthdayKey}
+                    onToggle={setExpandedBirthdayKey}
+                  />
+                  <CalendarEvents
+                    items={calendarItemsForDate(agendaDate, visibleServices, budgetFollowUps)}
+                    showEmpty
+                  />
+                </article>
+              );
+            })}
+          </div>
+        )}
       </Card>
     </div>
   );

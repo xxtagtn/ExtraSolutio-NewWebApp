@@ -4,15 +4,28 @@ import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
+import TimeInput from '../components/UI/TimeInput.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import {
+  ASSIGNMENT_OVERLAP_MESSAGE,
+  assignmentScheduleChanged,
+  findOverlappingAssignment,
+} from '../utils/assignmentOverlap.js';
 import { resolveEventRevenue } from '../utils/eventRevenue.js';
 import { date } from '../utils/formatters.js';
 import {
   buildPrepaymentSummary,
   shouldBlockPrepaidStaffAllocation,
 } from '../utils/prepaymentPolicy.js';
-import { assignmentStaffCost, assignmentStaffRate, clientChargeHours, collaboratorHourlyRate, decimalValue } from '../utils/serviceFinance.js';
+import {
+  assignmentStaffCost,
+  assignmentStaffRate,
+  clientChargeHours,
+  clientRealHours,
+  collaboratorHourlyRate,
+  decimalValue,
+} from '../utils/serviceFinance.js';
 import { normalizeStaffAdvances, staffAdvancesTotal, staffCarAdvancesTotal } from '../utils/staffAdvances.js';
 import {
   isArchivedService,
@@ -91,6 +104,7 @@ function emptyForm() {
     km: 0,
     kmRate: 0.4,
     durationHours: 0,
+    travelStaffHourlyRate: '',
     split5050: false,
     travelManualAmount: '',
     description: '',
@@ -100,6 +114,9 @@ function emptyForm() {
     paidAmount: '',
     remainingPaymentDate: '',
     totalRevenue: '',
+    realHours: 0,
+    billableHours: 0,
+    minimumHoursSnapshot: 0,
     requiredRoles: [],
     assignments: [],
   };
@@ -157,8 +174,8 @@ function calcRoundedBillableHours(start, end) {
   return Number(((e - s) / 60).toFixed(2));
 }
 
-function assignmentClientHours(assignment, fallbackStart, fallbackEnd) {
-  return clientChargeHours(assignment, fallbackStart, fallbackEnd);
+function assignmentClientHours(assignment, fallbackStart, fallbackEnd, minimumHours = 0) {
+  return clientChargeHours(assignment, fallbackStart, fallbackEnd, minimumHours);
 }
 
 function isPastEvent(eventDate) {
@@ -193,36 +210,12 @@ function inclusiveDayCount(startValue, endValue) {
   return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
 }
 
-function dateRangesOverlap(aStartValue, aEndValue, bStartValue, bEndValue) {
-  const aStart = parseDateOnly(aStartValue);
-  const aEnd = parseDateOnly(aEndValue || aStartValue);
-  const bStart = parseDateOnly(bStartValue);
-  const bEnd = parseDateOnly(bEndValue || bStartValue);
-  if (!aStart || !aEnd || !bStart || !bEnd) return false;
-  return aStart <= bEnd && bStart <= aEnd;
-}
-
 function formatEventDateRange(item) {
   if (!item?.date) return '-';
   const start = date.format(new Date(item.date));
   const endValue = eventRangeEnd(item);
   if (!item.isContinuous || !endValue || dateOnly(endValue) === dateOnly(item.date)) return start;
   return `${start} - ${date.format(new Date(endValue))}`;
-}
-
-function timeRangesOverlap(aStart, aEnd, bStart, bEnd) {
-  const startA = toMinutes(aStart);
-  const endA = toMinutes(aEnd);
-  const startB = toMinutes(bStart);
-  const endB = toMinutes(bEnd);
-  if (startA === null || endA === null || startB === null || endB === null) return false;
-  let sA = startA;
-  let eA = endA;
-  let sB = startB;
-  let eB = endB;
-  if (eA <= sA) eA += 24 * 60;
-  if (eB <= sB) eB += 24 * 60;
-  return sA < eB && sB < eA;
 }
 
 function safeArrayJson(value) {
@@ -298,6 +291,7 @@ function templatePayloadFromForm(currentForm) {
     km: currentForm.km || 0,
     kmRate: currentForm.kmRate || 0.4,
     durationHours: currentForm.durationHours || 0,
+    travelStaffHourlyRate: currentForm.travelStaffHourlyRate || '',
     split5050: Boolean(currentForm.split5050),
     travelManualAmount: currentForm.travelManualAmount || '',
     description: currentForm.description || '',
@@ -350,6 +344,9 @@ function toForm(row) {
     km: row.km ?? 0,
     kmRate: row.kmRate ?? 0.4,
     durationHours: row.durationHours ?? 0,
+    travelStaffHourlyRate: row.travelStaffHourlyRate === undefined || row.travelStaffHourlyRate === null
+      ? ''
+      : formatMoneyInline(row.travelStaffHourlyRate),
     split5050: Boolean(row.split5050),
     travelManualAmount: savedTravelType === 'manual' ? formatMoneyInline(row.travelManualAmount || savedTravelAmount) : '',
     description: row.description || '',
@@ -359,6 +356,9 @@ function toForm(row) {
     paidAmount: row.paidAmount === undefined || row.paidAmount === null ? '' : formatMoneyInline(row.paidAmount),
     remainingPaymentDate: row.remainingPaymentDate ? String(row.remainingPaymentDate).slice(0, 10) : '',
     totalRevenue: row.totalRevenue === undefined || row.totalRevenue === null ? '' : formatMoneyInline(row.totalRevenue),
+    realHours: Number(row.realHours || 0),
+    billableHours: Number(row.billableHours || 0),
+    minimumHoursSnapshot: Number(row.minimumHoursSnapshot || 0),
     requiredRoles: parsedRequiredRoles.map((item) => ({
       ...item,
       agreedRate: formatMoneyInline(item.agreedRate),
@@ -388,6 +388,7 @@ function toForm(row) {
         validatedCheckIn: item.validatedCheckIn || '',
         validatedCheckOut: item.validatedCheckOut || '',
         hoursWorked: legacyTimesArePlanned ? 0 : Number(item.hoursWorked || 0),
+        clientRealHours: legacyTimesArePlanned ? 0 : Number(item.clientRealHours || 0),
         clientBillableHours: legacyTimesArePlanned ? 0 : Number(item.clientBillableHours || 0),
         staffPayableHours: legacyTimesArePlanned ? 0 : Number(item.staffPayableHours || 0),
         hourlyRate: formatMoneyInline(item.hourlyRate),
@@ -420,7 +421,7 @@ function getRowForecast(row) {
   if (assignments.length) {
     const billable = assignments.filter((item) => !nonBillableStatuses.has(normalizeAssignmentStatus(item.status)));
     const total = billable.reduce((sum, item) => {
-      const hours = assignmentClientHours(item, row.startTime, row.endTime);
+      const hours = assignmentClientHours(item, row.startTime, row.endTime, row.minimumHoursSnapshot);
       const rate = roleRateMap.get(item.role) || 0;
       return sum + (hours * rate);
     }, 0);
@@ -522,13 +523,17 @@ export default function Services() {
     return days;
   }, [form.isContinuous, form.date, form.endDate]);
   const expectedDailyHours = calcRoundedBillableHours(form.startTime, form.endTime);
-  const expectedHours = Number((expectedDailyHours * eventDays).toFixed(2));
-  const billableHours = expectedHours;
+  const minimumHoursSnapshot = Number(form.minimumHoursSnapshot || 0);
+  const expectedBillableHours = Number((Math.max(expectedDailyHours, minimumHoursSnapshot) * eventDays).toFixed(2));
   const travelExpenseAmount = calculateTravelAmount(form);
 
+  const formAssignmentClientRealHours = useCallback((assignment) => {
+    return clientRealHours(assignment);
+  }, []);
+
   const formAssignmentClientHours = useCallback((assignment) => {
-    return clientChargeHours(assignment, form.startTime, form.endTime);
-  }, [form.endTime, form.startTime]);
+    return clientChargeHours(assignment, form.startTime, form.endTime, minimumHoursSnapshot);
+  }, [form.endTime, form.startTime, minimumHoursSnapshot]);
 
   const formAssignmentPlannedHours = useCallback((assignment) => {
     return calcRoundedBillableHours(assignment.plannedCheckIn || form.startTime, assignment.plannedCheckOut || form.endTime);
@@ -546,13 +551,16 @@ export default function Services() {
 
   const financials = useMemo(() => {
     const roleRateMap = new Map(form.requiredRoles.map((item) => [item.role, parseMoney(item.agreedRate) || 0]));
-    const expectedRevenueByRoles = getRoleForecast(form.requiredRoles, expectedHours);
+    const expectedRevenueByRoles = getRoleForecast(form.requiredRoles, expectedBillableHours);
     const assignments = (form.assignments || []).filter((assignment) => assignment.role && assignment.collaboratorId);
     let totalRevenue = 0;
     let totalCost = 0;
     let expectedRevenue = 0;
+    let realHours = 0;
+    let billableHours = 0;
     for (const assignment of assignments) {
       if (nonBillableStatuses.has(normalizeAssignmentStatus(assignment.status))) continue;
+      const realClientHours = formAssignmentClientRealHours(assignment);
       const clientHours = formAssignmentClientHours(assignment);
       const staffHours = formAssignmentStaffHours(assignment);
       if (!assignment.role || (!clientHours && !staffHours)) continue;
@@ -561,6 +569,8 @@ export default function Services() {
       expectedRevenue += clientHours * clientRate;
       totalRevenue += clientHours * clientRate;
       totalCost += (staffHours * collaboratorRate) + staffCarAdvancesTotal(assignment.advancePayments);
+      realHours += realClientHours;
+      billableHours += clientHours;
     }
     const hasAssignments = assignments.length > 0;
     const revenueWithoutTravel = hasAssignments ? totalRevenue : expectedRevenueByRoles;
@@ -582,8 +592,10 @@ export default function Services() {
       totalRevenue: resolvedTotalRevenue,
       totalCost: Number(totalCost.toFixed(2)),
       profit: Number((resolvedTotalRevenue - totalCost).toFixed(2)),
+      realHours: Number(realHours.toFixed(2)),
+      billableHours: Number(billableHours.toFixed(2)),
     };
-  }, [form.requiredRoles, form.assignments, expectedHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentStaffHours, collaboratorsById, form.totalRevenue]);
+  }, [form.requiredRoles, form.assignments, expectedBillableHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, form.totalRevenue]);
   const prepaymentSummary = buildPrepaymentSummary({
     total: financials.totalRevenue || financials.expectedRevenue || 0,
     serviceDate: form.date,
@@ -815,6 +827,7 @@ export default function Services() {
       km: payload.km || 0,
       kmRate: payload.kmRate || 0.4,
       durationHours: payload.durationHours || 0,
+      travelStaffHourlyRate: payload.travelStaffHourlyRate || '',
       split5050: Boolean(payload.split5050),
       travelManualAmount: payload.travelManualAmount || payload.travelExpenseAmount || '',
       description: payload.description || prev.description,
@@ -885,6 +898,7 @@ export default function Services() {
     setForm((prev) => ({
       ...prev,
       clientId,
+      minimumHoursSnapshot: Number(client?.minimumHours || 0),
       location: prev.useDefaultLocation ? (client?.address || '') : prev.location,
       onsiteContactName: prev.onsiteContactName || client?.representativeName || client?.contactPerson || '',
       onsiteContactPhone: prev.onsiteContactPhone || client?.phone || '',
@@ -973,44 +987,35 @@ export default function Services() {
       return updated;
     });
 
-    if (patch.collaboratorId) {
+    const scheduleChanged = [
+      'collaboratorId',
+      'assignmentDate',
+      'plannedCheckIn',
+      'plannedCheckOut',
+      'checkIn',
+      'checkOut',
+    ].some((field) => patch[field] !== undefined);
+    if (scheduleChanged) {
       const selected = next[index];
-      const selectedId = Number(selected.collaboratorId);
-      const selectedDate = selected.assignmentDate || form.date || '';
-      const selectedEndDate = selectedDate;
-      const selectedStart = selected.plannedCheckIn || selected.checkIn || form.startTime;
-      const selectedEnd = selected.plannedCheckOut || selected.checkOut || form.endTime;
-      if (selectedId && selectedDate && selectedStart && selectedEnd) {
-        const overlapInCurrentForm = next.some((item, i) => {
-          if (i === index) return false;
-          if (Number(item.collaboratorId) !== selectedId) return false;
-          const itemDate = item.assignmentDate || form.date || '';
-          if (itemDate !== selectedDate) return false;
-          const otherStart = item.plannedCheckIn || item.checkIn || form.startTime;
-          const otherEnd = item.plannedCheckOut || item.checkOut || form.endTime;
-          return otherStart && otherEnd && timeRangesOverlap(selectedStart, selectedEnd, otherStart, otherEnd);
-        });
-        const overlapInOtherServices = data.some((service) => {
-          if (editing && service.id === editing.id) return false;
-          const serviceDate = dateOnly(service.date);
-          const serviceEndDate = dateOnly(eventRangeEnd(service));
-          if (!dateRangesOverlap(selectedDate, selectedEndDate, serviceDate, serviceEndDate)) return false;
-          return (service.assignments || []).some((assignment) => {
-            if (Number(assignment.collaboratorId) !== selectedId) return false;
-            const assignmentDay = dateOnly(assignment.assignmentDate || service.date);
-            if (assignmentDay !== selectedDate) return false;
-            const otherStart = assignment.plannedCheckIn || assignment.checkIn || service.startTime;
-            const otherEnd = assignment.plannedCheckOut || assignment.checkOut || service.endTime;
-            return otherStart && otherEnd && timeRangesOverlap(selectedStart, selectedEnd, otherStart, otherEnd);
-          });
-        });
-        if (overlapInCurrentForm || overlapInOtherServices) {
-          const collaborator = collaborators.find((c) => c.id === selectedId);
-          const collaboratorName = collaborator?.shortName
-            || collaborator?.name
-            || 'colaborador';
-          window.alert(`Conflito de horário: ${collaboratorName} já está atribuído a outro serviço no mesmo dia/horário.`);
-          next[index] = { ...next[index], collaboratorId: '' };
+      const hasExplicitSchedule = Boolean(
+        (selected.plannedCheckIn && selected.plannedCheckOut)
+        || (selected.checkIn && selected.checkOut),
+      );
+      if (selected.collaboratorId && hasExplicitSchedule) {
+        const currentEntries = next
+          .filter((_, itemIndex) => itemIndex !== index)
+          .map((assignment) => ({ assignment, event: form }));
+        const externalEntries = data
+          .filter((service) => !editing || service.id !== editing.id)
+          .flatMap((service) => (service.assignments || [])
+            .map((assignment) => ({ assignment, event: service })));
+        const conflict = findOverlappingAssignment(
+          { assignment: selected, event: form },
+          [...currentEntries, ...externalEntries],
+        );
+        if (conflict) {
+          window.alert(ASSIGNMENT_OVERLAP_MESSAGE);
+          next[index] = form.assignments[index];
         }
       }
     }
@@ -1080,27 +1085,33 @@ export default function Services() {
         return;
       }
     }
-    for (let i = 0; i < form.assignments.length; i += 1) {
-      const current = form.assignments[i];
-      if (!current.role || !current.collaboratorId) continue;
-      const currentDate = current.assignmentDate || form.date || '';
-      const currentStart = current.plannedCheckIn || current.checkIn || form.startTime;
-      const currentEnd = current.plannedCheckOut || current.checkOut || form.endTime;
-      if (!currentDate || !currentStart || !currentEnd) continue;
-      for (let j = i + 1; j < form.assignments.length; j += 1) {
-        const other = form.assignments[j];
-        if (!other.role || !other.collaboratorId) continue;
-        if (String(other.collaboratorId) !== String(current.collaboratorId)) continue;
-        const otherDate = other.assignmentDate || form.date || '';
-        if (otherDate !== currentDate) continue;
-        const otherStart = other.plannedCheckIn || other.checkIn || form.startTime;
-        const otherEnd = other.plannedCheckOut || other.checkOut || form.endTime;
-        if (!otherStart || !otherEnd) continue;
-        if (timeRangesOverlap(currentStart, currentEnd, otherStart, otherEnd)) {
-          setFormError('O mesmo colaborador não pode ter horários sobrepostos no mesmo dia.');
-          setActiveTab('team');
-          return;
-        }
+    const scheduledAssignments = form.assignments.filter((item) => item.role && item.collaboratorId);
+    const originalAssignmentsById = new Map(
+      (editing?.assignments || []).map((assignment) => [String(assignment.id), assignment]),
+    );
+    const assignmentsToValidate = scheduledAssignments.filter((assignment) => (
+      !assignment.id
+      || assignmentScheduleChanged(
+        assignment,
+        originalAssignmentsById.get(String(assignment.id)),
+      )
+    ));
+    const externalAssignments = data
+      .filter((service) => !editing || service.id !== editing.id)
+      .flatMap((service) => (service.assignments || [])
+        .map((assignment) => ({ assignment, event: service })));
+    for (const current of assignmentsToValidate) {
+      const currentFormEntries = scheduledAssignments
+        .filter((assignment) => assignment !== current)
+        .map((assignment) => ({ assignment, event: form }));
+      const conflict = findOverlappingAssignment(
+        { assignment: current, event: form },
+        [...currentFormEntries, ...externalAssignments],
+      );
+      if (conflict) {
+        setFormError(ASSIGNMENT_OVERLAP_MESSAGE);
+        setActiveTab('team');
+        return;
       }
     }
     setSaving(true);
@@ -1121,7 +1132,9 @@ export default function Services() {
         clientId: Number(form.clientId),
         guestsCount: form.guestsCount === '' ? null : Number(form.guestsCount),
         requiredRoles: form.requiredRoles,
-        billableHours,
+        realHours: financials.realHours,
+        billableHours: financials.billableHours,
+        minimumHoursSnapshot,
         totalRevenue: financials.totalRevenue,
         totalCost: financials.totalCost,
         travelExpenseEnabled: travelExpenseAmount > 0,
@@ -1131,6 +1144,7 @@ export default function Services() {
         km: form.km || null,
         kmRate: form.kmRate || null,
         durationHours: form.durationHours || null,
+        travelStaffHourlyRate: parseMoney(form.travelStaffHourlyRate) || 0,
         split5050: Boolean(form.split5050),
         travelManualAmount: form.travelType === 'manual' ? (parseMoney(form.travelManualAmount) || 0) : 0,
         signaledAmount: ['partial70', 'paid'].includes(form.billingStatus) ? prepaymentForPayload.signaledAmount : 0,
@@ -1152,46 +1166,50 @@ export default function Services() {
         const toDelete = [...existingIds].filter((id) => !keptIds.has(id));
         await Promise.all(toDelete.map((id) => api(`/assignments/${id}`, { method: 'DELETE' })));
       }
-      await Promise.all(
-        form.assignments
-          .filter((item) => item.role && item.collaboratorId)
-          .map((item) => {
-            const staffHours = formAssignmentStaffHours(item);
-            const hasManualStaffTimes = Boolean(item.checkIn && item.checkOut);
-            const hasManualClientTimes = Boolean(item.clientCheckIn && item.clientCheckOut);
-            const clientHours = hasManualClientTimes ? formAssignmentClientHours(item) : 0;
-            const payableStaffHours = hasManualStaffTimes ? staffHours : 0;
-            const roleConfig = form.requiredRoles.find((required) => required.role === item.role);
-            const clientRoleRate = parseMoney(roleConfig?.agreedRate) || 0;
-            const hourlyRate = assignmentStaffRate(item, collaboratorsById, clientRoleRate);
-            const body = {
-              eventId,
-              collaboratorId: Number(item.collaboratorId),
-              assignmentDate: form.isContinuous ? (item.assignmentDate || null) : null,
-              role: item.role,
-              plannedCheckIn: item.plannedCheckIn || null,
-              plannedCheckOut: item.plannedCheckOut || null,
-              checkIn: item.checkIn || null,
-              checkOut: item.checkOut || null,
-              clientCheckIn: item.clientCheckIn || null,
-              clientCheckOut: item.clientCheckOut || null,
-              validatedCheckIn: item.validatedCheckIn || null,
-              validatedCheckOut: item.validatedCheckOut || null,
-              hoursWorked: payableStaffHours,
-              clientBillableHours: clientHours,
-              staffPayableHours: payableStaffHours,
-              hourlyRate,
-              totalPay: Number((payableStaffHours * hourlyRate).toFixed(2)),
-              validationStatus: item.validationStatus || 'pending',
-              validationNotes: item.validationNotes || null,
-              clientSynced: Boolean(item.clientSynced),
-              advancePayments: item.advancePayments || [],
-              status: item.status || 'pending_confirmation',
-            };
-            if (item.id) return api(`/assignments/${item.id}`, { method: 'PUT', body: JSON.stringify(body) });
-            return api('/assignments', { method: 'POST', body: JSON.stringify(body) });
-          }),
-      );
+      for (const item of form.assignments.filter((assignment) => assignment.role && assignment.collaboratorId)) {
+        const staffHours = formAssignmentStaffHours(item);
+        const hasManualStaffTimes = Boolean(item.checkIn && item.checkOut);
+        const hasManualClientTimes = Boolean(
+          (item.clientCheckIn && item.clientCheckOut)
+          || (item.validatedCheckIn && item.validatedCheckOut),
+        );
+        const clientReal = hasManualClientTimes ? formAssignmentClientRealHours(item) : 0;
+        const clientHours = hasManualClientTimes ? formAssignmentClientHours(item) : 0;
+        const payableStaffHours = hasManualStaffTimes ? staffHours : 0;
+        const roleConfig = form.requiredRoles.find((required) => required.role === item.role);
+        const clientRoleRate = parseMoney(roleConfig?.agreedRate) || 0;
+        const hourlyRate = assignmentStaffRate(item, collaboratorsById, clientRoleRate);
+        const body = {
+          eventId,
+          collaboratorId: Number(item.collaboratorId),
+          assignmentDate: form.isContinuous ? (item.assignmentDate || null) : null,
+          role: item.role,
+          plannedCheckIn: item.plannedCheckIn || null,
+          plannedCheckOut: item.plannedCheckOut || null,
+          checkIn: item.checkIn || null,
+          checkOut: item.checkOut || null,
+          clientCheckIn: item.clientCheckIn || null,
+          clientCheckOut: item.clientCheckOut || null,
+          validatedCheckIn: item.validatedCheckIn || null,
+          validatedCheckOut: item.validatedCheckOut || null,
+          hoursWorked: payableStaffHours,
+          clientRealHours: clientReal,
+          clientBillableHours: clientHours,
+          staffPayableHours: payableStaffHours,
+          hourlyRate,
+          totalPay: Number((payableStaffHours * hourlyRate).toFixed(2)),
+          validationStatus: item.validationStatus || 'pending',
+          validationNotes: item.validationNotes || null,
+          clientSynced: Boolean(item.clientSynced),
+          advancePayments: item.advancePayments || [],
+          status: item.status || 'pending_confirmation',
+        };
+        if (item.id) {
+          await api(`/assignments/${item.id}`, { method: 'PUT', body: JSON.stringify(body) });
+        } else {
+          await api('/assignments', { method: 'POST', body: JSON.stringify(body) });
+        }
+      }
       if (payload.billingStatus === 'paid') {
         const budgetReference = extractBudgetReference([
           payload.notes || '',
@@ -1547,6 +1565,7 @@ export default function Services() {
                       <p><span>Contacto</span><strong>{selectedClient?.representativeName || selectedClient?.contactPerson || '-'}</strong></p>
                       <p><span>Telefone</span><strong>{selectedClient?.phone || '-'}</strong></p>
                       <p><span>Email</span><strong>{selectedClient?.email || '-'}</strong></p>
+                      <p><span>Horas mínimas</span><strong>{minimumHoursSnapshot > 0 ? `${minimumHoursSnapshot} h por colaborador/turno` : 'Sem mínimo'}</strong></p>
                     </div>
                     <label className="span-2">Local do evento
                       <input value={form.useDefaultLocation ? (selectedClient?.address || form.location) : form.location} readOnly={form.useDefaultLocation} onChange={(event) => setForm({ ...form, location: event.target.value })} />
@@ -1586,10 +1605,10 @@ export default function Services() {
                   <h3>Horario e estado</h3>
                   <div className="form-grid">
                     <label>Entrada prevista
-                      <input type="time" value={form.startTime} onChange={(event) => setForm({ ...form, startTime: event.target.value })} />
+                      <TimeInput value={form.startTime} onChange={(value) => setForm((current) => ({ ...current, startTime: value }))} />
                     </label>
                     <label>Saída prevista
-                      <input type="time" value={form.endTime} onChange={(event) => setForm({ ...form, endTime: event.target.value })} />
+                      <TimeInput value={form.endTime} onChange={(value) => setForm((current) => ({ ...current, endTime: value }))} />
                     </label>
                     <div className="services-row-3-top span-2">
                       <label>Deslocação
@@ -1633,6 +1652,20 @@ export default function Services() {
                         </label>
                         <label>Duração deslocação (h)
                           <input type="number" min="0" step="0.01" value={form.durationHours} onChange={(event) => setForm({ ...form, durationHours: event.target.value })} />
+                        </label>
+                        <label>Valor Deslocação Staff (€/h)
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={form.travelStaffHourlyRate}
+                            placeholder="Ex: 10,00€"
+                            onChange={(event) => setForm({ ...form, travelStaffHourlyRate: event.target.value })}
+                            onFocus={(event) => {
+                              const parsed = parseMoney(event.target.value);
+                              setForm({ ...form, travelStaffHourlyRate: parsed === null ? '' : String(parsed).replace('.', ',') });
+                            }}
+                            onBlur={(event) => setForm({ ...form, travelStaffHourlyRate: formatMoneyInline(event.target.value) })}
+                          />
                         </label>
                         <label className="check-inline service-check">
                           <input type="checkbox" checked={form.split5050} onChange={(event) => setForm({ ...form, split5050: event.target.checked })} />
@@ -1837,8 +1870,8 @@ export default function Services() {
                                       onChange={(event) => updateAssignment(assignment.index, { assignmentDate: event.target.value })}
                                     />
                                   ) : null}
-                                  <input type="time" aria-label="Entrada prevista" title="Entrada prevista" value={assignment.plannedCheckIn || ''} onChange={(event) => updateAssignment(assignment.index, { plannedCheckIn: event.target.value })} />
-                                  <input type="time" aria-label="Saída prevista" title="Saída prevista" value={assignment.plannedCheckOut || ''} onChange={(event) => updateAssignment(assignment.index, { plannedCheckOut: event.target.value })} />
+                                  <TimeInput aria-label="Entrada prevista" title="Entrada prevista" value={assignment.plannedCheckIn || ''} onChange={(value) => updateAssignment(assignment.index, { plannedCheckIn: value })} />
+                                  <TimeInput aria-label="Saída prevista" title="Saída prevista" value={assignment.plannedCheckOut || ''} onChange={(value) => updateAssignment(assignment.index, { plannedCheckOut: value })} />
                                   <input type="text" aria-label="Horas previstas" title="Horas previstas" readOnly value={formatHours(formAssignmentPlannedHours(assignment))} />
                                   <input
                                     type="text"
@@ -1934,6 +1967,8 @@ export default function Services() {
                 <section className="service-form-section">
                   <h3>Financeiro</h3>
                   <div className="service-finance-grid">
+                    <div><span>Horas Reais</span><strong>{financials.realHours.toFixed(2).replace('.', ',')} h</strong></div>
+                    <div><span>Horas Faturáveis</span><strong>{financials.billableHours.toFixed(2).replace('.', ',')} h</strong></div>
                     <div><span>Valor previsto</span><strong>{euro(financials.expectedRevenue)}</strong></div>
                     <div><span>Valor Total do Evento/Serviço</span><strong>{euro(financials.totalRevenue)}</strong></div>
                     <div><span>Total a pagar aos colaboradores</span><strong>{euro(financials.totalCost)}</strong></div>

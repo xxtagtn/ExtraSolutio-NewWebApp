@@ -31,8 +31,9 @@ export function createCrudRouter(model, fields, options = {}) {
   }));
 
   router.post('/', asyncHandler(async (req, res) => {
-    const data = options.normalizeCreate?.(req.body) ?? pick(req.body, fields);
+    const data = await (options.normalizeCreate?.(req.body) ?? pick(req.body, fields));
     const row = await model.create({ data, include });
+    await options.afterCreate?.({ row, data, body: req.body });
     res.status(201).json(row);
   }));
 
@@ -43,8 +44,9 @@ export function createCrudRouter(model, fields, options = {}) {
       ? await model.findUnique({ where: { id } })
       : null;
     if (options.loadExistingForUpdate && !existing) return res.status(404).json({ message: 'Registo não encontrado.' });
-    const data = options.normalizeUpdate?.(req.body, existing) ?? pick(req.body, fields);
+    const data = await (options.normalizeUpdate?.(req.body, existing) ?? pick(req.body, fields));
     const row = await model.update({ where: { id }, data, include });
+    await options.afterUpdate?.({ id, row, existing, data, body: req.body });
     res.json(row);
   }));
 
@@ -162,10 +164,13 @@ export function normalizeEvent(input) {
     km: parseDecimal(input.km),
     kmRate: parseDecimal(input.kmRate),
     durationHours: parseDecimal(input.durationHours),
+    travelStaffHourlyRate: parseDecimal(input.travelStaffHourlyRate),
     travelManualAmount: parseDecimal(input.travelManualAmount),
     signaledAmount: parseDecimal(input.signaledAmount),
     paidAmount: parseDecimal(input.paidAmount),
+    realHours: parseDecimal(input.realHours),
     billableHours: parseDecimal(input.billableHours),
+    minimumHoursSnapshot: parseDecimal(input.minimumHoursSnapshot),
     guestsCount: asInt(input.guestsCount),
     requiredRoles: input.requiredRoles === undefined ? undefined : JSON.stringify(
       requiredRoles
@@ -221,6 +226,9 @@ export function normalizeClient(input, existing = null) {
       'notes',
     ]),
     paymentTermDays: asInt(input.paymentTermDays),
+    minimumHours: input.minimumHours === undefined
+      ? undefined
+      : Math.max(0, parseDecimal(input.minimumHours) || 0),
   });
 
   if (input.roleRates !== undefined) {
@@ -289,6 +297,7 @@ export function normalizeAssignment(input) {
     validatedCheckIn: input.validatedCheckIn === undefined ? undefined : input.validatedCheckIn,
     validatedCheckOut: input.validatedCheckOut === undefined ? undefined : input.validatedCheckOut,
     hoursWorked: parseDecimal(input.hoursWorked),
+    clientRealHours: parseDecimal(input.clientRealHours),
     clientBillableHours: parseDecimal(input.clientBillableHours),
     staffPayableHours: parseDecimal(input.staffPayableHours),
     hourlyRate: parseDecimal(input.hourlyRate),

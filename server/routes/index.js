@@ -17,8 +17,58 @@ import { requireAuth } from '../middleware/auth.js';
 import { usersRouter } from './users.js';
 import { collaboratorsRouter } from './collaborators.js';
 import { notificationsRouter } from './notifications.js';
+import {
+  minimumHoursForEventUpdate,
+  shouldPropagateMinimumHours,
+} from '../utils/minimumHours.js';
+import {
+  assertNoAssignmentConflict,
+  assignmentConflictNeedsCheck,
+} from '../utils/assignmentConflict.js';
 
 export const apiRouter = Router();
+const CLOSED_EVENT_STATUSES = ['finalized', 'completed', 'invoiced', 'paid'];
+
+async function normalizeServiceCreate(input) {
+  const data = normalizeEvent(input);
+  if (!data.clientId) return data;
+  const client = await prisma.client.findUnique({
+    where: { id: data.clientId },
+    select: { minimumHours: true },
+  });
+  return {
+    ...data,
+    minimumHoursSnapshot: minimumHoursForEventUpdate(null, client?.minimumHours),
+  };
+}
+
+async function normalizeServiceUpdate(input, existing) {
+  const data = normalizeEvent(input);
+  const clientId = data.clientId ?? existing?.clientId;
+  if (!clientId) return data;
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { minimumHours: true },
+  });
+  return {
+    ...data,
+    minimumHoursSnapshot: minimumHoursForEventUpdate(existing, client?.minimumHours),
+  };
+}
+
+async function normalizeAssignmentCreate(input) {
+  const data = normalizeAssignment(input);
+  await assertNoAssignmentConflict(prisma, data);
+  return data;
+}
+
+async function normalizeAssignmentUpdate(input, existing) {
+  const data = normalizeAssignment(input);
+  if (assignmentConflictNeedsCheck(data, existing)) {
+    await assertNoAssignmentConflict(prisma, data, existing);
+  }
+  return data;
+}
 
 apiRouter.use('/auth', authRouter);
 
@@ -48,6 +98,7 @@ apiRouter.use('/clients', createCrudRouter(prisma.client, [
   'billingCustomRule',
   'paymentTerm',
   'paymentTermDays',
+  'minimumHours',
   'roleRates',
   'roleRatesUpdatedAt',
   'status',
@@ -56,6 +107,18 @@ apiRouter.use('/clients', createCrudRouter(prisma.client, [
   normalizeCreate: normalizeClient,
   normalizeUpdate: normalizeClient,
   loadExistingForUpdate: true,
+  afterUpdate: async ({ id, row, existing }) => {
+    if (!shouldPropagateMinimumHours(existing, row)) return;
+    await prisma.event.updateMany({
+      where: {
+        clientId: id,
+        status: { notIn: CLOSED_EVENT_STATUSES },
+      },
+      data: {
+        minimumHoursSnapshot: row.minimumHours,
+      },
+    });
+  },
 }));
 
 apiRouter.use('/services', createCrudRouter(prisma.event, [], {
@@ -63,8 +126,9 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
     client: true,
     assignments: { include: { collaborator: true } },
   },
-  normalizeCreate: normalizeEvent,
-  normalizeUpdate: normalizeEvent,
+  normalizeCreate: normalizeServiceCreate,
+  normalizeUpdate: normalizeServiceUpdate,
+  loadExistingForUpdate: true,
 }));
 
 apiRouter.use('/service-templates', createCrudRouter(prisma.eventTemplate, [], {
@@ -89,8 +153,9 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   'status',
 ], {
   include: { event: true, collaborator: true },
-  normalizeCreate: normalizeAssignment,
-  normalizeUpdate: normalizeAssignment,
+  normalizeCreate: normalizeAssignmentCreate,
+  normalizeUpdate: normalizeAssignmentUpdate,
+  loadExistingForUpdate: true,
 }));
 
 apiRouter.use('/invoices', createCrudRouter(prisma.invoice, [

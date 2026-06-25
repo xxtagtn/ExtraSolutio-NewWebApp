@@ -1,0 +1,1 @@
+ALTER TABLE "Event" ADD COLUMN "travelStaffHourlyRate" DECIMAL NOT NULL DEFAULT 0;

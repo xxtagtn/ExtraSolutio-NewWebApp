@@ -99,6 +99,7 @@ export function buildStaffScheduleRows(rows) {
     .sort((a, b) => rowSortValue(a).localeCompare(rowSortValue(b), 'pt'))
     .map((row) => {
       const hours = Number(row.staffScheduleHours ?? row.staffHours ?? 0);
+      const billableHours = Number(row.clientHours ?? hours);
       const rate = clientRateForRole(row.event, row.assignment.role);
       return {
         eventId: row.event.id,
@@ -112,7 +113,7 @@ export function buildStaffScheduleRows(rows) {
         checkOut: formatTime(row.assignment.checkOut),
         hours,
         rate,
-        totalValue: Number((hours * rate).toFixed(2)),
+        totalValue: Number((billableHours * rate).toFixed(2)),
         notes: row.assignment.validationNotes || '',
       };
     });

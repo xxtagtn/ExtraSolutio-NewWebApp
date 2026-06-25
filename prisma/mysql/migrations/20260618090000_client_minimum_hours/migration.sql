@@ -1,0 +1,9 @@
+ALTER TABLE `Client`
+  ADD COLUMN `minimumHours` DECIMAL(8, 2) NOT NULL DEFAULT 0;
+
+ALTER TABLE `Event`
+  ADD COLUMN `realHours` DECIMAL(8, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN `minimumHoursSnapshot` DECIMAL(8, 2) NOT NULL DEFAULT 0;
+
+ALTER TABLE `EventAssignment`
+  ADD COLUMN `clientRealHours` DECIMAL(8, 2) NOT NULL DEFAULT 0;

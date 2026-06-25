@@ -117,6 +117,9 @@ export function buildBudgetConversionDraft(row = {}) {
     km: row.km ?? '',
     kmRate: row.kmRate ?? '',
     durationHours: row.durationHours ?? '',
+    travelStaffHourlyRate: travelType === 'kilometers'
+      ? (numberValue(row.travelStaffHourlyRate) || 10)
+      : 0,
     split5050: Boolean(row.split5050),
     travelManualAmount: travelType === 'manual' ? travelAmount : (row.travelManualAmount ?? ''),
     totalRevenue: numberValue(row.totalAmount || row.amount),
@@ -160,6 +163,7 @@ export function buildEventPayloadFromBudgetConversion(draft = {}, clientId) {
     km: nullableNumber(draft.km),
     kmRate: nullableNumber(draft.kmRate),
     durationHours: nullableNumber(draft.durationHours),
+    travelStaffHourlyRate: numberValue(draft.travelStaffHourlyRate),
     split5050: Boolean(draft.split5050),
     travelManualAmount: draft.travelType === 'manual' ? numberValue(draft.travelManualAmount) : 0,
     totalRevenue: numberValue(draft.totalRevenue),

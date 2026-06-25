@@ -1,25 +1,45 @@
-import { AlertTriangle, ArrowDown, ArrowRight, CheckCircle2, FileDown, FileSpreadsheet, Hourglass, OctagonAlert, RotateCcw, Save, Siren } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ArrowDown, ArrowRight, CheckCircle2, Copy, FileDown, FileSpreadsheet, Hourglass, OctagonAlert, RotateCcw, Save, Siren } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
+import TimeInput from '../components/UI/TimeInput.jsx';
 import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { date } from '../utils/formatters.js';
 import { buildBulkValidationCandidates } from '../utils/hourValidationBulk.js';
-import { hoursValidationState } from '../utils/hourValidationStatus.js';
-import { clientChargeHours, decimalValue } from '../utils/serviceFinance.js';
+import { hoursValidationState, validationPersistenceFields } from '../utils/hourValidationStatus.js';
+import { clientChargeHours, clientRealHours, decimalValue } from '../utils/serviceFinance.js';
 import { nextAutomaticServiceStatus, nextTimeValidationServiceStatus, SERVICE_STATUS } from '../utils/serviceStatus.js';
 import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
+import { assessTimeTolerance, resolvePlannedTimes } from '../utils/timeTolerance.js';
 import {
-  compareTimeValidationRows,
   dateKeysFrom,
   effectiveRowDateKey,
   filterRowsByDateRange,
+  normalizeTimeInput,
 } from '../utils/timeValidationFilters.js';
+import {
+  compareTimeValidationRowsNewest,
+  clientTimeCorrection,
+  persistedWorkflowAssignment,
+  preserveStageAfterManualRowSave,
+  prunePersistedDrafts,
+  recentOperationalPeriod,
+  TIME_VALIDATION_STAGE,
+  validationStageCounts,
+  validationWorkflowStage,
+} from '../utils/timeValidationWorkflow.js';
 
 const NON_BILLABLE_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const VALIDATED_EVENT_MARKER = '[EVENT_VALIDATED_HOURS]';
+const VALIDATION_STAGE_TABS = [
+  { value: TIME_VALIDATION_STAGE.staffPending, label: 'Por preencher Staff' },
+  { value: TIME_VALIDATION_STAGE.clientPending, label: 'Aguardar Cliente' },
+  { value: TIME_VALIDATION_STAGE.differences, label: 'Divergências' },
+  { value: TIME_VALIDATION_STAGE.ready, label: 'Prontos a finalizar' },
+  { value: TIME_VALIDATION_STAGE.finalized, label: 'Finalizados' },
+];
 
 function num(value) {
   return Number(value || 0);
@@ -130,7 +150,16 @@ function fileSafeName(value) {
 }
 
 function clientHoursFor(assignment, event) {
-  return clientChargeHours(assignment, event.startTime, event.endTime);
+  return clientChargeHours(
+    assignment,
+    event.startTime,
+    event.endTime,
+    event.minimumHoursSnapshot,
+  );
+}
+
+function clientRealHoursFor(assignment) {
+  return clientRealHours(assignment);
 }
 
 function staffHoursFor(assignment, event) {
@@ -151,32 +180,13 @@ function clientColumnHours(assignment) {
   return calcRoundedBillableHours(assignment.clientCheckIn, assignment.clientCheckOut);
 }
 
-function hasTimePair(checkIn, checkOut) {
-  return Boolean(checkIn && checkOut);
-}
-
 function rowAssessment(assignment) {
-  if (!hasTimePair(assignment.checkIn, assignment.checkOut) || !hasTimePair(assignment.clientCheckIn, assignment.clientCheckOut)) {
-    return { tone: 'info', label: 'Aguardar validação', diffMinutes: null, isDifference: false, needsAttention: true };
-  }
-
-  const staffMinutes = Math.round(staffColumnHours(assignment) * 60);
-  const clientMinutes = Math.round(clientColumnHours(assignment) * 60);
-  const diffMinutes = Math.abs(staffMinutes - clientMinutes);
-
-  if (diffMinutes <= 15) {
-    return { tone: 'success', label: 'Dentro da tolerancia', diffMinutes, isDifference: false, needsAttention: false };
-  }
-  if (diffMinutes <= 30) {
-    return { tone: 'warning', label: 'Atenção', diffMinutes, isDifference: true, needsAttention: true };
-  }
-  if (diffMinutes <= 60) {
-    return { tone: 'orange', label: 'Divergência relevante', diffMinutes, isDifference: true, needsAttention: true };
-  }
-  if (diffMinutes <= 120) {
-    return { tone: 'danger', label: 'Divergência crítica', diffMinutes, isDifference: true, needsAttention: true };
-  }
-  return { tone: 'critical', label: 'Possível erro de registo', diffMinutes, isDifference: true, needsAttention: true };
+  return assessTimeTolerance({
+    checkIn: assignment.checkIn,
+    checkOut: assignment.checkOut,
+    clientCheckIn: assignment.clientCheckIn,
+    clientCheckOut: assignment.clientCheckOut,
+  });
 }
 
 function DifferenceIcon({ tone }) {
@@ -192,7 +202,6 @@ function rowTone(assignment) {
 }
 
 function validationStatusFor(_event, assignment) {
-  if (assignment.validatedCheckIn && assignment.validatedCheckOut) return 'validated';
   const tone = rowTone(assignment);
   if (tone === 'success') return 'matched';
   return 'pending';
@@ -222,35 +231,42 @@ function eventTotals(event, assignments) {
   const roleRateMap = new Map(requiredRoles.map((item) => [item.role, decimalValue(item.agreedRate) || 0]));
   let totalRevenue = 0;
   let totalCost = 0;
+  let realHours = 0;
+  let billableHours = 0;
   for (const assignment of assignments) {
     if (NON_BILLABLE_STATUSES.has(assignmentStatus(assignment.status))) continue;
+    const realClientHours = clientRealHoursFor(assignment);
     const clientHours = clientHoursFor(assignment, event);
     const staffHours = staffHoursFor(assignment, event);
     totalRevenue += clientHours * (roleRateMap.get(assignment.role) || 0);
     totalCost += staffHours * num(assignment.hourlyRate);
+    realHours += realClientHours;
+    billableHours += clientHours;
   }
   if (event.travelExpenseEnabled) totalRevenue += num(event.travelExpenseAmount);
   return {
     totalRevenue: Number(totalRevenue.toFixed(2)),
     totalCost: Number(totalCost.toFixed(2)),
+    realHours: Number(realHours.toFixed(2)),
+    billableHours: Number(billableHours.toFixed(2)),
   };
 }
 
 export default function TimeValidation() {
   const { data: services, loading, error, reload } = useApi('/services', []);
-  const [scope, setScope] = useState('pending');
+  const [stage, setStage] = useState(TIME_VALIDATION_STAGE.staffPending);
   const [viewMode, setViewMode] = useState('event');
   const [selectedClientId, setSelectedClientId] = useState('all');
   const [selectedEventId, setSelectedEventId] = useState('all');
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('all');
-  const [periodStart, setPeriodStart] = useState(() => currentMonthPeriod().start);
-  const [periodEnd, setPeriodEnd] = useState(() => currentMonthPeriod().end);
-  const [onlyDifferences, setOnlyDifferences] = useState(false);
+  const [periodStart, setPeriodStart] = useState(() => recentOperationalPeriod().start);
+  const [periodEnd, setPeriodEnd] = useState(() => recentOperationalPeriod().end);
   const [savingId, setSavingId] = useState(null);
   const [validatingEventId, setValidatingEventId] = useState(null);
   const [bulkValidatingEventId, setBulkValidatingEventId] = useState(null);
   const [statusSyncing, setStatusSyncing] = useState(false);
   const [drafts, setDrafts] = useState({});
+  const validationTableRef = useRef(null);
 
   useEffect(() => {
     if (loading || statusSyncing || !services.length) return;
@@ -280,6 +296,13 @@ export default function TimeValidation() {
     };
   }, [loading, reload, services, statusSyncing]);
 
+  useEffect(() => {
+    setDrafts((current) => {
+      const next = prunePersistedDrafts(current);
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
+    });
+  }, [services]);
+
   const allRows = useMemo(
     () => services.flatMap((event) => (event.assignments || [])
       .filter((assignment) => assignment.collaboratorId && assignment.role)
@@ -287,23 +310,39 @@ export default function TimeValidation() {
         const draft = drafts[assignment.id] || {};
         const merged = { ...assignment, ...draft };
         const assessment = rowAssessment(merged);
+        const persistedAssignment = persistedWorkflowAssignment(assignment, draft);
+        const persistedAssessment = rowAssessment(persistedAssignment);
+        const planned = resolvePlannedTimes(merged, event);
         const collaboratorName = merged.collaborator?.shortName || merged.collaborator?.name || '';
         const workDateKey = effectiveRowDateKey({ event, assignment: merged });
-        return {
+        const row = {
           id: assignment.id,
           event,
           assignment: merged,
+          eventValidated: eventIsMarkedValidated(event),
           workDateKey,
           workDateLabel: workDateKey ? date.format(new Date(workDateKey)) : '-',
           collaboratorName,
-          validationState: hoursValidationState(merged),
+          validationState: hoursValidationState(persistedAssignment),
+          persistedAssignment,
           tone: assessment.tone,
           toneLabel: assessment.label,
           diffMinutes: assessment.diffMinutes,
+          differenceDetail: assessment.detail,
+          plannedCheckIn: planned.plannedCheckIn,
+          plannedCheckOut: planned.plannedCheckOut,
           isDifference: assessment.isDifference,
           needsAttention: assessment.needsAttention,
           clientHours: clientHoursFor(merged, event),
           staffHours: staffHoursFor(merged, event),
+        };
+        return {
+          ...row,
+          workflowStage: validationWorkflowStage({
+            ...row,
+            assignment: persistedAssignment,
+            isDifference: persistedAssessment.isDifference,
+          }),
         };
       })),
     [services, drafts],
@@ -376,6 +415,9 @@ export default function TimeValidation() {
           event: row.event,
           total: 0,
           validated: 0,
+          staffComplete: 0,
+          clientComplete: 0,
+          differences: 0,
           markedValidated: eventIsMarkedValidated(row.event),
           validatedAt: extractValidatedAt(row.event),
           workDateKeys: new Set(),
@@ -384,8 +426,12 @@ export default function TimeValidation() {
       const current = map.get(key);
       current.workDateKeys.add(row.workDateKey);
       if (!NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status))) {
+        const persistedAssignment = row.persistedAssignment || row.assignment;
         current.total += 1;
-        if (rowIsValidated(row.assignment)) current.validated += 1;
+        if (rowIsValidated(persistedAssignment)) current.validated += 1;
+        if (persistedAssignment.checkIn && persistedAssignment.checkOut) current.staffComplete += 1;
+        if (persistedAssignment.clientCheckIn && persistedAssignment.clientCheckOut) current.clientComplete += 1;
+        if (row.workflowStage === TIME_VALIDATION_STAGE.differences) current.differences += 1;
       }
     }
     return [...map.values()]
@@ -404,6 +450,7 @@ export default function TimeValidation() {
 
   const pendingEvents = useMemo(() => eventProgress.filter((item) => !item.markedValidated), [eventProgress]);
   const validatedEvents = useMemo(() => eventProgress.filter((item) => item.markedValidated), [eventProgress]);
+  const stageCounts = useMemo(() => validationStageCounts(clientRows), [clientRows]);
 
   useEffect(() => {
     if (selectedClientId !== 'all' && !clientOptions.some((item) => item.id === selectedClientId)) {
@@ -426,10 +473,7 @@ export default function TimeValidation() {
   const rows = useMemo(
     () => clientRows
       .filter((row) => {
-        const marked = eventIsMarkedValidated(row.event);
-        if (scope === 'pending' && marked) return false;
-        if (scope === 'validated' && !marked) return false;
-        if (scope === 'pending' && onlyDifferences && !row.needsAttention) return false;
+        if (row.workflowStage !== stage) return false;
         if (viewMode === 'event' && selectedEventId !== 'all' && String(row.event.id) !== selectedEventId) return false;
         if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
         return true;
@@ -438,25 +482,46 @@ export default function TimeValidation() {
         if (viewMode === 'collaborator') {
           const byName = String(a.collaboratorName || '').localeCompare(String(b.collaboratorName || ''), 'pt');
           if (byName !== 0) return byName;
-          return compareTimeValidationRows(a, b);
+          return compareTimeValidationRowsNewest(a, b);
         }
-        return compareTimeValidationRows(a, b);
+        return compareTimeValidationRowsNewest(a, b);
       }),
-    [clientRows, scope, onlyDifferences, selectedCollaboratorId, selectedEventId, viewMode],
+    [clientRows, stage, selectedCollaboratorId, selectedEventId, viewMode],
   );
 
   const staffPdfRows = useMemo(
     () => clientRows
       .filter((row) => {
-        const marked = eventIsMarkedValidated(row.event);
-        if (scope === 'pending' && marked) return false;
-        if (scope === 'validated' && !marked) return false;
+        if (row.workflowStage !== stage) return false;
         if (viewMode === 'event' && selectedEventId !== 'all' && String(row.event.id) !== selectedEventId) return false;
         if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
         return true;
       })
       .map((row) => ({ ...row, staffScheduleHours: staffColumnHours(row.assignment) })),
-    [clientRows, scope, selectedCollaboratorId, selectedEventId, viewMode],
+    [clientRows, stage, selectedCollaboratorId, selectedEventId, viewMode],
+  );
+
+  const rowGroups = useMemo(() => {
+    const groups = [];
+    for (const row of rows) {
+      const last = groups[groups.length - 1];
+      if (!last || last.key !== row.workDateKey) {
+        groups.push({
+          key: row.workDateKey,
+          label: row.workDateLabel,
+          rows: [row],
+        });
+      } else {
+        last.rows.push(row);
+      }
+    }
+    return groups;
+  }, [rows]);
+
+  const visibleEventIds = useMemo(() => new Set(rows.map((row) => String(row.event.id))), [rows]);
+  const visiblePendingEvents = useMemo(
+    () => pendingEvents.filter((item) => visibleEventIds.has(String(item.event.id))),
+    [pendingEvents, visibleEventIds],
   );
 
   const selectedClientLabel = selectedClientId === 'all'
@@ -473,7 +538,7 @@ export default function TimeValidation() {
       { label: 'Divergências', value: String(divergent) },
       { label: 'Validados', value: String(validated) },
       { label: 'Eventos validados', value: String(validatedEvents.length) },
-      { label: 'Horas Cliente', value: `${clientHours.toFixed(2)} h` },
+      { label: 'Horas Faturáveis', value: `${clientHours.toFixed(2)} h` },
       { label: 'Horas Staff', value: `${staffHours.toFixed(2)} h` },
     ];
   }, [clientRows, validatedEvents.length]);
@@ -481,7 +546,7 @@ export default function TimeValidation() {
   function updateDraft(row, patch) {
     setDrafts((prev) => {
       const current = { ...row.assignment, ...(prev[row.id] || {}) };
-      const next = { ...current, ...patch };
+      const next = { ...current, ...patch, _persisted: false };
       if (patch.validatedCheckIn !== undefined || patch.validatedCheckOut !== undefined) {
         const rounded = calcRoundedBillableHours(next.validatedCheckIn, next.validatedCheckOut);
         if (rounded > 0) {
@@ -493,10 +558,68 @@ export default function TimeValidation() {
     });
   }
 
+  function setPeriod(start, end) {
+    setPeriodStart(start);
+    setPeriodEnd(end);
+  }
+
+  function resetPeriodToRecentDays() {
+    const recent = recentOperationalPeriod();
+    setPeriod(recent.start, recent.end);
+  }
+
+  function resetPeriodToToday() {
+    const today = dateKey(new Date());
+    setPeriod(today, today);
+  }
+
+  function resetPeriodToYesterday() {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const key = dateKey(yesterday);
+    setPeriod(key, key);
+  }
+
   function resetPeriodToCurrentMonth() {
     const current = currentMonthPeriod();
-    setPeriodStart(current.start);
-    setPeriodEnd(current.end);
+    setPeriod(current.start, current.end);
+  }
+
+  function copyPlannedToStaff(row) {
+    updateDraft(row, {
+      checkIn: row.plannedCheckIn || '',
+      checkOut: row.plannedCheckOut || '',
+    });
+  }
+
+  function copyStaffToClient(row) {
+    const merged = { ...row.assignment, ...(drafts[row.id] || {}) };
+    updateDraft(row, {
+      clientCheckIn: merged.checkIn || '',
+      clientCheckOut: merged.checkOut || '',
+    });
+  }
+
+  function handleClientTimeBlur(row, field, rawValue, relatedTarget) {
+    const normalizedValue = normalizeTimeInput(rawValue);
+    const draft = drafts[row.id] || {};
+    const correction = clientTimeCorrection(
+      { ...row.assignment, ...draft },
+      { [field]: normalizedValue },
+      relatedTarget?.dataset?.validationClientRow === String(row.id),
+    );
+    updateDraft(row, { [field]: normalizedValue });
+    if (correction.shouldPersist) {
+      persistRow(row, correction.merged, 'auto');
+    }
+  }
+
+  function showEventRows(eventId) {
+    setViewMode('event');
+    setSelectedEventId(String(eventId));
+    window.requestAnimationFrame(() => {
+      validationTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
 
   function generateStaffPdf() {
@@ -548,15 +671,14 @@ export default function TimeValidation() {
   }
 
   function validationBodyFor(row, merged, mode = 'auto') {
+    const realClientHours = clientRealHoursFor(merged);
     const clientHours = clientHoursFor(merged, row.event);
     const staffHours = num(merged.staffPayableHours) || staffHoursFor(merged, row.event);
-    const normalizedValidatedCheckIn = mode === 'pending' ? null : (merged.validatedCheckIn || null);
-    const normalizedValidatedCheckOut = mode === 'pending' ? null : (merged.validatedCheckOut || null);
-    const validationStatus = mode === 'validated'
-      ? 'validated'
-      : mode === 'pending'
-        ? 'pending'
-        : validationStatusFor(row.event, merged);
+    const persistence = validationPersistenceFields(
+      merged,
+      mode,
+      validationStatusFor(row.event, merged),
+    );
 
     return {
       eventId: merged.eventId,
@@ -566,14 +688,15 @@ export default function TimeValidation() {
       checkOut: merged.checkOut || null,
       clientCheckIn: merged.clientCheckIn || null,
       clientCheckOut: merged.clientCheckOut || null,
-      validatedCheckIn: normalizedValidatedCheckIn,
-      validatedCheckOut: normalizedValidatedCheckOut,
+      validatedCheckIn: persistence.validatedCheckIn,
+      validatedCheckOut: persistence.validatedCheckOut,
       hoursWorked: staffHours,
+      clientRealHours: realClientHours,
       clientBillableHours: clientHours,
       staffPayableHours: staffHours,
       hourlyRate: num(merged.hourlyRate),
       totalPay: Number((staffHours * num(merged.hourlyRate)).toFixed(2)),
-      validationStatus,
+      validationStatus: persistence.validationStatus,
       validationNotes: merged.validationNotes || null,
       clientSynced: Boolean(merged.clientSynced),
       status: merged.status,
@@ -604,7 +727,14 @@ export default function TimeValidation() {
         console.warn('Falha a atualizar totais do evento apos validar horas:', error);
       }
 
-      setDrafts((prev) => ({ ...prev, [row.id]: { ...merged, ...body } }));
+      const persistedDraft = { ...merged, ...body, _persisted: true };
+      setDrafts((prev) => ({ ...prev, [row.id]: persistedDraft }));
+      const nextAssessment = rowAssessment(persistedDraft);
+      setStage((currentStage) => preserveStageAfterManualRowSave(currentStage, {
+        assignment: persistedDraft,
+        eventValidated: eventIsMarkedValidated(row.event),
+        isDifference: nextAssessment.isDifference,
+      }));
       reload();
     } catch (error) {
       window.alert(error?.message || 'Não foi possível guardar esta validação.');
@@ -620,12 +750,12 @@ export default function TimeValidation() {
 
   async function acceptRow(row) {
     const merged = { ...row.assignment, ...(drafts[row.id] || {}) };
-    const validatedCheckIn = merged.validatedCheckIn || merged.clientCheckIn || merged.checkIn || row.event.startTime || '';
-    const validatedCheckOut = merged.validatedCheckOut || merged.clientCheckOut || merged.checkOut || row.event.endTime || '';
-    if (!validatedCheckIn || !validatedCheckOut) {
-      window.alert('Sem horas suficientes para aceitar esta validação.');
+    if (!merged.checkIn || !merged.checkOut || !merged.clientCheckIn || !merged.clientCheckOut) {
+      window.alert('Preenche os horários Staff e Cliente antes de aceitar a validação.');
       return;
     }
+    const validatedCheckIn = merged.clientCheckIn;
+    const validatedCheckOut = merged.clientCheckOut;
     await persistRow(row, { ...merged, validatedCheckIn, validatedCheckOut }, 'validated');
   }
 
@@ -670,7 +800,7 @@ export default function TimeValidation() {
       setDrafts((prev) => {
         const next = { ...prev };
         for (const { row, merged } of candidates.ready) {
-          next[row.id] = { ...merged, ...updates.get(row.id) };
+          next[row.id] = { ...merged, ...updates.get(row.id), _persisted: true };
         }
         return next;
       });
@@ -697,7 +827,10 @@ export default function TimeValidation() {
           status: SERVICE_STATUS.toValidateStaff,
         }),
       });
-      setDrafts((prev) => ({ ...prev, [row.id]: { ...merged, ...reopenAssignmentPayload(merged) } }));
+      setDrafts((prev) => ({
+        ...prev,
+        [row.id]: { ...merged, ...reopenAssignmentPayload(merged), _persisted: true },
+      }));
       reload();
     } catch (error) {
       window.alert(error?.message || 'Não foi possível reabrir esta validação.');
@@ -762,6 +895,18 @@ export default function TimeValidation() {
     }
   }
 
+  const isFinalizedStage = stage === TIME_VALIDATION_STAGE.finalized;
+  const showPlannedColumn = stage === TIME_VALIDATION_STAGE.staffPending
+    || stage === TIME_VALIDATION_STAGE.differences
+    || stage === TIME_VALIDATION_STAGE.ready;
+  const showClientColumn = stage !== TIME_VALIDATION_STAGE.staffPending;
+  const showDifferenceColumn = stage === TIME_VALIDATION_STAGE.differences
+    || stage === TIME_VALIDATION_STAGE.ready;
+  const tableColumnCount = 5
+    + Number(showPlannedColumn)
+    + Number(showClientColumn)
+    + Number(showDifferenceColumn);
+
   return (
     <div className="page validation-page">
       <div className="page-title-row">
@@ -774,13 +919,24 @@ export default function TimeValidation() {
       <Stats items={stats} />
 
       <Card title="Conferência Operacional">
-        <div className="service-tabs budget-tabs">
-          <button type="button" className={`service-tab ${scope === 'pending' ? 'service-tab--active' : ''}`} onClick={() => setScope('pending')}>
-            Pendentes
-          </button>
-          <button type="button" className={`service-tab ${scope === 'validated' ? 'service-tab--active' : ''}`} onClick={() => setScope('validated')}>
-            Eventos/Serviços Validados
-          </button>
+        <div className="validation-stage-tabs" role="tablist" aria-label="Estado da validação">
+          {VALIDATION_STAGE_TABS.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              role="tab"
+              aria-selected={stage === item.value}
+              className={`validation-stage-tab ${stage === item.value ? 'is-active' : ''}`}
+              onClick={() => {
+                setStage(item.value);
+                setSelectedEventId('all');
+                setSelectedCollaboratorId('all');
+              }}
+            >
+              <span>{item.label}</span>
+              <strong>{stageCounts[item.value] || 0}</strong>
+            </button>
+          ))}
         </div>
 
         <div className="service-tabs budget-tabs">
@@ -832,12 +988,13 @@ export default function TimeValidation() {
               onChange={(event) => setPeriodEnd(event.target.value)}
               aria-label="Data final"
             />
-            <button className="secondary-button" type="button" onClick={resetPeriodToCurrentMonth}>Atual</button>
           </div>
-          <label className="check-inline service-check">
-            <input type="checkbox" checked={onlyDifferences} onChange={(event) => setOnlyDifferences(event.target.checked)} disabled={scope === 'validated'} />
-            <span>Mostrar apenas divergências</span>
-          </label>
+          <div className="validation-period-presets" aria-label="Atalhos de período">
+            <button type="button" onClick={resetPeriodToToday}>Hoje</button>
+            <button type="button" onClick={resetPeriodToYesterday}>Ontem</button>
+            <button type="button" onClick={resetPeriodToRecentDays}>7 dias</button>
+            <button type="button" onClick={resetPeriodToCurrentMonth}>Este mês</button>
+          </div>
           <button className="secondary-button validation-pdf-button" type="button" onClick={generateStaffPdf} disabled={!staffPdfRows.length}>
             <FileDown size={16} />
             <span>PDF Staff</span>
@@ -850,129 +1007,216 @@ export default function TimeValidation() {
         {error ? <p className="notice">{error}</p> : null}
         {loading ? <p className="muted">A carregar...</p> : null}
 
-        {scope === 'pending' ? (
+        {!isFinalizedStage ? (
           <>
             <div className="validation-event-list">
-              {pendingEvents.map((item) => (
+              {visiblePendingEvents.map((item) => (
                 <article key={item.event.id} className="validation-event-item">
                   <div>
                     <strong>{item.event.name || '-'}</strong>
                     <small>{item.event.client?.name || '-'} · {item.dateLabel}</small>
                   </div>
                   <div className="validation-event-metrics">
-                    <span>{item.validated}/{item.total} validados</span>
+                    <span>Staff {item.staffComplete}/{item.total} · Cliente {item.clientComplete}/{item.total}</span>
+                    <span>{item.differences} divergência(s) · {item.validated}/{item.total} aceites</span>
                     <Badge tone={item.ready ? 'success' : 'warning'}>{item.ready ? 'Pronto para fechar' : 'Em validação'}</Badge>
                   </div>
                   <div className="validation-event-actions">
                     <button
                       className="secondary-button"
                       type="button"
-                      disabled={!item.total || item.validated >= item.total || bulkValidatingEventId === item.event.id}
-                      onClick={() => validateAllRowsForEvent(item)}
+                      onClick={() => showEventRows(item.event.id)}
                     >
-                      {bulkValidatingEventId === item.event.id ? 'A validar...' : 'Validar tudo'}
+                      Ver linhas
                     </button>
-                    <button className="secondary-button" type="button" disabled={!item.ready || validatingEventId === item.event.id || bulkValidatingEventId === item.event.id} onClick={() => markEventValidated(item)}>
-                      {validatingEventId === item.event.id ? 'A validar...' : 'Marcar evento validado'}
-                    </button>
+                    {[TIME_VALIDATION_STAGE.differences, TIME_VALIDATION_STAGE.ready].includes(stage) ? (
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={!item.total || item.validated >= item.total || bulkValidatingEventId === item.event.id}
+                        onClick={() => validateAllRowsForEvent(item)}
+                      >
+                        {bulkValidatingEventId === item.event.id ? 'A validar...' : 'Validar tudo'}
+                      </button>
+                    ) : null}
+                    {stage === TIME_VALIDATION_STAGE.ready ? (
+                      <button className="secondary-button" type="button" disabled={!item.ready || validatingEventId === item.event.id || bulkValidatingEventId === item.event.id} onClick={() => markEventValidated(item)}>
+                        {validatingEventId === item.event.id ? 'A validar...' : 'Marcar evento validado'}
+                      </button>
+                    ) : null}
                   </div>
                 </article>
               ))}
-              {!loading && !pendingEvents.length ? <p className="muted">Sem eventos pendentes neste mês.</p> : null}
+              {!loading && !visiblePendingEvents.length ? <p className="muted">Sem eventos nesta fase e período.</p> : null}
             </div>
 
             {!loading && !rows.length ? <p className="muted">Sem registos para validar.</p> : null}
 
-            <div className="table-wrap">
+            <div className="table-wrap" ref={validationTableRef}>
               <table className="validation-table">
                 <thead>
                   <tr>
                     <th>Colaborador</th>
                     <th>Evento</th>
-                    <th>Previsto</th>
+                    {showPlannedColumn ? <th>Previsto</th> : null}
                     <th>Staff</th>
-                    <th>Cliente</th>
-                    <th>Diferença</th>
+                    {showClientColumn ? <th>Cliente</th> : null}
+                    {showDifferenceColumn ? <th>Diferença</th> : null}
                     <th>Notas</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id} className={`validation-row validation-row--${row.tone}`}>
-                      <td>
-                        <div className="validation-collaborator-heading">
-                          <strong>{row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-'}</strong>
-                          <Badge tone={row.validationState.tone}>
-                            {row.validationState.isValidated ? <CheckCircle2 size={13} /> : <Hourglass size={13} />}
-                            <span>{row.validationState.label}</span>
-                          </Badge>
-                        </div>
-                        <small>{row.assignment.role || '-'}</small>
-                      </td>
-                      <td>
-                        <strong>{row.event.name}</strong>
-                        <small>{row.event.client?.name || '-'} · {row.workDateLabel}</small>
-                      </td>
-                      <td>
-                        <div className="validation-time-stack">
-                          <div className="validation-time-plain-field">
-                            <em>{row.event.startTime || '--:--'}</em>
-                            <ArrowRight size={14} aria-hidden="true" />
-                          </div>
-                          <span className="validation-time-spacer" aria-hidden="true" />
-                          <div className="validation-time-plain-field">
-                            <em>{row.event.endTime || '--:--'}</em>
-                            <ArrowRight size={14} aria-hidden="true" />
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="validation-time-stack">
-                          <input type="time" value={row.assignment.checkIn || ''} onChange={(event) => updateDraft(row, { checkIn: event.target.value })} />
-                          <ArrowDown size={14} className="validation-time-arrow" aria-hidden="true" />
-                          <input type="time" value={row.assignment.checkOut || ''} onChange={(event) => updateDraft(row, { checkOut: event.target.value })} />
-                          <small>Total: {staffColumnHours(row.assignment).toFixed(2)} h</small>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="validation-time-stack">
-                          <input type="time" value={row.assignment.clientCheckIn || ''} onChange={(event) => updateDraft(row, { clientCheckIn: event.target.value })} />
-                          <ArrowDown size={14} className="validation-time-arrow" aria-hidden="true" />
-                          <input type="time" value={row.assignment.clientCheckOut || ''} onChange={(event) => updateDraft(row, { clientCheckOut: event.target.value })} />
-                          <small>Total: {clientColumnHours(row.assignment).toFixed(2)} h</small>
-                        </div>
-                      </td>
-                      <td>
-                        <Badge tone={row.tone}>
-                          <DifferenceIcon tone={row.tone} />
-                          <span>{row.toneLabel}{row.diffMinutes === null ? '' : ` (${row.diffMinutes} min)`}</span>
-                        </Badge>
-                      </td>
-                      <td>
-                        <input
-                          className="validation-note-input"
-                          value={row.assignment.validationNotes || ''}
-                          onChange={(event) => updateDraft(row, { validationNotes: event.target.value })}
-                        />
-                      </td>
-                      <td>
-                        <div className="validation-row-actions">
-                          {row.validationState.isValidated ? (
-                            <button className="icon-button" type="button" title="Reabrir validação" aria-label="Reabrir validação" onClick={() => reopenRowValidation(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
-                              <RotateCcw size={16} />
-                            </button>
-                          ) : (
-                            <button className="icon-button" type="button" title="Aceitar validação" aria-label="Aceitar validação" onClick={() => acceptRow(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
-                              <CheckCircle2 size={16} />
-                            </button>
-                          )}
-                          <button className="icon-button" type="button" title="Guardar validação" onClick={() => saveRow(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
-                            <Save size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                  {rowGroups.map((group) => (
+                    <Fragment key={group.key}>
+                      <tr className="validation-date-group">
+                        <th colSpan={tableColumnCount}>
+                          <span>{group.label}</span>
+                          <small>{group.rows.length} registo(s)</small>
+                        </th>
+                      </tr>
+                      {group.rows.map((row) => {
+                        const completeForAcceptance = Boolean(
+                          row.assignment.checkIn
+                          && row.assignment.checkOut
+                          && row.assignment.clientCheckIn
+                          && row.assignment.clientCheckOut,
+                        );
+                        return (
+                          <tr key={row.id} className={`validation-row validation-row--${row.tone}`}>
+                            <td>
+                              <div className="validation-collaborator-heading">
+                                <strong>{row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-'}</strong>
+                                <Badge tone={row.validationState.tone}>
+                                  {row.validationState.isValidated ? <CheckCircle2 size={13} /> : <Hourglass size={13} />}
+                                  <span>{row.validationState.label}</span>
+                                </Badge>
+                              </div>
+                              <small>{row.assignment.role || '-'}</small>
+                            </td>
+                            <td>
+                              <strong>{row.event.name}</strong>
+                              <small>{row.event.client?.name || '-'} · {row.workDateLabel}</small>
+                            </td>
+                            {showPlannedColumn ? (
+                              <td>
+                                <div className="validation-time-stack">
+                                  <div className="validation-time-plain-field">
+                                    <em>{row.plannedCheckIn || '--:--'}</em>
+                                    <ArrowRight size={14} aria-hidden="true" />
+                                  </div>
+                                  <span className="validation-time-spacer" aria-hidden="true" />
+                                  <div className="validation-time-plain-field">
+                                    <em>{row.plannedCheckOut || '--:--'}</em>
+                                    <ArrowRight size={14} aria-hidden="true" />
+                                  </div>
+                                </div>
+                              </td>
+                            ) : null}
+                            <td>
+                              <div className="validation-time-stack">
+                                <TimeInput
+                                  aria-label="Entrada Staff"
+                                  className="validation-time-input"
+                                  placeholder="--:--"
+                                  value={row.assignment.checkIn || ''}
+                                  onChange={(value) => updateDraft(row, { checkIn: value })}
+                                />
+                                <ArrowDown size={14} className="validation-time-arrow" aria-hidden="true" />
+                                <TimeInput
+                                  aria-label="Saída Staff"
+                                  className="validation-time-input"
+                                  placeholder="--:--"
+                                  value={row.assignment.checkOut || ''}
+                                  onChange={(value) => updateDraft(row, { checkOut: value })}
+                                />
+                                <small>Total: {staffColumnHours(row.assignment).toFixed(2)} h</small>
+                                {stage === TIME_VALIDATION_STAGE.staffPending ? (
+                                  <button className="validation-copy-button" type="button" onClick={() => copyPlannedToStaff(row)}>
+                                    <Copy size={12} />
+                                    Previsto
+                                  </button>
+                                ) : null}
+                              </div>
+                            </td>
+                            {showClientColumn ? (
+                              <td>
+                                <div className="validation-time-stack">
+                                  <TimeInput
+                                    aria-label="Entrada Cliente"
+                                    className="validation-time-input"
+                                    placeholder="--:--"
+                                    data-validation-client-row={row.id}
+                                    value={row.assignment.clientCheckIn || ''}
+                                    onBlur={(value, event) => handleClientTimeBlur(
+                                      row,
+                                      'clientCheckIn',
+                                      value,
+                                      event.relatedTarget,
+                                    )}
+                                    onChange={(value) => updateDraft(row, { clientCheckIn: value })}
+                                  />
+                                  <ArrowDown size={14} className="validation-time-arrow" aria-hidden="true" />
+                                  <TimeInput
+                                    aria-label="Saída Cliente"
+                                    className="validation-time-input"
+                                    placeholder="--:--"
+                                    data-validation-client-row={row.id}
+                                    value={row.assignment.clientCheckOut || ''}
+                                    onBlur={(value, event) => handleClientTimeBlur(
+                                      row,
+                                      'clientCheckOut',
+                                      value,
+                                      event.relatedTarget,
+                                    )}
+                                    onChange={(value) => updateDraft(row, { clientCheckOut: value })}
+                                  />
+                                  <small>Total: {clientColumnHours(row.assignment).toFixed(2)} h</small>
+                                  <button className="validation-copy-button" type="button" onClick={() => copyStaffToClient(row)}>
+                                    <Copy size={12} />
+                                    Staff
+                                  </button>
+                                </div>
+                              </td>
+                            ) : null}
+                            {showDifferenceColumn ? (
+                              <td>
+                                <Badge tone={row.tone}>
+                                  <DifferenceIcon tone={row.tone} />
+                                  <span>
+                                    {row.toneLabel}
+                                    {row.differenceDetail ? ` · ${row.differenceDetail}` : ''}
+                                  </span>
+                                </Badge>
+                              </td>
+                            ) : null}
+                            <td>
+                              <input
+                                className="validation-note-input"
+                                value={row.assignment.validationNotes || ''}
+                                onChange={(event) => updateDraft(row, { validationNotes: event.target.value })}
+                              />
+                            </td>
+                            <td>
+                              <div className="validation-row-actions">
+                                {row.validationState.isValidated ? (
+                                  <button className="icon-button" type="button" title="Reabrir validação" aria-label="Reabrir validação" onClick={() => reopenRowValidation(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
+                                    <RotateCcw size={16} />
+                                  </button>
+                                ) : (
+                                  <button className="icon-button" type="button" title="Aceitar validação" aria-label="Aceitar validação" onClick={() => acceptRow(row)} disabled={!completeForAcceptance || savingId === row.id || bulkValidatingEventId !== null}>
+                                    <CheckCircle2 size={16} />
+                                  </button>
+                                )}
+                                <button className="icon-button" type="button" title="Guardar validação" onClick={() => saveRow(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
+                                  <Save size={16} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -980,7 +1224,7 @@ export default function TimeValidation() {
           </>
         ) : null}
 
-        {scope === 'validated' ? (
+        {isFinalizedStage ? (
           <div className="validation-history-list">
             {validatedEvents.map((item) => (
               <article key={item.event.id} className="validation-history-item">
@@ -1006,7 +1250,7 @@ export default function TimeValidation() {
                 </button>
               </article>
             ))}
-            {!loading && !validatedEvents.length ? <p className="muted">Sem eventos/serviços validados neste mês.</p> : null}
+            {!loading && !validatedEvents.length ? <p className="muted">Sem eventos/serviços finalizados neste período.</p> : null}
           </div>
         ) : null}
       </Card>

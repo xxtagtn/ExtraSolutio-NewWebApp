@@ -93,6 +93,7 @@ model Client {
   billingCustomRule String?
   paymentTerm   String    @default("days_30")
   paymentTermDays Int?
+  minimumHours  Decimal   @default(0)
   roleRates     String?
   roleRatesUpdatedAt DateTime?
   status        String    @default("active")
@@ -186,7 +187,9 @@ model Event {
   endTime      String?
   actualStartTime String?
   actualEndTime   String?
+  realHours       Decimal         @default(0)
   billableHours   Decimal         @default(0)
+  minimumHoursSnapshot Decimal    @default(0)
   guestsCount  Int?
   requiredRoles String?
   uniform      String?
@@ -200,6 +203,7 @@ model Event {
   km           Decimal?
   kmRate       Decimal?
   durationHours Decimal?
+  travelStaffHourlyRate Decimal @default(0)
   split5050    Boolean            @default(false)
   travelManualAmount Decimal      @default(0)
   billingStatus String            @default("pending")
@@ -250,6 +254,7 @@ model EventAssignment {
   validatedCheckIn String?
   validatedCheckOut String?
   hoursWorked    Decimal      @default(0)
+  clientRealHours Decimal     @default(0)
   clientBillableHours Decimal @default(0)
   staffPayableHours Decimal   @default(0)
   hourlyRate     Decimal      @default(0)

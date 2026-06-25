@@ -1,10 +1,11 @@
 ﻿import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
+import { collaboratorRoleOptions } from '../../src/utils/collaboratorRoles.js';
 
 export const collaboratorsRouter = Router();
 
-const ALLOWED_ROLES = new Set(['Emp.Mesa', 'Copa Fina', 'Barman', 'Chefe de Sala', 'Cozinheiro', 'Ajd.Cozinha', 'Logista']);
+const ALLOWED_ROLES = new Set(collaboratorRoleOptions);
 const ALLOWED_STATUS = new Set(['active', 'inactive', 'paused']);
 const ALLOWED_DOCUMENT_TYPES = new Set(['passport', 'citizen_card', 'residence_title']);
 

@@ -16,6 +16,7 @@ import { useMemo, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
+import TimeInput from '../components/UI/TimeInput.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import {
@@ -33,6 +34,7 @@ import {
   normalizeBudgetStatus,
 } from '../utils/budgetPipeline.js';
 import { calculateBudgetTotals } from '../utils/budgetTotals.js';
+import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { date, money } from '../utils/formatters.js';
 import { decimalValue } from '../utils/serviceFinance.js';
 import { calculateTravelAmount } from '../utils/travelCalculator.js';
@@ -91,7 +93,6 @@ const lostReasonOptions = [
   'Outro',
 ];
 
-const roleOptions = ['Emp.Mesa', 'Copa Fina', 'Barman', 'Chefe de Sala', 'Cozinheiro', 'Ajd.Cozinha', 'Logista'];
 const uniformOptions = ['Polo ExtraSolutio', 'Camisa Branca', 'Camisa Preta', 'Fato', 'Definido pelo cliente', 'Outros'];
 
 const roleRates = {
@@ -852,8 +853,8 @@ export default function Budgets() {
                         <label>Data<input type="date" value={day.date} onChange={(event) => updateEventDay(idx, { date: event.target.value })} /></label>
                         <label>Local<input value={day.location} onChange={(event) => updateEventDay(idx, { location: event.target.value })} /></label>
                         <label>Nº convidados<input type="number" min="0" value={day.guestsCount} onChange={(event) => updateEventDay(idx, { guestsCount: event.target.value })} /></label>
-                        <label>Entrada<input type="time" value={day.startTime} onChange={(event) => updateEventDay(idx, { startTime: event.target.value })} /></label>
-                        <label>Saída<input type="time" value={day.endTime} onChange={(event) => updateEventDay(idx, { endTime: event.target.value })} /></label>
+                        <label>Entrada<TimeInput value={day.startTime} onChange={(value) => updateEventDay(idx, { startTime: value })} /></label>
+                        <label>Saída<TimeInput value={day.endTime} onChange={(value) => updateEventDay(idx, { endTime: value })} /></label>
                       </div>
                     </div>
                   ))}
@@ -926,7 +927,7 @@ export default function Budgets() {
                         <label>Função
                           <select value={cat.role} onChange={(event) => updateCategory(idx, { role: event.target.value, rate: roleRates[event.target.value] || cat.rate })}>
                             <option value="">Selecionar</option>
-                            {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
+                            {collaboratorRoleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
                           </select>
                         </label>
                         <label>Quantidade<input type="number" min="1" value={cat.qty} onChange={(event) => updateCategory(idx, { qty: event.target.value })} /></label>
@@ -941,8 +942,8 @@ export default function Budgets() {
                             </select>
                           </label>
                         ) : null}
-                        <label>Entrada<input type="time" value={cat.start} onChange={(event) => updateCategory(idx, { start: event.target.value })} /></label>
-                        <label>Saída<input type="time" value={cat.end} onChange={(event) => updateCategory(idx, { end: event.target.value })} /></label>
+                        <label>Entrada<TimeInput value={cat.start} onChange={(value) => updateCategory(idx, { start: value })} /></label>
+                        <label>Saída<TimeInput value={cat.end} onChange={(value) => updateCategory(idx, { end: value })} /></label>
                         <label>Uniforme
                           <select value={cat.uniform} onChange={(event) => updateCategory(idx, { uniform: event.target.value })}>
                             <option value="">Selecionar</option>
@@ -1123,10 +1124,10 @@ export default function Budgets() {
                       <input value={conversionDraft.location || ''} onChange={(event) => updateConversionDraft({ location: event.target.value })} />
                     </label>
                     <label>Entrada prevista
-                      <input type="time" value={conversionDraft.startTime || ''} onChange={(event) => updateConversionDraft({ startTime: event.target.value })} />
+                      <TimeInput value={conversionDraft.startTime || ''} onChange={(value) => updateConversionDraft({ startTime: value })} />
                     </label>
                     <label>Saída prevista
-                      <input type="time" value={conversionDraft.endTime || ''} onChange={(event) => updateConversionDraft({ endTime: event.target.value })} />
+                      <TimeInput value={conversionDraft.endTime || ''} onChange={(value) => updateConversionDraft({ endTime: value })} />
                     </label>
                     <label>Uniforme
                       <select value={conversionDraft.uniform || ''} onChange={(event) => updateConversionDraft({ uniform: event.target.value })}>
@@ -1159,8 +1160,8 @@ export default function Budgets() {
                         <label>Função
                           <select value={role.role || ''} onChange={(event) => updateConversionRole(index, { role: event.target.value })}>
                             <option value="">Selecionar</option>
-                            {role.role && !roleOptions.includes(role.role) ? <option value={role.role}>{role.role}</option> : null}
-                            {roleOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                            {role.role && !collaboratorRoleOptions.includes(role.role) ? <option value={role.role}>{role.role}</option> : null}
+                            {collaboratorRoleOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                           </select>
                         </label>
                         <label>Nº de colaboradores
@@ -1173,10 +1174,10 @@ export default function Budgets() {
                           <input type="date" value={role.day || ''} onChange={(event) => updateConversionRole(index, { day: event.target.value })} />
                         </label>
                         <label>Entrada
-                          <input type="time" value={role.start || ''} onChange={(event) => updateConversionRole(index, { start: event.target.value })} />
+                          <TimeInput value={role.start || ''} onChange={(value) => updateConversionRole(index, { start: value })} />
                         </label>
                         <label>Saída
-                          <input type="time" value={role.end || ''} onChange={(event) => updateConversionRole(index, { end: event.target.value })} />
+                          <TimeInput value={role.end || ''} onChange={(value) => updateConversionRole(index, { end: value })} />
                         </label>
                       </div>
                     </div>

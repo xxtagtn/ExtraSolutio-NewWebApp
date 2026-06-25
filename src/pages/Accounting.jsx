@@ -32,7 +32,7 @@ import {
 } from '../utils/clientBilling.js';
 import { isFinanceReadyEvent } from '../utils/financeReadiness.js';
 import { date, money } from '../utils/formatters.js';
-import { decimalValue } from '../utils/serviceFinance.js';
+import { clientChargeHours, decimalValue } from '../utils/serviceFinance.js';
 import {
   normalizeStaffAdvances,
   staffAdvancesTotal,
@@ -252,8 +252,31 @@ function eventStaffCost(event) {
   return total || num(event.totalCost);
 }
 
+function eventRoleRates(event) {
+  try {
+    const roles = Array.isArray(event.requiredRoles)
+      ? event.requiredRoles
+      : JSON.parse(event.requiredRoles || '[]');
+    return new Map(roles.map((item) => [item.role, num(item.agreedRate)]));
+  } catch {
+    return new Map();
+  }
+}
+
 function eventRevenue(event) {
-  return num(event.totalRevenue);
+  const roleRates = eventRoleRates(event);
+  const assignmentRevenue = billableAssignments(event).reduce((sum, assignment) => {
+    const hours = clientChargeHours(
+      assignment,
+      event.startTime,
+      event.endTime,
+      event.minimumHoursSnapshot,
+    );
+    return sum + (hours * (roleRates.get(assignment.role) || 0));
+  }, 0);
+  const travel = event.travelExpenseEnabled ? num(event.travelExpenseAmount) : 0;
+  const calculated = assignmentRevenue + travel;
+  return calculated > 0 ? calculated : num(event.totalRevenue);
 }
 
 function invoiceIsPaid(invoice) {

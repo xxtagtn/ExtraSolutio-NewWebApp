@@ -1,4 +1,4 @@
-import { Edit2, Minus, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit2, Minus, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
@@ -6,9 +6,11 @@ import IconButton from '../components/UI/IconButton.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
+import { documentExpiryAlert } from '../utils/documentExpiry.js';
 import { money } from '../utils/formatters.js';
+import { paginateItems } from '../utils/pagination.js';
 
-const roleOptions = ['Emp.Mesa', 'Copa Fina', 'Barman', 'Chefe de Sala', 'Cozinheiro', 'Ajd.Cozinha', 'Logista'];
 const PHOTO_VIEWER_BASE_WIDTH = 420;
 const PHOTO_VIEWER_MAX_ZOOM = 2;
 const PHOTO_VIEWER_ZOOM_STEP = 0.1;
@@ -82,6 +84,8 @@ export default function Collaborators() {
   const [nameFilter, setNameFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
@@ -92,6 +96,7 @@ export default function Collaborators() {
   const [expandedRows, setExpandedRows] = useState({});
   const [photoViewer, setPhotoViewer] = useState(null);
   const [photoZoom, setPhotoZoom] = useState(1);
+  const [expiryReferenceDate, setExpiryReferenceDate] = useState(() => new Date());
   const rolesDropdownRef = useRef(null);
 
   useEffect(() => {
@@ -114,6 +119,17 @@ export default function Collaborators() {
     };
   }, [rolesOpen]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      setExpiryReferenceDate((current) => (
+        current.toDateString() === now.toDateString() ? current : now
+      ));
+    }, 60 * 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   const rows = useMemo(() => data.filter((row) => {
     const byName = nameFilter ? String(row.name || '').toLowerCase().includes(nameFilter.toLowerCase()) : true;
     const byRole = roleFilter ? (row.roles || []).includes(roleFilter) : true;
@@ -124,8 +140,23 @@ export default function Collaborators() {
     return String(a.name || '').localeCompare(String(b.name || ''), 'pt');
   }), [data, nameFilter, roleFilter, statusFilter]);
 
+  const pagination = useMemo(
+    () => paginateItems(rows, currentPage, pageSize),
+    [currentPage, pageSize, rows],
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [nameFilter, pageSize, roleFilter, statusFilter]);
+
+  useEffect(() => {
+    if (currentPage !== pagination.currentPage) {
+      setCurrentPage(pagination.currentPage);
+    }
+  }, [currentPage, pagination.currentPage]);
+
   const mergedRoleOptions = useMemo(
-    () => [...new Set([...(catalogRoles || []), ...roleOptions])].sort((a, b) => a.localeCompare(b, 'pt')),
+    () => [...new Set([...(catalogRoles || []), ...collaboratorRoleOptions])].sort((a, b) => a.localeCompare(b, 'pt')),
     [catalogRoles],
   );
 
@@ -304,8 +335,9 @@ export default function Collaborators() {
         </div>
         {error ? <p className="notice">{error}</p> : null}
         <div className="collab-details-list">
-          {(loading ? [] : rows).map((row) => {
+          {(loading ? [] : pagination.items).map((row) => {
             const stats = eventStatsByCollaborator.get(Number(row.id)) || { confirmed: 0, refused: 0, missedJustified: 0, missedUnjustified: 0 };
+            const expiryAlert = documentExpiryAlert(row.documentExpiry, expiryReferenceDate);
             return (
               <article className="collab-detail-card collab-detail-card--clickable" key={row.id}>
                 <header
@@ -320,7 +352,20 @@ export default function Collaborators() {
                   }}
                 >
                   <div className="collab-top-grid">
-                    <div className="collab-col"><strong>{row.shortName || row.name}</strong><small>{row.name}</small></div>
+                    <div className="collab-col">
+                      <strong>
+                        {row.shortName || row.name}
+                        {expiryAlert ? (
+                          <span
+                            aria-label={expiryAlert.label}
+                            className={`doc-alert-dot ${expiryAlert.tone}`}
+                            role="img"
+                            title={expiryAlert.label}
+                          />
+                        ) : null}
+                      </strong>
+                      <small>{row.name}</small>
+                    </div>
                     <div className="collab-col"><span>NIF</span><strong>{row.nif || '-'}</strong></div>
                     <div className="collab-col"><span>Contacto</span><strong>{row.phone || '-'}</strong></div>
                     <div className="collab-col"><span>Funções</span><div className="collab-role-list">{(row.roles || []).length ? row.roles.map((role) => <span className="collab-role-chip" key={`${row.id}-${role}`}>{role}</span>) : <span className="collab-role-chip">-</span>}</div></div>
@@ -351,7 +396,7 @@ export default function Collaborators() {
                         <p><span>Residência</span><strong>{row.residenceArea || '-'}</strong></p>
                         <p><span>Recibo Verde</span><strong>{row.greenReceipt || '-'}</strong></p>
                         <p><span>Seguro</span><strong>{row.insurancePolicy || '-'}</strong></p>
-                        <p><span>Alergias</span><strong>{row.allergies || '-'}</strong></p>
+                        <p><span>Restrições Alimentares</span><strong>{row.allergies || '-'}</strong></p>
                         <p><span>Disponibilidade</span><strong>{row.availability || '-'}</strong></p>
                         <p className="span-2"><span>Notas</span><strong>{row.notes || '-'}</strong></p>
                       </div>
@@ -379,6 +424,58 @@ export default function Collaborators() {
           })}
           {!loading && rows.length === 0 ? <p className="muted">Nenhum colaborador encontrado.</p> : null}
         </div>
+        {!loading && rows.length > 0 ? (
+          <div className="collab-pagination">
+            <span className="collab-pagination__summary">
+              A mostrar {pagination.startItem}-{pagination.endItem} de {pagination.totalItems}
+            </span>
+            <label className="collab-pagination__size">
+              <span>Por página</span>
+              <select
+                className="form-control"
+                value={pageSize}
+                onChange={(event) => setPageSize(Number(event.target.value))}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </label>
+            <nav className="collab-pagination__pages" aria-label="Paginação dos colaboradores">
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Página anterior"
+                title="Página anterior"
+                disabled={pagination.currentPage <= 1}
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+              >
+                <ChevronLeft size={17} />
+              </button>
+              {pagination.pageNumbers.map((pageNumber) => (
+                <button
+                  type="button"
+                  className={`collab-pagination__page${pageNumber === pagination.currentPage ? ' is-active' : ''}`}
+                  aria-current={pageNumber === pagination.currentPage ? 'page' : undefined}
+                  key={pageNumber}
+                  onClick={() => setCurrentPage(pageNumber)}
+                >
+                  {pageNumber}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Página seguinte"
+                title="Página seguinte"
+                disabled={pagination.currentPage >= pagination.totalPages}
+                onClick={() => setCurrentPage((page) => Math.min(pagination.totalPages, page + 1))}
+              >
+                <ChevronRight size={17} />
+              </button>
+            </nav>
+          </div>
+        ) : null}
       </Card>
 
       {formOpen ? (
@@ -409,16 +506,17 @@ export default function Collaborators() {
                   <div><label>Validade</label><input type="date" value={form.documentExpiry} disabled={!form.documentType} onChange={(event) => setForm({ ...form, documentExpiry: event.target.value })} /></div>
                   <div className="check-inline"><input type="checkbox" checked={form.documentExtended} disabled={!form.documentType} onChange={(event) => setForm({ ...form, documentExtended: event.target.checked })} /><span>Prorrogação</span></div>
                 </div>
-                <div className="collab-row-3">
+                <div className="collab-row-4-profile">
                   <div><label>Data de Nascimento</label><input type="date" value={form.birthDate} onChange={(event) => setForm({ ...form, birthDate: event.target.value })} /></div>
                   <div><label>Idade</label><input value={age} readOnly /></div>
                   <div><label>Género</label><select value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value })}><option value="">-- Selecione --</option><option value="Feminino">Feminino</option><option value="Masculino">Masculino</option></select></div>
+                  <div><label>Zona de residência</label><input placeholder="Ex: Lisboa" value={form.residenceArea} onChange={(event) => setForm({ ...form, residenceArea: event.target.value })} /></div>
                 </div>
                 <div className="collab-row-2">
                   <div><label>Contacto telefónico</label><input placeholder="Ex: 912345678" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></div>
                   <div><label>Email *</label><input type="email" placeholder="Ex: joao@email.com" value={form.email} required onChange={(event) => setForm({ ...form, email: event.target.value })} /></div>
                 </div>
-                <div className="collab-row-2">
+                <div className="collab-row-4-financial">
                   <div><label>IBAN</label><input placeholder="Ex: PT50 0002 0123 12345678901 54" value={form.iban} onChange={(event) => setForm({ ...form, iban: event.target.value })} /></div>
                   <div>
                     <label>Valor/h</label>
@@ -430,14 +528,11 @@ export default function Collaborators() {
                       </div>
                     </div>
                   </div>
-                </div>
-                <div className="collab-row-3">
-                  <div><label>Zona de residência</label><input placeholder="Ex: Lisboa" value={form.residenceArea} onChange={(event) => setForm({ ...form, residenceArea: event.target.value })} /></div>
                   <div><label>Recibo Verde</label><select value={form.greenReceipt} onChange={(event) => setForm({ ...form, greenReceipt: event.target.value })}><option value="">-- Selecione --</option><option value="Sim">Sim</option><option value="Nao">Não</option></select></div>
                   <div><label>Seguro (n.º apólice)</label><input placeholder="Ex: Fidelidade 12345" value={form.insurancePolicy} onChange={(event) => setForm({ ...form, insurancePolicy: event.target.value })} /></div>
                 </div>
                 <div className="collab-row-2">
-                  <div><label>Alergias</label><textarea placeholder="Ex: Frutos secos" value={form.allergies} onChange={(event) => setForm({ ...form, allergies: event.target.value })} /></div>
+                  <div><label>Restrições Alimentares</label><textarea placeholder="Ex: Sem glúten, sem lactose ou frutos secos" value={form.allergies} onChange={(event) => setForm({ ...form, allergies: event.target.value })} /></div>
                   <div><label>Disponibilidades</label><textarea placeholder="Ex: Fins de semana e noites" value={form.availability} onChange={(event) => setForm({ ...form, availability: event.target.value })} /></div>
                 </div>
                 <label>Funções</label>

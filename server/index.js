@@ -15,7 +15,11 @@ app.use((error, _req, res, _next) => {
   if (error?.type === 'entity.too.large') {
     return res.status(413).json({ message: 'Imagem demasiado grande. Usa uma fotografia menor.' });
   }
-  const status = error?.code === 'P2025' ? 404 : error?.code === 'P2002' ? 409 : 500;
+  const status = Number(error?.statusCode)
+    || (error?.code === 'P2025' ? 404 : error?.code === 'P2002' ? 409 : 500);
+  if (error?.expose && error?.message) {
+    return res.status(status).json({ message: error.message });
+  }
   res.status(status).json({
     message: status === 404
       ? 'Registo não encontrado.'

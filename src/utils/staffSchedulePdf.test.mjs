@@ -130,6 +130,30 @@ test('shows event total without collaborator rates or totals in pdf and excel ex
   assert.equal(excel.includes('25,00€'), false);
 });
 
+test('uses billable client hours for the event total in pdf and excel exports', () => {
+  const rows = [
+    {
+      event: {
+        id: 1,
+        name: 'Evento com mínimo',
+        client: { name: 'Cliente' },
+        date: '2026-07-08',
+        requiredRoles: JSON.stringify([{ role: 'Staff', agreedRate: 10 }]),
+      },
+      assignment: { collaborator: { shortName: 'Ana' }, role: 'Staff', checkIn: '09:00', checkOut: '12:00' },
+      staffScheduleHours: 3,
+      clientHours: 5,
+    },
+  ];
+
+  const pdf = buildStaffSchedulePdfHtml(rows);
+  const excel = buildStaffScheduleExcelHtml(rows);
+
+  assert.equal(pdf.includes('50,00€'), true);
+  assert.equal(excel.includes('50,00€'), true);
+  assert.equal(pdf.includes('3.00 h'), true);
+});
+
 test('escapes generated schedule pdf html', () => {
   const html = buildStaffSchedulePdfHtml([
     {

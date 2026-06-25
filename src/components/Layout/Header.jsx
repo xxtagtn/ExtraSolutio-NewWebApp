@@ -1,4 +1,4 @@
-import { AlertTriangle, Bell, BellRing, CalendarClock, Clock3, FileWarning, LogOut, Menu, Receipt, UserRound, Wallet } from 'lucide-react';
+import { AlertTriangle, Bell, BellRing, CakeSlice, CalendarClock, Clock3, FileWarning, LogOut, Menu, Receipt, UserRound, Wallet } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
@@ -11,6 +11,7 @@ function notificationIcon(kind) {
   if (kind === 'document_expiry') return <FileWarning size={15} />;
   if (kind === 'team_incomplete') return <AlertTriangle size={15} />;
   if (kind === 'time_validation') return <CalendarClock size={15} />;
+  if (kind === 'birthday') return <CakeSlice size={15} />;
   return <BellRing size={15} />;
 }
 

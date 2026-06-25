@@ -46,6 +46,7 @@ function emptyForm() {
     billingCustomRule: '',
     paymentTerm: 'days_30',
     paymentTermDays: '',
+    minimumHours: '',
     roleRates: [],
     status: 'active',
     notes: '',
@@ -175,6 +176,7 @@ export default function Clients() {
       billingCustomRule: row.billingCustomRule || '',
       paymentTerm: row.paymentTerm || 'days_30',
       paymentTermDays: row.paymentTermDays ?? '',
+      minimumHours: Number(row.minimumHours || 0) > 0 ? String(row.minimumHours) : '',
       roleRates: parseRoleRates(row.roleRates).map((item) => ({ role: item.role, rate: formatRate(item.rate) })),
       status: row.status || 'active',
       notes: row.notes || '',
@@ -191,6 +193,7 @@ export default function Clients() {
       const payload = {
         ...form,
         paymentTermDays: form.paymentTerm === 'custom' && form.paymentTermDays !== '' ? Number(form.paymentTermDays) : null,
+        minimumHours: form.minimumHours === '' ? 0 : Number(String(form.minimumHours).replace(',', '.')),
         billingCustomRule: form.billingMethod === 'custom' ? form.billingCustomRule : null,
         roleRates: roleRatesPayload(roleOptions, form.roleRates),
       };
@@ -284,6 +287,7 @@ export default function Clients() {
                         <p><span>Cidade</span><strong>{row.city || '-'}</strong></p>
                         <p><span>Método de faturação</span><strong>{billingMethodLabels[row.billingMethod] || '-'}</strong></p>
                         <p><span>Prazo de pagamento</span><strong>{paymentTermLabels[row.paymentTerm] || `${row.paymentTermDays || '-'} dias`}</strong></p>
+                        <p><span>Horas mínimas</span><strong>{Number(row.minimumHours || 0) > 0 ? `${Number(row.minimumHours)} h por colaborador/turno` : 'Sem mínimo'}</strong></p>
                         <p><span>Valores/h alterados em</span><strong>{formatDateTime(row.roleRatesUpdatedAt)}</strong></p>
                         <div className="collab-event-stats span-2">
                           {(rowRoleRates.length ? rowRoleRates : [{ role: 'Sem valores definidos', rate: 0 }]).map((item) => (
@@ -347,6 +351,16 @@ export default function Clients() {
                   <option value="days_45">45 dias</option>
                   <option value="custom">Personalizado</option>
                 </select>
+              </label>
+              <label>Horas Mínimas
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  placeholder="Ex: 5 ou 4,5"
+                  value={form.minimumHours}
+                  onChange={(event) => setForm({ ...form, minimumHours: event.target.value })}
+                />
               </label>
               {form.paymentTerm === 'custom' ? (
                 <label>Dias de pagamento<input type="number" min="0" value={form.paymentTermDays} onChange={(event) => setForm({ ...form, paymentTermDays: event.target.value })} /></label>
