@@ -35,9 +35,10 @@ import {
 } from '../utils/budgetPipeline.js';
 import { calculateBudgetTotals } from '../utils/budgetTotals.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
+import { externalCostsTotals, normalizeExternalCosts } from '../utils/externalCosts.js';
 import { date, money } from '../utils/formatters.js';
 import { decimalValue } from '../utils/serviceFinance.js';
-import { calculateTravelAmount } from '../utils/travelCalculator.js';
+import { calculateTravelAmount, normalizeTravelCars } from '../utils/travelCalculator.js';
 
 const pipelineTabs = budgetStatusFlow;
 const statusLabels = budgetStatusLabels;
@@ -105,8 +106,32 @@ const roleRates = {
   Logista: 13,
 };
 
+const externalCostTypeOptions = ['Catering', 'Material', 'Aluguer', 'Transporte', 'Outro'];
+
 function emptyCategory() {
   return { role: '', qty: 1, date: '', start: '', end: '', uniform: '', rate: 10 };
+}
+
+function emptyExternalCost() {
+  return {
+    type: '',
+    supplier: '',
+    description: '',
+    costAmount: '',
+    marginPercent: 0,
+  };
+}
+
+function emptyTravelCar(index = 0) {
+  return {
+    id: `car-${Date.now()}-${index}`,
+    label: index ? `Carro ${index + 1}` : 'Carro 1',
+    km: '',
+    kmRate: 0.4,
+    durationHours: '',
+    travelPeople: 1,
+    travelStaffHourlyRate: '',
+  };
 }
 
 function emptyEventDay() {
@@ -145,8 +170,11 @@ function emptyForm(reference = '') {
     km: 0,
     kmRate: 0.4,
     durationHours: 0,
+    travelCars: [emptyTravelCar()],
     split5050: false,
     travelManualAmount: '',
+    externalCostsEnabled: false,
+    externalCosts: [],
     status: 'new_request',
     paymentStatus: 'pending',
     sentAt: '',
@@ -173,6 +201,48 @@ function safeJson(value, fallback) {
 
 function num(value) {
   return decimalValue(value) || 0;
+}
+
+function formatMoneyInline(value) {
+  const parsed = decimalValue(value);
+  if (parsed === null) return '';
+  return `${parsed.toFixed(2).replace('.', ',')}€`;
+}
+
+function travelCarsFromSource(source = {}) {
+  const cars = normalizeTravelCars(source.travelCars).map((item, index) => ({
+    ...item,
+    id: item.id || `car-${index + 1}`,
+    label: item.label || `Carro ${index + 1}`,
+    km: item.km || '',
+    kmRate: item.kmRate || 0.4,
+    durationHours: item.durationHours || '',
+    travelPeople: item.travelPeople || 1,
+    travelStaffHourlyRate: item.travelStaffHourlyRate ? formatMoneyInline(item.travelStaffHourlyRate) : '',
+  }));
+  if (cars.length) return cars;
+  const hasLegacyValues = ['km', 'durationHours', 'travelStaffHourlyRate']
+    .some((field) => source[field] !== undefined && source[field] !== null && source[field] !== '' && Number(source[field]) !== 0);
+  if (hasLegacyValues) {
+    return [{
+      ...emptyTravelCar(0),
+      id: 'car-1',
+      km: source.km ?? '',
+      kmRate: source.kmRate ?? 0.4,
+      durationHours: source.durationHours ?? '',
+      travelPeople: source.travelPeople ?? 1,
+      travelStaffHourlyRate: source.travelStaffHourlyRate ? formatMoneyInline(source.travelStaffHourlyRate) : '',
+    }];
+  }
+  return [emptyTravelCar()];
+}
+
+function cleanTravelCarsForPayload(cars = []) {
+  return normalizeTravelCars(cars).map((item, index) => ({
+    ...item,
+    id: item.id || `car-${index + 1}`,
+    label: item.label || `Carro ${index + 1}`,
+  }));
 }
 
 function getSmartSuggestion(form) {
@@ -248,7 +318,7 @@ function buildCommercialText(kind, form, totals, client) {
       'Condições: conforme briefing operacional',
       travel,
       ``,
-      `Subtotal: ${money.format(totals.baseAmount + totals.travelAmount)}`,
+      `Subtotal: ${money.format(totals.baseAmount + totals.travelAmount + (totals.externalCostsAmount || 0))}`,
       vatIsExempt ? 'IVA: Isento' : `IVA: ${money.format(totals.taxAmount)}`,
       `Total: ${money.format(totals.totalAmount)}`,
     ].join('\n');
@@ -313,6 +383,7 @@ export default function Budgets() {
     ...row,
     status: normalizeBudgetStatus(row.status),
     categoriesParsed: safeJson(row.categories, []),
+    externalCostsParsed: normalizeExternalCosts(row.externalCosts),
     followUpParsed: safeJson(row.followUpHistory, []),
   })), [data]);
 
@@ -323,8 +394,16 @@ export default function Budgets() {
     [form.categories, form.eventDays],
   );
   const totals = useMemo(
-    () => calculateBudgetTotals({ ...form, categories: normalizedCategories }),
+    () => calculateBudgetTotals({
+      ...form,
+      categories: normalizedCategories,
+      externalCosts: form.externalCostsEnabled ? form.externalCosts : [],
+    }),
     [form, normalizedCategories],
+  );
+  const externalCostTotals = useMemo(
+    () => externalCostsTotals(form.externalCostsEnabled ? form.externalCosts : []),
+    [form.externalCosts, form.externalCostsEnabled],
   );
   const selectedClient = clients.find((client) => String(client.id) === String(form.clientId));
   const showDepositLine = form.budgetType === 'individual' || selectedClient?.type === 'particular';
@@ -385,9 +464,12 @@ export default function Budgets() {
       guestsCount: row.guestsCount ?? '',
       vatMode: Number(row.vatRate || 0) > 0 ? 'normal_23' : 'exempt',
       travelType: normalizedTravelType || 'none',
+      travelCars: travelCarsFromSource(row),
       travelManualAmount: normalizedTravelType === 'manual' ? (row.travelAmount ?? '') : '',
       regularClient: Boolean(row.regularClient),
       categories: row.categoriesParsed.length ? row.categoriesParsed : [emptyCategory()],
+      externalCostsEnabled: row.externalCostsParsed.length > 0,
+      externalCosts: row.externalCostsParsed,
       eventDays: safeJson(row.paymentPlan, []).length
         ? safeJson(row.paymentPlan, []).map((item) => ({
           date: item.date || '',
@@ -451,6 +533,54 @@ export default function Budgets() {
   function removeCategory(idx) {
     const next = form.categories.filter((_, i) => i !== idx);
     setForm({ ...form, categories: next.length ? next : [emptyCategory()] });
+  }
+
+  function toggleExternalCosts(enabled) {
+    setForm({
+      ...form,
+      externalCostsEnabled: enabled,
+      externalCosts: enabled && !form.externalCosts.length ? [emptyExternalCost()] : form.externalCosts,
+    });
+  }
+
+  function updateExternalCost(idx, patch) {
+    const next = [...(form.externalCosts || [])];
+    next[idx] = { ...next[idx], ...patch };
+    setForm({ ...form, externalCosts: next });
+  }
+
+  function addExternalCost() {
+    setForm({ ...form, externalCosts: [...(form.externalCosts || []), emptyExternalCost()] });
+  }
+
+  function removeExternalCost(idx) {
+    const next = (form.externalCosts || []).filter((_, i) => i !== idx);
+    setForm({ ...form, externalCosts: next.length ? next : [emptyExternalCost()] });
+  }
+
+  function setTravelType(value) {
+    setForm({
+      ...form,
+      travelType: value,
+      travelCars: value === 'kilometers' && !(form.travelCars || []).length ? [emptyTravelCar()] : form.travelCars,
+    });
+  }
+
+  function updateTravelCar(idx, patch) {
+    const currentCars = (form.travelCars || []).length ? form.travelCars : [emptyTravelCar()];
+    const next = currentCars.map((item, index) => (index === idx ? { ...item, ...patch } : item));
+    setForm({ ...form, travelCars: next });
+  }
+
+  function addTravelCar() {
+    const currentCars = (form.travelCars || []).length ? form.travelCars : [emptyTravelCar()];
+    setForm({ ...form, travelCars: [...currentCars, emptyTravelCar(currentCars.length)] });
+  }
+
+  function removeTravelCar(idx) {
+    const currentCars = (form.travelCars || []).length ? form.travelCars : [emptyTravelCar()];
+    const next = currentCars.filter((_, index) => index !== idx);
+    setForm({ ...form, travelCars: next.length ? next : [emptyTravelCar()] });
   }
 
   function applySuggestion() {
@@ -542,6 +672,11 @@ export default function Budgets() {
           rate: num(item.rate),
         }))
         .filter((item) => item.role && item.qty > 0);
+      const cleanExternalCosts = form.externalCostsEnabled
+        ? normalizeExternalCosts(form.externalCosts)
+        : [];
+      const travelCars = form.travelType === 'kilometers' ? cleanTravelCarsForPayload(form.travelCars) : [];
+      const firstTravelCar = travelCars[0] || {};
       const firstDay = (form.eventDays || []).find((day) => day.date) || {};
       const payload = {
         ...form,
@@ -557,6 +692,12 @@ export default function Budgets() {
         })),
         eventDate: firstDay.date || form.eventDate || undefined,
         vatRate: form.vatMode === 'exempt' ? 0 : 23,
+        travelCars,
+        travelPeople: form.travelType === 'kilometers' ? (firstTravelCar.travelPeople || undefined) : form.travelPeople,
+        km: form.travelType === 'kilometers' ? (firstTravelCar.km || undefined) : form.km,
+        kmRate: form.travelType === 'kilometers' ? (firstTravelCar.kmRate || undefined) : form.kmRate,
+        durationHours: form.travelType === 'kilometers' ? (firstTravelCar.durationHours || undefined) : form.durationHours,
+        externalCosts: cleanExternalCosts,
         followUpHistory: form.followUpHistory,
         sentAt: form.status === 'sent' ? (form.sentAt || new Date().toISOString()) : undefined,
         ...totals,
@@ -643,6 +784,31 @@ export default function Budgets() {
       ...prev,
       requiredRoles: prev.requiredRoles.map((item, idx) => (idx === index ? { ...item, ...patch } : item)),
     }));
+  }
+
+  function updateConversionTravelCar(index, patch) {
+    setConversionDraft((prev) => {
+      const currentCars = (prev.travelCars || []).length ? prev.travelCars : [emptyTravelCar()];
+      return {
+        ...prev,
+        travelCars: currentCars.map((item, idx) => (idx === index ? { ...item, ...patch } : item)),
+      };
+    });
+  }
+
+  function addConversionTravelCar() {
+    setConversionDraft((prev) => {
+      const currentCars = (prev.travelCars || []).length ? prev.travelCars : [emptyTravelCar()];
+      return { ...prev, travelCars: [...currentCars, emptyTravelCar(currentCars.length)] };
+    });
+  }
+
+  function removeConversionTravelCar(index) {
+    setConversionDraft((prev) => {
+      const currentCars = (prev.travelCars || []).length ? prev.travelCars : [emptyTravelCar()];
+      const next = currentCars.filter((_, idx) => idx !== index);
+      return { ...prev, travelCars: next.length ? next : [emptyTravelCar()] };
+    });
   }
 
   function addConversionRole() {
@@ -955,6 +1121,60 @@ export default function Budgets() {
                   ))}
                 </section>
 
+                <section className="budget-panel budget-external-costs">
+                  <div className="budget-external-header">
+                    <label className="check-inline budget-check">
+                      <input
+                        type="checkbox"
+                        checked={form.externalCostsEnabled}
+                        onChange={(event) => toggleExternalCosts(event.target.checked)}
+                      />
+                      <span>Custos Externos/Parceiros</span>
+                    </label>
+                    {externalCostTotals.chargeAmount > 0 ? (
+                      <strong>{money.format(externalCostTotals.chargeAmount)}</strong>
+                    ) : null}
+                  </div>
+                  {form.externalCostsEnabled ? (
+                    <>
+                      <div className="budget-category-actions">
+                        <button className="secondary-button" type="button" onClick={addExternalCost}>
+                          <Plus size={15} />
+                          Adicionar custo externo
+                        </button>
+                      </div>
+                      {(form.externalCosts || []).map((item, idx) => {
+                        const calculated = normalizeExternalCosts([item])[0] || {};
+                        return (
+                          <div className="budget-category" key={item.id || idx}>
+                            <header>
+                              <strong>Custo externo {idx + 1}</strong>
+                              <button type="button" className="icon-button icon-button--danger" onClick={() => removeExternalCost(idx)}><Trash2 size={15} /></button>
+                            </header>
+                            <div className="budget-category-grid budget-external-grid">
+                              <label>Tipo
+                                <select value={item.type || ''} onChange={(event) => updateExternalCost(idx, { type: event.target.value })}>
+                                  <option value="">Selecionar</option>
+                                  {externalCostTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                                </select>
+                              </label>
+                              <label>Fornecedor<input value={item.supplier || ''} onChange={(event) => updateExternalCost(idx, { supplier: event.target.value })} /></label>
+                              <label>Custo parceiro<input type="number" min="0" step="0.01" value={item.costAmount || ''} onChange={(event) => updateExternalCost(idx, { costAmount: event.target.value })} /></label>
+                              <label>Margem %<input type="number" min="0" step="0.01" value={item.marginPercent || ''} onChange={(event) => updateExternalCost(idx, { marginPercent: event.target.value })} /></label>
+                              <div className="budget-external-result">
+                                <span>Valor cliente</span>
+                                <strong>{money.format(calculated.chargeAmount || 0)}</strong>
+                                <small>Margem: {money.format(calculated.marginAmount || 0)}</small>
+                              </div>
+                              <label className="span-2">Descrição<input value={item.description || ''} onChange={(event) => updateExternalCost(idx, { description: event.target.value })} /></label>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : null}
+                </section>
+
                 <section className="budget-panel">
                   <h3>Deslocação e Observações</h3>
                   <div className="form-grid">
@@ -969,7 +1189,7 @@ export default function Budgets() {
                     </label>
                     <label>Desconto %<input type="number" step="0.01" value={form.discountRate} onChange={(event) => setForm({ ...form, discountRate: event.target.value })} /></label>
                     <label>Deslocação
-                      <select value={form.travelType} onChange={(event) => setForm({ ...form, travelType: event.target.value })}>
+                      <select value={form.travelType} onChange={(event) => setTravelType(event.target.value)}>
                         <option value="none">Nenhuma</option>
                         <option value="outside_lisbon">Fora Grande Lisboa</option>
                         <option value="outside_plus_staff">Fora + Staff</option>
@@ -977,10 +1197,41 @@ export default function Budgets() {
                         <option value="manual">Valor manual</option>
                       </select>
                     </label>
-                    {['outside_plus_staff', 'kilometers'].includes(form.travelType) ? (
+                    {form.travelType === 'outside_plus_staff' ? (
                       <label>Pessoas deslocação<input type="number" min="1" value={form.travelPeople} onChange={(event) => setForm({ ...form, travelPeople: event.target.value })} /></label>
                     ) : null}
                     {form.travelType === 'kilometers' ? (
+                      <div className="service-travel-cars span-2">
+                        {(form.travelCars || [emptyTravelCar()]).map((car, index) => (
+                          <div className="service-travel-car-row" key={car.id || index}>
+                            <input aria-label="Nome da viatura" placeholder={`Carro ${index + 1}`} value={car.label || ''} onChange={(event) => updateTravelCar(index, { label: event.target.value })} />
+                            <input aria-label="Quilómetros" type="number" min="0" step="0.01" placeholder="KM" value={car.km ?? ''} onChange={(event) => updateTravelCar(index, { km: event.target.value })} />
+                            <input aria-label="Valor por quilómetro" type="number" min="0" step="0.01" placeholder="€/KM" value={car.kmRate ?? ''} onChange={(event) => updateTravelCar(index, { kmRate: event.target.value })} />
+                            <input aria-label="Duração da deslocação" type="number" min="0" step="0.01" placeholder="Duração" value={car.durationHours ?? ''} onChange={(event) => updateTravelCar(index, { durationHours: event.target.value })} />
+                            <input aria-label="Pessoas na deslocação" type="number" min="0" step="1" placeholder="Pessoas" value={car.travelPeople ?? ''} onChange={(event) => updateTravelCar(index, { travelPeople: event.target.value })} />
+                            <input
+                              aria-label="Valor por hora da deslocação do staff"
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="Valor/h staff"
+                              value={car.travelStaffHourlyRate ?? ''}
+                              onChange={(event) => updateTravelCar(index, { travelStaffHourlyRate: event.target.value })}
+                              onFocus={(event) => {
+                                const parsed = decimalValue(event.target.value);
+                                updateTravelCar(index, { travelStaffHourlyRate: parsed === null ? '' : String(parsed).replace('.', ',') });
+                              }}
+                              onBlur={(event) => updateTravelCar(index, { travelStaffHourlyRate: formatMoneyInline(event.target.value) })}
+                            />
+                            <button type="button" className="icon-button icon-button--danger" onClick={() => removeTravelCar(index)} aria-label="Remover carro"><Trash2 size={15} /></button>
+                          </div>
+                        ))}
+                        <div className="service-travel-cars-actions">
+                          <button type="button" className="secondary-button" onClick={addTravelCar}>+ Adicionar carro</button>
+                          <label className="check-inline budget-check"><input type="checkbox" checked={form.split5050} onChange={(event) => setForm({ ...form, split5050: event.target.checked })} /><span>50/50 no tempo de deslocação</span></label>
+                        </div>
+                      </div>
+                    ) : null}
+                    {false && form.travelType === 'kilometers' ? (
                       <>
                         <label>KM<input type="number" min="0" step="0.01" value={form.km} onChange={(event) => setForm({ ...form, km: event.target.value })} /></label>
                         <label>Valor/KM<input type="number" min="0" step="0.01" value={form.kmRate} onChange={(event) => setForm({ ...form, kmRate: event.target.value })} /></label>
@@ -1011,6 +1262,9 @@ export default function Budgets() {
                   <div className="budget-summary">
                     <div><span>Valor Staff</span><strong>{money.format(totals.baseAmount)}</strong></div>
                     <div><span>Valor Deslocação</span><strong>{money.format(totals.travelAmount)}</strong></div>
+                    {totals.externalCostsAmount > 0 ? (
+                      <div><span>Custos Externos/Parceiros</span><strong>{money.format(totals.externalCostsAmount)}</strong></div>
+                    ) : null}
                     <div><span>Valor Desconto</span><strong>- {money.format(totals.discountAmount)}</strong></div>
                     <div><span>IVA</span><strong>{money.format(totals.taxAmount)}</strong></div>
                     {showDepositLine ? (
@@ -1196,12 +1450,46 @@ export default function Budgets() {
                         <option value="manual">Valor manual</option>
                       </select>
                     </label>
-                    {['outside_plus_staff', 'kilometers'].includes(conversionDraft.travelType) ? (
+                    {conversionDraft.travelType === 'outside_plus_staff' ? (
                       <label>Pessoas deslocação
                         <input type="number" min="1" value={conversionDraft.travelPeople ?? ''} onChange={(event) => updateConversionDraft({ travelPeople: event.target.value })} />
                       </label>
                     ) : null}
                     {conversionDraft.travelType === 'kilometers' ? (
+                      <div className="service-travel-cars span-2">
+                        {(conversionDraft.travelCars || [emptyTravelCar()]).map((car, index) => (
+                          <div className="service-travel-car-row" key={car.id || index}>
+                            <input aria-label="Nome da viatura" placeholder={`Carro ${index + 1}`} value={car.label || ''} onChange={(event) => updateConversionTravelCar(index, { label: event.target.value })} />
+                            <input aria-label="Quilómetros" type="number" min="0" step="0.01" placeholder="KM" value={car.km ?? ''} onChange={(event) => updateConversionTravelCar(index, { km: event.target.value })} />
+                            <input aria-label="Valor por quilómetro" type="number" min="0" step="0.01" placeholder="€/KM" value={car.kmRate ?? ''} onChange={(event) => updateConversionTravelCar(index, { kmRate: event.target.value })} />
+                            <input aria-label="Duração da deslocação" type="number" min="0" step="0.01" placeholder="Duração" value={car.durationHours ?? ''} onChange={(event) => updateConversionTravelCar(index, { durationHours: event.target.value })} />
+                            <input aria-label="Pessoas na deslocação" type="number" min="0" step="1" placeholder="Pessoas" value={car.travelPeople ?? ''} onChange={(event) => updateConversionTravelCar(index, { travelPeople: event.target.value })} />
+                            <input
+                              aria-label="Valor por hora da deslocação do staff"
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="Valor/h staff"
+                              value={car.travelStaffHourlyRate ?? ''}
+                              onChange={(event) => updateConversionTravelCar(index, { travelStaffHourlyRate: event.target.value })}
+                              onFocus={(event) => {
+                                const parsed = decimalValue(event.target.value);
+                                updateConversionTravelCar(index, { travelStaffHourlyRate: parsed === null ? '' : String(parsed).replace('.', ',') });
+                              }}
+                              onBlur={(event) => updateConversionTravelCar(index, { travelStaffHourlyRate: formatMoneyInline(event.target.value) })}
+                            />
+                            <button type="button" className="icon-button icon-button--danger" onClick={() => removeConversionTravelCar(index)} aria-label="Remover carro"><Trash2 size={15} /></button>
+                          </div>
+                        ))}
+                        <div className="service-travel-cars-actions">
+                          <button type="button" className="secondary-button" onClick={addConversionTravelCar}>+ Adicionar carro</button>
+                          <label className="check-inline budget-check">
+                            <input type="checkbox" checked={Boolean(conversionDraft.split5050)} onChange={(event) => updateConversionDraft({ split5050: event.target.checked })} />
+                            <span>50/50 no tempo de deslocação</span>
+                          </label>
+                        </div>
+                      </div>
+                    ) : null}
+                    {false && conversionDraft.travelType === 'kilometers' ? (
                       <>
                         <label>KM
                           <input type="number" min="0" step="0.01" value={conversionDraft.km ?? ''} onChange={(event) => updateConversionDraft({ km: event.target.value })} />
@@ -1234,6 +1522,9 @@ export default function Budgets() {
                     <div><span>Estado inicial</span><strong>A preencher</strong></div>
                     <div><span>Valor previsto</span><strong>{money.format(Number(conversionDraft.totalRevenue || 0))}</strong></div>
                     <div><span>Deslocação</span><strong>{money.format(calculateTravelAmount(conversionDraft))}</strong></div>
+                    {externalCostsTotals(conversionDraft.externalCosts).chargeAmount > 0 ? (
+                      <div><span>Custos Externos/Parceiros</span><strong>{money.format(externalCostsTotals(conversionDraft.externalCosts).chargeAmount)}</strong></div>
+                    ) : null}
                     <div><span>Funções</span><strong>{conversionDraft.requiredRoles.filter((item) => item.role).length}</strong></div>
                   </div>
                 </section>

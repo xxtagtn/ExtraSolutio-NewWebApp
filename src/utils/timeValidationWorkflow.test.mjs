@@ -4,6 +4,7 @@ import {
   TIME_VALIDATION_STAGE,
   compareTimeValidationRowsNewest,
   clientTimeCorrection,
+  reopenTargetStage,
   preserveStageAfterManualRowSave,
   persistedWorkflowAssignment,
   prunePersistedDrafts,
@@ -75,6 +76,26 @@ test('keeps the current tab after manually saving or accepting a row', () => {
     preserveStageAfterManualRowSave(TIME_VALIDATION_STAGE.clientPending, savedReadyRow),
     TIME_VALIDATION_STAGE.clientPending,
   );
+});
+
+test('reopens finalized events into the stage that needs review', () => {
+  assert.equal(reopenTargetStage([
+    row({
+      checkIn: '09:00',
+      checkOut: '17:00',
+      clientCheckIn: '09:00',
+      clientCheckOut: '17:00',
+    }),
+  ]), TIME_VALIDATION_STAGE.ready);
+
+  assert.equal(reopenTargetStage([
+    row({
+      checkIn: '09:00',
+      checkOut: '17:00',
+      clientCheckIn: '09:30',
+      clientCheckOut: '17:00',
+    }, { isDifference: true }),
+  ]), TIME_VALIDATION_STAGE.differences);
 });
 
 test('counts rows in each validation stage', () => {

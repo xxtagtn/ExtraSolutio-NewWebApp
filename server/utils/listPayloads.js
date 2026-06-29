@@ -1,0 +1,69 @@
+export const collaboratorLightSelect = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  nif: true,
+  iban: true,
+  shortName: true,
+  birthDate: true,
+  gender: true,
+  documentType: true,
+  documentNumber: true,
+  documentExpiry: true,
+  documentExtended: true,
+  residenceArea: true,
+  insurancePolicy: true,
+  allergies: true,
+  greenReceipt: true,
+  availability: true,
+  address: true,
+  category: true,
+  hourlyRate: true,
+  includeVat: true,
+  hasOwnCar: true,
+  isPreferred: true,
+  status: true,
+  notes: true,
+  createdAt: true,
+  updatedAt: true,
+  roles: { orderBy: { role: 'asc' } },
+};
+
+export const collaboratorSummarySelect = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  nif: true,
+  shortName: true,
+  birthDate: true,
+  documentType: true,
+  documentExpiry: true,
+  hourlyRate: true,
+  includeVat: true,
+  hasOwnCar: true,
+  status: true,
+  roles: { orderBy: { role: 'asc' } },
+};
+
+export const assignmentCollaboratorSelect = {
+  id: true,
+  name: true,
+  shortName: true,
+  nif: true,
+  hourlyRate: true,
+  includeVat: true,
+  hasOwnCar: true,
+  status: true,
+  roles: { orderBy: { role: 'asc' } },
+};
+
+export const serviceListInclude = {
+  client: true,
+  assignments: {
+    include: {
+      collaborator: { select: assignmentCollaboratorSelect },
+    },
+  },
+};

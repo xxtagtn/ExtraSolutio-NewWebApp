@@ -51,7 +51,7 @@ function daysUntil(value) {
 
 export default function PendingActions() {
   const { data: services, loading: loadingServices, error: servicesError } = useApi('/services', []);
-  const { data: collaborators, loading: loadingCollaborators, error: collaboratorsError } = useApi('/collaborators', []);
+  const { data: collaborators, loading: loadingCollaborators, error: collaboratorsError } = useApi('/collaborators?light=1', []);
   const { data: budgets, loading: loadingBudgets, error: budgetsError } = useApi('/budgets', []);
   const { data: invoices, loading: loadingInvoices, error: invoicesError } = useApi('/invoices', []);
   const [category, setCategory] = useState('all');
@@ -84,14 +84,6 @@ export default function PendingActions() {
   }, [actions, category, priority, search]);
 
   const groupedActions = useMemo(() => groupPendingActions(visibleActions), [visibleActions]);
-
-  const areaCounts = useMemo(
-    () => categories.map((item) => ({
-      category: item,
-      count: actions.filter((action) => action.category === item).length,
-    })),
-    [actions, categories],
-  );
 
   const stats = useMemo(() => {
     const next48h = actions.filter((action) => {
@@ -217,32 +209,6 @@ export default function PendingActions() {
             </section>
           ))}
         </main>
-
-        <aside className="pending-sidebar-panel">
-          <div className="pending-sidebar-head">
-            <span>Áreas</span>
-            <strong>{stats.total}</strong>
-          </div>
-          <button
-            type="button"
-            className={`pending-area-chip ${category === 'all' ? 'pending-area-chip--active' : ''}`}
-            onClick={() => setCategory('all')}
-          >
-            <span>Todas</span>
-            <strong>{stats.total}</strong>
-          </button>
-          {areaCounts.map((item) => (
-            <button
-              key={item.category}
-              type="button"
-              className={`pending-area-chip ${category === item.category ? 'pending-area-chip--active' : ''}`}
-              onClick={() => setCategory(item.category)}
-            >
-              <span>{item.category}</span>
-              <strong>{item.count}</strong>
-            </button>
-          ))}
-        </aside>
       </div>
     </div>
   );

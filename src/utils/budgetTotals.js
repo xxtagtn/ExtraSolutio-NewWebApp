@@ -1,5 +1,6 @@
 import { decimalValue } from './serviceFinance.js';
 import { calculateTravelAmount } from './travelCalculator.js';
+import { externalCostsTotals } from './externalCosts.js';
 
 function parseTime(value) {
   const [h, m] = String(value || '').split(':').map(Number);
@@ -55,7 +56,9 @@ export function calculateBudgetTotals(form = {}) {
   }, 0);
 
   const travelAmount = calculateTravelAmount(form);
-  const grossSubtotal = baseAmount + travelAmount;
+  const externalTotals = externalCostsTotals(form.externalCosts);
+  const externalCostsAmount = externalTotals.chargeAmount;
+  const grossSubtotal = baseAmount + travelAmount + externalCostsAmount;
   const discountAmount = grossSubtotal * (numberValue(form.discountRate) / 100);
   const subtotalAmount = Math.max(0, grossSubtotal - discountAmount);
   const taxRate = form.vatMode === 'exempt' ? 0 : numberValue(form.vatRate);
@@ -66,6 +69,9 @@ export function calculateBudgetTotals(form = {}) {
   return {
     baseAmount: Number(baseAmount.toFixed(2)),
     travelAmount: Number(travelAmount.toFixed(2)),
+    externalCostsAmount: Number(externalCostsAmount.toFixed(2)),
+    externalCostsBaseAmount: externalTotals.costAmount,
+    externalCostsMarginAmount: externalTotals.marginAmount,
     subtotalAmount: Number(subtotalAmount.toFixed(2)),
     taxAmount: Number(taxAmount.toFixed(2)),
     totalWithTax: Number(totalWithTax.toFixed(2)),

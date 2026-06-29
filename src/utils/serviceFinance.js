@@ -91,6 +91,22 @@ export function clientChargeHours(assignment, fallbackStart = '', fallbackEnd = 
   return worked > 0 ? Math.max(worked, minimum) : 0;
 }
 
+export function staffWorkedHours(assignment, fallbackStart = '', fallbackEnd = '') {
+  const checked = roundedBillableHours(assignment?.checkIn, assignment?.checkOut);
+  if (checked > 0) return checked;
+
+  const validated = roundedBillableHours(assignment?.validatedCheckIn, assignment?.validatedCheckOut);
+  if (validated > 0) return validated;
+
+  const explicit = decimalValue(assignment?.staffPayableHours) || 0;
+  if (explicit > 0) return explicit;
+
+  const worked = decimalValue(assignment?.hoursWorked) || 0;
+  if (worked > 0) return worked;
+
+  return roundedBillableHours(assignment?.checkIn || fallbackStart, assignment?.checkOut || fallbackEnd);
+}
+
 export function collaboratorHourlyRate(collaborator) {
   return decimalValue(collaborator?.hourlyRate) || 0;
 }

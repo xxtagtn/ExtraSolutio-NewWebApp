@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  assignmentWorkDateValue,
   defaultStaffPaymentMonth,
   staffPaymentTiming,
   staffPaymentTotal,
@@ -25,6 +26,16 @@ test('does not allow an adjustment to produce a negative payment', () => {
 test('uses the month after the service as the default staff payment month', () => {
   assert.equal(defaultStaffPaymentMonth('2026-06-21'), '2026-07');
   assert.equal(defaultStaffPaymentMonth('2026-12-21'), '2027-01');
+});
+
+test('uses assignment date before the general event date for staff payments', () => {
+  const assignment = {
+    assignmentDate: '2026-06-18',
+    event: { date: '2026-06-16' },
+  };
+
+  assert.equal(assignmentWorkDateValue(assignment), '2026-06-18');
+  assert.equal(staffPaymentTiming(assignment, new Date('2026-07-08')).paymentMonth, '2026-07');
 });
 
 test('marks staff payment as open only between day 8 and day 14', () => {

@@ -43,7 +43,7 @@ export default function Layout() {
   const { data: services } = useApi('/services', []);
   const { data: budgets } = useApi('/budgets', []);
   const { data: invoices } = useApi('/invoices', []);
-  const { data: collaborators } = useApi('/collaborators', []);
+  const { data: collaborators } = useApi('/collaborators?light=1', []);
   const { data: ignoredFromDb } = useApi('/notifications/ignored', []);
 
   const reminders = useMemo(

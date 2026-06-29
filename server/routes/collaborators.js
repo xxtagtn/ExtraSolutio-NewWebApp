@@ -1,6 +1,8 @@
 ﻿import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
+import { collaboratorLightSelect } from '../utils/listPayloads.js';
+import { computeShortName } from '../../src/utils/collaboratorName.js';
 import { collaboratorRoleOptions } from '../../src/utils/collaboratorRoles.js';
 
 export const collaboratorsRouter = Router();
@@ -90,7 +92,9 @@ function normalizeCollaboratorBody(input, { requireCore = false } = {}) {
   const data = {
     ...(input.name !== undefined ? { name: String(input.name).trim() } : {}),
     ...(input.email !== undefined ? { email: String(input.email).trim().toLowerCase() } : {}),
-    ...(input.shortName !== undefined ? { shortName: input.shortName ? String(input.shortName).trim() : null } : {}),
+    ...(input.name !== undefined || input.shortName !== undefined
+      ? { shortName: input.shortName ? String(input.shortName).trim() : computeShortName(input.name) || null }
+      : {}),
     ...(input.birthDate !== undefined ? { birthDate } : {}),
     ...(input.gender !== undefined ? { gender: input.gender ? String(input.gender).trim() : null } : {}),
     ...(input.phone !== undefined ? { phone: input.phone ? String(input.phone).trim() : null } : {}),
@@ -108,6 +112,7 @@ function normalizeCollaboratorBody(input, { requireCore = false } = {}) {
     ...(input.photo !== undefined ? { photo: input.photo ? String(input.photo) : null } : {}),
     ...(input.hourlyRate !== undefined ? { hourlyRate } : {}),
     ...(input.includeVat !== undefined ? { includeVat } : {}),
+    ...(input.hasOwnCar !== undefined ? { hasOwnCar: toBoolean(input.hasOwnCar) } : {}),
     ...(input.isPreferred !== undefined ? { isPreferred: Boolean(input.isPreferred) } : {}),
     ...(input.status !== undefined ? { status: String(input.status) } : {}),
     ...(input.notes !== undefined ? { notes: input.notes ? String(input.notes).trim() : null } : {}),
@@ -127,10 +132,13 @@ function toOutput(row) {
   return { ...row, roles: row.roles.map((item) => item.role) };
 }
 
-collaboratorsRouter.get('/', asyncHandler(async (_req, res) => {
+collaboratorsRouter.get('/', asyncHandler(async (req, res) => {
+  const light = req.query.light === '1' || req.query.light === 'true';
   const rows = await prisma.collaborator.findMany({
     orderBy: { createdAt: 'desc' },
-    include: { roles: { orderBy: { role: 'asc' } } },
+    ...(light
+      ? { select: collaboratorLightSelect }
+      : { include: { roles: { orderBy: { role: 'asc' } } } }),
   });
   res.json(rows.map(toOutput));
 }));

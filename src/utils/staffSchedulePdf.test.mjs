@@ -151,7 +151,7 @@ test('uses billable client hours for the event total in pdf and excel exports', 
 
   assert.equal(pdf.includes('50,00€'), true);
   assert.equal(excel.includes('50,00€'), true);
-  assert.equal(pdf.includes('3.00 h'), true);
+  assert.equal(pdf.includes('3:00h'), true);
 });
 
 test('escapes generated schedule pdf html', () => {
@@ -165,7 +165,7 @@ test('escapes generated schedule pdf html', () => {
 
   assert.equal(html.includes('<Ana>'), false);
   assert.equal(html.includes('&lt;Ana&gt;'), true);
-  assert.equal(html.includes('3.00 h'), true);
+  assert.equal(html.includes('3:00h'), true);
 });
 
 test('builds excel compatible csv with escaped values', () => {
@@ -186,7 +186,7 @@ test('builds excel compatible csv with escaped values', () => {
   assert.equal(csv.startsWith('\uFEFF'), true);
   assert.equal(csv.includes('"Evento; Especial"'), true);
   assert.equal(csv.includes('"Linha 1\nLinha 2"'), true);
-  assert.equal(csv.includes('3.00'), true);
+  assert.equal(csv.includes('3:00h'), true);
 });
 
 test('builds styled excel html grouped by event with totals', () => {
@@ -207,6 +207,6 @@ test('builds styled excel html grouped by event with totals', () => {
   assert.equal(html.includes('&lt;Ana&gt;'), true);
   assert.equal(html.includes('Total evento'), true);
   assert.equal(html.includes('Total geral'), true);
-  assert.equal(html.includes('7.50'), true);
+  assert.equal(html.includes('7:30h'), true);
   assert.equal(html.includes('mso-number-format'), true);
 });

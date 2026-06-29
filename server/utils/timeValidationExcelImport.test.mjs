@@ -1,0 +1,242 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import * as XLSX from 'xlsx';
+import {
+  buildImportPreview,
+  parseTimeValidationWorkbook,
+} from './timeValidationExcelImport.js';
+
+function workbookBuffer(rows) {
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Export');
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+}
+
+function fixtureBuffer() {
+  return workbookBuffer([
+    [],
+    ['', 'SSH2526 / Relatório Final de Acessos'],
+    [],
+    ['', 'Data Inicial\nData Final', '2026-06-01\n2026-06-21'],
+    [],
+    [
+      ' ',
+      'Nome da Sessão',
+      'Nome do Colaborador',
+      'Número de Identificação',
+      'NIF',
+      'Entidade',
+      'Departamento',
+      'Categoria',
+      'Data do Evento',
+      'Entrada Prevista',
+      'Horas de Trabalho Planeadas',
+      'Valor Planeado',
+      'Hora de Entrada',
+      'Hora de Saída',
+      'Horas Cumpridas',
+    ],
+    [
+      '',
+      'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26',
+      'Miriam Peçanha de Oliveira',
+      'GF449658',
+      '326077405',
+      'Extra Solutio',
+      'Restaurante',
+      'EMPREGADO DE MESA',
+      new Date('2026-06-20T00:00:00'),
+      '11:30:00',
+      '04:30:00',
+      40.5,
+      new Date('2026-06-20T11:30:31'),
+      new Date('2026-06-20T16:09:42'),
+      '04:30:00',
+    ],
+  ]);
+}
+
+test('parses client access report with displaced header row', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+
+  assert.equal(parsed.sheetName, 'Export');
+  assert.equal(parsed.headerRowNumber, 6);
+  assert.equal(parsed.rows.length, 1);
+  assert.deepEqual(parsed.rows[0], {
+    rowNumber: 7,
+    sessionName: 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26',
+    collaboratorName: 'Miriam Peçanha de Oliveira',
+    documentNumber: 'GF449658',
+    nif: '326077405',
+    entity: 'Extra Solutio',
+    department: 'Restaurante',
+    category: 'EMPREGADO DE MESA',
+    eventDate: '2026-06-20',
+    plannedCheckIn: '11:30',
+    plannedHours: 4.5,
+    plannedValue: 40.5,
+    clientCheckIn: '11:30',
+    clientCheckOut: '16:09',
+    clientHours: 4.5,
+  });
+});
+
+test('builds an import preview with reusable mappings and assignment match', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  const preview = buildImportPreview(parsed.rows, {
+    mappings: [
+      {
+        field: 'session',
+        externalValue: 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26',
+        internalValue: '10',
+      },
+      {
+        field: 'category',
+        externalValue: 'EMPREGADO DE MESA',
+        internalValue: 'Emp.Mesa',
+      },
+      {
+        field: 'department',
+        externalValue: 'Restaurante',
+        internalValue: 'Restaurante',
+      },
+    ],
+    collaborators: [
+      { id: 20, name: 'Miriam Peçanha Oliveira', nif: '326077405' },
+    ],
+    services: [
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        date: '2026-06-16',
+        endDate: '2026-06-21',
+        startTime: '11:30',
+        endTime: '16:00',
+        minimumHoursSnapshot: 0,
+        requiredRoles: JSON.stringify([{ role: 'Emp.Mesa', agreedRate: 10.5 }]),
+        assignments: [
+          {
+            id: 30,
+            collaboratorId: 20,
+            assignmentDate: '2026-06-20',
+            role: 'Emp.Mesa',
+            plannedCheckIn: '11:30',
+            plannedCheckOut: '16:00',
+            hourlyRate: 8,
+            status: 'confirmed',
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.deepEqual(preview.summary, {
+    totalRows: 1,
+    validRows: 1,
+    invalidRows: 0,
+    warningRows: 0,
+  });
+  assert.equal(preview.rows[0].status, 'valid');
+  assert.equal(preview.rows[0].assignmentId, 30);
+  assert.equal(preview.rows[0].clientCheckIn, '11:30');
+  assert.equal(preview.rows[0].clientCheckOut, '16:09');
+});
+
+test('reports unresolved mappings before import can be committed', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  const preview = buildImportPreview(parsed.rows, {
+    mappings: [],
+    collaborators: [
+      { id: 20, name: 'Miriam Peçanha Oliveira', nif: '326077405' },
+    ],
+    services: [],
+  });
+
+  assert.equal(preview.summary.totalRows, 1);
+  assert.equal(preview.summary.validRows, 0);
+  assert.equal(preview.summary.invalidRows, 1);
+  assert.equal(preview.unresolvedMappings.session[0].externalValue, 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26');
+  assert.equal(preview.unresolvedMappings.department.length, 0);
+  assert.ok(preview.rows[0].errors.includes('Evento/Serviço não reconhecido.'));
+});
+
+test('treats missing assignments as operational blockers instead of reusable mappings', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  const preview = buildImportPreview(parsed.rows, {
+    mappings: [
+      {
+        field: 'session',
+        externalValue: 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26',
+        internalValue: '10',
+      },
+      {
+        field: 'category',
+        externalValue: 'EMPREGADO DE MESA',
+        internalValue: 'Emp.Mesa',
+      },
+    ],
+    collaborators: [
+      { id: 20, name: 'Miriam Peçanha Oliveira', nif: '326077405' },
+    ],
+    services: [
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        date: '2026-06-20',
+        startTime: '11:30',
+        endTime: '16:00',
+        requiredRoles: JSON.stringify([{ role: 'Emp.Mesa', agreedRate: 10.5 }]),
+        assignments: [],
+      },
+    ],
+  });
+
+  assert.equal(preview.rows[0].status, 'invalid');
+  assert.equal(preview.unresolvedMappings.assignment.length, 0);
+  assert.ok(preview.rows[0].errors.some((message) => message.includes('Turno') && message.includes('evento')));
+});
+
+test('uses manual collaborator mapping when the imported nif does not match the profile', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  const preview = buildImportPreview(parsed.rows, {
+    mappings: [
+      {
+        field: 'session',
+        externalValue: 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26',
+        internalValue: '10',
+      },
+      {
+        field: 'collaborator',
+        externalValue: '326077405',
+        internalValue: '20',
+      },
+    ],
+    collaborators: [
+      { id: 20, name: 'Miriam Peçanha Oliveira', nif: '999999999' },
+    ],
+    services: [
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        date: '2026-06-20',
+        requiredRoles: JSON.stringify([{ role: 'Emp.Mesa', agreedRate: 10.5 }]),
+        assignments: [
+          {
+            id: 30,
+            collaboratorId: 20,
+            assignmentDate: '2026-06-20',
+            role: 'Emp.Mesa',
+            plannedCheckIn: '11:30',
+            plannedCheckOut: '16:00',
+            hourlyRate: 8,
+            status: 'confirmed',
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(preview.rows[0].collaboratorId, 20);
+  assert.equal(preview.rows[0].assignmentId, 30);
+});

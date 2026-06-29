@@ -74,3 +74,36 @@ test('applies discount before VAT in the commercial summary', () => {
   assert.equal(totals.taxAmount, 31.05);
   assert.equal(totals.totalAmount, 166.05);
 });
+
+test('adds external partner costs with margin to the budget total', () => {
+  const totals = calculateBudgetTotals({
+    categories: [
+      { role: 'Emp.Mesa', qty: 1, rate: 10, start: '10:00', end: '15:00' },
+    ],
+    externalCosts: [
+      {
+        type: 'Catering',
+        supplier: 'Parceiro A',
+        costAmount: '100,00',
+        marginPercent: '20',
+      },
+      {
+        type: 'Material',
+        supplier: 'Parceiro B',
+        costAmount: 50,
+        marginPercent: 10,
+      },
+    ],
+    eventDays: [],
+    vatMode: 'exempt',
+    travelType: 'none',
+    discountRate: 0,
+  });
+
+  assert.equal(totals.baseAmount, 50);
+  assert.equal(totals.externalCostsAmount, 175);
+  assert.equal(totals.externalCostsBaseAmount, 150);
+  assert.equal(totals.externalCostsMarginAmount, 25);
+  assert.equal(totals.subtotalAmount, 225);
+  assert.equal(totals.totalAmount, 225);
+});

@@ -31,6 +31,11 @@ export function calendarDateWithMonth(value, year, monthIndex) {
   return new Date(year, monthIndex, Math.min(current.getDate(), lastDay));
 }
 
+export function calendarInitialCursor(today = new Date()) {
+  const current = localDate(today) || new Date();
+  return new Date(current.getFullYear(), current.getMonth(), current.getDate());
+}
+
 export function calendarWeekDates(value) {
   const selected = localDate(value) || new Date();
   const mondayOffset = selected.getDay() === 0 ? -6 : 1 - selected.getDay();

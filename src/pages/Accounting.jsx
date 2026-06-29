@@ -30,9 +30,10 @@ import {
   filterServicesByPeriod,
   splitClientBillingRows,
 } from '../utils/clientBilling.js';
+import { externalCostsTotals } from '../utils/externalCosts.js';
 import { isFinanceReadyEvent } from '../utils/financeReadiness.js';
-import { date, money } from '../utils/formatters.js';
-import { clientChargeHours, decimalValue } from '../utils/serviceFinance.js';
+import { date, durationHours, money } from '../utils/formatters.js';
+import { clientChargeHours, decimalValue, staffWorkedHours } from '../utils/serviceFinance.js';
 import {
   normalizeStaffAdvances,
   staffAdvancesTotal,
@@ -44,6 +45,7 @@ import {
   buildStaffPaymentStatusPayload,
 } from '../utils/staffPaymentBulk.js';
 import {
+  assignmentWorkDateValue,
   nextStaffPaymentMonth,
   staffPaymentTiming,
   staffPaymentTotal,
@@ -183,13 +185,16 @@ function billableAssignments(event) {
 }
 
 function assignmentHours(assignment) {
-  return num(assignment.staffPayableHours) || num(assignment.hoursWorked);
+  return staffWorkedHours(assignment);
 }
 
 function assignmentBasePay(assignment) {
+  const hours = assignmentHours(assignment);
+  const hourlyRate = num(assignment.hourlyRate);
+  if (hours > 0 && hourlyRate > 0) return hours * hourlyRate;
   const explicit = num(assignment.totalPay);
   if (explicit > 0) return explicit;
-  return assignmentHours(assignment) * num(assignment.hourlyRate);
+  return hours * hourlyRate;
 }
 
 function assignmentPayWithVat(assignment) {
@@ -230,6 +235,16 @@ function paymentMonthMatches(assignment, period) {
   const [year, month] = String(period || monthInputValue()).split('-');
   if (month === '00') return paymentMonth.startsWith(`${year}-`);
   return paymentMonth === period;
+}
+
+function assignmentWorkDateInputValue(assignment) {
+  return dateInputValue(assignmentWorkDateValue(assignment));
+}
+
+function assignmentWorkDateTimestamp(assignment) {
+  const value = assignmentWorkDateValue(assignment);
+  const parsed = new Date(value || 0);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 }
 
 function paymentWindowLabel(timing) {
@@ -275,7 +290,8 @@ function eventRevenue(event) {
     return sum + (hours * (roleRates.get(assignment.role) || 0));
   }, 0);
   const travel = event.travelExpenseEnabled ? num(event.travelExpenseAmount) : 0;
-  const calculated = assignmentRevenue + travel;
+  const externalTotals = externalCostsTotals(event.externalCosts);
+  const calculated = assignmentRevenue + travel + externalTotals.chargeAmount;
   return calculated > 0 ? calculated : num(event.totalRevenue);
 }
 
@@ -541,7 +557,10 @@ export default function Accounting() {
     const linkedExpenses = expenses.filter((expense) => Number(expense.referenceId) === Number(event.id));
     const revenue = eventRevenue(event);
     const staff = eventStaffCost(event);
-    const operational = num(event.travelExpenseAmount) + linkedExpenses.reduce((sum, expense) => sum + num(expense.amount), 0);
+    const externalTotals = externalCostsTotals(event.externalCosts);
+    const operational = num(event.travelExpenseAmount)
+      + externalTotals.costAmount
+      + linkedExpenses.reduce((sum, expense) => sum + num(expense.amount), 0);
     const margin = revenue - staff - operational;
     const marginPct = revenue > 0 ? (margin / revenue) * 100 : 0;
     const paidByInvoice = eventInvoices.filter(invoiceIsPaid).reduce((sum, invoice) => sum + num(invoice.total), 0);
@@ -770,7 +789,7 @@ export default function Accounting() {
   }, [staffCollaboratorOptions, staffFilters.collaboratorId]);
 
   useEffect(() => {
-    if (staffFilters.date && !selectedPaymentStaffEntries.some((assignment) => dateInputValue(assignment.event.date) === staffFilters.date)) {
+    if (staffFilters.date && !selectedPaymentStaffEntries.some((assignment) => assignmentWorkDateInputValue(assignment) === staffFilters.date)) {
       setStaffFilters((prev) => ({ ...prev, date: '' }));
     }
   }, [selectedPaymentStaffEntries, staffFilters.date]);
@@ -778,7 +797,7 @@ export default function Accounting() {
   const filteredStaffEntries = useMemo(() => selectedPaymentStaffEntries
     .filter((assignment) => {
       if (staffFilters.eventId !== 'all' && String(assignment.event.id) !== staffFilters.eventId) return false;
-      if (staffFilters.date && dateInputValue(assignment.event.date) !== staffFilters.date) return false;
+      if (staffFilters.date && assignmentWorkDateInputValue(assignment) !== staffFilters.date) return false;
       if (staffFilters.collaboratorId !== 'all' && String(assignment.collaboratorId) !== staffFilters.collaboratorId) return false;
       return true;
     }),
@@ -818,12 +837,13 @@ export default function Accounting() {
     const map = new Map();
     for (const event of financeServices) {
       if (staffFilters.eventId !== 'all' && String(event.id) !== staffFilters.eventId) continue;
-      if (staffFilters.date && dateInputValue(event.date) !== staffFilters.date) continue;
       for (const assignment of billableAssignments(event)) {
+        const assignmentWithEvent = { ...assignment, event };
+        if (staffFilters.date && assignmentWorkDateInputValue(assignmentWithEvent) !== staffFilters.date) continue;
         if (staffFilters.collaboratorId !== 'all' && String(assignment.collaboratorId) !== staffFilters.collaboratorId) continue;
-        const total = assignmentStaffCostTotal(assignment);
+        const total = assignmentStaffCostTotal(assignmentWithEvent);
         if (total <= 0) continue;
-        const key = staffPaymentTiming({ ...assignment, event }).paymentMonth || monthKey(event.date);
+        const key = staffPaymentTiming(assignmentWithEvent).paymentMonth || monthKey(assignmentWorkDateValue(assignmentWithEvent));
         map.set(key, (map.get(key) || 0) + total);
       }
     }
@@ -832,10 +852,10 @@ export default function Accounting() {
 
   const currentMonthUnpaidAssignments = useMemo(() => selectedPaymentStaffEntries
     .filter((assignment) => assignment.paymentStatus !== 'paid')
-    .sort((a, b) => new Date(a.event.date || 0).getTime() - new Date(b.event.date || 0).getTime()), [selectedPaymentStaffEntries]);
+    .sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)), [selectedPaymentStaffEntries]);
 
   const filteredAssignments = useMemo(() => filteredStaffEntries
-    .sort((a, b) => new Date(a.event.date || 0).getTime() - new Date(b.event.date || 0).getTime()),
+    .sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)),
   [filteredStaffEntries]);
 
   const filteredPendingAssignments = useMemo(
@@ -1718,7 +1738,7 @@ export default function Accounting() {
                       <td>{row.name}</td>
                       <td>{row.nif}</td>
                       <td>{row.events}</td>
-                      <td>{row.hours.toFixed(2)} h</td>
+                      <td>{durationHours(row.hours)}</td>
                       <td>{money.format(row.total)}</td>
                       <td>{money.format(row.unpaid)}</td>
                     </tr>
@@ -1875,8 +1895,8 @@ export default function Accounting() {
                         </div>
                       </td>
                       <td>{assignment.event.name}</td>
-                      <td>{assignment.event.date ? date.format(new Date(assignment.event.date)) : '-'}</td>
-                      <td>{assignmentHours(assignment).toFixed(2)} h</td>
+                      <td>{assignmentWorkDateValue(assignment) ? date.format(new Date(assignmentWorkDateValue(assignment))) : '-'}</td>
+                      <td>{durationHours(assignmentHours(assignment))}</td>
                       <td>{money.format(num(assignment.hourlyRate))}</td>
                       <td>
                         <input
@@ -2151,7 +2171,7 @@ export default function Accounting() {
                             <tr key={assignment.id}>
                               <td>{assignment.collaborator?.shortName || assignment.collaborator?.name || '-'}</td>
                               <td>{assignment.role || '-'}</td>
-                              <td>{assignmentHours(assignment).toFixed(2)} h</td>
+                              <td>{durationHours(assignmentHours(assignment))}</td>
                               <td>{money.format(num(assignment.hourlyRate))}</td>
                               <td>{assignmentAdvanceTotal(assignment) > 0 ? money.format(assignmentAdvanceTotal(assignment)) : '-'}</td>
                               <td>{assignmentCarAdvanceTotal(assignment) > 0 ? money.format(assignmentCarAdvanceTotal(assignment)) : '-'}</td>

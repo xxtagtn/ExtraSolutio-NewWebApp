@@ -29,6 +29,20 @@ model NotificationDismissal {
   @@index([userId], map: "NotificationDismissal_userId_idx")
 }
 
+model ImportMapping {
+  id            Int      @id @default(autoincrement())
+  source        String   @db.VarChar(80)
+  scopeKey      String   @default("global") @db.VarChar(80)
+  field         String   @db.VarChar(80)
+  externalValue String   @db.VarChar(255)
+  internalValue String   @db.VarChar(255)
+  createdAt     DateTime @default(now()) @db.DateTime(3)
+  updatedAt     DateTime @updatedAt @db.DateTime(3)
+
+  @@unique([source, scopeKey, field, externalValue], map: "ImportMapping_source_scope_field_external_key")
+  @@index([source, field], map: "ImportMapping_source_field_idx")
+}
+
 model Collaborator {
   id          Int               @id @default(autoincrement())
   name        String            @db.VarChar(191)
@@ -53,6 +67,7 @@ model Collaborator {
   category    String            @default("") @db.VarChar(80)
   hourlyRate  Decimal           @default(0) @db.Decimal(12, 2)
   includeVat  Boolean           @default(false)
+  hasOwnCar   Boolean           @default(false)
   isPreferred Boolean           @default(false)
   status      String            @default("active") @db.VarChar(40)
   notes       String?           @db.Text
@@ -149,6 +164,7 @@ model Budget {
   split5050     Boolean  @default(false)
   baseAmount    Decimal  @default(0) @db.Decimal(12, 2)
   travelAmount  Decimal  @default(0) @db.Decimal(12, 2)
+  travelCars    String?  @db.LongText
   taxAmount     Decimal  @default(0) @db.Decimal(12, 2)
   totalWithTax  Decimal  @default(0) @db.Decimal(12, 2)
   discountRate  Decimal  @default(0) @db.Decimal(5, 2)
@@ -156,6 +172,7 @@ model Budget {
   totalAmount   Decimal  @default(0) @db.Decimal(12, 2)
   marginAmount  Decimal  @default(0) @db.Decimal(12, 2)
   categories    String?  @db.LongText
+  externalCosts String?  @db.LongText
   paymentPlan   String?  @db.LongText
   status        String   @default("new_request") @db.VarChar(40)
   paymentStatus String   @default("pending") @db.VarChar(40)
@@ -192,6 +209,7 @@ model Event {
   minimumHoursSnapshot Decimal   @default(0) @db.Decimal(8, 2)
   guestsCount  Int?
   requiredRoles String?          @db.LongText
+  externalCosts String?          @db.LongText
   uniform      String?           @db.VarChar(80)
   meetingPoint String?           @db.Text
   onsiteContactName String?      @db.VarChar(191)
@@ -206,6 +224,8 @@ model Event {
   travelStaffHourlyRate Decimal  @default(0) @db.Decimal(8, 2)
   split5050    Boolean           @default(false)
   travelManualAmount Decimal     @default(0) @db.Decimal(12, 2)
+  travelCars   String?            @db.LongText
+  assignmentDrafts String?        @db.LongText
   billingStatus String           @default("pending") @db.VarChar(40)
   billingPaymentDate DateTime?   @db.DateTime(3)
   signaledAmount Decimal         @default(0) @db.Decimal(12, 2)
@@ -262,6 +282,7 @@ model EventAssignment {
   validationStatus String     @default("pending") @db.VarChar(40)
   validationNotes  String?    @db.Text
   clientSynced     Boolean    @default(false)
+  isDriver         Boolean    @default(false)
   status         String       @default("assigned") @db.VarChar(40)
   paymentStatus  String       @default("unpaid") @db.VarChar(40)
   paymentDate    DateTime?    @db.DateTime(3)

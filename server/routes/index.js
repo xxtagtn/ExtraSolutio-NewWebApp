@@ -17,6 +17,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { usersRouter } from './users.js';
 import { collaboratorsRouter } from './collaborators.js';
 import { notificationsRouter } from './notifications.js';
+import { timeValidationImportsRouter } from './timeValidationImports.js';
 import {
   minimumHoursForEventUpdate,
   shouldPropagateMinimumHours,
@@ -25,6 +26,7 @@ import {
   assertNoAssignmentConflict,
   assignmentConflictNeedsCheck,
 } from '../utils/assignmentConflict.js';
+import { serviceListInclude } from '../utils/listPayloads.js';
 
 export const apiRouter = Router();
 const CLOSED_EVENT_STATUSES = ['finalized', 'completed', 'invoiced', 'paid'];
@@ -82,6 +84,7 @@ apiRouter.use('/users', usersRouter);
 apiRouter.use('/notifications', notificationsRouter);
 
 apiRouter.use('/collaborators', collaboratorsRouter);
+apiRouter.use('/time-validation-imports', timeValidationImportsRouter);
 
 apiRouter.use('/clients', createCrudRouter(prisma.client, [
   'name',
@@ -122,10 +125,7 @@ apiRouter.use('/clients', createCrudRouter(prisma.client, [
 }));
 
 apiRouter.use('/services', createCrudRouter(prisma.event, [], {
-  include: {
-    client: true,
-    assignments: { include: { collaborator: true } },
-  },
+  include: serviceListInclude,
   normalizeCreate: normalizeServiceCreate,
   normalizeUpdate: normalizeServiceUpdate,
   loadExistingForUpdate: true,

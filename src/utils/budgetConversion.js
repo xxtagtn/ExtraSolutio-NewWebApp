@@ -1,5 +1,6 @@
 import { decimalValue } from './serviceFinance.js';
-import { calculateTravelAmount } from './travelCalculator.js';
+import { calculateTravelAmount, normalizeTravelCars } from './travelCalculator.js';
+import { normalizeExternalCosts } from './externalCosts.js';
 
 function safeArray(value) {
   if (!value) return [];
@@ -80,6 +81,8 @@ export function buildBudgetConversionDraft(row = {}) {
     : '';
   const travelType = normalizeBudgetTravelType(row);
   const travelAmount = numberValue(row.travelAmount);
+  const travelCars = normalizeTravelCars(row.travelCars);
+  const externalCosts = normalizeExternalCosts(row.externalCosts);
 
   return {
     budgetId: row.id || '',
@@ -118,10 +121,12 @@ export function buildBudgetConversionDraft(row = {}) {
     kmRate: row.kmRate ?? '',
     durationHours: row.durationHours ?? '',
     travelStaffHourlyRate: travelType === 'kilometers'
-      ? (numberValue(row.travelStaffHourlyRate) || 10)
+      ? numberValue(row.travelStaffHourlyRate)
       : 0,
+    travelCars,
     split5050: Boolean(row.split5050),
     travelManualAmount: travelType === 'manual' ? travelAmount : (row.travelManualAmount ?? ''),
+    externalCosts,
     totalRevenue: numberValue(row.totalAmount || row.amount),
   };
 }
@@ -164,8 +169,10 @@ export function buildEventPayloadFromBudgetConversion(draft = {}, clientId) {
     kmRate: nullableNumber(draft.kmRate),
     durationHours: nullableNumber(draft.durationHours),
     travelStaffHourlyRate: numberValue(draft.travelStaffHourlyRate),
+    travelCars: normalizeTravelCars(draft.travelCars),
     split5050: Boolean(draft.split5050),
     travelManualAmount: draft.travelType === 'manual' ? numberValue(draft.travelManualAmount) : 0,
+    externalCosts: normalizeExternalCosts(draft.externalCosts),
     totalRevenue: numberValue(draft.totalRevenue),
     notes: draft.budgetReference ? `[BUDGET_REF:${draft.budgetReference}]` : '',
   };

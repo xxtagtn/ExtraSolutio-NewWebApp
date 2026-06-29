@@ -40,6 +40,25 @@ export function preserveStageAfterManualRowSave(currentStage, savedRow = {}) {
   return currentStage || validationWorkflowStage(savedRow);
 }
 
+export function reopenTargetStage(rows = []) {
+  const reopenedStages = rows.map((row) => {
+    const assignment = row?.assignment || {};
+    return validationWorkflowStage({
+      ...row,
+      eventValidated: false,
+      assignment: {
+        ...assignment,
+        validationStatus: assignment.validationStatus === 'validated' ? 'reopened' : assignment.validationStatus,
+      },
+    });
+  });
+
+  if (reopenedStages.includes(TIME_VALIDATION_STAGE.staffPending)) return TIME_VALIDATION_STAGE.staffPending;
+  if (reopenedStages.includes(TIME_VALIDATION_STAGE.clientPending)) return TIME_VALIDATION_STAGE.clientPending;
+  if (reopenedStages.includes(TIME_VALIDATION_STAGE.differences)) return TIME_VALIDATION_STAGE.differences;
+  return TIME_VALIDATION_STAGE.ready;
+}
+
 export function validationStageCounts(rows = []) {
   const counts = {
     [TIME_VALIDATION_STAGE.staffPending]: 0,

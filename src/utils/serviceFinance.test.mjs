@@ -7,6 +7,7 @@ import {
   clientRealHours,
   collaboratorHourlyRate,
   decimalValue,
+  staffWorkedHours,
 } from './serviceFinance.js';
 
 test('uses collaborator hourly rate when assignment rate is empty', () => {
@@ -130,4 +131,31 @@ test('uses persisted real client hours before different staff hours', () => {
     checkOut: '15:00',
     clientRealHours: 4.5,
   }), 4.5);
+});
+
+test('uses each row staff times before stale aggregate staff hours', () => {
+  const morningShift = staffWorkedHours({
+    checkIn: '11:27',
+    checkOut: '15:53',
+    staffPayableHours: 11.5,
+    hoursWorked: 11.5,
+  });
+
+  const eveningShift = staffWorkedHours({
+    checkIn: '19:33',
+    checkOut: '23:15',
+    staffPayableHours: 11.5,
+    hoursWorked: 11.5,
+  });
+
+  assert.equal(morningShift, 4.5);
+  assert.equal(eveningShift, 4);
+  assert.equal(Number((morningShift + eveningShift).toFixed(2)), 8.5);
+});
+
+test('keeps stored staff hours when no row times exist', () => {
+  assert.equal(staffWorkedHours({
+    staffPayableHours: 5,
+    hoursWorked: 4,
+  }), 5);
 });

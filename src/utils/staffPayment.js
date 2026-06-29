@@ -24,6 +24,10 @@ export function defaultStaffPaymentMonth(serviceDate) {
   return `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
 }
 
+export function assignmentWorkDateValue(assignment = {}) {
+  return assignment.assignmentDate || assignment.eventDate || assignment.event?.date || '';
+}
+
 export function nextStaffPaymentMonth(paymentMonth) {
   const [year, month] = String(paymentMonth || '').split('-').map(Number);
   if (!Number.isFinite(year) || !Number.isFinite(month)) return '';
@@ -41,7 +45,7 @@ export function staffPaymentWindow(paymentMonth) {
 }
 
 export function staffPaymentTiming(assignment = {}, today = new Date()) {
-  const serviceDate = assignment.event?.date || assignment.eventDate || assignment.assignmentDate;
+  const serviceDate = assignmentWorkDateValue(assignment);
   const defaultMonth = defaultStaffPaymentMonth(serviceDate);
   const paymentMonth = assignment.paymentDeferredMonth || defaultMonth;
   const { start, end } = staffPaymentWindow(paymentMonth);

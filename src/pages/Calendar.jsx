@@ -6,6 +6,7 @@ import { useApi } from '../hooks/useApi.js';
 import { birthdaysByDayForMonth, birthdaysOnDate } from '../utils/birthdays.js';
 import {
   calendarDateKey,
+  calendarInitialCursor,
   calendarDateWithMonth,
   calendarWeekDates,
   serviceOccursOnDate,
@@ -176,13 +177,12 @@ export default function Calendar() {
   const todayDay = today.getDate();
   const todayMonth = today.getMonth();
   const todayYear = today.getFullYear();
-  const [cursor, setCursor] = useState(new Date(todayYear, todayMonth, todayDay));
+  const [cursor, setCursor] = useState(() => calendarInitialCursor(today));
   const [calendarView, setCalendarView] = useState('month');
-  const [cursorInitialized, setCursorInitialized] = useState(false);
   const [expandedBirthdayKey, setExpandedBirthdayKey] = useState(null);
   const { data: services, loading, error } = useApi('/services', []);
   const { data: budgets } = useApi('/budgets', []);
-  const { data: collaborators } = useApi('/collaborators', []);
+  const { data: collaborators } = useApi('/collaborators?light=1', []);
 
   const birthdaysByDay = useMemo(
     () => birthdaysByDayForMonth(collaborators, cursor.getFullYear(), cursor.getMonth()),
@@ -216,22 +216,6 @@ export default function Calendar() {
     }
     return reminders;
   }, [budgets]);
-
-  useEffect(() => {
-    if (loading || cursorInitialized) return;
-    if (!visibleServices.length) {
-      setCursorInitialized(true);
-      return;
-    }
-    const nowTs = new Date(todayYear, todayMonth, todayDay).getTime();
-    const sorted = [...visibleServices]
-      .map((service) => parseDate(service.date))
-      .filter(Boolean)
-      .sort((a, b) => a.getTime() - b.getTime());
-    const next = sorted.find((d) => d.getTime() >= nowTs) || sorted[0];
-    setCursor(new Date(next.getFullYear(), next.getMonth(), next.getDate()));
-    setCursorInitialized(true);
-  }, [visibleServices, loading, cursorInitialized, todayDay, todayMonth, todayYear]);
 
   const firstDay = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const monthStartWeekday = toWeekIndex(firstDay.getDay());

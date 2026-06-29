@@ -70,7 +70,7 @@ function selectedPeriodLabel(month, year) {
 
 export default function Dashboard() {
   const { data: services, loading: loadingServices, error: servicesError } = useApi('/services', []);
-  const { data: collaborators, loading: loadingCollaborators, error: collaboratorsError } = useApi('/collaborators', []);
+  const { data: collaborators, loading: loadingCollaborators, error: collaboratorsError } = useApi('/collaborators?light=1', []);
   const { data: invoices, loading: loadingInvoices, error: invoicesError } = useApi('/invoices', []);
   const { data: transactions, loading: loadingTransactions } = useApi('/transactions', []);
   const [selectedMonth, setSelectedMonth] = useState('');

@@ -1,18 +1,27 @@
-import { AlertTriangle, ArrowDown, ArrowRight, CheckCircle2, Copy, FileDown, FileSpreadsheet, Hourglass, OctagonAlert, RotateCcw, Save, Siren } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowRight, CheckCircle2, Copy, FileDown, FileSpreadsheet, Hourglass, OctagonAlert, RotateCcw, Save, Siren, Upload } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
+import Modal from '../components/UI/Modal.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
-import { date } from '../utils/formatters.js';
+import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
+import { externalCostsTotals } from '../utils/externalCosts.js';
+import { date, durationHours } from '../utils/formatters.js';
 import { buildBulkValidationCandidates } from '../utils/hourValidationBulk.js';
 import { hoursValidationState, validationPersistenceFields } from '../utils/hourValidationStatus.js';
-import { clientChargeHours, clientRealHours, decimalValue } from '../utils/serviceFinance.js';
+import { clientChargeHours, clientRealHours, decimalValue, staffWorkedHours } from '../utils/serviceFinance.js';
 import { nextAutomaticServiceStatus, nextTimeValidationServiceStatus, SERVICE_STATUS } from '../utils/serviceStatus.js';
 import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
 import { assessTimeTolerance, resolvePlannedTimes } from '../utils/timeTolerance.js';
+import {
+  canConfirmTimeValidationImport,
+  importConfirmationMessage,
+  importResultMessage,
+  isExcelImportFile,
+} from '../utils/timeValidationImportUi.js';
 import {
   dateKeysFrom,
   effectiveRowDateKey,
@@ -26,6 +35,7 @@ import {
   preserveStageAfterManualRowSave,
   prunePersistedDrafts,
   recentOperationalPeriod,
+  reopenTargetStage,
   TIME_VALIDATION_STAGE,
   validationStageCounts,
   validationWorkflowStage,
@@ -40,6 +50,16 @@ const VALIDATION_STAGE_TABS = [
   { value: TIME_VALIDATION_STAGE.ready, label: 'Prontos a finalizar' },
   { value: TIME_VALIDATION_STAGE.finalized, label: 'Finalizados' },
 ];
+
+const IMPORT_MAPPING_LABELS = {
+  session: 'Nome da sessão',
+  category: 'Função',
+  department: 'Departamento',
+  collaborator: 'Colaborador',
+  assignment: 'Turno',
+};
+
+const IMPORT_MANUAL_MAPPING_FIELDS = new Set(['session', 'category', 'collaborator']);
 
 function num(value) {
   return Number(value || 0);
@@ -162,14 +182,12 @@ function clientRealHoursFor(assignment) {
   return clientRealHours(assignment);
 }
 
+function timePairLabel(start, end) {
+  return `${start || '--:--'} → ${end || '--:--'}`;
+}
+
 function staffHoursFor(assignment, event) {
-  const explicit = num(assignment.staffPayableHours);
-  if (explicit > 0) return explicit;
-  const validated = calcRoundedBillableHours(assignment.validatedCheckIn, assignment.validatedCheckOut);
-  if (validated > 0) return validated;
-  const staff = num(assignment.hoursWorked);
-  if (staff > 0) return staff;
-  return calcRoundedBillableHours(assignment.checkIn || event.startTime, assignment.checkOut || event.endTime);
+  return staffWorkedHours(assignment, event.startTime, event.endTime);
 }
 
 function staffColumnHours(assignment) {
@@ -244,6 +262,9 @@ function eventTotals(event, assignments) {
     billableHours += clientHours;
   }
   if (event.travelExpenseEnabled) totalRevenue += num(event.travelExpenseAmount);
+  const externalTotals = externalCostsTotals(event.externalCosts);
+  totalRevenue += externalTotals.chargeAmount;
+  totalCost += externalTotals.costAmount;
   return {
     totalRevenue: Number(totalRevenue.toFixed(2)),
     totalCost: Number(totalCost.toFixed(2)),
@@ -266,6 +287,15 @@ export default function TimeValidation() {
   const [bulkValidatingEventId, setBulkValidatingEventId] = useState(null);
   const [statusSyncing, setStatusSyncing] = useState(false);
   const [drafts, setDrafts] = useState({});
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importFileData, setImportFileData] = useState('');
+  const [importPreview, setImportPreview] = useState(null);
+  const [importMappings, setImportMappings] = useState([]);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importDragActive, setImportDragActive] = useState(false);
+  const [expandedFinalizedEventId, setExpandedFinalizedEventId] = useState(null);
   const validationTableRef = useRef(null);
 
   useEffect(() => {
@@ -406,6 +436,31 @@ export default function TimeValidation() {
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
   }, [clientRows]);
 
+  const importEventOptions = useMemo(
+    () => services
+      .map((event) => ({
+        id: String(event.id),
+        label: `${event.name || '-'} · ${event.client?.name || '-'} · ${dateRangeLabelFromKeys([event.date, event.endDate])}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'pt')),
+    [services],
+  );
+
+  const importCollaboratorOptions = useMemo(() => {
+    const seen = new Map();
+    for (const service of services) {
+      for (const assignment of service.assignments || []) {
+        const collaborator = assignment.collaborator;
+        if (!collaborator?.id || seen.has(String(collaborator.id))) continue;
+        seen.set(String(collaborator.id), {
+          id: String(collaborator.id),
+          label: `${collaborator.shortName || collaborator.name || '-'} · ${collaborator.nif || '-'}`,
+        });
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
+  }, [services]);
+
   const eventProgress = useMemo(() => {
     const map = new Map();
     for (const row of clientRows) {
@@ -450,6 +505,19 @@ export default function TimeValidation() {
 
   const pendingEvents = useMemo(() => eventProgress.filter((item) => !item.markedValidated), [eventProgress]);
   const validatedEvents = useMemo(() => eventProgress.filter((item) => item.markedValidated), [eventProgress]);
+  const finalizedRowsByEvent = useMemo(() => {
+    const map = new Map();
+    for (const row of clientRows) {
+      if (row.workflowStage !== TIME_VALIDATION_STAGE.finalized) continue;
+      const key = String(row.event.id);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(row);
+    }
+    for (const eventRows of map.values()) {
+      eventRows.sort(compareTimeValidationRowsNewest);
+    }
+    return map;
+  }, [clientRows]);
   const stageCounts = useMemo(() => validationStageCounts(clientRows), [clientRows]);
 
   useEffect(() => {
@@ -524,6 +592,17 @@ export default function TimeValidation() {
     [pendingEvents, visibleEventIds],
   );
 
+  const importUnresolvedEntries = useMemo(() => {
+    const unresolved = importPreview?.unresolvedMappings || {};
+    return Object.entries(unresolved).flatMap(([field, entries]) => (
+      IMPORT_MANUAL_MAPPING_FIELDS.has(field)
+        ? (entries || []).map((entry) => ({ ...entry, field }))
+        : []
+    ));
+  }, [importPreview]);
+
+  const canConfirmImport = canConfirmTimeValidationImport(importPreview, importBusy);
+
   const selectedClientLabel = selectedClientId === 'all'
     ? 'Todos os clientes'
     : clientOptions.find((item) => item.id === selectedClientId)?.label || 'Cliente selecionado';
@@ -538,8 +617,8 @@ export default function TimeValidation() {
       { label: 'Divergências', value: String(divergent) },
       { label: 'Validados', value: String(validated) },
       { label: 'Eventos validados', value: String(validatedEvents.length) },
-      { label: 'Horas Faturáveis', value: `${clientHours.toFixed(2)} h` },
-      { label: 'Horas Staff', value: `${staffHours.toFixed(2)} h` },
+      { label: 'Horas Faturáveis', value: durationHours(clientHours) },
+      { label: 'Horas Staff', value: durationHours(staffHours) },
     ];
   }, [clientRows, validatedEvents.length]);
 
@@ -583,6 +662,131 @@ export default function TimeValidation() {
   function resetPeriodToCurrentMonth() {
     const current = currentMonthPeriod();
     setPeriod(current.start, current.end);
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new window.FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Não foi possível ler o ficheiro Excel.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function resetImportState() {
+    setImportFile(null);
+    setImportFileData('');
+    setImportPreview(null);
+    setImportMappings([]);
+    setImportError('');
+    setImportBusy(false);
+    setImportDragActive(false);
+  }
+
+  function closeImportModal() {
+    setImportModalOpen(false);
+    resetImportState();
+  }
+
+  function mappingValue(field, externalValue) {
+    return importMappings.find((mapping) => (
+      mapping.field === field && mapping.externalValue === externalValue
+    ))?.internalValue || '';
+  }
+
+  function updateImportMapping(field, externalValue, internalValue) {
+    setImportMappings((current) => {
+      const next = current.filter((mapping) => (
+        !(mapping.field === field && mapping.externalValue === externalValue)
+      ));
+      if (internalValue) next.push({ field, externalValue, internalValue });
+      return next;
+    });
+  }
+
+  async function previewImport(file = importFile, fileData = importFileData) {
+    if (!file || !fileData) {
+      setImportError('Seleciona primeiro o ficheiro Excel enviado pelo cliente.');
+      return;
+    }
+    setImportBusy(true);
+    setImportError('');
+    try {
+      const preview = await api('/time-validation-imports/preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          fileName: file.name,
+          fileData,
+          mappings: importMappings.filter((mapping) => mapping.internalValue),
+        }),
+      });
+      setImportPreview(preview);
+    } catch (err) {
+      setImportError(err?.message || 'Não foi possível analisar o ficheiro Excel.');
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function onImportFileSelected(file) {
+    if (!file) return;
+    if (!isExcelImportFile(file)) {
+      setImportError('Arrasta ou seleciona um ficheiro Excel válido (.xlsx, .xls ou .xlsm).');
+      return;
+    }
+    setImportFile(file);
+    setImportPreview(null);
+    setImportError('');
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setImportFileData(dataUrl);
+      await previewImport(file, dataUrl);
+    } catch (err) {
+      setImportError(err?.message || 'Não foi possível ler o ficheiro Excel.');
+    }
+  }
+
+  function onImportDragOver(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!importBusy) setImportDragActive(true);
+  }
+
+  function onImportDragLeave(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    setImportDragActive(false);
+  }
+
+  async function onImportDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setImportDragActive(false);
+    if (importBusy) return;
+    await onImportFileSelected(event.dataTransfer?.files?.[0]);
+  }
+
+  async function confirmImport() {
+    if (!importPreview?.rows?.length) return;
+    setImportBusy(true);
+    setImportError('');
+    try {
+      const result = await api('/time-validation-imports/commit', {
+        method: 'POST',
+        body: JSON.stringify({
+          rows: importPreview.rows,
+          mappings: importMappings.filter((mapping) => mapping.internalValue),
+        }),
+      });
+      window.alert(importResultMessage(result));
+      closeImportModal();
+      reload();
+    } catch (err) {
+      setImportError(err?.message || 'Não foi possível confirmar a importação.');
+    } finally {
+      setImportBusy(false);
+    }
   }
 
   function copyPlannedToStaff(row) {
@@ -673,7 +877,7 @@ export default function TimeValidation() {
   function validationBodyFor(row, merged, mode = 'auto') {
     const realClientHours = clientRealHoursFor(merged);
     const clientHours = clientHoursFor(merged, row.event);
-    const staffHours = num(merged.staffPayableHours) || staffHoursFor(merged, row.event);
+    const staffHours = staffHoursFor(merged, row.event);
     const persistence = validationPersistenceFields(
       merged,
       mode,
@@ -862,6 +1066,8 @@ export default function TimeValidation() {
 
   async function reopenValidatedEvent(item) {
     if (!item?.event?.id || !item.markedValidated) return;
+    const eventId = String(item.event.id);
+    const targetStage = reopenTargetStage(clientRows.filter((row) => String(row.event.id) === eventId));
     setValidatingEventId(item.event.id);
     try {
       const assignmentsToReopen = (item.event.assignments || [])
@@ -887,6 +1093,10 @@ export default function TimeValidation() {
         }
         return next;
       });
+      setExpandedFinalizedEventId(null);
+      setViewMode('event');
+      setSelectedEventId(eventId);
+      setStage(targetStage);
       reload();
     } catch (error) {
       window.alert(error?.message || 'Não foi possível voltar a colocar este evento em validação.');
@@ -1002,6 +1212,10 @@ export default function TimeValidation() {
           <button className="secondary-button validation-pdf-button" type="button" onClick={downloadStaffExcel} disabled={!staffPdfRows.length}>
             <FileSpreadsheet size={16} />
             <span>Excel Staff</span>
+          </button>
+          <button className="secondary-button validation-pdf-button" type="button" onClick={() => setImportModalOpen(true)}>
+            <Upload size={16} />
+            <span>Importar Excel Cliente</span>
           </button>
         </div>
         {error ? <p className="notice">{error}</p> : null}
@@ -1130,7 +1344,7 @@ export default function TimeValidation() {
                                   value={row.assignment.checkOut || ''}
                                   onChange={(value) => updateDraft(row, { checkOut: value })}
                                 />
-                                <small>Total: {staffColumnHours(row.assignment).toFixed(2)} h</small>
+                                <small>Total: {durationHours(staffColumnHours(row.assignment))}</small>
                                 {stage === TIME_VALIDATION_STAGE.staffPending ? (
                                   <button className="validation-copy-button" type="button" onClick={() => copyPlannedToStaff(row)}>
                                     <Copy size={12} />
@@ -1171,7 +1385,7 @@ export default function TimeValidation() {
                                     )}
                                     onChange={(value) => updateDraft(row, { clientCheckOut: value })}
                                   />
-                                  <small>Total: {clientColumnHours(row.assignment).toFixed(2)} h</small>
+                                  <small>Total: {durationHours(clientColumnHours(row.assignment))}</small>
                                   <button className="validation-copy-button" type="button" onClick={() => copyStaffToClient(row)}>
                                     <Copy size={12} />
                                     Staff
@@ -1226,7 +1440,11 @@ export default function TimeValidation() {
 
         {isFinalizedStage ? (
           <div className="validation-history-list">
-            {validatedEvents.map((item) => (
+            {validatedEvents.map((item) => {
+              const eventId = String(item.event.id);
+              const expanded = expandedFinalizedEventId === eventId;
+              const eventRows = finalizedRowsByEvent.get(eventId) || [];
+              return (
               <article key={item.event.id} className="validation-history-item">
                 <div>
                   <strong>{item.event.name || '-'}</strong>
@@ -1240,20 +1458,248 @@ export default function TimeValidation() {
                   <span>Registos</span>
                   <strong>{item.validated}/{item.total}</strong>
                 </div>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={validatingEventId === item.event.id}
-                  onClick={() => reopenValidatedEvent(item)}
-                >
-                  {validatingEventId === item.event.id ? 'A reabrir...' : 'Voltar a validar'}
-                </button>
+                <div className="validation-history-actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={!eventRows.length}
+                    onClick={() => setExpandedFinalizedEventId(expanded ? null : eventId)}
+                  >
+                    {expanded ? 'Ocultar horários' : 'Ver horários'}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={validatingEventId === item.event.id}
+                    onClick={() => reopenValidatedEvent(item)}
+                  >
+                    {validatingEventId === item.event.id ? 'A reabrir...' : 'Voltar a validar'}
+                  </button>
+                </div>
+                {expanded ? (
+                  <div className="validation-history-details">
+                    <div className="table-wrap">
+                      <table className="validation-history-table">
+                        <thead>
+                          <tr>
+                            <th>Colaborador</th>
+                            <th>Data</th>
+                            <th>Função</th>
+                            <th>Previsto</th>
+                            <th>Staff</th>
+                            <th>Cliente</th>
+                            <th>Diferença</th>
+                            <th>Notas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {eventRows.map((row) => (
+                            <tr key={row.id} className={`validation-row validation-row--${row.tone}`}>
+                              <td>
+                                <strong>{row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-'}</strong>
+                                <small>{row.assignment.collaborator?.nif || '-'}</small>
+                              </td>
+                              <td>{row.workDateLabel}</td>
+                              <td>{row.assignment.role || '-'}</td>
+                              <td>{timePairLabel(row.plannedCheckIn, row.plannedCheckOut)}</td>
+                              <td>
+                                <strong>{timePairLabel(row.assignment.checkIn, row.assignment.checkOut)}</strong>
+                                <small>{durationHours(staffColumnHours(row.assignment))}</small>
+                              </td>
+                              <td>
+                                <strong>{timePairLabel(row.assignment.clientCheckIn, row.assignment.clientCheckOut)}</strong>
+                                <small>{durationHours(clientColumnHours(row.assignment))}</small>
+                              </td>
+                              <td>
+                                <Badge tone={row.tone}>
+                                  <DifferenceIcon tone={row.tone} />
+                                  <span>
+                                    {row.toneLabel}
+                                    {row.differenceDetail ? ` · ${row.differenceDetail}` : ''}
+                                  </span>
+                                </Badge>
+                              </td>
+                              <td>{row.assignment.validationNotes || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
               </article>
-            ))}
+              );
+            })}
             {!loading && !validatedEvents.length ? <p className="muted">Sem eventos/serviços finalizados neste período.</p> : null}
           </div>
         ) : null}
       </Card>
+
+      {importModalOpen ? (
+        <Modal title="Importar Excel Cliente" onClose={closeImportModal} size="wide">
+          <div className="validation-import-modal">
+            <div
+              className={`validation-import-upload${importDragActive ? ' validation-import-upload--active' : ''}`}
+              onDragOver={onImportDragOver}
+              onDragLeave={onImportDragLeave}
+              onDrop={onImportDrop}
+            >
+              <label>
+                <span>Ficheiro Excel do cliente</span>
+                <strong>Arrasta o Excel para aqui ou seleciona o ficheiro</strong>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.xlsm"
+                  onChange={(event) => onImportFileSelected(event.target.files?.[0])}
+                />
+              </label>
+              {importFile ? <small>{importFile.name}</small> : <small>Formatos aceites: .xlsx, .xls ou .xlsm.</small>}
+            </div>
+
+            {importError ? <p className="form-error">{importError}</p> : null}
+
+            {importPreview ? (
+              <>
+                <div className="validation-import-summary">
+                  <div>
+                    <span>Total de linhas</span>
+                    <strong>{importPreview.summary.totalRows}</strong>
+                  </div>
+                  <div>
+                    <span>Importáveis</span>
+                    <strong>{importPreview.summary.validRows}</strong>
+                  </div>
+                  <div>
+                    <span>Com avisos</span>
+                    <strong>{importPreview.summary.warningRows}</strong>
+                  </div>
+                  <div>
+                    <span>Inválidas</span>
+                    <strong>{importPreview.summary.invalidRows}</strong>
+                  </div>
+                </div>
+
+                {importPreview.summary.invalidRows ? (
+                  <div className="validation-import-guidance">
+                    <strong>Linhas inválidas não serão gravadas.</strong>
+                    <span>
+                      Se o colaborador ainda não existe, cria-o primeiro em Colaboradores e associa-o ao Evento/Serviço.
+                      Se o turno não for encontrado, confirma se o colaborador está no evento, na função e na data correta.
+                    </span>
+                  </div>
+                ) : null}
+
+                <p className="validation-import-commit-note">
+                  {importConfirmationMessage(importPreview)}
+                </p>
+
+                {importUnresolvedEntries.length ? (
+                  <div className="validation-import-mappings">
+                    <h3>Correspondências por confirmar</h3>
+                    {importUnresolvedEntries.map((entry) => (
+                      <label key={`${entry.field}-${entry.externalValue}`}>
+                        <span>{IMPORT_MAPPING_LABELS[entry.field] || entry.field}: <strong>{entry.externalValue}</strong></span>
+                        {entry.field === 'session' ? (
+                          <select
+                            className="form-control"
+                            value={mappingValue(entry.field, entry.externalValue)}
+                            onChange={(event) => updateImportMapping(entry.field, entry.externalValue, event.target.value)}
+                          >
+                            <option value="">Selecionar Evento/Serviço</option>
+                            {importEventOptions.map((item) => (
+                              <option key={item.id} value={item.id}>{item.label}</option>
+                            ))}
+                          </select>
+                        ) : entry.field === 'category' ? (
+                          <select
+                            className="form-control"
+                            value={mappingValue(entry.field, entry.externalValue)}
+                            onChange={(event) => updateImportMapping(entry.field, entry.externalValue, event.target.value)}
+                          >
+                            <option value="">Selecionar função</option>
+                            {collaboratorRoleOptions.map((role) => (
+                              <option key={role} value={role}>{role}</option>
+                            ))}
+                          </select>
+                        ) : entry.field === 'collaborator' ? (
+                          <select
+                            className="form-control"
+                            value={mappingValue(entry.field, entry.externalValue)}
+                            onChange={(event) => updateImportMapping(entry.field, entry.externalValue, event.target.value)}
+                          >
+                            <option value="">Selecionar colaborador</option>
+                            {importCollaboratorOptions.map((item) => (
+                              <option key={item.id} value={item.id}>{item.label}</option>
+                            ))}
+                          </select>
+                        ) : null}
+                      </label>
+                    ))}
+                    <button className="secondary-button" type="button" onClick={() => previewImport()} disabled={importBusy || !importFileData}>
+                      {importBusy ? 'A revalidar...' : 'Revalidar'}
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="table-wrap validation-import-preview">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Linha</th>
+                        <th>Estado</th>
+                        <th>Evento</th>
+                        <th>Colaborador</th>
+                        <th>Data</th>
+                        <th>Cliente</th>
+                        <th>Observações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.rows.map((row) => (
+                        <tr key={row.rowNumber} className={`validation-import-row validation-import-row--${row.status}`}>
+                          <td>{row.rowNumber}</td>
+                          <td>
+                            <Badge tone={row.status === 'invalid' ? 'danger' : row.status === 'warning' ? 'warning' : 'success'}>
+                              {row.status === 'invalid' ? 'Inválido' : row.status === 'warning' ? 'Aviso' : 'Válido'}
+                            </Badge>
+                          </td>
+                          <td>
+                            <strong>{row.eventName || row.sessionName}</strong>
+                            <small>{row.sessionName}</small>
+                          </td>
+                          <td>
+                            <strong>{row.collaboratorName || '-'}</strong>
+                            <small>{row.nif || '-'}</small>
+                          </td>
+                          <td>{row.eventDate || '-'}</td>
+                          <td>{row.clientCheckIn || '--:--'} → {row.clientCheckOut || '--:--'}</td>
+                          <td>
+                            {[...(row.errors || []), ...(row.warnings || [])].join(' ') || '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
+
+            <div className="form-actions form-actions--split">
+              <span className="muted">
+                {importPreview ? `Folha ${importPreview.sheetName} · cabeçalhos na linha ${importPreview.headerRowNumber}` : ''}
+              </span>
+              <div>
+                <button className="primary-button" type="button" onClick={confirmImport} disabled={!canConfirmImport}>
+                  {importBusy ? 'A importar...' : importPreview?.summary?.invalidRows ? 'Confirmar linhas válidas' : 'Confirmar importação'}
+                </button>
+                <button className="secondary-button" type="button" onClick={closeImportModal} disabled={importBusy}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
 
     </div>
   );

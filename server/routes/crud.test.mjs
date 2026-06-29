@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeAssignment, normalizeClient, normalizeEvent } from './crud.js';
+import { normalizeAssignment, normalizeBudget, normalizeClient, normalizeEvent } from './crud.js';
 
 test('normalizes event billing payment date when provided', () => {
   const payload = normalizeEvent({ billingPaymentDate: '2026-06-05' });
@@ -37,6 +37,61 @@ test('normalizes the manual staff travel hourly rate', () => {
   });
 
   assert.equal(payload.travelStaffHourlyRate, 7.5);
+});
+
+test('normalizes event kilometer cars for persistence', () => {
+  const payload = normalizeEvent({
+    travelCars: [
+      { label: 'Carro 1', km: '100', kmRate: '0,40', durationHours: '2', travelPeople: '3', travelStaffHourlyRate: '15,00€' },
+      { label: '', km: '', kmRate: '0,40', durationHours: '', travelPeople: '', travelStaffHourlyRate: '' },
+    ],
+  });
+
+  assert.equal(payload.travelCars, JSON.stringify([
+    { id: 'car-1', label: 'Carro 1', km: 100, kmRate: 0.4, durationHours: 2, travelPeople: 3, travelStaffHourlyRate: 15 },
+  ]));
+});
+
+test('normalizes empty event collaborator rows as assignment drafts', () => {
+  const payload = normalizeEvent({
+    assignmentDrafts: [
+      {
+        role: 'Emp.Mesa',
+        collaboratorId: '',
+        assignmentDate: '2026-09-01',
+        plannedCheckIn: '11:30',
+        plannedCheckOut: '16:00',
+      },
+      { role: 'Barman', collaboratorId: '7', assignmentDate: '2026-09-01' },
+    ],
+  });
+
+  assert.equal(payload.assignmentDrafts, JSON.stringify([
+    {
+      draftId: 'draft-1',
+      role: 'Emp.Mesa',
+      assignmentDate: '2026-09-01',
+      plannedCheckIn: '11:30',
+      plannedCheckOut: '16:00',
+      hourlyRate: '',
+      status: 'pending_confirmation',
+      clientSynced: false,
+      isDriver: false,
+      validationNotes: '',
+    },
+  ]));
+});
+
+test('normalizes budget kilometer cars for persistence', () => {
+  const payload = normalizeBudget({
+    travelCars: [
+      { label: 'Viatura A', km: '60', kmRate: '0,40', durationHours: '1,5', travelPeople: '2', travelStaffHourlyRate: '10' },
+    ],
+  });
+
+  assert.equal(payload.travelCars, JSON.stringify([
+    { id: 'car-1', label: 'Viatura A', km: 60, kmRate: 0.4, durationHours: 1.5, travelPeople: 2, travelStaffHourlyRate: 10 },
+  ]));
 });
 
 test('normalizes client minimum hours as an optional decimal', () => {
@@ -79,6 +134,11 @@ test('normalizes assignment client sync flag', () => {
   assert.equal(normalizeAssignment({ clientSynced: 'false' }).clientSynced, false);
 });
 
+test('normalizes assignment driver flag', () => {
+  assert.equal(normalizeAssignment({ isDriver: true }).isDriver, true);
+  assert.equal(normalizeAssignment({ isDriver: 'false' }).isDriver, false);
+});
+
 test('normalizes assignment real and billable client hours', () => {
   const payload = normalizeAssignment({
     clientRealHours: '3,5',
@@ -100,6 +160,25 @@ test('normalizes assignment advance payments', () => {
   assert.equal(payload.advancePayments, JSON.stringify([
     { id: 'a1', date: '2026-06-10', amount: 12.5, note: 'Deslocação', car: true },
   ]));
+});
+
+test('syncs validation notes into staff payment notes when payment notes are not provided', () => {
+  const payload = normalizeAssignment({
+    validationNotes: 'Cliente confirmou atraso na saida.',
+  });
+
+  assert.equal(payload.validationNotes, 'Cliente confirmou atraso na saida.');
+  assert.equal(payload.paymentNotes, 'Cliente confirmou atraso na saida.');
+});
+
+test('keeps explicit staff payment notes when validation notes are also provided', () => {
+  const payload = normalizeAssignment({
+    validationNotes: 'Nota da validacao.',
+    paymentNotes: 'Nota financeira manual.',
+  });
+
+  assert.equal(payload.validationNotes, 'Nota da validacao.');
+  assert.equal(payload.paymentNotes, 'Nota financeira manual.');
 });
 
 test('normalizes assignment deferred payment month', () => {

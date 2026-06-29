@@ -1,4 +1,5 @@
 import { effectiveRowDateKey, effectiveRowStartTime } from './timeValidationFilters.js';
+import { durationHours } from './formatters.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -25,13 +26,11 @@ function formatTime(value) {
 }
 
 function formatHours(value) {
-  const parsed = Number(value || 0);
-  return `${(Number.isFinite(parsed) ? parsed : 0).toFixed(2)} h`;
+  return durationHours(value);
 }
 
-function formatHoursNumber(value) {
-  const parsed = Number(value || 0);
-  return (Number.isFinite(parsed) ? parsed : 0).toFixed(2);
+function formatHoursCell(value) {
+  return durationHours(value);
 }
 
 function formatMoney(value) {
@@ -348,7 +347,7 @@ export function buildStaffScheduleCsv(rows) {
       row.role,
       row.checkIn,
       row.checkOut,
-      formatHoursNumber(row.hours),
+      formatHoursCell(row.hours),
       formatMoney(row.rate),
       formatMoney(row.totalValue),
       row.notes || '',
@@ -406,13 +405,13 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
           <td>${escapeHtml(row.role)}</td>
           <td class="time-cell">${escapeHtml(row.checkIn)}</td>
           <td class="time-cell">${escapeHtml(row.checkOut)}</td>
-          <td class="number-cell">${escapeHtml(formatHoursNumber(row.hours))}</td>
+          <td class="number-cell">${escapeHtml(formatHoursCell(row.hours))}</td>
           <td>${escapeHtml(row.notes || '-')}</td>
         </tr>
       `).join('')}
       <tr class="event-total">
         <td colspan="8">Total evento</td>
-        <td class="number-cell">${escapeHtml(formatHoursNumber(groupHours))}</td>
+        <td class="number-cell">${escapeHtml(formatHoursCell(groupHours))}</td>
         <td class="money-cell">${escapeHtml(formatMoney(groupValue))}</td>
       </tr>
       <tr class="spacer"><td colspan="10"></td></tr>
@@ -522,7 +521,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
     </tr>
     <tr class="report-total">
       <td colspan="8">Total geral de horas Staff</td>
-      <td class="number-cell">${escapeHtml(formatHoursNumber(totalHours))}</td>
+      <td class="number-cell">${escapeHtml(formatHoursCell(totalHours))}</td>
       <td></td>
     </tr>
     <tr class="spacer"><td colspan="10"></td></tr>

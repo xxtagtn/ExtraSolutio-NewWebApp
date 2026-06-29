@@ -29,6 +29,20 @@ model NotificationDismissal {
   @@index([userId])
 }
 
+model ImportMapping {
+  id            Int      @id @default(autoincrement())
+  source        String
+  scopeKey      String   @default("global")
+  field         String
+  externalValue String
+  internalValue String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([source, scopeKey, field, externalValue])
+  @@index([source, field])
+}
+
 model Collaborator {
   id          Int               @id @default(autoincrement())
   name        String
@@ -53,6 +67,7 @@ model Collaborator {
   category    String            @default("")
   hourlyRate  Decimal           @default(0)
   includeVat  Boolean           @default(false)
+  hasOwnCar   Boolean           @default(false)
   isPreferred Boolean           @default(false)
   status      String            @default("active")
   notes       String?
@@ -150,12 +165,14 @@ model Budget {
   split5050     Boolean  @default(false)
   baseAmount    Decimal  @default(0)
   travelAmount  Decimal  @default(0)
+  travelCars    String?
   taxAmount     Decimal  @default(0)
   totalWithTax  Decimal  @default(0)
   discountRate  Decimal  @default(0)
   discountAmount Decimal @default(0)
   totalAmount   Decimal  @default(0)
   categories    String?
+  externalCosts String?
   paymentPlan   String?
   status        String   @default("new_request")
   paymentStatus String   @default("pending")
@@ -192,6 +209,7 @@ model Event {
   minimumHoursSnapshot Decimal    @default(0)
   guestsCount  Int?
   requiredRoles String?
+  externalCosts String?
   uniform      String?
   meetingPoint String?
   onsiteContactName String?
@@ -206,6 +224,8 @@ model Event {
   travelStaffHourlyRate Decimal @default(0)
   split5050    Boolean            @default(false)
   travelManualAmount Decimal      @default(0)
+  travelCars   String?
+  assignmentDrafts String?
   billingStatus String            @default("pending")
   billingPaymentDate DateTime?
   signaledAmount Decimal          @default(0)
@@ -262,6 +282,7 @@ model EventAssignment {
   validationStatus String     @default("pending")
   validationNotes  String?
   clientSynced     Boolean    @default(false)
+  isDriver         Boolean    @default(false)
   status         String       @default("assigned")
   paymentStatus  String       @default("unpaid")
   paymentDate    DateTime?

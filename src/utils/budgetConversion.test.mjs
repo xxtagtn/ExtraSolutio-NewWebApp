@@ -53,7 +53,7 @@ test('passes adjudicated budget total with cents to the converted event payload'
   assert.equal(payload.totalRevenue, 284.5);
 });
 
-test('preserves the legacy staff travel rate when converting a kilometer budget', () => {
+test('does not invent an automatic staff travel rate when converting a kilometer budget', () => {
   const draft = buildBudgetConversionDraft({
     reference: 'ORC-0103',
     companyName: 'BLACK',
@@ -67,9 +67,28 @@ test('preserves the legacy staff travel rate when converting a kilometer budget'
 
   const payload = buildEventPayloadFromBudgetConversion(draft, 7);
 
-  assert.equal(draft.travelStaffHourlyRate, 10);
-  assert.equal(payload.travelStaffHourlyRate, 10);
-  assert.equal(payload.travelExpenseAmount, 100);
+  assert.equal(draft.travelStaffHourlyRate, 0);
+  assert.equal(payload.travelStaffHourlyRate, 0);
+  assert.equal(payload.travelExpenseAmount, 40);
+});
+
+test('preserves multiple budget travel cars when converting into an event', () => {
+  const draft = buildBudgetConversionDraft({
+    reference: 'ORC-0104',
+    companyName: 'BLACK',
+    eventDate: '2026-07-12',
+    travelType: 'kilometers',
+    travelCars: JSON.stringify([
+      { label: 'Carro 1', km: 100, kmRate: 0.4, durationHours: 2, travelPeople: 3, travelStaffHourlyRate: 15 },
+      { label: 'Carro 2', km: 60, kmRate: 0.4, durationHours: 1.5, travelPeople: 2, travelStaffHourlyRate: 10 },
+    ]),
+  });
+
+  const payload = buildEventPayloadFromBudgetConversion(draft, 7);
+
+  assert.equal(draft.travelCars.length, 2);
+  assert.equal(payload.travelExpenseAmount, 184);
+  assert.equal(payload.travelCars.length, 2);
 });
 
 test('preserves multi-day budget dates, role quantities and client rates for conversion', () => {
@@ -116,4 +135,32 @@ test('preserves multi-day budget dates, role quantities and client rates for con
     start: '18:00',
     end: '23:00',
   });
+});
+
+test('preserves external partner costs when converting a budget into an event', () => {
+  const draft = buildBudgetConversionDraft({
+    reference: 'ORC-0301',
+    companyName: 'BLACK',
+    eventDate: '2026-07-12',
+    totalAmount: 225,
+    externalCosts: JSON.stringify([
+      {
+        type: 'Catering',
+        supplier: 'Parceiro A',
+        description: 'Menu volante',
+        costAmount: '100,00',
+        marginPercent: '20',
+      },
+    ]),
+  });
+
+  assert.equal(draft.externalCosts.length, 1);
+  assert.equal(draft.externalCosts[0].chargeAmount, 120);
+  assert.equal(draft.externalCosts[0].marginAmount, 20);
+
+  const payload = buildEventPayloadFromBudgetConversion(draft, 7);
+
+  assert.equal(payload.externalCosts.length, 1);
+  assert.equal(payload.externalCosts[0].supplier, 'Parceiro A');
+  assert.equal(payload.externalCosts[0].chargeAmount, 120);
 });

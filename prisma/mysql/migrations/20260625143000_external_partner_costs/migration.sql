@@ -1,0 +1,2 @@
+ALTER TABLE `Budget` ADD COLUMN `externalCosts` LONGTEXT NULL;
+ALTER TABLE `Event` ADD COLUMN `externalCosts` LONGTEXT NULL;

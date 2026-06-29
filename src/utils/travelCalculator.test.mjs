@@ -21,7 +21,28 @@ test('calculates kilometers and travel time', () => {
     km: 100,
     kmRate: 0.4,
     durationHours: 2,
+    travelStaffHourlyRate: 10,
   }), 100);
+});
+
+test('does not add an automatic staff travel amount when no manual staff value exists', () => {
+  assert.equal(calculateTravelAmount({
+    travelType: 'kilometers',
+    travelPeople: 3,
+    km: 100,
+    kmRate: 0.4,
+    durationHours: 2,
+  }), 40);
+});
+
+test('sums several kilometer cars with independent manual staff travel values', () => {
+  assert.equal(calculateTravelAmount({
+    travelType: 'kilometers',
+    travelCars: [
+      { km: 100, kmRate: 0.4, durationHours: 2, travelPeople: 3, travelStaffHourlyRate: 15 },
+      { km: 60, kmRate: 0.4, durationHours: 1.5, travelPeople: 2, travelStaffHourlyRate: '10,00€' },
+    ],
+  }), 184);
 });
 
 test('applies 50/50 only to the travel time amount', () => {
@@ -32,6 +53,7 @@ test('applies 50/50 only to the travel time amount', () => {
     kmRate: 0.4,
     durationHours: 2,
     split5050: true,
+    travelStaffHourlyRate: 10,
   }), 70);
 });
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   calendarDateKey,
+  calendarInitialCursor,
   calendarDateWithMonth,
   calendarWeekDates,
   serviceOccursOnDate,
@@ -25,6 +26,13 @@ test('clamps the selected day when changing to a shorter month', () => {
   assert.equal(
     calendarDateKey(calendarDateWithMonth(new Date(2026, 0, 31), 2026, 1)),
     '2026-02-28',
+  );
+});
+
+test('starts the calendar on the current day instead of the next event month', () => {
+  assert.equal(
+    calendarDateKey(calendarInitialCursor(new Date(2026, 5, 29, 18, 45))),
+    '2026-06-29',
   );
 });
 

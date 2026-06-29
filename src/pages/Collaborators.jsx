@@ -1,11 +1,18 @@
 import { ChevronLeft, ChevronRight, Edit2, Minus, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import IconButton from '../components/UI/IconButton.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import { computeShortName } from '../utils/collaboratorName.js';
+import { filterCollaborators } from '../utils/collaboratorFilters.js';
+import {
+  collaboratorPhotoSource,
+  mergeCollaboratorDetail,
+  shouldFetchCollaboratorDetail,
+} from '../utils/collaboratorDetails.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { documentExpiryAlert } from '../utils/documentExpiry.js';
 import { money } from '../utils/formatters.js';
@@ -14,6 +21,7 @@ import { paginateItems } from '../utils/pagination.js';
 const PHOTO_VIEWER_BASE_WIDTH = 420;
 const PHOTO_VIEWER_MAX_ZOOM = 2;
 const PHOTO_VIEWER_ZOOM_STEP = 0.1;
+const OWN_CAR_ROLE_FILTER = '__own_car__';
 
 function emptyForm() {
   return {
@@ -37,6 +45,7 @@ function emptyForm() {
     roles: [],
     hourlyRate: '0',
     includeVat: false,
+    hasOwnCar: false,
     status: 'active',
     notes: '',
     photo: '',
@@ -65,20 +74,77 @@ function rowToForm(row) {
     roles: row.roles || [],
     hourlyRate: String(row.hourlyRate ?? 0),
     includeVat: Boolean(row.includeVat),
+    hasOwnCar: Boolean(row.hasOwnCar),
     status: row.status || 'active',
     notes: row.notes || '',
     photo: row.photo || '',
   };
 }
 
-function computeShortName(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  if (parts.length <= 2) return parts.join(' ');
-  return [parts[0], parts[1], parts[parts.length - 1]].join(' ');
+function LazyCollaboratorPhoto({
+  row,
+  detail,
+  loading,
+  onVisible,
+  onOpen,
+}) {
+  const containerRef = useRef(null);
+  const [visible, setVisible] = useState(false);
+  const photo = collaboratorPhotoSource(row, detail);
+  const fetched = Boolean(detail) || row.photo !== undefined;
+
+  useEffect(() => {
+    if (photo || fetched || visible) return undefined;
+    const node = containerRef.current;
+    if (!node) return undefined;
+
+    if (!('IntersectionObserver' in window)) {
+      setVisible(true);
+      onVisible(row.id);
+      return undefined;
+    }
+
+    const observer = new window.IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      setVisible(true);
+      onVisible(row.id);
+      observer.disconnect();
+    }, { rootMargin: '180px 0px' });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [fetched, onVisible, photo, row.id, visible]);
+
+  return (
+    <aside
+      ref={containerRef}
+      className={`collab-detail-photo${loading || !fetched ? ' collab-detail-photo--loading' : ''}`}
+    >
+      {photo ? (
+        <button
+          type="button"
+          className="photo-zoom-trigger"
+          onClick={() => onOpen(photo, row.shortName || row.name)}
+          aria-label={`Ampliar foto de ${row.name}`}
+        >
+          <img
+            src={photo}
+            alt={`Foto de ${row.name}`}
+            loading="lazy"
+            decoding="async"
+          />
+        </button>
+      ) : loading || !fetched ? (
+        <span className="photo-skeleton">A carregar foto...</span>
+      ) : (
+        <span>Sem foto</span>
+      )}
+    </aside>
+  );
 }
 
 export default function Collaborators() {
-  const { data, loading, error, reload } = useApi('/collaborators', []);
+  const { data, loading, error, reload } = useApi('/collaborators?light=1', []);
   const { data: services } = useApi('/services', []);
   const { data: catalogRoles } = useApi('/collaborators/roles', []);
   const [nameFilter, setNameFilter] = useState('');
@@ -94,6 +160,9 @@ export default function Collaborators() {
   const [rolesOpen, setRolesOpen] = useState(false);
   const [shortNameTouched, setShortNameTouched] = useState(false);
   const [expandedRows, setExpandedRows] = useState({});
+  const [collaboratorDetails, setCollaboratorDetails] = useState({});
+  const [loadingDetailIds, setLoadingDetailIds] = useState({});
+  const detailRequestsRef = useRef(new Map());
   const [photoViewer, setPhotoViewer] = useState(null);
   const [photoZoom, setPhotoZoom] = useState(1);
   const [expiryReferenceDate, setExpiryReferenceDate] = useState(() => new Date());
@@ -130,11 +199,45 @@ export default function Collaborators() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const rows = useMemo(() => data.filter((row) => {
-    const byName = nameFilter ? String(row.name || '').toLowerCase().includes(nameFilter.toLowerCase()) : true;
-    const byRole = roleFilter ? (row.roles || []).includes(roleFilter) : true;
-    const byStatus = statusFilter ? row.status === statusFilter : true;
-    return byName && byRole && byStatus;
+  const loadCollaboratorDetail = useCallback(async (id) => {
+    if (!id) return null;
+    const key = String(id);
+    if (collaboratorDetails[key]) return collaboratorDetails[key];
+    if (detailRequestsRef.current.has(key)) return detailRequestsRef.current.get(key);
+
+    setLoadingDetailIds((prev) => ({ ...prev, [key]: true }));
+    const request = api(`/collaborators/${id}`)
+      .then((detail) => {
+        setCollaboratorDetails((prev) => ({ ...prev, [key]: detail }));
+        return detail;
+      })
+      .finally(() => {
+        detailRequestsRef.current.delete(key);
+        setLoadingDetailIds((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      });
+
+    detailRequestsRef.current.set(key, request);
+    return request;
+  }, [collaboratorDetails]);
+
+  const loadCollaboratorPhoto = useCallback((id) => {
+    const key = String(id);
+    const row = data.find((item) => String(item.id) === key);
+    if (!shouldFetchCollaboratorDetail(row, collaboratorDetails[key], Boolean(loadingDetailIds[key]))) return;
+    loadCollaboratorDetail(id).catch(() => {
+      setCollaboratorDetails((prev) => ({ ...prev, [key]: { ...(row || { id }), photo: null } }));
+    });
+  }, [collaboratorDetails, data, loadCollaboratorDetail, loadingDetailIds]);
+
+  const rows = useMemo(() => filterCollaborators(data, {
+    nameFilter,
+    roleFilter: roleFilter === OWN_CAR_ROLE_FILTER ? '' : roleFilter,
+    statusFilter,
+    ownCarOnly: roleFilter === OWN_CAR_ROLE_FILTER,
   }).sort((a, b) => {
     if (Boolean(a.isPreferred) !== Boolean(b.isPreferred)) return a.isPreferred ? -1 : 1;
     return String(a.name || '').localeCompare(String(b.name || ''), 'pt');
@@ -198,13 +301,19 @@ export default function Collaborators() {
     setShortNameTouched(false);
   }
 
-  function openEdit(row) {
-    setEditing(row);
-    setForm(rowToForm(row));
-    setFormOpen(true);
+  async function openEdit(row) {
     setFormError('');
     setRolesOpen(false);
-    setShortNameTouched(true);
+    setShortNameTouched(false);
+    try {
+      const detail = await loadCollaboratorDetail(row.id);
+      const fullRow = mergeCollaboratorDetail(row, detail);
+      setEditing(fullRow);
+      setForm(rowToForm(fullRow));
+      setFormOpen(true);
+    } catch (err) {
+      window.alert(err?.message || 'Não foi possível carregar a ficha completa do colaborador.');
+    }
   }
 
   function closeForm() {
@@ -279,6 +388,7 @@ export default function Collaborators() {
       insurancePolicy: source.insurancePolicy || null,
       allergies: source.allergies || null,
       availability: source.availability || null,
+      hasOwnCar: Boolean(source.hasOwnCar),
       notes: source.notes || null,
       photo: source.photo || null,
     };
@@ -290,10 +400,13 @@ export default function Collaborators() {
     setFormError('');
     try {
       const payload = payloadFromForm(form);
-      await api(`/collaborators${editing ? `/${editing.id}` : ''}`, {
+      const saved = await api(`/collaborators${editing ? `/${editing.id}` : ''}`, {
         method: editing ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
       });
+      if (saved?.id) {
+        setCollaboratorDetails((prev) => ({ ...prev, [String(saved.id)]: saved }));
+      }
       closeForm();
       reload();
     } catch (err) {
@@ -306,25 +419,34 @@ export default function Collaborators() {
   async function removeRow(row) {
     if (!window.confirm(`Eliminar "${row.name}"?`)) return;
     await api(`/collaborators/${row.id}`, { method: 'DELETE' });
+    setCollaboratorDetails((prev) => {
+      const next = { ...prev };
+      delete next[String(row.id)];
+      return next;
+    });
     reload();
   }
 
   async function togglePreferred(row) {
-    await api(`/collaborators/${row.id}`, {
+    const updated = await api(`/collaborators/${row.id}`, {
       method: 'PUT',
       body: JSON.stringify({ isPreferred: !row.isPreferred }),
     });
+    if (updated?.id) {
+      setCollaboratorDetails((prev) => ({ ...prev, [String(updated.id)]: updated }));
+    }
     reload();
   }
 
   return (
     <div className="page">
       <Card title="Colaboradores" action={<button className="command-button" type="button" onClick={openCreate}><Plus size={17} />Novo Colaborador</button>}>
-        <div className="filters">
+        <div className="filters collab-filters">
           <input className="form-control" placeholder="Pesquisar por nome..." value={nameFilter} onChange={(event) => setNameFilter(event.target.value)} />
           <select className="form-control" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
             <option value="">Todas as funções</option>
             {mergedRoleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
+            <option value={OWN_CAR_ROLE_FILTER}>Tem carro próprio</option>
           </select>
           <select className="form-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="">Todos os estados</option>
@@ -337,24 +459,27 @@ export default function Collaborators() {
         <div className="collab-details-list">
           {(loading ? [] : pagination.items).map((row) => {
             const stats = eventStatsByCollaborator.get(Number(row.id)) || { confirmed: 0, refused: 0, missedJustified: 0, missedUnjustified: 0 };
-            const expiryAlert = documentExpiryAlert(row.documentExpiry, expiryReferenceDate);
+            const detail = collaboratorDetails[String(row.id)];
+            const displayRow = mergeCollaboratorDetail(row, detail);
+            const detailLoading = Boolean(loadingDetailIds[String(row.id)]);
+            const expiryAlert = documentExpiryAlert(displayRow.documentExpiry, expiryReferenceDate);
             return (
-              <article className="collab-detail-card collab-detail-card--clickable" key={row.id}>
+              <article className="collab-detail-card collab-detail-card--clickable" key={displayRow.id}>
                 <header
                   role="button"
                   tabIndex={0}
-                  onClick={() => toggleExpanded(row.id)}
+                  onClick={() => toggleExpanded(displayRow.id)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      toggleExpanded(row.id);
+                      toggleExpanded(displayRow.id);
                     }
                   }}
                 >
                   <div className="collab-top-grid">
                     <div className="collab-col">
                       <strong>
-                        {row.shortName || row.name}
+                        {displayRow.shortName || displayRow.name}
                         {expiryAlert ? (
                           <span
                             aria-label={expiryAlert.label}
@@ -364,18 +489,18 @@ export default function Collaborators() {
                           />
                         ) : null}
                       </strong>
-                      <small>{row.name}</small>
+                      <small>{displayRow.name}</small>
                     </div>
-                    <div className="collab-col"><span>NIF</span><strong>{row.nif || '-'}</strong></div>
-                    <div className="collab-col"><span>Contacto</span><strong>{row.phone || '-'}</strong></div>
-                    <div className="collab-col"><span>Funções</span><div className="collab-role-list">{(row.roles || []).length ? row.roles.map((role) => <span className="collab-role-chip" key={`${row.id}-${role}`}>{role}</span>) : <span className="collab-role-chip">-</span>}</div></div>
-                    <div className="collab-detail-meta"><Badge tone={row.status === 'active' ? 'success' : 'neutral'}>{row.status === 'active' ? 'Ativo' : row.status === 'inactive' ? 'Inativo' : 'Pausado'}</Badge></div>
+                    <div className="collab-col"><span>NIF</span><strong>{displayRow.nif || '-'}</strong></div>
+                    <div className="collab-col"><span>Contacto</span><strong>{displayRow.phone || '-'}</strong></div>
+                    <div className="collab-col"><span>Funções</span><div className="collab-role-list">{(displayRow.roles || []).length ? displayRow.roles.map((role) => <span className="collab-role-chip" key={`${displayRow.id}-${role}`}>{role}</span>) : <span className="collab-role-chip">-</span>}</div></div>
+                    <div className="collab-detail-meta"><Badge tone={displayRow.status === 'active' ? 'success' : 'neutral'}>{displayRow.status === 'active' ? 'Ativo' : displayRow.status === 'inactive' ? 'Inativo' : 'Pausado'}</Badge></div>
                   </div>
                   <div className="row-actions" onClick={(event) => event.stopPropagation()}>
-                    <IconButton label={row.isPreferred ? 'Remover preferência' : 'Marcar como preferência'} onClick={() => togglePreferred(row)}>{row.isPreferred ? <Star size={16} style={{ color: '#facc15', fill: '#facc15' }} /> : <StarOff size={16} style={{ color: '#8a96a0' }} />}</IconButton>
+                    <IconButton label={displayRow.isPreferred ? 'Remover preferência' : 'Marcar como preferência'} onClick={() => togglePreferred(displayRow)}>{displayRow.isPreferred ? <Star size={16} style={{ color: '#facc15', fill: '#facc15' }} /> : <StarOff size={16} style={{ color: '#8a96a0' }} />}</IconButton>
                   </div>
                 </header>
-                {expandedRows[row.id] ? (
+                {expandedRows[displayRow.id] ? (
                   <>
                     <div className="collab-detail-body">
                       <div className="collab-detail-grid">
@@ -385,37 +510,33 @@ export default function Collaborators() {
                           <div><small>Faltou c/Justificação</small><strong>{stats.missedJustified}</strong></div>
                           <div><small>Faltou s/Justificação</small><strong>{stats.missedUnjustified}</strong></div>
                         </div>
-                        <p><span>Email</span><strong>{row.email || '-'}</strong></p>
-                        <p><span>Valor/h</span><strong>{money.format(Number(row.hourlyRate || 0))}</strong></p>
-                        <p><span>Inclui IVA</span><strong>{row.includeVat ? 'Sim (23%)' : 'Não'}</strong></p>
-                        <p><span>IBAN</span><strong>{row.iban || '-'}</strong></p>
-                        <p><span>Documento</span><strong>{row.documentType || '-'} {row.documentNumber || ''}</strong></p>
-                        <p><span>Validade</span><strong>{row.documentExpiry ? String(row.documentExpiry).slice(0, 10) : '-'}</strong></p>
-                        <p><span>Nascimento</span><strong>{row.birthDate ? String(row.birthDate).slice(0, 10) : '-'}</strong></p>
-                        <p><span>Género</span><strong>{row.gender || '-'}</strong></p>
-                        <p><span>Residência</span><strong>{row.residenceArea || '-'}</strong></p>
-                        <p><span>Recibo Verde</span><strong>{row.greenReceipt || '-'}</strong></p>
-                        <p><span>Seguro</span><strong>{row.insurancePolicy || '-'}</strong></p>
-                        <p><span>Restrições Alimentares</span><strong>{row.allergies || '-'}</strong></p>
-                        <p><span>Disponibilidade</span><strong>{row.availability || '-'}</strong></p>
-                        <p className="span-2"><span>Notas</span><strong>{row.notes || '-'}</strong></p>
+                        <p><span>Email</span><strong>{displayRow.email || '-'}</strong></p>
+                        <p><span>Valor/h</span><strong>{money.format(Number(displayRow.hourlyRate || 0))}</strong></p>
+                        <p><span>Inclui IVA</span><strong>{displayRow.includeVat ? 'Sim (23%)' : 'Não'}</strong></p>
+                        <p><span>Viatura própria</span><strong>{displayRow.hasOwnCar ? 'Sim' : 'Não'}</strong></p>
+                        <p><span>IBAN</span><strong>{displayRow.iban || '-'}</strong></p>
+                        <p><span>Documento</span><strong>{displayRow.documentType || '-'} {displayRow.documentNumber || ''}</strong></p>
+                        <p><span>Validade</span><strong>{displayRow.documentExpiry ? String(displayRow.documentExpiry).slice(0, 10) : '-'}</strong></p>
+                        <p><span>Nascimento</span><strong>{displayRow.birthDate ? String(displayRow.birthDate).slice(0, 10) : '-'}</strong></p>
+                        <p><span>Género</span><strong>{displayRow.gender || '-'}</strong></p>
+                        <p><span>Residência</span><strong>{displayRow.residenceArea || '-'}</strong></p>
+                        <p><span>Recibo Verde</span><strong>{displayRow.greenReceipt || '-'}</strong></p>
+                        <p><span>Seguro</span><strong>{displayRow.insurancePolicy || '-'}</strong></p>
+                        <p><span>Restrições Alimentares</span><strong>{displayRow.allergies || '-'}</strong></p>
+                        <p><span>Disponibilidade</span><strong>{displayRow.availability || '-'}</strong></p>
+                        <p className="span-2"><span>Notas</span><strong>{displayRow.notes || '-'}</strong></p>
                       </div>
-                      <aside className="collab-detail-photo">
-                        {row.photo ? (
-                          <button
-                            type="button"
-                            className="photo-zoom-trigger"
-                            onClick={() => openPhotoViewer(row.photo, row.shortName || row.name)}
-                            aria-label={`Ampliar foto de ${row.name}`}
-                          >
-                            <img src={row.photo} alt={`Foto de ${row.name}`} />
-                          </button>
-                        ) : <span>Sem foto</span>}
-                      </aside>
+                      <LazyCollaboratorPhoto
+                        row={displayRow}
+                        detail={detail}
+                        loading={detailLoading}
+                        onVisible={loadCollaboratorPhoto}
+                        onOpen={openPhotoViewer}
+                      />
                     </div>
                     <footer className="collab-detail-actions">
-                      <IconButton label="Editar" onClick={() => openEdit(row)}><Edit2 size={16} /></IconButton>
-                      <IconButton label="Eliminar" tone="danger" onClick={() => removeRow(row)}><Trash2 size={16} /></IconButton>
+                      <IconButton label={detailLoading ? 'A carregar ficha' : 'Editar'} disabled={detailLoading} onClick={() => openEdit(displayRow)}><Edit2 size={16} /></IconButton>
+                      <IconButton label="Eliminar" tone="danger" onClick={() => removeRow(displayRow)}><Trash2 size={16} /></IconButton>
                     </footer>
                   </>
                 ) : null}
@@ -579,6 +700,14 @@ export default function Collaborators() {
                   <option value="inactive">Inativo</option>
                   <option value="paused">Pausado</option>
                 </select>
+                <label className="check-inline collab-car-check">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.hasOwnCar)}
+                    onChange={(event) => setForm({ ...form, hasOwnCar: event.target.checked })}
+                  />
+                  <span>Tem carro próprio</span>
+                </label>
               </aside>
             </div>
             {formError ? <p className="notice">{formError}</p> : null}

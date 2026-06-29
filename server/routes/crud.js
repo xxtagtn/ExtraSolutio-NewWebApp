@@ -1,4 +1,7 @@
 ﻿import { Router } from 'express';
+import { normalizeExternalCosts } from '../../src/utils/externalCosts.js';
+import { normalizeAssignmentDrafts } from '../../src/utils/serviceAssignmentDrafts.js';
+import { normalizeTravelCars } from '../../src/utils/travelCalculator.js';
 import { pick, toDate, asyncHandler } from '../utils/http.js';
 
 function parseId(req, res) {
@@ -144,6 +147,19 @@ function normalizeAdvancePayments(value) {
     .filter((item) => item.amount > 0);
   return normalized.length ? JSON.stringify(normalized) : null;
 }
+
+function normalizeTravelCarsForStorage(value) {
+  if (value === undefined) return undefined;
+  const cars = normalizeTravelCars(value);
+  return cars.length ? JSON.stringify(cars) : null;
+}
+
+function normalizeAssignmentDraftsForStorage(value) {
+  if (value === undefined) return undefined;
+  const drafts = normalizeAssignmentDrafts(value);
+  return drafts.length ? JSON.stringify(drafts) : null;
+}
+
 export function normalizeEvent(input) {
   const requiredRoles = Array.isArray(input.requiredRoles) ? input.requiredRoles : [];
   const parseRate = (value) => {
@@ -166,6 +182,8 @@ export function normalizeEvent(input) {
     durationHours: parseDecimal(input.durationHours),
     travelStaffHourlyRate: parseDecimal(input.travelStaffHourlyRate),
     travelManualAmount: parseDecimal(input.travelManualAmount),
+    travelCars: normalizeTravelCarsForStorage(input.travelCars),
+    assignmentDrafts: normalizeAssignmentDraftsForStorage(input.assignmentDrafts),
     signaledAmount: parseDecimal(input.signaledAmount),
     paidAmount: parseDecimal(input.paidAmount),
     realHours: parseDecimal(input.realHours),
@@ -177,6 +195,7 @@ export function normalizeEvent(input) {
         .map((item) => ({ role: item?.role ? String(item.role).trim() : '', qty: Number(item?.qty || 0), agreedRate: parseRate(item?.agreedRate) }))
         .filter((item) => item.role && Number.isFinite(item.qty) && item.qty > 0),
     ),
+    externalCosts: input.externalCosts === undefined ? undefined : JSON.stringify(normalizeExternalCosts(input.externalCosts)),
     clientId: asInt(input.clientId),
     ...(input.date ? { date: toDate(input.date) } : {}),
     ...(input.endDate !== undefined ? (input.endDate ? { endDate: toDate(input.endDate) } : { endDate: null }) : {}),
@@ -283,6 +302,7 @@ export function normalizePayment(input) {
 }
 
 export function normalizeAssignment(input) {
+  const syncedPaymentNotes = input.paymentNotes !== undefined ? input.paymentNotes : input.validationNotes;
   return compact({
     eventId: asInt(input.eventId),
     collaboratorId: asInt(input.collaboratorId),
@@ -303,11 +323,12 @@ export function normalizeAssignment(input) {
     hourlyRate: parseDecimal(input.hourlyRate),
     totalPay: parseDecimal(input.totalPay),
     paymentAdjustment: parseDecimal(input.paymentAdjustment),
-    paymentNotes: input.paymentNotes,
+    paymentNotes: syncedPaymentNotes,
     advancePayments: normalizeAdvancePayments(input.advancePayments),
     validationStatus: input.validationStatus,
     validationNotes: input.validationNotes,
     clientSynced: parseBoolean(input.clientSynced),
+    isDriver: parseBoolean(input.isDriver),
     status: input.status,
     paymentStatus: input.paymentStatus,
     paymentDeferredMonth: input.paymentDeferredMonth === undefined ? undefined : input.paymentDeferredMonth || null,
@@ -351,7 +372,9 @@ export function normalizeBudget(input) {
     discountAmount: input.discountAmount === undefined ? undefined : Number(input.discountAmount),
     totalAmount: input.totalAmount === undefined ? undefined : Number(input.totalAmount),
     marginAmount: input.marginAmount === undefined ? undefined : Number(input.marginAmount),
+    travelCars: normalizeTravelCarsForStorage(input.travelCars),
     categories: input.categories === undefined ? undefined : JSON.stringify(input.categories ?? []),
+    externalCosts: input.externalCosts === undefined ? undefined : JSON.stringify(normalizeExternalCosts(input.externalCosts)),
     paymentPlan: input.paymentPlan === undefined ? undefined : JSON.stringify(input.paymentPlan ?? []),
     followUpHistory: input.followUpHistory === undefined ? undefined : JSON.stringify(input.followUpHistory ?? []),
     clientId: asInt(input.clientId),
