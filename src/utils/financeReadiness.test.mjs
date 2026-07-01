@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isFinanceReadyEvent } from './financeReadiness.js';
+import { isFinanceReadyEvent, splitFinanceReadiness } from './financeReadiness.js';
 
-test('includes an event explicitly marked as having validated hours', () => {
+test('does not make an event processable only because it has a validated marker', () => {
   assert.equal(isFinanceReadyEvent({
     status: 'team_complete',
     billingStatus: 'pending',
     notes: '[EVENT_VALIDATED_HOURS] 2026-06-03T12:00:00.000Z',
     assignments: [],
-  }), true);
+  }), false);
 });
 
 test('includes finalized events in finance', () => {
@@ -19,7 +19,7 @@ test('includes finalized events in finance', () => {
   }), true);
 });
 
-test('includes an event when all billable assignments are validated', () => {
+test('does not make an event processable only because all billable assignments are validated', () => {
   assert.equal(isFinanceReadyEvent({
     status: 'team_complete',
     billingStatus: 'pending',
@@ -27,7 +27,7 @@ test('includes an event when all billable assignments are validated', () => {
       { status: 'confirmed', validationStatus: 'validated' },
       { status: 'confirmed', validationStatus: 'validated' },
     ],
-  }), true);
+  }), false);
 });
 
 test('does not include an event while billable assignments are still pending validation', () => {
@@ -41,22 +41,37 @@ test('does not include an event while billable assignments are still pending val
   }), false);
 });
 
-test('ignores cancelled and missed assignments when checking validation readiness', () => {
+test('does not make an event processable while it is still operationally open', () => {
   assert.equal(isFinanceReadyEvent({
-    status: 'team_complete',
+    status: 'to_validate_client',
     billingStatus: 'pending',
     assignments: [
       { status: 'confirmed', validationStatus: 'validated' },
-      { status: 'cancelled', validationStatus: 'pending' },
-      { status: 'missed_justified', validationStatus: 'pending' },
     ],
-  }), true);
+  }), false);
 });
 
-test('keeps events with closed billing statuses visible', () => {
+test('does not make an event processable only because billing is closed', () => {
   assert.equal(isFinanceReadyEvent({
     status: 'team_complete',
     billingStatus: 'invoiced',
     assignments: [],
-  }), true);
+  }), false);
+});
+
+test('keeps legacy final operational statuses processable', () => {
+  assert.equal(isFinanceReadyEvent({ status: 'paid', billingStatus: 'pending' }), true);
+  assert.equal(isFinanceReadyEvent({ status: 'invoiced', billingStatus: 'pending' }), true);
+  assert.equal(isFinanceReadyEvent({ status: 'completed', billingStatus: 'pending' }), true);
+});
+
+test('splits events between forecast and processable finance buckets', () => {
+  const result = splitFinanceReadiness([
+    { id: 1, status: 'finalized' },
+    { id: 2, status: 'to_validate_client', billingStatus: 'paid' },
+    { id: 3, status: 'drafting' },
+  ]);
+
+  assert.deepEqual(result.readyEvents.map((event) => event.id), [1]);
+  assert.deepEqual(result.forecastEvents.map((event) => event.id), [2, 3]);
 });

@@ -2,6 +2,7 @@ import {
   compareTimeValidationRows,
   effectiveRowDateKey,
 } from './timeValidationFilters.js';
+import { hoursValidationState } from './hourValidationStatus.js';
 
 export const TIME_VALIDATION_STAGE = Object.freeze({
   staffPending: 'staff_pending',
@@ -32,8 +33,7 @@ export function validationWorkflowStage(row = {}) {
   if (!clientComplete) return TIME_VALIDATION_STAGE.clientPending;
 
   if (assignment.validationStatus === 'validated') return TIME_VALIDATION_STAGE.ready;
-  if (row.isDifference) return TIME_VALIDATION_STAGE.differences;
-  return TIME_VALIDATION_STAGE.ready;
+  return TIME_VALIDATION_STAGE.clientPending;
 }
 
 export function preserveStageAfterManualRowSave(currentStage, savedRow = {}) {
@@ -55,7 +55,6 @@ export function reopenTargetStage(rows = []) {
 
   if (reopenedStages.includes(TIME_VALIDATION_STAGE.staffPending)) return TIME_VALIDATION_STAGE.staffPending;
   if (reopenedStages.includes(TIME_VALIDATION_STAGE.clientPending)) return TIME_VALIDATION_STAGE.clientPending;
-  if (reopenedStages.includes(TIME_VALIDATION_STAGE.differences)) return TIME_VALIDATION_STAGE.differences;
   return TIME_VALIDATION_STAGE.ready;
 }
 
@@ -73,6 +72,25 @@ export function validationStageCounts(rows = []) {
     counts[stage] += 1;
   }
   return counts;
+}
+
+export function validationEventWorkflowSummary(rows = [], options = {}) {
+  const includeRow = typeof options.includeRow === 'function' ? options.includeRow : () => true;
+  const countableRows = rows.filter((row) => includeRow(row));
+  const stageCounts = validationStageCounts(countableRows);
+
+  return {
+    total: countableRows.length,
+    validated: countableRows.filter((row) => hoursValidationState(row?.assignment).isValidated).length,
+    staffComplete: countableRows.filter((row) => Boolean(row?.assignment?.checkIn && row?.assignment?.checkOut)).length,
+    clientComplete: countableRows.filter((row) => Boolean(row?.assignment?.clientCheckIn && row?.assignment?.clientCheckOut)).length,
+    differences: countableRows.filter((row) => row?.isDifference && !hoursValidationState(row?.assignment).isValidated).length,
+    ready: countableRows.length > 0 && countableRows.every((row) => (
+      hoursValidationState(row?.assignment).isValidated
+      || (row?.workflowStage || validationWorkflowStage(row)) === TIME_VALIDATION_STAGE.finalized
+    )),
+    stageCounts,
+  };
 }
 
 export function persistedWorkflowAssignment(assignment = {}, draft = {}) {

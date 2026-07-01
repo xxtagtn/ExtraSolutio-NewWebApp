@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Edit2, Minus, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import IconButton from '../components/UI/IconButton.jsx';
@@ -144,6 +145,7 @@ function LazyCollaboratorPhoto({
 }
 
 export default function Collaborators() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi('/collaborators?light=1', []);
   const { data: services } = useApi('/services', []);
   const { data: catalogRoles } = useApi('/collaborators/roles', []);
@@ -165,8 +167,11 @@ export default function Collaborators() {
   const detailRequestsRef = useRef(new Map());
   const [photoViewer, setPhotoViewer] = useState(null);
   const [photoZoom, setPhotoZoom] = useState(1);
+  const [highlightFormSection, setHighlightFormSection] = useState('');
   const [expiryReferenceDate, setExpiryReferenceDate] = useState(() => new Date());
   const rolesDropdownRef = useRef(null);
+  const documentSectionRef = useRef(null);
+  const openedFromQueryRef = useRef('');
 
   useEffect(() => {
     if (!rolesOpen) return undefined;
@@ -233,6 +238,61 @@ export default function Collaborators() {
     });
   }, [collaboratorDetails, data, loadCollaboratorDetail, loadingDetailIds]);
 
+  useEffect(() => {
+    const collaboratorId = searchParams.get('collaboratorId');
+    const section = searchParams.get('section') || '';
+    if (!collaboratorId) {
+      openedFromQueryRef.current = '';
+      return;
+    }
+    if (loading) return;
+    const key = String(collaboratorId);
+    if (openedFromQueryRef.current === key) return;
+
+    const row = data.find((item) => String(item.id) === key);
+    if (!row) return;
+
+    openedFromQueryRef.current = key;
+    setExpandedRows((prev) => ({ ...prev, [key]: true }));
+    let cancelled = false;
+
+    loadCollaboratorDetail(row.id)
+      .then((detail) => {
+        if (cancelled) return;
+        const fullRow = mergeCollaboratorDetail(row, detail);
+        setFormError('');
+        setRolesOpen(false);
+        setShortNameTouched(false);
+        setEditing(fullRow);
+        setForm(rowToForm(fullRow));
+        setHighlightFormSection(section);
+        setFormOpen(true);
+        const nextParams = new window.URLSearchParams(searchParams);
+        nextParams.delete('collaboratorId');
+        nextParams.delete('section');
+        setSearchParams(nextParams, { replace: true });
+      })
+      .catch((err) => {
+        if (!cancelled) window.alert(err?.message || 'Não foi possível carregar a ficha completa do colaborador.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data, loadCollaboratorDetail, loading, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!formOpen || highlightFormSection !== 'documents') return undefined;
+    const timeout = window.setTimeout(() => {
+      documentSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+    const clear = window.setTimeout(() => setHighlightFormSection(''), 2200);
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearTimeout(clear);
+    };
+  }, [formOpen, highlightFormSection]);
+
   const rows = useMemo(() => filterCollaborators(data, {
     nameFilter,
     roleFilter: roleFilter === OWN_CAR_ROLE_FILTER ? '' : roleFilter,
@@ -295,6 +355,7 @@ export default function Collaborators() {
   function openCreate() {
     setEditing(null);
     setForm(emptyForm());
+    setHighlightFormSection('');
     setFormOpen(true);
     setFormError('');
     setRolesOpen(false);
@@ -310,6 +371,7 @@ export default function Collaborators() {
       const fullRow = mergeCollaboratorDetail(row, detail);
       setEditing(fullRow);
       setForm(rowToForm(fullRow));
+      setHighlightFormSection('');
       setFormOpen(true);
     } catch (err) {
       window.alert(err?.message || 'Não foi possível carregar a ficha completa do colaborador.');
@@ -318,6 +380,7 @@ export default function Collaborators() {
 
   function closeForm() {
     setFormOpen(false);
+    setHighlightFormSection('');
     setEditing(null);
     setForm(emptyForm());
     setFormError('');
@@ -610,7 +673,10 @@ export default function Collaborators() {
                   <div><label>NIF</label><input placeholder="Ex: 123456789" value={form.nif} onChange={(event) => onNifChange(event.target.value)} /></div>
                   <div><label>Nome curto</label><input placeholder="Ex: João Miguel Silva" value={form.shortName} onChange={(event) => { setShortNameTouched(true); setForm({ ...form, shortName: event.target.value }); }} /></div>
                 </div>
-                <div className="collab-document-row">
+                <div
+                  ref={documentSectionRef}
+                  className={`collab-document-row${highlightFormSection === 'documents' ? ' collab-document-row--highlight' : ''}`}
+                >
                   <div>
                     <label>Documento de Identificação</label>
                     <select value={form.documentType} onChange={(event) => setForm({ ...form, documentType: event.target.value, documentNumber: '' })}>

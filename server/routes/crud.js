@@ -241,6 +241,9 @@ export function normalizeClient(input, existing = null) {
       'billingMethod',
       'billingCustomRule',
       'paymentTerm',
+      'defaultUniform',
+      'defaultOnsiteContactName',
+      'defaultOnsiteContactPhone',
       'status',
       'notes',
     ]),
@@ -248,6 +251,12 @@ export function normalizeClient(input, existing = null) {
     minimumHours: input.minimumHours === undefined
       ? undefined
       : Math.max(0, parseDecimal(input.minimumHours) || 0),
+    prepaymentPercent: input.prepaymentPercent === undefined
+      ? undefined
+      : Math.max(0, parseDecimal(input.prepaymentPercent) || 0),
+    prepaymentRemainingDaysBefore: input.prepaymentRemainingDaysBefore === undefined
+      ? undefined
+      : Math.max(0, asInt(input.prepaymentRemainingDaysBefore) || 0),
   });
 
   if (input.roleRates !== undefined) {

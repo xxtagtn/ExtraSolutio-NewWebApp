@@ -111,6 +111,11 @@ model Client {
   minimumHours  Decimal   @default(0)
   roleRates     String?
   roleRatesUpdatedAt DateTime?
+  defaultUniform String?
+  defaultOnsiteContactName String?
+  defaultOnsiteContactPhone String?
+  prepaymentPercent Decimal @default(70)
+  prepaymentRemainingDaysBefore Int @default(7)
   status        String    @default("active")
   notes         String?
   createdAt     DateTime  @default(now())

@@ -1,4 +1,18 @@
-import { Edit2, Plus, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Building2,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  CreditCard,
+  Edit2,
+  FileText,
+  Globe2,
+  MoreVertical,
+  Phone,
+  Plus,
+  Shirt,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import Card from '../components/UI/Card.jsx';
 import Badge from '../components/UI/Badge.jsx';
@@ -31,6 +45,15 @@ const paymentTermLabels = {
   custom: 'Personalizado',
 };
 
+const uniformOptions = [
+  'Polo ExtraSolutio',
+  'Camisa Branca',
+  'Camisa Preta',
+  'Fato',
+  'Definido pelo cliente',
+  'Outros',
+];
+
 function emptyForm() {
   return {
     type: 'particular',
@@ -48,6 +71,11 @@ function emptyForm() {
     paymentTermDays: '',
     minimumHours: '',
     roleRates: [],
+    defaultUniform: '',
+    defaultOnsiteContactName: '',
+    defaultOnsiteContactPhone: '',
+    prepaymentPercent: '70',
+    prepaymentRemainingDaysBefore: '7',
     status: 'active',
     notes: '',
   };
@@ -117,11 +145,43 @@ function formatDateTime(value) {
   }).format(d);
 }
 
+function formatDate(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return new Intl.DateTimeFormat('pt-PT', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(d);
+}
+
+function formatHours(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number <= 0) return 'Sem mínimo';
+  const minutes = Math.round(number * 60);
+  const hours = Math.floor(minutes / 60);
+  const rest = String(minutes % 60).padStart(2, '0');
+  return `${hours}:${rest}h`;
+}
+
+function paymentTermText(row) {
+  if (row?.paymentTerm === 'custom') return `${row.paymentTermDays || '-'} dias`;
+  return paymentTermLabels[row?.paymentTerm] || '-';
+}
+
+function prepaymentText(row) {
+  if (row?.billingMethod !== 'prepaid') return 'Não aplicável';
+  return `${Number(row.prepaymentPercent || 70)}% + restante ${Number(row.prepaymentRemainingDaysBefore ?? 7)} dias antes`;
+}
+
 export default function Clients() {
   const { data, loading, error, reload } = useApi('/clients', []);
   const { data: catalogRoles } = useApi('/collaborators/roles', []);
-  const [expanded, setExpanded] = useState({});
   const [search, setSearch] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState(null);
+  const [clientTab, setClientTab] = useState('rules');
+  const [clientMenuOpen, setClientMenuOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
@@ -149,8 +209,15 @@ export default function Clients() {
     [catalogRoles, form.roleRates],
   );
 
-  function toggleExpanded(id) {
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  const selectedClient = useMemo(
+    () => data.find((row) => String(row.id) === String(selectedClientId)) || null,
+    [data, selectedClientId],
+  );
+
+  function openClientDetail(row) {
+    setSelectedClientId(row.id);
+    setClientTab('rules');
+    setClientMenuOpen(false);
   }
 
   function openCreate() {
@@ -178,6 +245,11 @@ export default function Clients() {
       paymentTermDays: row.paymentTermDays ?? '',
       minimumHours: Number(row.minimumHours || 0) > 0 ? String(row.minimumHours) : '',
       roleRates: parseRoleRates(row.roleRates).map((item) => ({ role: item.role, rate: formatRate(item.rate) })),
+      defaultUniform: row.defaultUniform || '',
+      defaultOnsiteContactName: row.defaultOnsiteContactName || '',
+      defaultOnsiteContactPhone: row.defaultOnsiteContactPhone || '',
+      prepaymentPercent: row.prepaymentPercent ?? '70',
+      prepaymentRemainingDaysBefore: row.prepaymentRemainingDaysBefore ?? '7',
       status: row.status || 'active',
       notes: row.notes || '',
     });
@@ -195,6 +267,15 @@ export default function Clients() {
         paymentTermDays: form.paymentTerm === 'custom' && form.paymentTermDays !== '' ? Number(form.paymentTermDays) : null,
         minimumHours: form.minimumHours === '' ? 0 : Number(String(form.minimumHours).replace(',', '.')),
         billingCustomRule: form.billingMethod === 'custom' ? form.billingCustomRule : null,
+        defaultUniform: form.defaultUniform || null,
+        defaultOnsiteContactName: null,
+        defaultOnsiteContactPhone: null,
+        prepaymentPercent: form.billingMethod === 'prepaid' && form.prepaymentPercent !== ''
+          ? Number(String(form.prepaymentPercent).replace(',', '.'))
+          : 70,
+        prepaymentRemainingDaysBefore: form.billingMethod === 'prepaid' && form.prepaymentRemainingDaysBefore !== ''
+          ? Number(form.prepaymentRemainingDaysBefore)
+          : 7,
         roleRates: roleRatesPayload(roleOptions, form.roleRates),
       };
       await api(`/clients${editing ? `/${editing.id}` : ''}`, {
@@ -213,42 +294,229 @@ export default function Clients() {
   async function removeRow(row) {
     if (!window.confirm(`Eliminar "${row.name}"`)) return;
     await api(`/clients/${row.id}`, { method: 'DELETE' });
+    if (String(selectedClientId) === String(row.id)) setSelectedClientId(null);
     reload();
+  }
+
+  function renderRulesTab(row) {
+    const rowRoleRates = parseRoleRates(row.roleRates);
+    const ruleCards = [
+      {
+        icon: FileText,
+        label: 'Método de faturação',
+        value: billingMethodLabels[row.billingMethod] || '-',
+      },
+      {
+        icon: CalendarDays,
+        label: 'Prazo de pagamento',
+        value: paymentTermText(row),
+      },
+      {
+        icon: Clock3,
+        label: 'Horas mínimas',
+        value: Number(row.minimumHours || 0) > 0 ? `${formatHours(row.minimumHours)} por colaborador/turno` : 'Sem mínimo',
+      },
+      {
+        icon: Shirt,
+        label: 'Uniforme habitual',
+        value: row.defaultUniform || 'Definir no evento',
+      },
+      {
+        icon: CreditCard,
+        label: 'Pré-pagamento',
+        value: prepaymentText(row),
+      },
+      {
+        icon: Phone,
+        label: 'Contacto habitual no local',
+        value: `${row.defaultOnsiteContactName || row.representativeName || '-'}${row.defaultOnsiteContactPhone || row.phone ? ` · ${row.defaultOnsiteContactPhone || row.phone}` : ''}`,
+      },
+    ].filter((card) => card.label !== 'Contacto habitual no local');
+
+    return (
+      <section className="client-detail-rules">
+        <h2>Regras Operacionais e Comerciais</h2>
+        <div className="client-commercial-layout">
+          <div className="client-commercial-main">
+            <div className="client-rule-card-grid">
+              {ruleCards.map((card) => {
+                const Icon = card.icon;
+                return (
+                  <article className="client-rule-card" key={card.label}>
+                    <span className="client-rule-icon"><Icon size={22} /></span>
+                    <div>
+                      <span>{card.label}:</span>
+                      <strong>{card.value}</strong>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <section className="client-rates-table-card">
+              <header>
+                <h3>Valores/h por função</h3>
+              </header>
+              <div className="client-rates-table">
+                <div className="client-rates-table__head">
+                  <span>Função</span>
+                  <span>Valor/h</span>
+                </div>
+                {(rowRoleRates.length ? rowRoleRates : [{ role: 'Sem valores definidos', rate: 0 }]).map((item) => (
+                  <div className="client-rates-table__row" key={`${row.id}-${item.role}`}>
+                    <span className="client-rate-drag">::</span>
+                    <strong>{item.role}</strong>
+                    <span>{item.rate ? formatRate(item.rate) : '-'}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <aside className="client-auto-use-panel">
+            <h3>Usado automaticamente em</h3>
+            <p>Estas regras são aplicadas automaticamente nos seguintes módulos.</p>
+            <div>
+              {['Orçamentos', 'Eventos/Serviços', 'Financeiro'].map((item) => (
+                <span key={item}><CheckCircle2 size={15} />{item}</span>
+              ))}
+            </div>
+          </aside>
+        </div>
+      </section>
+    );
+  }
+
+  function renderClientTab(row) {
+    if (clientTab === 'rules') return renderRulesTab(row);
+    if (clientTab === 'locations') {
+      return (
+        <section className="client-detail-simple-panel">
+          <h2>Locais</h2>
+          <div className="collab-detail-grid">
+            <p><span>Morada habitual</span><strong>{row.address || '-'}</strong></p>
+            <p><span>Código postal</span><strong>{row.postalCode || '-'}</strong></p>
+            <p><span>Cidade</span><strong>{row.city || '-'}</strong></p>
+            <p><span>Contacto no local</span><strong>{row.representativeName || '-'}</strong></p>
+            <p><span>Telefone</span><strong>{row.phone || '-'}</strong></p>
+          </div>
+        </section>
+      );
+    }
+    if (clientTab === 'history') {
+      return (
+        <section className="client-detail-simple-panel">
+          <h2>Histórico</h2>
+          <div className="collab-detail-grid">
+            <p><span>Criado em</span><strong>{formatDateTime(row.createdAt)}</strong></p>
+            <p><span>Atualizado em</span><strong>{formatDateTime(row.updatedAt)}</strong></p>
+            <p><span>Valores/h alterados em</span><strong>{formatDateTime(row.roleRatesUpdatedAt)}</strong></p>
+          </div>
+        </section>
+      );
+    }
+    return (
+      <section className="client-detail-simple-panel">
+        <h2>Dados</h2>
+        <div className="collab-detail-grid">
+          <p><span>Tipo de cliente</span><strong>{typeLabels[row.type] || row.type || '-'}</strong></p>
+          <p><span>NIF</span><strong>{row.nif || '-'}</strong></p>
+          <p><span>Representante</span><strong>{row.representativeName || '-'}</strong></p>
+          <p><span>Telefone</span><strong>{row.phone || '-'}</strong></p>
+          <p><span>Email</span><strong>{row.email || '-'}</strong></p>
+          <p><span>Estado</span><strong>{row.status === 'active' ? 'Ativo' : row.status === 'inactive' ? 'Inativo' : 'Pausado'}</strong></p>
+          <p className="span-2"><span>Notas</span><strong>{row.notes || '-'}</strong></p>
+        </div>
+      </section>
+    );
   }
 
   return (
     <div className="page">
-      <Card
-        title="Clientes"
-        action={(
-          <button className="command-button" type="button" onClick={openCreate}>
-            <Plus size={17} />
-            Novo Cliente
-          </button>
-        )}
-      >
-        {error ? <p className="notice">{error}</p> : null}
-        <div className="filters">
-          <input
-            className="form-control"
-            value={search}
-            placeholder="Pesquisar cliente (nome, NIF, telefone, representante, email)"
-            onChange={(event) => setSearch(event.target.value)}
-          />
+      {selectedClient ? (
+        <div className="client-detail-page">
+          <section className="client-detail-hero">
+            <div className="client-detail-title">
+              <button className="client-detail-back-button" type="button" onClick={() => setSelectedClientId(null)}>
+                <ArrowLeft size={17} />
+                Voltar à lista de clientes
+              </button>
+              <h1>Cliente: {selectedClient.name}</h1>
+              <div className="client-detail-meta-row">
+                <span><Building2 size={15} />{selectedClient.name}</span>
+                <span><Globe2 size={15} />Portugal</span>
+                <span><CalendarDays size={15} />Desde {formatDate(selectedClient.createdAt)}</span>
+              </div>
+            </div>
+            <div className="client-detail-actions">
+              <button className="secondary-button" type="button" onClick={() => openEdit(selectedClient)}>
+                <Edit2 size={15} />
+                Editar cliente
+              </button>
+              <div className="client-detail-menu-wrap">
+                <IconButton label="Mais opções" onClick={() => setClientMenuOpen((value) => !value)}>
+                  <MoreVertical size={17} />
+                </IconButton>
+                {clientMenuOpen ? (
+                  <div className="client-detail-menu">
+                    <button type="button" onClick={() => { setClientMenuOpen(false); setSelectedClientId(null); }}>Voltar à lista</button>
+                    <button className="is-danger" type="button" onClick={() => removeRow(selectedClient)}>Eliminar cliente</button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </section>
+
+          <nav className="client-detail-tabs" aria-label="Separadores do cliente">
+            {[
+              ['data', 'Dados'],
+              ['rules', 'Regras Comerciais'],
+              ['locations', 'Locais'],
+              ['history', 'Histórico'],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={clientTab === id ? 'is-active' : ''}
+                onClick={() => setClientTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          {renderClientTab(selectedClient)}
         </div>
-        <div className="collab-details-list">
-          {(loading ? [] : rows).map((row) => {
-            const rowRoleRates = parseRoleRates(row.roleRates);
-            return (
+      ) : (
+        <Card
+          title="Clientes"
+          action={(
+            <button className="command-button" type="button" onClick={openCreate}>
+              <Plus size={17} />
+              Novo Cliente
+            </button>
+          )}
+        >
+          {error ? <p className="notice">{error}</p> : null}
+          <div className="filters">
+            <input
+              className="form-control"
+              value={search}
+              placeholder="Pesquisar cliente (nome, NIF, telefone, representante, email)"
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <div className="collab-details-list">
+            {(loading ? [] : rows).map((row) => (
               <article className="collab-detail-card collab-detail-card--clickable" key={row.id}>
                 <header
                   role="button"
                   tabIndex={0}
-                  onClick={() => toggleExpanded(row.id)}
+                  onClick={() => openClientDetail(row)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      toggleExpanded(row.id);
+                      openClientDetail(row);
                     }
                   }}
                 >
@@ -276,42 +544,12 @@ export default function Clients() {
                     </div>
                   </div>
                 </header>
-                {expanded[row.id] ? (
-                  <>
-                    <div className="collab-detail-body" style={{ gridTemplateColumns: '1fr' }}>
-                      <div className="collab-detail-grid">
-                        <p><span>Email</span><strong>{row.email || '-'}</strong></p>
-                        <p><span>NIF</span><strong>{row.nif || '-'}</strong></p>
-                        <p><span>Morada</span><strong>{row.address || '-'}</strong></p>
-                        <p><span>Código postal</span><strong>{row.postalCode || '-'}</strong></p>
-                        <p><span>Cidade</span><strong>{row.city || '-'}</strong></p>
-                        <p><span>Método de faturação</span><strong>{billingMethodLabels[row.billingMethod] || '-'}</strong></p>
-                        <p><span>Prazo de pagamento</span><strong>{paymentTermLabels[row.paymentTerm] || `${row.paymentTermDays || '-'} dias`}</strong></p>
-                        <p><span>Horas mínimas</span><strong>{Number(row.minimumHours || 0) > 0 ? `${Number(row.minimumHours)} h por colaborador/turno` : 'Sem mínimo'}</strong></p>
-                        <p><span>Valores/h alterados em</span><strong>{formatDateTime(row.roleRatesUpdatedAt)}</strong></p>
-                        <div className="collab-event-stats span-2">
-                          {(rowRoleRates.length ? rowRoleRates : [{ role: 'Sem valores definidos', rate: 0 }]).map((item) => (
-                            <div key={`${row.id}-${item.role}`}>
-                              <small>{item.role}</small>
-                              <strong>{item.rate ? formatRate(item.rate) : '-'}</strong>
-                            </div>
-                          ))}
-                        </div>
-                        <p className="span-2"><span>Notas</span><strong>{row.notes || '-'}</strong></p>
-                      </div>
-                    </div>
-                    <footer className="collab-detail-actions">
-                      <IconButton label="Editar" onClick={() => openEdit(row)}><Edit2 size={16} /></IconButton>
-                      <IconButton label="Eliminar" tone="danger" onClick={() => removeRow(row)}><Trash2 size={16} /></IconButton>
-                    </footer>
-                  </>
-                ) : null}
               </article>
-            );
-          })}
-          {!loading && rows.length === 0 ? <p className="muted">Nenhum cliente encontrado.</p> : null}
-        </div>
-      </Card>
+            ))}
+            {!loading && rows.length === 0 ? <p className="muted">Nenhum cliente encontrado.</p> : null}
+          </div>
+        </Card>
+      )}
 
       {formOpen ? (
         <Modal title={editing ? 'Editar Cliente' : 'Novo Cliente'} onClose={() => setFormOpen(false)}>
@@ -368,6 +606,45 @@ export default function Clients() {
               {form.billingMethod === 'custom' ? (
                 <label className="span-2">Regra personalizada<textarea value={form.billingCustomRule} onChange={(event) => setForm({ ...form, billingCustomRule: event.target.value })} /></label>
               ) : null}
+              <div className="span-2 client-form-panel">
+                <header>
+                  <div>
+                    <strong>Regras automáticas do cliente</strong>
+                    <small>Usadas para preencher orçamentos e eventos/serviços, mantendo sempre edição manual.</small>
+                  </div>
+                </header>
+                <div className="client-inline-grid">
+                  <label>Uniforme habitual
+                    <select value={form.defaultUniform} onChange={(event) => setForm({ ...form, defaultUniform: event.target.value })}>
+                      <option value="">Definir no evento</option>
+                      {uniformOptions.map((option) => (
+                        <option value={option} key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {form.billingMethod === 'prepaid' ? (
+                    <>
+                      <label>Sinalização (%)
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={form.prepaymentPercent}
+                          onChange={(event) => setForm({ ...form, prepaymentPercent: event.target.value })}
+                        />
+                      </label>
+                      <label>Restante pagamento (dias antes)
+                        <input
+                          type="number"
+                          min="0"
+                          value={form.prepaymentRemainingDaysBefore}
+                          onChange={(event) => setForm({ ...form, prepaymentRemainingDaysBefore: event.target.value })}
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                </div>
+              </div>
               <div className="span-2 client-role-rates">
                 <header>
                   <div>

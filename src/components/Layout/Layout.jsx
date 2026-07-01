@@ -4,6 +4,7 @@ import { useApi } from '../../hooks/useApi.js';
 import { api } from '../../utils/api.js';
 import { birthdayNotification } from '../../utils/birthdays.js';
 import { isFinanceReadyEvent } from '../../utils/financeReadiness.js';
+import { prepaymentRemainingReminderDate } from '../../utils/prepaymentPolicy.js';
 import { staffPaymentTiming } from '../../utils/staffPayment.js';
 import Header from './Header.jsx';
 import Sidebar from './Sidebar.jsx';
@@ -47,7 +48,10 @@ export default function Layout() {
   const { data: ignoredFromDb } = useApi('/notifications/ignored', []);
 
   const reminders = useMemo(
-    () => (services || []).filter((service) => service.billingStatus === 'partial70' && isToday(service.remainingPaymentDate)),
+    () => (services || []).filter((service) => (
+      service.billingStatus === 'partial70'
+      && isToday(prepaymentRemainingReminderDate(service))
+    )),
     [services],
   );
   const showReminder = reminders.length > 0 && !dismissed;

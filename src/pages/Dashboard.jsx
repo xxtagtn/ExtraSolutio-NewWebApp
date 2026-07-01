@@ -1,20 +1,36 @@
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { useMemo, useState } from 'react';
-import { Activity, CalendarCheck2, CircleDollarSign, ReceiptText, TrendingUp, UsersRound, WalletCards } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import Card from '../components/UI/Card.jsx';
-import Stats from '../components/UI/Stats.jsx';
-import { useApi } from '../hooks/useApi.js';
 import {
-  availableFinancialYears,
-  countRealizedServices,
-  filterByFinancialPeriod,
-  monthlyRevenueSeries,
-} from '../utils/dashboardMetrics.js';
-import { asNumber, money } from '../utils/formatters.js';
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { useMemo, useState } from 'react';
+import {
+  ArrowRight,
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  CircleDollarSign,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+  UsersRound,
+  WalletCards,
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useApi } from '../hooks/useApi.js';
+import { buildBalanceOverview } from '../utils/balanceMetrics.js';
+import { availableFinancialYears } from '../utils/dashboardMetrics.js';
+import { date, money } from '../utils/formatters.js';
 import { SERVICE_STATUS, statusLabel } from '../utils/serviceStatus.js';
 
 const monthOptions = [
+  ['', 'Todos os meses'],
   ['1', 'Janeiro'],
   ['2', 'Fevereiro'],
   ['3', 'Março'],
@@ -28,249 +44,343 @@ const monthOptions = [
   ['11', 'Novembro'],
   ['12', 'Dezembro'],
 ];
-const activeServiceStatuses = [
-  SERVICE_STATUS.drafting,
-  'partial',
-  SERVICE_STATUS.teamComplete,
-  'pending',
-  'confirmed',
-  SERVICE_STATUS.inProgress,
-  'ongoing',
-  'to_validate',
-  SERVICE_STATUS.toValidateStaff,
-  SERVICE_STATUS.toValidateClient,
+
+const statusOptions = [
+  ['all', 'Todos os estados'],
+  [SERVICE_STATUS.finalized, 'Finalizado'],
+  ['confirmed', 'Confirmado'],
+  [SERVICE_STATUS.toValidateClient, 'Em validação'],
+  [SERVICE_STATUS.toValidateStaff, 'Por validar Staff'],
+  [SERVICE_STATUS.inProgress, 'Em execução'],
+  [SERVICE_STATUS.teamComplete, 'Equipa completa'],
+  [SERVICE_STATUS.drafting, 'A preencher'],
 ];
 
-const serviceStatusLabel = statusLabel;
-
-function dateOnly(value) {
-  if (!value) return '';
-  return String(value).slice(0, 10);
+function currentPeriod() {
+  const now = new Date();
+  return {
+    month: String(now.getMonth() + 1),
+    year: String(now.getFullYear()),
+  };
 }
 
-function serviceEndDate(service) {
-  return service?.isContinuous && service.endDate ? service.endDate : service?.date;
+function selectedMonthName(value) {
+  return monthOptions.find(([month]) => month === String(value))?.[1] || 'Todos os meses';
 }
 
-function formatServiceDateRange(service) {
-  if (!service?.date) return '-';
-  const start = new Date(service.date).toLocaleDateString('pt-PT');
-  const endValue = serviceEndDate(service);
-  if (!service.isContinuous || !endValue || dateOnly(endValue) === dateOnly(service.date)) return start;
-  return `${start} - ${new Date(endValue).toLocaleDateString('pt-PT')}`;
+function formatPercent(value) {
+  return `${Number(value || 0).toLocaleString('pt-PT', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
 }
 
-function selectedPeriodLabel(month, year) {
-  const monthLabel = monthOptions.find(([value]) => value === month)?.[1];
-  if (monthLabel && year) return `${monthLabel} de ${year}`;
-  if (monthLabel) return `${monthLabel} de todos os anos`;
-  if (year) return `Ano ${year}`;
-  return 'Resultados gerais';
+function formatDelta(value) {
+  const sign = value >= 0 ? '+' : '';
+  return `${sign}${formatPercent(value)}`;
+}
+
+function deltaFor(series, month, field) {
+  if (!month) return 0;
+  const monthIndex = Math.max(0, Number(month || 0) - 1);
+  const current = series[monthIndex]?.[field] || 0;
+  const previous = series[monthIndex - 1]?.[field] || 0;
+  if (!previous) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
+function statusTone(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'finalized' || normalized === 'paid' || normalized === 'completed' || normalized === 'invoiced') return 'success';
+  if (normalized === 'confirmed' || normalized === 'team_complete') return 'info';
+  if (normalized === 'to_validate_client' || normalized === 'to_validate_staff') return 'warning';
+  return 'neutral';
+}
+
+function statusText(status) {
+  if (String(status || '').toLowerCase() === SERVICE_STATUS.toValidateClient) return 'Em validação';
+  return statusLabel(status);
+}
+
+function KpiCard({ icon: Icon, label, value, detail, tone = 'accent' }) {
+  return (
+    <article className={`balance-kpi balance-kpi--${tone}`}>
+      <span className="balance-kpi__icon"><Icon size={24} /></span>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <small>{detail}</small>
+      </div>
+    </article>
+  );
+}
+
+function AlertItem({ icon: Icon, tone, title, badge, detail, actionLabel, to }) {
+  return (
+    <Link className={`balance-alert balance-alert--${tone}`} to={to}>
+      <span className="balance-alert__icon"><Icon size={24} /></span>
+      <div>
+        <strong>{title} <em>{badge}</em></strong>
+        <small>{detail}</small>
+      </div>
+      <span>{actionLabel}</span>
+      <ArrowRight size={16} />
+    </Link>
+  );
 }
 
 export default function Dashboard() {
   const { data: services, loading: loadingServices, error: servicesError } = useApi('/services', []);
-  const { data: collaborators, loading: loadingCollaborators, error: collaboratorsError } = useApi('/collaborators?light=1', []);
-  const { data: invoices, loading: loadingInvoices, error: invoicesError } = useApi('/invoices', []);
-  const { data: transactions, loading: loadingTransactions } = useApi('/transactions', []);
-  const [selectedMonth, setSelectedMonth] = useState('');
-  const [selectedYear, setSelectedYear] = useState('');
-  const period = useMemo(
-    () => ({ month: selectedMonth, year: selectedYear }),
-    [selectedMonth, selectedYear],
-  );
+  const { data: clients, loading: loadingClients, error: clientsError } = useApi('/clients', []);
+  const { data: invoices } = useApi('/invoices', []);
+  const { data: transactions } = useApi('/transactions', []);
+  const initialPeriod = useMemo(() => currentPeriod(), []);
+  const [selectedMonth, setSelectedMonth] = useState(initialPeriod.month);
+  const [selectedYear, setSelectedYear] = useState(initialPeriod.year);
+  const [selectedClientId, setSelectedClientId] = useState('all');
+  const [selectedStatus, setSelectedStatus] = useState('all');
+
   const yearOptions = useMemo(
-    () => availableFinancialYears(services, invoices, transactions),
-    [invoices, services, transactions],
-  );
-  const filteredServices = useMemo(
-    () => filterByFinancialPeriod(services, period),
-    [period, services],
-  );
-  const filteredInvoices = useMemo(
-    () => filterByFinancialPeriod(invoices, period, (invoice) => invoice.issueDate || invoice.createdAt),
-    [invoices, period],
-  );
-  const filteredTransactions = useMemo(
-    () => filterByFinancialPeriod(transactions, period),
-    [period, transactions],
+    () => Array.from(new Set([initialPeriod.year, ...availableFinancialYears(services, invoices, transactions)]))
+      .sort((a, b) => Number(b) - Number(a)),
+    [initialPeriod.year, invoices, services, transactions],
   );
 
-  const revenue = filteredServices.reduce((sum, service) => sum + asNumber(service.totalRevenue), 0);
-  const serviceExpense = filteredServices.reduce((sum, service) => sum + asNumber(service.totalCost), 0);
-  const transactionExpense = filteredTransactions
-    .filter((tx) => tx.type === 'expense')
-    .reduce((sum, tx) => sum + asNumber(tx.amount), 0);
-  const expense = Math.max(serviceExpense, transactionExpense);
-  const activeServices = filteredServices.filter((service) => activeServiceStatuses.includes(service.status)).length;
-  const activeCollaborators = collaborators.filter((collaborator) => collaborator.status === 'active').length;
-  const receivable = useMemo(() => {
-    const totalPaidInvoices = filteredInvoices
-      .filter((invoice) => invoice.status === 'paid')
-      .reduce((sum, invoice) => sum + asNumber(invoice.total), 0);
-    return Math.max(0, revenue - totalPaidInvoices);
-  }, [filteredInvoices, revenue]);
-  const pendingInvoices = filteredInvoices.filter((invoice) => ['draft', 'issued'].includes(invoice.status)).length;
-  const monthlyRevenue = useMemo(
-    () => monthlyRevenueSeries(services, period),
+  const period = useMemo(() => ({
+    month: selectedMonth,
+    year: selectedYear,
+    clientId: selectedClientId,
+    status: selectedStatus,
+  }), [selectedClientId, selectedMonth, selectedStatus, selectedYear]);
+
+  const overview = useMemo(
+    () => buildBalanceOverview({ services, period }),
     [period, services],
   );
 
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const realizedServices = countRealizedServices(filteredServices, todayStart);
-  const upcomingServices = [...filteredServices]
-    .filter((service) => service.date && new Date(serviceEndDate(service) || service.date) >= todayStart)
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-    .slice(0, 5);
-  const loading = loadingServices || loadingCollaborators || loadingInvoices || loadingTransactions;
-  const error = servicesError || collaboratorsError || invoicesError;
+  const marginPercent = overview.kpis.validatedRevenue > 0
+    ? (overview.kpis.realMargin / overview.kpis.validatedRevenue) * 100
+    : 0;
+  const totalEvents = overview.eventRows.length;
+  const loading = loadingServices || loadingClients;
+  const error = servicesError || clientsError;
+
+  function resetToCurrentPeriod() {
+    const next = currentPeriod();
+    setSelectedMonth(next.month);
+    setSelectedYear(next.year);
+    setSelectedClientId('all');
+    setSelectedStatus('all');
+  }
 
   return (
-    <div className="page dashboard-page">
-      <div className="page-title-row">
+    <div className="page balance-page">
+      <header className="balance-title">
         <div>
-          <span className="eyebrow">Gestão</span>
           <h1>Balancete</h1>
-          <p>{selectedPeriodLabel(selectedMonth, selectedYear)}</p>
+          <p>Resumo financeiro por período</p>
         </div>
-        <div className="balance-period-control" aria-label="Filtros do Balancete">
-          <label>
-            Mês
-            <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
-              <option value="">Todos os meses</option>
-              {monthOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-          <label>
-            Ano
-            <input
-              type="number"
-              min="2000"
-              max="2100"
-              inputMode="numeric"
-              list="balance-year-options"
-              placeholder="Todos os anos"
-              value={selectedYear}
-              onChange={(event) => setSelectedYear(event.target.value)}
-            />
-            <datalist id="balance-year-options">
-              {yearOptions.map((year) => <option key={year} value={year} />)}
-            </datalist>
-          </label>
-          {(selectedMonth || selectedYear) ? (
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => {
-                setSelectedMonth('');
-                setSelectedYear('');
-              }}
-            >
-              Limpar
-            </button>
-          ) : null}
-        </div>
-      </div>
-      {error ? <p className="notice">{error}</p> : null}
-      <Stats
-        className="dashboard-stats"
-        items={[
-          {
-            label: 'Valor total dos eventos',
-            value: money.format(revenue),
-            detail: 'Total cobrado ao cliente',
-            icon: <CircleDollarSign size={19} />,
-            tone: 'accent',
-            featured: true,
-          },
-          {
-            label: 'Despesas totais',
-            value: money.format(expense),
-            detail: 'Pagamentos a colaboradores',
-            icon: <ReceiptText size={18} />,
-            tone: 'warning',
-          },
-          {
-            label: 'Margem',
-            value: money.format(revenue - expense),
-            detail: 'Receita - despesa',
-            icon: <TrendingUp size={18} />,
-            tone: revenue - expense < 0 ? 'danger' : 'success',
-          },
-          {
-            label: 'Por receber',
-            value: money.format(receivable),
-            detail: `${pendingInvoices} faturas pendentes`,
-            icon: <WalletCards size={18} />,
-            tone: receivable > 0 ? 'info' : 'success',
-          },
-          {
-            label: 'Serviços ativos',
-            value: activeServices,
-            detail: 'Em preparação ou execução',
-            icon: <Activity size={18} />,
-            tone: 'info',
-          },
-          {
-            label: 'Eventos Realizados',
-            value: realizedServices,
-            detail: 'Finalizados ou com data passada',
-            icon: <CalendarCheck2 size={18} />,
-            tone: 'neutral',
-          },
-          {
-            label: 'Nº Colaboradores (Ativos)',
-            value: activeCollaborators,
-            detail: `${collaborators.length} registados · estado atual`,
-            icon: <UsersRound size={18} />,
-            tone: 'accent',
-          },
-        ]}
-      />
+      </header>
 
-      <div className="grid grid--two">
-        <Card title={selectedMonth ? 'Receita do período' : 'Receita mensal'}>
-          <div className="chart">
-            <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={monthlyRevenue}>
-                <defs>
-                  <linearGradient id="revenue" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor="#0f766e" stopOpacity={0.45} />
-                    <stop offset="95%" stopColor="#0f766e" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="#243034" strokeDasharray="3 3" />
-                <XAxis dataKey="month" stroke="#7c8a92" />
-                <YAxis stroke="#7c8a92" />
+      {error ? <p className="notice">{error}</p> : null}
+
+      <section className="balance-filter-panel" aria-label="Filtros do Balancete">
+        <label>
+          <span>Mês</span>
+          <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
+            {monthOptions.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Ano</span>
+          <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)}>
+            {yearOptions.length ? yearOptions.map((year) => (
+              <option key={year} value={year}>{year}</option>
+            )) : <option value={selectedYear}>{selectedYear}</option>}
+          </select>
+        </label>
+        <label>
+          <span>Cliente</span>
+          <select value={selectedClientId} onChange={(event) => setSelectedClientId(event.target.value)}>
+            <option value="all">Todos os clientes</option>
+            {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Estado</span>
+          <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
+            {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <button type="button" className="command-button balance-current-button" onClick={resetToCurrentPeriod}>
+          <RefreshCw size={16} />
+          Atual
+        </button>
+      </section>
+
+      <section className="balance-kpi-grid">
+        <KpiCard
+          icon={CircleDollarSign}
+          label="Receita Validada"
+          value={money.format(overview.kpis.validatedRevenue)}
+          detail={selectedMonth
+            ? `vs. ${selectedMonthName(Number(selectedMonth) - 1 || 12).toLowerCase()} ${formatDelta(deltaFor(overview.monthlySeries, selectedMonth, 'receita'))}`
+            : 'Total do ano selecionado'}
+          tone="revenue"
+        />
+        <KpiCard
+          icon={UsersRound}
+          label="Staff a Pagar"
+          value={money.format(overview.kpis.staffToPay)}
+          detail={selectedMonth
+            ? `vs. ${selectedMonthName(Number(selectedMonth) - 1 || 12).toLowerCase()} ${formatDelta(deltaFor(overview.monthlySeries, selectedMonth, 'staff'))}`
+            : 'Total do ano selecionado'}
+          tone="staff"
+        />
+        <KpiCard
+          icon={TrendingUp}
+          label="Margem Real"
+          value={money.format(overview.kpis.realMargin)}
+          detail={selectedMonth
+            ? `vs. ${selectedMonthName(Number(selectedMonth) - 1 || 12).toLowerCase()} ${formatDelta(deltaFor(overview.monthlySeries, selectedMonth, 'margem'))}`
+            : 'Total do ano selecionado'}
+          tone="margin"
+        />
+        <KpiCard
+          icon={WalletCards}
+          label="Por Receber"
+          value={money.format(overview.kpis.receivable)}
+          detail={`${overview.alerts.clientsOpen.count} cliente(s) com valor em aberto`}
+          tone="receivable"
+        />
+        <KpiCard
+          icon={CheckCircle2}
+          label="Eventos Finalizados"
+          value={overview.kpis.finalizedEvents}
+          detail={`${totalEvents} evento(s) no período`}
+          tone="finalized"
+        />
+      </section>
+
+      <section className="balance-main-grid">
+        <article className="balance-panel balance-chart-panel">
+          <header>
+            <div>
+              <h2>Evolução mensal</h2>
+              <small>{selectedYear}</small>
+            </div>
+            <div className="balance-chart-legend">
+              <span><i className="legend-revenue" />Receita</span>
+              <span><i className="legend-staff" />Custos Staff</span>
+              <span><i className="legend-margin" />Margem</span>
+            </div>
+          </header>
+          <div className="balance-chart">
+            <ResponsiveContainer width="100%" height={250}>
+              <ComposedChart data={overview.monthlySeries} margin={{ top: 10, right: 8, left: 2, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(148, 163, 184, 0.14)" vertical={false} />
+                <XAxis dataKey="month" stroke="#8da0aa" tickLine={false} axisLine={false} />
+                <YAxis stroke="#8da0aa" tickLine={false} axisLine={false} tickFormatter={(value) => `${Number(value) / 1000}k €`} />
                 <Tooltip
-                  contentStyle={{ background: '#11181c', border: '1px solid #26343a' }}
-                  formatter={(value) => [money.format(Number(value || 0)), 'Receita']}
+                  cursor={{ fill: 'rgba(148, 163, 184, 0.08)' }}
+                  contentStyle={{ background: '#11181c', border: '1px solid #26343a', borderRadius: 8 }}
+                  formatter={(value, name) => [money.format(Number(value || 0)), name]}
                 />
-                <Area type="monotone" dataKey="receita" stroke="#14b8a6" fill="url(#revenue)" />
-              </AreaChart>
+                <Bar dataKey="receita" name="Receita" fill="#14b8a6" radius={[4, 4, 0, 0]} barSize={13} />
+                <Bar dataKey="staff" name="Custos Staff" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={13} />
+                <Line dataKey="margem" name="Margem" stroke="#f59e0b" strokeWidth={2.4} dot={{ r: 4, fill: '#fbbf24' }} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
-        </Card>
+          <footer className="balance-chart-summary">
+            <div><span>Total Receita</span><strong>{money.format(overview.kpis.validatedRevenue)}</strong></div>
+            <div><span>Total Staff</span><strong>{money.format(overview.kpis.staffToPay)}</strong></div>
+            <div><span>Margem Real</span><strong>{money.format(overview.kpis.realMargin)}</strong></div>
+            <div><span>Margem %</span><strong>{formatPercent(marginPercent)}</strong></div>
+          </footer>
+        </article>
 
-        <Card title="Próximos serviços">
-          <div className="stack-list">
-            {upcomingServices.map((service) => (
-              <Link className="stack-row" key={service.id} to={`/services?serviceId=${service.id}`}>
-                <div>
-                  <strong>{service.name}</strong>
-                  <span>
-                    {service.client?.name || 'Cliente por associar'} · {formatServiceDateRange(service)}
-                  </span>
-                </div>
-                <small>{serviceStatusLabel(service.status)}</small>
-              </Link>
-            ))}
-            {loading ? <p className="muted">A carregar...</p> : null}
-            {!loading && upcomingServices.length === 0 && <p className="muted">Ainda não há serviços registados.</p>}
+        <article className="balance-panel balance-alert-panel">
+          <header>
+            <h2>Alertas de gestão</h2>
+          </header>
+          <div className="balance-alert-list">
+            <AlertItem
+              icon={TrendingDown}
+              tone="warning"
+              title="Margem baixa"
+              badge={`${overview.alerts.lowMarginEvents.count} eventos`}
+              detail="Existem eventos com margem abaixo de 20%."
+              actionLabel="Ver eventos"
+              to="/finance?area=margins"
+            />
+            <AlertItem
+              icon={WalletCards}
+              tone="info"
+              title="Cliente com valor em aberto"
+              badge={`${overview.alerts.clientsOpen.count} clientes`}
+              detail={`Total por receber: ${money.format(overview.alerts.clientsOpen.value)}`}
+              actionLabel="Ver clientes"
+              to="/finance?area=clients"
+            />
+            <AlertItem
+              icon={UsersRound}
+              tone="warning"
+              title="Staff por processar"
+              badge={`${overview.alerts.staffToProcess.count} eventos`}
+              detail="Eventos concluídos com staff confirmado."
+              actionLabel="Ver eventos"
+              to="/finance?area=staff"
+            />
           </div>
-        </Card>
-      </div>
+        </article>
+      </section>
+
+      <section className="balance-panel balance-events-panel">
+        <header>
+          <h2>Eventos do período</h2>
+        </header>
+        <div className="balance-events-table" role="table" aria-label="Eventos do período">
+          <div className="balance-events-header" role="row">
+            <span>Evento</span>
+            <span>Cliente</span>
+            <span>Data</span>
+            <span>Receita</span>
+            <span>Staff</span>
+            <span>Margem</span>
+            <span>Estado</span>
+            <span />
+          </div>
+          {overview.eventRows.map((row) => (
+            <Link className="balance-event-row" key={row.id} to={`/services/${row.id}`} role="row">
+              <strong>{row.eventName}</strong>
+              <span>{row.clientName}</span>
+              <span><CalendarDays size={14} />{row.date ? date.format(row.date) : '-'}</span>
+              <span>{money.format(row.revenue)}</span>
+              <span>{money.format(row.staff)}</span>
+              <span>{money.format(row.margin)} <b>{formatPercent(row.marginPct)}</b></span>
+              <span><em className={`balance-status balance-status--${statusTone(row.rawStatus)}`}>{statusText(row.rawStatus)}</em></span>
+              <ArrowRight size={16} />
+            </Link>
+          ))}
+          {loading ? <div className="balance-events-empty">A carregar...</div> : null}
+          {!loading && overview.eventRows.length === 0 ? (
+            <div className="balance-events-empty">Sem eventos para os filtros selecionados.</div>
+          ) : null}
+        </div>
+        <footer className="balance-events-footer">
+          <span>A mostrar 1-{overview.eventRows.length} de {overview.eventRows.length} eventos</span>
+          <div>
+            <span>Linhas por página</span>
+            <select value="10" disabled>
+              <option>10</option>
+            </select>
+            <button type="button" className="icon-button" disabled aria-label="Página anterior"><ChevronLeft size={15} /></button>
+            <button type="button" className="icon-button is-active" aria-label="Página 1">1</button>
+            <button type="button" className="icon-button" disabled aria-label="Página seguinte"><ChevronRight size={15} /></button>
+          </div>
+        </footer>
+      </section>
     </div>
   );
 }

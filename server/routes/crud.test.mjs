@@ -116,6 +116,22 @@ test('normalizes client role rates and marks the change date when values change'
   assert.equal(payload.roleRatesUpdatedAt instanceof Date, true);
 });
 
+test('normalizes client operational defaults and prepayment rule', () => {
+  const payload = normalizeClient({
+    defaultUniform: 'Camisa Preta',
+    defaultOnsiteContactName: 'Paulo Martins',
+    defaultOnsiteContactPhone: '912345678',
+    prepaymentPercent: '70,5',
+    prepaymentRemainingDaysBefore: '-3',
+  });
+
+  assert.equal(payload.defaultUniform, 'Camisa Preta');
+  assert.equal(payload.defaultOnsiteContactName, 'Paulo Martins');
+  assert.equal(payload.defaultOnsiteContactPhone, '912345678');
+  assert.equal(payload.prepaymentPercent, 70.5);
+  assert.equal(payload.prepaymentRemainingDaysBefore, 0);
+});
+
 test('does not change client role rate date when rates are unchanged', () => {
   const previous = {
     roleRates: JSON.stringify([{ role: 'Barman', rate: 12.5 }]),

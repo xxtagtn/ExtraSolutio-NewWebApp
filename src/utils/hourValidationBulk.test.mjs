@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildBulkValidationCandidates } from './hourValidationBulk.js';
+import { buildBulkValidationCandidates, buildClientCopyCandidates } from './hourValidationBulk.js';
 
 test('builds bulk validation candidates only from rows with complete staff and client times', () => {
   const rows = [
@@ -66,4 +66,55 @@ test('does not accept staff times while the client times are incomplete', () => 
 
   assert.equal(result.ready.length, 0);
   assert.equal(result.missing.length, 1);
+});
+
+test('builds client copy candidates from complete staff times without accepting validation', () => {
+  const rows = [
+    {
+      id: 1,
+      assignment: {
+        id: 1,
+        validationStatus: 'pending',
+        checkIn: '11:30',
+        checkOut: '16:00',
+        clientCheckIn: '',
+        clientCheckOut: '',
+      },
+    },
+    {
+      id: 2,
+      assignment: {
+        id: 2,
+        validationStatus: 'pending',
+        checkIn: '',
+        checkOut: '18:00',
+      },
+    },
+    {
+      id: 3,
+      assignment: {
+        id: 3,
+        validationStatus: 'pending',
+        checkIn: '19:00',
+        checkOut: '23:00',
+        clientCheckIn: '19:00',
+        clientCheckOut: '23:00',
+      },
+    },
+  ];
+
+  const result = buildClientCopyCandidates(rows);
+
+  assert.equal(result.ready.length, 1);
+  assert.equal(result.missing.length, 1);
+  assert.equal(result.unchanged.length, 1);
+  assert.equal(result.ready[0].row.id, 1);
+  assert.deepEqual(result.ready[0].merged, {
+    id: 1,
+    validationStatus: 'pending',
+    checkIn: '11:30',
+    checkOut: '16:00',
+    clientCheckIn: '11:30',
+    clientCheckOut: '16:00',
+  });
 });

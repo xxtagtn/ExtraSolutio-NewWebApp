@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Login from './pages/Login.jsx';
 import PendingActions from './pages/PendingActions.jsx';
 import Profile from './pages/Profile.jsx';
+import ServiceDetail from './pages/ServiceDetail.jsx';
 import Services from './pages/Services.jsx';
 import TimeValidation from './pages/TimeValidation.jsx';
 import { BALANCETE_PATH, DEFAULT_AUTHENTICATED_PATH } from './utils/navigation.js';
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="collaborators" element={<Collaborators />} />
         <Route path="clients" element={<Clients />} />
         <Route path="services" element={<Services />} />
+        <Route path="services/:serviceId" element={<ServiceDetail />} />
         <Route path="time-validation" element={<TimeValidation />} />
         <Route path="calendar" element={<Calendar />} />
         <Route path="budgets" element={<Budgets />} />

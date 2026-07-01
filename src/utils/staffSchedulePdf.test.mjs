@@ -154,6 +154,45 @@ test('uses billable client hours for the event total in pdf and excel exports', 
   assert.equal(pdf.includes('3:00h'), true);
 });
 
+test('shows the document total value next to the general hours in pdf and excel exports', () => {
+  const rows = [
+    {
+      event: {
+        id: 1,
+        name: 'Almoço',
+        client: { name: 'Cliente' },
+        date: '2026-07-08',
+        requiredRoles: JSON.stringify([{ role: 'Staff', agreedRate: 10 }]),
+      },
+      assignment: { collaborator: { shortName: 'Ana' }, role: 'Staff', checkIn: '09:00', checkOut: '12:00' },
+      staffScheduleHours: 3,
+    },
+    {
+      event: {
+        id: 2,
+        name: 'Jantar',
+        client: { name: 'Cliente' },
+        date: '2026-07-09',
+        requiredRoles: JSON.stringify([{ role: 'Staff', agreedRate: 12.5 }]),
+      },
+      assignment: { collaborator: { shortName: 'Rui' }, role: 'Staff', checkIn: '18:00', checkOut: '22:00' },
+      staffScheduleHours: 4,
+    },
+  ];
+
+  const pdf = buildStaffSchedulePdfHtml(rows, { clientLabel: 'Cliente', periodLabel: '08/07/2026 a 09/07/2026' });
+  const excel = buildStaffScheduleExcelHtml(rows, { clientLabel: 'Cliente', periodLabel: '08/07/2026 a 09/07/2026' });
+
+  assert.equal(pdf.includes('Total geral de horas Staff'), true);
+  assert.equal(pdf.includes('Valor total dos serviços'), true);
+  assert.equal(pdf.includes('7:00h'), true);
+  assert.equal(pdf.includes('80,00€'), true);
+  assert.equal(excel.includes('Total geral de horas Staff'), true);
+  assert.equal(excel.includes('Valor total dos serviços'), true);
+  assert.equal(excel.includes('7:00h'), true);
+  assert.equal(excel.includes('80,00€'), true);
+});
+
 test('escapes generated schedule pdf html', () => {
   const html = buildStaffSchedulePdfHtml([
     {

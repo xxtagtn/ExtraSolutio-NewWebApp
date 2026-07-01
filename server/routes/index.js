@@ -104,6 +104,11 @@ apiRouter.use('/clients', createCrudRouter(prisma.client, [
   'minimumHours',
   'roleRates',
   'roleRatesUpdatedAt',
+  'defaultUniform',
+  'defaultOnsiteContactName',
+  'defaultOnsiteContactPhone',
+  'prepaymentPercent',
+  'prepaymentRemainingDaysBefore',
   'status',
   'notes',
 ], {

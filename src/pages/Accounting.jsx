@@ -8,6 +8,8 @@ import {
   Plus,
   ReceiptText,
   TrendingUp,
+  CheckCircle2,
+  Hourglass,
 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -31,7 +33,7 @@ import {
   splitClientBillingRows,
 } from '../utils/clientBilling.js';
 import { externalCostsTotals } from '../utils/externalCosts.js';
-import { isFinanceReadyEvent } from '../utils/financeReadiness.js';
+import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { clientChargeHours, decimalValue, staffWorkedHours } from '../utils/serviceFinance.js';
 import {
@@ -295,6 +297,38 @@ function eventRevenue(event) {
   return calculated > 0 ? calculated : num(event.totalRevenue);
 }
 
+function eventFinancialRow(event, invoices, expenses) {
+  const eventInvoices = invoices.filter((invoice) => invoiceIncludesEvent(invoice, event.id));
+  const linkedExpenses = expenses.filter((expense) => Number(expense.referenceId) === Number(event.id));
+  const revenue = eventRevenue(event);
+  const staff = eventStaffCost(event);
+  const externalTotals = externalCostsTotals(event.externalCosts);
+  const operational = num(event.travelExpenseAmount)
+    + externalTotals.costAmount
+    + linkedExpenses.reduce((sum, expense) => sum + num(expense.amount), 0);
+  const margin = revenue - staff - operational;
+  const marginPct = revenue > 0 ? (margin / revenue) * 100 : 0;
+  const paidByInvoice = eventInvoices.filter(invoiceIsPaid).reduce((sum, invoice) => sum + num(invoice.total), 0);
+  const paidBySignal = num(event.paidAmount);
+  const received = Math.max(paidByInvoice, event.billingStatus === 'paid' ? revenue : paidBySignal);
+  const receivable = Math.max(0, revenue - received);
+  return {
+    ...event,
+    financial: {
+      revenue,
+      staff,
+      operational,
+      margin,
+      marginPct,
+      received,
+      receivable,
+      invoiceCount: eventInvoices.length,
+      hasInvoice: eventInvoices.length > 0,
+      linkedExpenses,
+    },
+  };
+}
+
 function invoiceIsPaid(invoice) {
   return invoice.status === 'paid';
 }
@@ -495,6 +529,26 @@ export default function Accounting() {
     }
   }, [activeArea, searchParams]);
 
+  useEffect(() => {
+    const area = searchParams.get('area');
+    if (area !== 'clients') return;
+
+    const eventId = searchParams.get('eventId');
+    const invoiceId = searchParams.get('invoiceId');
+    if (!eventId && !invoiceId) return;
+
+    if (eventId) {
+      const event = services.find((item) => String(item.id) === String(eventId));
+      if (event?.date) setSelectedMonth(monthInputValue(new Date(event.date)));
+    }
+
+    if (invoiceId) {
+      const invoice = invoices.find((item) => String(item.id) === String(invoiceId));
+      const invoiceDate = invoice?.issueDate || invoice?.dueDate || invoice?.createdAt;
+      if (invoiceDate) setSelectedMonth(monthInputValue(new Date(invoiceDate)));
+    }
+  }, [invoices, searchParams, services]);
+
   function selectArea(area) {
     setActiveArea(area);
     const nextParams = new window.URLSearchParams(searchParams);
@@ -503,8 +557,8 @@ export default function Accounting() {
     setSearchParams(nextParams, { replace: true });
   }
 
-  const financeServices = useMemo(
-    () => services.filter((event) => isFinanceReadyEvent(event)),
+  const { readyEvents: financeServices, forecastEvents: forecastServices } = useMemo(
+    () => splitFinanceReadiness(services),
     [services],
   );
 
@@ -552,41 +606,24 @@ export default function Accounting() {
     return [...years].sort((a, b) => Number(b) - Number(a));
   }, [services, invoices, expenses]);
 
-  const eventRows = useMemo(() => financeServices.map((event) => {
-    const eventInvoices = invoices.filter((invoice) => invoiceIncludesEvent(invoice, event.id));
-    const linkedExpenses = expenses.filter((expense) => Number(expense.referenceId) === Number(event.id));
-    const revenue = eventRevenue(event);
-    const staff = eventStaffCost(event);
-    const externalTotals = externalCostsTotals(event.externalCosts);
-    const operational = num(event.travelExpenseAmount)
-      + externalTotals.costAmount
-      + linkedExpenses.reduce((sum, expense) => sum + num(expense.amount), 0);
-    const margin = revenue - staff - operational;
-    const marginPct = revenue > 0 ? (margin / revenue) * 100 : 0;
-    const paidByInvoice = eventInvoices.filter(invoiceIsPaid).reduce((sum, invoice) => sum + num(invoice.total), 0);
-    const paidBySignal = num(event.paidAmount);
-    const received = Math.max(paidByInvoice, event.billingStatus === 'paid' ? revenue : paidBySignal);
-    const receivable = Math.max(0, revenue - received);
-    return {
-      ...event,
-      financial: {
-        revenue,
-        staff,
-        operational,
-        margin,
-        marginPct,
-        received,
-        receivable,
-        invoiceCount: eventInvoices.length,
-        hasInvoice: eventInvoices.length > 0,
-        linkedExpenses,
-      },
-    };
-  }), [financeServices, invoices, expenses]);
+  const eventRows = useMemo(
+    () => financeServices.map((event) => eventFinancialRow(event, invoices, expenses)),
+    [financeServices, invoices, expenses],
+  );
+
+  const forecastEventRows = useMemo(
+    () => forecastServices.map((event) => eventFinancialRow(event, invoices, expenses)),
+    [forecastServices, invoices, expenses],
+  );
 
   const currentEventRows = useMemo(
     () => eventRows.filter((event) => isSameMonth(event.date, selectedMonth)),
     [eventRows, selectedMonth],
+  );
+
+  const currentForecastEventRows = useMemo(
+    () => forecastEventRows.filter((event) => isSameMonth(event.date, selectedMonth)),
+    [forecastEventRows, selectedMonth],
   );
 
   const billingGroups = useMemo(
@@ -594,9 +631,19 @@ export default function Accounting() {
     [financeServices, invoices],
   );
 
+  const forecastBillingGroups = useMemo(
+    () => buildBillingGroups(forecastEventRows, invoices),
+    [forecastEventRows, invoices],
+  );
+
   const currentBillingGroups = useMemo(
     () => filterBillingGroupsByPeriod(billingGroups, selectedMonth),
     [billingGroups, selectedMonth],
+  );
+
+  const currentForecastBillingGroups = useMemo(
+    () => filterBillingGroupsByPeriod(forecastBillingGroups, selectedMonth),
+    [forecastBillingGroups, selectedMonth],
   );
 
   const dashboard = useMemo(() => {
@@ -622,8 +669,8 @@ export default function Accounting() {
     };
   }, [currentMonthInvoices, currentEventRows, currentMonthExpenses]);
 
-  const buildClientRowsForPeriod = useCallback((period) => {
-    const periodEventRows = filterServicesByPeriod(eventRows, period);
+  const buildClientRowsForPeriod = useCallback((period, sourceEventRows = eventRows, sourceBillingGroups = billingGroups) => {
+    const periodEventRows = filterServicesByPeriod(sourceEventRows, period);
     const periodDirectReceivableByClient = new Map();
     for (const event of periodEventRows) {
       if (!event.clientId || event.financial.receivable <= 0) continue;
@@ -638,7 +685,7 @@ export default function Accounting() {
       const periodInvoices = filterInvoicesByPeriod(clientInvoices, period);
       const unpaidInvoices = periodInvoices.filter((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled');
       const clientGroups = filterBillingGroupsByPeriod(
-        billingGroups.filter((group) => Number(group.client?.id) === Number(client.id)),
+        sourceBillingGroups.filter((group) => Number(group.client?.id) === Number(client.id)),
         period,
       );
       const billedOpen = num(periodDirectReceivableByClient.get(Number(client.id)));
@@ -708,14 +755,48 @@ export default function Accounting() {
     [buildClientRowsForPeriod, selectedMonth],
   );
 
+  const selectedForecastClientRows = useMemo(
+    () => buildClientRowsForPeriod(selectedMonth, forecastEventRows, forecastBillingGroups),
+    [buildClientRowsForPeriod, forecastBillingGroups, forecastEventRows, selectedMonth],
+  );
+
   const { activeRows: activeClientRows } = useMemo(
     () => splitClientBillingRows(selectedPeriodClientRows),
     [selectedPeriodClientRows],
   );
 
+  const { activeRows: activeForecastClientRows } = useMemo(
+    () => splitClientBillingRows(selectedForecastClientRows),
+    [selectedForecastClientRows],
+  );
+
   const clientRows = useMemo(
     () => clientBillingRowsForActiveEvents(activeClientRows),
     [activeClientRows],
+  );
+
+  useEffect(() => {
+    if (activeArea !== 'clients') return;
+
+    const eventId = searchParams.get('eventId');
+    const invoiceId = searchParams.get('invoiceId');
+    if (!eventId && !invoiceId) return;
+
+    const targetRow = clientRows.find((row) => {
+      if (eventId) {
+        if (billingEventIdsForRow(row).some((id) => String(id) === String(eventId))) return true;
+        if ((row.nonInvoicedServices || []).some((event) => String(event.id) === String(eventId))) return true;
+      }
+      if (invoiceId && (row.invoices || []).some((invoice) => String(invoice.id) === String(invoiceId))) return true;
+      return false;
+    });
+
+    if (targetRow) setExpandedClientId(targetRow.rowId || targetRow.id);
+  }, [activeArea, clientRows, searchParams]);
+
+  const forecastClientRows = useMemo(
+    () => clientBillingRowsForActiveEvents(activeForecastClientRows),
+    [activeForecastClientRows],
   );
 
   const archivePeriodClientRows = useMemo(
@@ -747,6 +828,11 @@ export default function Accounting() {
     .flatMap((event) => billableAssignments(event).map((assignment) => ({ ...assignment, event })))
     .filter((assignment) => paymentMonthMatches(assignment, selectedMonth)),
   [financeServices, selectedMonth]);
+
+  const forecastPaymentStaffEntries = useMemo(() => forecastServices
+    .flatMap((event) => billableAssignments(event).map((assignment) => ({ ...assignment, event })))
+    .filter((assignment) => paymentMonthMatches(assignment, selectedMonth)),
+  [forecastServices, selectedMonth]);
 
   const staffEventOptions = useMemo(
     () => [...new Map(selectedPaymentStaffEntries.map((assignment) => [String(assignment.event.id), assignment.event])).values()]
@@ -1239,9 +1325,35 @@ export default function Accounting() {
     }
   }
 
+  const forecastFinanceSummary = {
+    events: currentForecastEventRows.length,
+    revenue: currentForecastEventRows.reduce((sum, event) => sum + event.financial.revenue, 0),
+    staff: currentForecastEventRows.reduce((sum, event) => sum + event.financial.staff, 0),
+    billing: currentForecastBillingGroups.reduce((sum, group) => sum + group.total, 0),
+    staffPayments: forecastPaymentStaffEntries.reduce((sum, assignment) => sum + assignmentOutstandingPay(assignment), 0),
+  };
+
+  const readyFinanceSummary = {
+    events: currentEventRows.length,
+    revenue: currentEventRows.reduce((sum, event) => sum + event.financial.revenue, 0),
+    staff: currentEventRows.reduce((sum, event) => sum + event.financial.staff, 0),
+    billing: currentBillingGroups.reduce((sum, group) => sum + group.total, 0),
+    staffPayments: currentMonthUnpaidAssignments.reduce((sum, assignment) => sum + assignmentOutstandingPay(assignment), 0),
+  };
+
+  const forecastStaffPreviewRows = topItems(
+    [...forecastPaymentStaffEntries].sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)),
+    5,
+  );
+
+  const forecastClientPreviewRows = topItems(
+    forecastClientRows.filter((client) => client.totalOpen > 0 || client.pendingBilling > 0),
+    5,
+  );
+
   const dashboardItems = [
-    { label: 'Faturação emitida', value: money.format(dashboard.issued), detail: monthLabel(selectedMonth) },
-    { label: 'Faturação recebida', value: money.format(dashboard.received), detail: 'Recebido / sinalizado' },
+    { label: 'Faturação emitida', value: money.format(dashboard.issued), detail: `${monthLabel(selectedMonth)} · finalizados` },
+    { label: 'Faturação recebida', value: money.format(dashboard.received), detail: 'Recebido / sinalizado validado' },
     { label: 'Custos com staff', value: money.format(dashboard.staff), detail: `${currentStaffCollaboratorCount} colaborador(es)` },
   ];
 
@@ -1304,6 +1416,68 @@ export default function Accounting() {
           </button>
         ))}
       </div>
+
+      {activeArea === 'overview' ? (
+        <div className="finance-readiness-grid">
+          <section className="finance-readiness-panel finance-readiness-panel--forecast">
+            <header>
+              <span className="finance-readiness-icon"><Hourglass size={20} /></span>
+              <div>
+                <small>Previsão</small>
+                <h2>Ainda não validado</h2>
+              </div>
+              <Badge tone="warning">Não processável</Badge>
+            </header>
+            <div className="finance-readiness-metrics">
+              <div><span>Valor previsto</span><strong>{money.format(forecastFinanceSummary.revenue)}</strong></div>
+              <div><span>Staff previsto</span><strong>{money.format(forecastFinanceSummary.staff)}</strong></div>
+              <div><span>Eventos</span><strong>{forecastFinanceSummary.events}</strong></div>
+              <div><span>Por faturar previsto</span><strong>{money.format(forecastFinanceSummary.billing)}</strong></div>
+            </div>
+            <div className="finance-readiness-list">
+              {topItems([...currentForecastEventRows].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()), 4).map((event) => (
+                <article key={event.id}>
+                  <div>
+                    <strong>{event.name}</strong>
+                    <small>{event.client?.name || '-'} · {event.date ? date.format(new Date(event.date)) : '-'}</small>
+                  </div>
+                  <span>{money.format(event.financial.revenue)}</span>
+                </article>
+              ))}
+              {!currentForecastEventRows.length ? <p className="muted">Sem eventos em previsão neste período.</p> : null}
+            </div>
+          </section>
+
+          <section className="finance-readiness-panel finance-readiness-panel--ready">
+            <header>
+              <span className="finance-readiness-icon"><CheckCircle2 size={20} /></span>
+              <div>
+                <small>Pronto para financeiro</small>
+                <h2>Validado / real</h2>
+              </div>
+              <Badge tone="success">Processável</Badge>
+            </header>
+            <div className="finance-readiness-metrics">
+              <div><span>Valor validado</span><strong>{money.format(readyFinanceSummary.revenue)}</strong></div>
+              <div><span>Pronto a faturar</span><strong>{money.format(readyFinanceSummary.billing)}</strong></div>
+              <div><span>Staff a pagar</span><strong>{money.format(readyFinanceSummary.staffPayments)}</strong></div>
+              <div><span>Eventos</span><strong>{readyFinanceSummary.events}</strong></div>
+            </div>
+            <div className="finance-readiness-list">
+              {topItems([...currentEventRows].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()), 4).map((event) => (
+                <article key={event.id}>
+                  <div>
+                    <strong>{event.name}</strong>
+                    <small>{event.client?.name || '-'} · {event.date ? date.format(new Date(event.date)) : '-'}</small>
+                  </div>
+                  <span>{money.format(event.financial.revenue)}</span>
+                </article>
+              ))}
+              {!currentEventRows.length ? <p className="muted">Sem eventos finalizados neste período.</p> : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {activeArea === 'overview' ? (
         <>
@@ -1384,6 +1558,57 @@ export default function Accounting() {
 
       {activeArea === 'clients' ? (
         <Card title="Clientes">
+          <div className="finance-readiness-grid finance-readiness-grid--compact">
+            <section className="finance-readiness-panel finance-readiness-panel--forecast">
+              <header>
+                <span className="finance-readiness-icon"><Hourglass size={18} /></span>
+                <div>
+                  <small>Previsão de faturação</small>
+                  <h2>Por validar</h2>
+                </div>
+                <Badge tone="warning">{forecastClientRows.length} linha(s)</Badge>
+              </header>
+              <div className="finance-readiness-metrics">
+                <div><span>Valor previsto</span><strong>{money.format(forecastFinanceSummary.billing || forecastFinanceSummary.revenue)}</strong></div>
+                <div><span>Eventos</span><strong>{forecastFinanceSummary.events}</strong></div>
+              </div>
+              <div className="finance-readiness-list">
+                {forecastClientPreviewRows.map((client) => (
+                  <article key={client.rowId}>
+                    <div>
+                      <strong>{client.name}</strong>
+                      <small>{client.billingPeriodLabel || BILLING_METHOD_LABELS[client.billingMethod] || '-'}</small>
+                    </div>
+                    <span>{money.format(client.totalOpen || client.pendingBilling)}</span>
+                  </article>
+                ))}
+                {!forecastClientPreviewRows.length ? <p className="muted">Sem clientes por validar neste período.</p> : null}
+              </div>
+            </section>
+
+            <section className="finance-readiness-panel finance-readiness-panel--ready">
+              <header>
+                <span className="finance-readiness-icon"><ReceiptText size={18} /></span>
+                <div>
+                  <small>Faturação processável</small>
+                  <h2>Eventos finalizados</h2>
+                </div>
+                <Badge tone="success">{clientRows.length} linha(s)</Badge>
+              </header>
+              <div className="finance-readiness-metrics">
+                <div><span>Pronto a faturar</span><strong>{money.format(readyFinanceSummary.billing)}</strong></div>
+                <div><span>Em aberto</span><strong>{money.format(clientRows.reduce((sum, client) => sum + client.totalOpen, 0))}</strong></div>
+              </div>
+              <p className="muted">A tabela abaixo permite alterar estados apenas para eventos finalizados.</p>
+            </section>
+          </div>
+
+          <div className="finance-table-heading">
+            <div>
+              <strong>Pronto a faturar e receber</strong>
+              <small>Dados processáveis do período selecionado</small>
+            </div>
+          </div>
           <div className="table-wrap">
             <table>
               <thead>
@@ -1688,6 +1913,51 @@ export default function Accounting() {
 
       {activeArea === 'staff' ? (
         <div className="finance-grid finance-grid--two">
+          <div className="finance-readiness-grid finance-readiness-grid--compact finance-span-2">
+            <section className="finance-readiness-panel finance-readiness-panel--forecast">
+              <header>
+                <span className="finance-readiness-icon"><Hourglass size={18} /></span>
+                <div>
+                  <small>Previsão Staff</small>
+                  <h2>Não processável</h2>
+                </div>
+                <Badge tone="warning">{forecastPaymentStaffEntries.length} registo(s)</Badge>
+              </header>
+              <div className="finance-readiness-metrics">
+                <div><span>Total previsto</span><strong>{money.format(forecastFinanceSummary.staffPayments)}</strong></div>
+                <div><span>Eventos</span><strong>{forecastFinanceSummary.events}</strong></div>
+              </div>
+              <div className="finance-readiness-list">
+                {forecastStaffPreviewRows.map((assignment) => (
+                  <article key={assignment.id}>
+                    <div>
+                      <strong>{assignment.collaborator?.shortName || assignment.collaborator?.name || '-'}</strong>
+                      <small>{assignment.event?.name || '-'} · {assignmentWorkDateValue(assignment) ? date.format(new Date(assignmentWorkDateValue(assignment))) : '-'}</small>
+                    </div>
+                    <span>{money.format(assignmentOutstandingPay(assignment))}</span>
+                  </article>
+                ))}
+                {!forecastStaffPreviewRows.length ? <p className="muted">Sem pagamentos previstos por validar neste período.</p> : null}
+              </div>
+            </section>
+
+            <section className="finance-readiness-panel finance-readiness-panel--ready">
+              <header>
+                <span className="finance-readiness-icon"><CheckCircle2 size={18} /></span>
+                <div>
+                  <small>Pagamentos prontos</small>
+                  <h2>Validado</h2>
+                </div>
+                <Badge tone="success">{selectedPaymentStaffEntries.length} registo(s)</Badge>
+              </header>
+              <div className="finance-readiness-metrics">
+                <div><span>A pagar</span><strong>{money.format(readyFinanceSummary.staffPayments)}</strong></div>
+                <div><span>Colaboradores</span><strong>{currentStaffCollaboratorCount}</strong></div>
+              </div>
+              <p className="muted">Só estes registos entram na tabela de pagamentos e nas ações em massa.</p>
+            </section>
+          </div>
+
           <Card title="Filtros de Staff" className="finance-span-2">
             <div className="finance-filter-grid">
               <label>Evento/Serviço

@@ -1,7 +1,7 @@
 ﻿import { ChevronDown, ChevronRight, LayoutTemplate, Plus, Save, Trash2, Users } from 'lucide-react';
 import { CarFront } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
@@ -20,6 +20,11 @@ import {
   buildPrepaymentSummary,
   shouldBlockPrepaidStaffAllocation,
 } from '../utils/prepaymentPolicy.js';
+import {
+  applyClientRulesToServiceForm,
+  clientPrepaymentRule,
+  clientRuleRate,
+} from '../utils/clientRules.js';
 import {
   assignmentDraftsFromRows,
   normalizeAssignmentDrafts,
@@ -63,6 +68,22 @@ const uniformOptions = [
   'Definido pelo cliente',
   'Outros',
 ];
+
+const billingMethodLabels = {
+  prepaid: 'Pré-pagamento',
+  per_event: 'Por evento',
+  biweekly: 'Quinzenal',
+  monthly: 'Mensal',
+  custom: 'Personalizado',
+};
+
+const paymentTermLabels = {
+  immediate: 'Pronto pagamento',
+  days_15: '15 dias',
+  days_30: '30 dias',
+  days_45: '45 dias',
+  custom: 'Personalizado',
+};
 
 const assignmentStatusOptions = [
   { value: 'confirmed', label: 'Confirmado' },
@@ -284,15 +305,21 @@ function cleanTravelCarsForPayload(cars = []) {
   }));
 }
 
-function clientRoleRates(client) {
-  return safeArrayJson(client?.roleRates)
-    .filter((item) => item?.role && parseMoney(item.rate) !== null);
+function clientRateForRole(client, role) {
+  const value = clientRuleRate(client, role);
+  return value === null ? '' : formatMoneyInline(value);
 }
 
-function clientRateForRole(client, role) {
-  const item = clientRoleRates(client).find((entry) => entry.role === role);
-  const value = parseMoney(item?.rate);
-  return value === null ? '' : formatMoneyInline(value);
+function paymentTermText(client) {
+  if (!client) return '-';
+  if (client.paymentTerm === 'custom') return `${client.paymentTermDays || '-'} dias`;
+  return paymentTermLabels[client.paymentTerm] || '-';
+}
+
+function prepaymentRuleText(client) {
+  const rule = clientPrepaymentRule(client);
+  if (!rule.enabled) return 'Não aplicável';
+  return `${rule.percent}% + restante ${rule.remainingDaysBefore} dias antes`;
 }
 
 function extractBudgetReference(text) {
@@ -550,6 +577,7 @@ function getRowForecast(row) {
 }
 
 export default function Services() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi('/services', []);
   const { data: clients } = useApi('/clients', []);
@@ -721,6 +749,7 @@ export default function Services() {
     total: financials.totalRevenue || financials.expectedRevenue || 0,
     serviceDate: form.date,
     billingStatus: form.billingStatus,
+    client: selectedClient,
   });
   const prepaidPaymentBlocked = shouldBlockPrepaidStaffAllocation(
     selectedClient,
@@ -733,6 +762,7 @@ export default function Services() {
       total: financials.totalRevenue || financials.expectedRevenue || 0,
       serviceDate: form.date,
       billingStatus,
+      client: selectedClient,
     });
 
     setForm({
@@ -1058,18 +1088,11 @@ export default function Services() {
 
   function updateClient(clientId) {
     const client = clients.find((item) => String(item.id) === String(clientId));
-    setForm((prev) => ({
-      ...prev,
-      clientId,
-      minimumHoursSnapshot: Number(client?.minimumHours || 0),
-      location: prev.useDefaultLocation ? (client?.address || '') : prev.location,
-      onsiteContactName: prev.onsiteContactName || client?.representativeName || client?.contactPerson || '',
-      onsiteContactPhone: prev.onsiteContactPhone || client?.phone || '',
-      requiredRoles: prev.requiredRoles.map((item) => ({
-        ...item,
-        agreedRate: item.agreedRate || clientRateForRole(client, item.role),
-      })),
-    }));
+    setForm((prev) => applyClientRulesToServiceForm(
+      { ...prev, clientId },
+      client,
+      { uniformOptions },
+    ));
   }
 
   function updateRoleRequirement(role, patch) {
@@ -1263,6 +1286,7 @@ export default function Services() {
         total: financials.totalRevenue,
         serviceDate: form.date,
         billingStatus: form.billingStatus,
+        client: selectedClient,
       });
       const travelCars = form.travelType === 'kilometers' ? cleanTravelCarsForPayload(form.travelCars) : [];
       const firstTravelCar = travelCars[0] || {};
@@ -1431,6 +1455,7 @@ export default function Services() {
 
   function renderPrepaymentPanel() {
     if (selectedClient?.billingMethod !== 'prepaid') return null;
+    const rule = clientPrepaymentRule(selectedClient);
 
     return (
       <section className="service-form-section">
@@ -1438,13 +1463,13 @@ export default function Services() {
         <div className="service-prepayment-panel">
           <div className="service-prepayment-summary">
             <strong>Pré-pagamento do cliente</strong>
-            <span>Habitual: 70% na sinalização e 30% uma semana antes do evento.</span>
+            <span>Regra do cliente: {rule.percent}% na sinalização e restante {rule.remainingDaysBefore} dias antes do evento.</span>
           </div>
           <div className="service-prepayment-grid">
             <label>Estado do pagamento
               <select value={form.billingStatus || 'pending'} onChange={(event) => updatePrepaymentStatus(event.target.value)}>
                 <option value="pending">Aguardar sinalização</option>
-                <option value="partial70">Sinalização 70%</option>
+                <option value="partial70">Sinalização</option>
                 <option value="paid">Pago</option>
               </select>
             </label>
@@ -1532,7 +1557,7 @@ export default function Services() {
             const confirmedTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'confirmed').length;
             const pendingTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'pending_confirmation').length;
             return (
-              <button key={row.id} type="button" className="service-card" onClick={() => openEdit(row)}>
+              <button key={row.id} type="button" className="service-card" onClick={() => navigate(`/services/${row.id}`)}>
                 <div className="service-card__main">
                   <div className="service-card__field">
                     <small>Nome do Evento</small>
@@ -1713,6 +1738,10 @@ export default function Services() {
                       <p><span>Telefone</span><strong>{selectedClient?.phone || '-'}</strong></p>
                       <p><span>Email</span><strong>{selectedClient?.email || '-'}</strong></p>
                       <p><span>Horas mínimas</span><strong>{minimumHoursSnapshot > 0 ? `${minimumHoursSnapshot} h por colaborador/turno` : 'Sem mínimo'}</strong></p>
+                      <p><span>Faturação</span><strong>{billingMethodLabels[selectedClient?.billingMethod] || '-'}</strong></p>
+                      <p><span>Prazo</span><strong>{paymentTermText(selectedClient)}</strong></p>
+                      <p><span>Uniforme habitual</span><strong>{selectedClient?.defaultUniform || 'Definir no evento'}</strong></p>
+                      <p><span>Pré-pagamento</span><strong>{prepaymentRuleText(selectedClient)}</strong></p>
                     </div>
                     <label className="span-2">Local do evento
                       <input value={form.useDefaultLocation ? (selectedClient?.address || form.location) : form.location} readOnly={form.useDefaultLocation} onChange={(event) => setForm({ ...form, location: event.target.value })} />

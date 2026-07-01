@@ -148,6 +148,8 @@ export function buildStaffSchedulePdfHtml(rows, options = {}) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(generatedAt);
+  const totalHours = scheduleRows.reduce((sum, row) => sum + Number(row.hours || 0), 0);
+  const totalValue = scheduleRows.reduce((sum, row) => sum + Number(row.totalValue || 0), 0);
 
   const sections = groups.map((group) => {
     const groupValue = group.rows.reduce((sum, row) => sum + Number(row.totalValue || 0), 0);
@@ -271,6 +273,30 @@ export function buildStaffSchedulePdfHtml(rows, options = {}) {
       background: #f3f4f6;
       border-bottom: 1px solid #d1d5db;
     }
+    .summary-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .summary-row div {
+      border: 1px solid #bae6fd;
+      border-radius: 8px;
+      background: #e0f2fe;
+      color: #075985;
+      padding: 10px 12px;
+    }
+    .summary-row span {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .summary-row strong {
+      display: block;
+      margin-top: 4px;
+      color: #0c4a6e;
+      font-size: 15px;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -314,6 +340,10 @@ export function buildStaffSchedulePdfHtml(rows, options = {}) {
         <div><span>Gerado em</span><strong>${escapeHtml(generatedAtLabel)}</strong></div>
       </div>
     </header>
+    <section class="summary-row">
+      <div><span>Total geral de horas Staff</span><strong>${escapeHtml(formatHours(totalHours))}</strong></div>
+      <div><span>Valor total dos serviços</span><strong>${escapeHtml(formatMoney(totalValue))}</strong></div>
+    </section>
     ${sections || '<div class="empty">Sem horários Staff registados para os filtros selecionados.</div>'}
   </main>
 </body>
@@ -368,6 +398,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
     minute: '2-digit',
   }).format(generatedAt);
   const totalHours = scheduleRows.reduce((sum, row) => sum + Number(row.hours || 0), 0);
+  const totalValue = scheduleRows.reduce((sum, row) => sum + Number(row.totalValue || 0), 0);
 
   const groupRows = groups.map((group) => {
     const groupHours = group.rows.reduce((sum, row) => sum + Number(row.hours || 0), 0);
@@ -522,7 +553,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
     <tr class="report-total">
       <td colspan="8">Total geral de horas Staff</td>
       <td class="number-cell">${escapeHtml(formatHoursCell(totalHours))}</td>
-      <td></td>
+      <td class="money-cell"><strong>Valor total dos serviços</strong><br>${escapeHtml(formatMoney(totalValue))}</td>
     </tr>
     <tr class="spacer"><td colspan="10"></td></tr>
     ${groupRows || '<tr><td colspan="10">Sem horários Staff registados para os filtros selecionados.</td></tr>'}

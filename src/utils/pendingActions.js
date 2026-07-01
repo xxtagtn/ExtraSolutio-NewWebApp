@@ -2,17 +2,28 @@ import { isFinanceReadyEvent } from './financeReadiness.js';
 import { decimalValue } from './serviceFinance.js';
 import { staffPaymentTiming } from './staffPayment.js';
 import { dueDateForBillingGroup } from './clientBilling.js';
+import { prepaymentRemainingReminderDate } from './prepaymentPolicy.js';
 
 const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const CLOSED_SERVICE_STATUSES = new Set(['cancelled']);
 const PAID_BILLING_STATUSES = new Set(['paid']);
 const OPEN_INVOICE_STATUSES = new Set(['draft', 'issued']);
+const STAFF_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
+const PERIOD_BILLING_METHODS = new Set(['monthly', 'biweekly', 'custom']);
 const PRIORITY_ORDER = {
   critical: 0,
   high: 1,
   medium: 2,
   low: 3,
 };
+
+const DOCUMENT_TYPE_LABELS = {
+  passport: 'Passaporte',
+  citizen_card: 'Cartão de Cidadão',
+  residence_permit: 'Título de Residência',
+};
+
+const dateFormatter = new Intl.DateTimeFormat('pt-PT');
 
 function safeArray(value) {
   if (!value) return [];
@@ -48,6 +59,13 @@ function lastDayOfMonth(year, month) {
   return new Date(year, month + 1, 0);
 }
 
+function monthPeriodLabel(value) {
+  return new Intl.DateTimeFormat('pt-PT', {
+    month: 'long',
+    year: 'numeric',
+  }).format(value);
+}
+
 function validDate(value) {
   if (!value) return null;
   const date = new Date(value);
@@ -59,6 +77,28 @@ function daysUntil(value, today) {
   if (!date) return null;
   const diff = startOfDay(date).getTime() - startOfDay(today).getTime();
   return Math.round(diff / 86400000);
+}
+
+function formatDate(value) {
+  const date = validDate(value);
+  return date ? dateFormatter.format(date) : '-';
+}
+
+function formatEuro(value) {
+  return `${numeric(value).toLocaleString('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} €`;
+}
+
+function relativeDateLabel(value, today) {
+  const days = daysUntil(value, today);
+  if (days === null) return '-';
+  if (days === 0) return 'Hoje';
+  if (days === 1) return 'Amanhã';
+  if (days === -1) return 'Ontem';
+  if (days > 1) return `${days} dias`;
+  return `Há ${Math.abs(days)} dias`;
 }
 
 function actionDaysUntil(action, today) {
@@ -77,6 +117,24 @@ function eventDateTime(event) {
   const base = String(event.date).slice(0, 10);
   const time = event.startTime || '00:00';
   return validDate(`${base}T${time}`);
+}
+
+function cleanTime(value, fallback = '00:00') {
+  const raw = String(value || fallback || '00:00');
+  const match = raw.match(/^(\d{1,2}):?(\d{2})?/);
+  if (!match) return fallback;
+  const hour = String(Math.min(23, Number(match[1] || 0))).padStart(2, '0');
+  const minute = String(Math.min(59, Number(match[2] || 0))).padStart(2, '0');
+  return `${hour}:${minute}`;
+}
+
+function assignmentShiftStart(assignment, event) {
+  const datePart = String(assignment?.assignmentDate || event?.date || '').slice(0, 10);
+  if (!datePart) return null;
+  const time = cleanTime(assignment?.plannedStartTime || assignment?.startTime || event?.startTime || '00:00');
+  const dateTime = validDate(`${datePart}T${time}:00`);
+  if (!dateTime) return null;
+  return { datePart, time, dateTime };
 }
 
 function billingIssueDateForEvent(event) {
@@ -103,6 +161,22 @@ function billingDueDateForEvent(event, today) {
     client: event?.client || {},
     events: [event],
   }, today);
+}
+
+function dateKey(value) {
+  const date = validDate(value);
+  if (!date) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function billingPeriodLabel(method, issueDate) {
+  const date = validDate(issueDate);
+  if (!date) return 'Período de faturação';
+  if (method === 'biweekly') {
+    const half = date.getDate() <= 15 ? '1.ª quinzena' : '2.ª quinzena';
+    return `${half} de ${monthPeriodLabel(date)}`;
+  }
+  return monthPeriodLabel(date);
 }
 
 function requiredTotal(event) {
@@ -143,6 +217,18 @@ function documentDescription(days) {
   return `Documento expira dentro de ${days} dia(s).`;
 }
 
+function documentTypeLabel(type) {
+  return DOCUMENT_TYPE_LABELS[type] || type || 'Documento';
+}
+
+function documentValidityLabel(expiry, today) {
+  const days = daysUntil(expiry, today);
+  if (days === null) return formatDate(expiry);
+  if (days < 0) return `${formatDate(expiry)} (expirado há ${Math.abs(days)} dias)`;
+  if (days === 0) return `${formatDate(expiry)} (expira hoje)`;
+  return `${formatDate(expiry)} (faltam ${days} dias)`;
+}
+
 function addTeamActions(actions, services, today) {
   for (const event of services || []) {
     if (CLOSED_SERVICE_STATUSES.has(normalized(event?.status))) continue;
@@ -164,8 +250,14 @@ function addTeamActions(actions, services, today) {
       priority,
       tone: priority === 'high' ? 'warning' : 'info',
       dueDate: eventDateTime(event) || event.date,
-      to: `/services?serviceId=${event.id}`,
+      to: `/services/${event.id}`,
+      origin: clientName(event),
       meta: [clientName(event)],
+      details: [
+        { label: 'Cliente', value: clientName(event) },
+        { label: 'Evento', value: event.name || 'Evento/Serviço' },
+        { label: 'Equipa', value: `${confirmed}/${requested} confirmados` },
+      ],
     });
   }
 }
@@ -193,12 +285,73 @@ function addHoursValidationActions(actions, services, today) {
       tone: 'warning',
       dueDate: event.endDate || event.date,
       to: `/time-validation?eventId=${event.id}`,
+      origin: clientName(event),
       meta: [clientName(event)],
+      details: [
+        { label: 'Cliente', value: clientName(event) },
+        { label: 'Evento', value: event.name || 'Evento/Serviço' },
+        { label: 'Por validar', value: `${assignments.filter((assignment) => normalized(assignment?.validationStatus) !== 'validated').length} colaborador(es)` },
+      ],
+    });
+  }
+}
+
+function addStaffReminderActions(actions, services, today) {
+  const now = validDate(today) || new Date();
+  const windowEnd = new Date(now.getTime() + STAFF_REMINDER_WINDOW_MS);
+  const groups = new Map();
+
+  for (const event of services || []) {
+    if (CLOSED_SERVICE_STATUSES.has(normalized(event?.status))) continue;
+    if (isFinanceReadyEvent(event)) continue;
+
+    for (const assignment of billableAssignments(event)) {
+      if (normalized(assignment?.status) !== 'confirmed') continue;
+
+      const shift = assignmentShiftStart(assignment, event);
+      if (!shift) continue;
+      if (shift.dateTime < now || shift.dateTime > windowEnd) continue;
+
+      const key = `${event.id}-${shift.datePart}-${shift.time}`;
+      const group = groups.get(key) || {
+        id: `staff-reminder-${key}`,
+        event,
+        shift,
+        assignments: [],
+      };
+      group.assignments.push(assignment);
+      groups.set(key, group);
+    }
+  }
+
+  for (const group of groups.values()) {
+    const event = group.event;
+    const shiftLabel = `${formatDate(group.shift.datePart)} ${group.shift.time}`;
+    addAction(actions, {
+      id: group.id,
+      category: 'Staff',
+      title: 'Enviar lembrete 24h ao staff',
+      description: `${event.name || 'Evento/Serviço'} tem ${group.assignments.length} colaborador(es) confirmado(s) para lembrar.`,
+      priority: 'high',
+      tone: 'warning',
+      dueDate: group.shift.dateTime,
+      to: `/services/${event.id}?tab=collaborators`,
+      origin: clientName(event),
+      meta: [event.name || 'Evento/Serviço', shiftLabel],
+      buttonLabel: 'Preparar',
+      details: [
+        { label: 'Cliente', value: clientName(event) },
+        { label: 'Evento', value: event.name || 'Evento/Serviço' },
+        { label: 'Turno', value: shiftLabel },
+        { label: 'Colaboradores', value: `${group.assignments.length} confirmado(s)` },
+      ],
     });
   }
 }
 
 function addBillingActions(actions, services, today) {
+  const groupedReadyToBill = new Map();
+
   for (const event of services || []) {
     if (CLOSED_SERVICE_STATUSES.has(normalized(event?.status))) continue;
     if (numeric(event.totalRevenue) <= 0) continue;
@@ -206,8 +359,9 @@ function addBillingActions(actions, services, today) {
     const billingStatus = normalized(event.billingStatus || 'pending');
     if (PAID_BILLING_STATUSES.has(billingStatus)) continue;
 
-    if (billingStatus === 'partial70' && event.remainingPaymentDate) {
-      const days = daysUntil(event.remainingPaymentDate, today);
+    if (billingStatus === 'partial70') {
+      const remainingDueDate = prepaymentRemainingReminderDate(event);
+      const days = daysUntil(remainingDueDate, today);
       if (days !== null && days <= 7) {
         addAction(actions, {
           id: `service-remaining-payment-${event.id}`,
@@ -216,9 +370,16 @@ function addBillingActions(actions, services, today) {
           description: `${clientName(event)} tem restante pagamento associado a ${event.name || 'Evento/Serviço'}.`,
           priority: days < 0 ? 'high' : 'medium',
           tone: days < 0 ? 'danger' : 'warning',
-          dueDate: event.remainingPaymentDate,
+          dueDate: remainingDueDate,
           to: `/finance?area=clients&eventId=${event.id}`,
+          origin: clientName(event),
           meta: [event.name || 'Evento/Serviço'],
+          details: [
+            { label: 'Cliente', value: clientName(event) },
+            { label: 'Evento', value: event.name || 'Evento/Serviço' },
+            { label: 'Valor', value: formatEuro(event.totalRevenue) },
+            { label: 'Vencimento', value: relativeDateLabel(remainingDueDate, today) },
+          ],
         });
       }
       continue;
@@ -231,6 +392,27 @@ function addBillingActions(actions, services, today) {
       const days = daysUntil(actionDate, today);
       if (days === null || days > 0) continue;
       if (billingStatus === 'pending' && !isFinanceReadyEvent(event)) continue;
+
+      const method = event?.client?.billingMethod || 'per_event';
+      if (billingStatus === 'pending' && PERIOD_BILLING_METHODS.has(method)) {
+        const clientId = event?.client?.id || normalized(clientName(event));
+        const key = `${clientId}-${method}-${dateKey(issueDate)}`;
+        const group = groupedReadyToBill.get(key) || {
+          id: `service-billing-group-${key}`,
+          method,
+          client: event?.client || {},
+          clientName: clientName(event),
+          issueDate,
+          actionDate,
+          events: [],
+          total: 0,
+        };
+        group.events.push(event);
+        group.total += numeric(event.totalRevenue);
+        groupedReadyToBill.set(key, group);
+        continue;
+      }
+
       addAction(actions, {
         id: `service-billing-${event.id}`,
         category: 'Clientes',
@@ -239,10 +421,47 @@ function addBillingActions(actions, services, today) {
         priority: billingStatus === 'invoiced' ? 'high' : 'medium',
         tone: billingStatus === 'invoiced' ? 'warning' : 'info',
         dueDate: actionDate,
-        to: `/finance?area=clients&eventId=${event.id}`,
-        meta: [`Valor: ${numeric(event.totalRevenue).toFixed(2)} €`],
+        to: billingStatus === 'invoiced' ? `/finance?area=clients&eventId=${event.id}` : `/services/${event.id}`,
+        origin: clientName(event),
+        meta: [`Valor: ${formatEuro(event.totalRevenue)}`],
+        buttonLabel: billingStatus === 'invoiced' ? 'Abrir' : 'Faturar',
+        details: billingStatus === 'invoiced'
+          ? [
+              { label: 'Cliente', value: clientName(event) },
+              { label: 'Evento', value: event.name || 'Evento/Serviço' },
+              { label: 'Valor', value: formatEuro(event.totalRevenue) },
+              { label: 'Vencimento', value: relativeDateLabel(actionDate, today) },
+            ]
+          : [
+              { label: 'Cliente', value: clientName(event) },
+              { label: 'Evento', value: event.name || 'Evento/Serviço' },
+              { label: 'Valor a faturar', value: formatEuro(event.totalRevenue) },
+            ],
       });
     }
+  }
+
+  for (const group of groupedReadyToBill.values()) {
+    const eventIds = group.events.map((event) => event.id).filter(Boolean).join(',');
+    addAction(actions, {
+      id: group.id,
+      category: 'Clientes',
+      title: 'Período pronto para faturar',
+      description: `${group.clientName} tem ${group.events.length} serviço(s) prontos para faturação.`,
+      priority: 'medium',
+      tone: 'info',
+      dueDate: group.actionDate,
+      to: `/finance?area=clients&clientId=${group.client?.id || ''}&eventIds=${eventIds}`,
+      origin: group.clientName,
+      meta: [`Valor: ${formatEuro(group.total)}`],
+      buttonLabel: 'Faturar',
+      details: [
+        { label: 'Cliente', value: group.clientName },
+        { label: 'Período', value: billingPeriodLabel(group.method, group.issueDate) },
+        { label: 'Eventos', value: `${group.events.length} serviço(s)` },
+        { label: 'Valor a faturar', value: formatEuro(group.total) },
+      ],
+    });
   }
 }
 
@@ -264,7 +483,13 @@ function addStaffPaymentActions(actions, services, today) {
         tone: 'warning',
         dueDate: timing.start || event.date,
         to: `/finance?area=staff&assignmentId=${assignment.id}`,
+        origin: collaboratorName(collaborator),
         meta: [clientName(event), timing.deferred ? `Acumulado para ${timing.paymentMonth}` : `Pagamento ${timing.paymentMonth}`],
+        details: [
+          { label: 'Colaborador', value: collaboratorName(collaborator) },
+          { label: 'Evento', value: event.name || 'Evento/Serviço' },
+          { label: 'Cliente', value: clientName(event) },
+        ],
       });
     }
   }
@@ -285,8 +510,15 @@ function addDocumentActions(actions, collaborators, today) {
       priority,
       tone: priority === 'critical' || priority === 'high' ? 'danger' : priority === 'medium' ? 'warning' : 'info',
       dueDate: collaborator.documentExpiry,
-      to: `/collaborators?collaboratorId=${collaborator.id}`,
-      meta: [collaborator.documentType || 'Documento'],
+      to: `/collaborators?collaboratorId=${collaborator.id}&section=documents`,
+      origin: collaboratorName(collaborator),
+      meta: [collaboratorName(collaborator), documentTypeLabel(collaborator.documentType)],
+      buttonLabel: 'Ver',
+      details: [
+        { label: 'Colaborador', value: collaboratorName(collaborator) },
+        { label: 'Documento', value: documentTypeLabel(collaborator.documentType) },
+        { label: 'Validade', value: documentValidityLabel(collaborator.documentExpiry, today) },
+      ],
     });
   }
 }
@@ -308,7 +540,13 @@ function addBudgetActions(actions, budgets, today) {
         tone: days < 0 ? 'danger' : 'warning',
         dueDate: item.reminderDate,
         to: `/budgets?budgetId=${budget.id}`,
+        origin: clientName(budget),
         meta: [budget.reference || 'Orçamento'],
+        details: [
+          { label: 'Cliente', value: clientName(budget) },
+          { label: 'Orçamento', value: budget.reference || `#${budget.id}` },
+          { label: 'Follow-up', value: item.text || 'Pendente' },
+        ],
       });
     });
 
@@ -324,7 +562,13 @@ function addBudgetActions(actions, budgets, today) {
           tone: Math.abs(days) >= 7 ? 'danger' : 'warning',
           dueDate: budget.sentAt,
           to: `/budgets?budgetId=${budget.id}`,
+          origin: clientName(budget),
           meta: [budget.reference || 'Orçamento'],
+          details: [
+            { label: 'Cliente', value: clientName(budget) },
+            { label: 'Orçamento', value: budget.reference || `#${budget.id}` },
+            { label: 'Enviado', value: `Há ${Math.abs(days)} dia(s)` },
+          ],
         });
       }
     }
@@ -348,7 +592,14 @@ function addInvoiceActions(actions, invoices, today) {
       tone: days < 0 ? 'danger' : 'warning',
       dueDate: invoice.dueDate,
       to: `/finance?area=clients&invoiceId=${invoice.id}`,
-      meta: [`Valor: ${numeric(invoice.total).toFixed(2)} €`],
+      origin: invoice.client?.name || 'Cliente',
+      meta: [`Valor: ${formatEuro(invoice.total)}`],
+      details: [
+        { label: 'Cliente', value: invoice.client?.name || 'Cliente' },
+        { label: 'Fatura', value: invoice.number || `Fatura #${invoice.id}` },
+        { label: 'Valor', value: formatEuro(invoice.total) },
+        { label: 'Vencimento', value: relativeDateLabel(invoice.dueDate, today) },
+      ],
     });
   }
 }
@@ -359,6 +610,7 @@ export function buildPendingActions(data = {}, options = {}) {
 
   addTeamActions(actions, data.services || [], today);
   addHoursValidationActions(actions, data.services || [], today);
+  addStaffReminderActions(actions, data.services || [], today);
   addBillingActions(actions, data.services || [], today);
   addStaffPaymentActions(actions, data.services || [], today);
   addDocumentActions(actions, data.collaborators || [], today);

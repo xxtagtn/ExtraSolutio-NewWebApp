@@ -9,6 +9,7 @@ import {
   persistedWorkflowAssignment,
   prunePersistedDrafts,
   recentOperationalPeriod,
+  validationEventWorkflowSummary,
   validationStageCounts,
   validationWorkflowStage,
 } from './timeValidationWorkflow.js';
@@ -41,12 +42,19 @@ test('classifies time validation rows by operational stage', () => {
     checkOut: '17:00',
     clientCheckIn: '09:30',
     clientCheckOut: '18:00',
-  }, { isDifference: true })), TIME_VALIDATION_STAGE.differences);
+  }, { isDifference: true })), TIME_VALIDATION_STAGE.clientPending);
   assert.equal(validationWorkflowStage(row({
     checkIn: '09:00',
     checkOut: '17:00',
     clientCheckIn: '09:00',
     clientCheckOut: '17:00',
+  })), TIME_VALIDATION_STAGE.clientPending);
+  assert.equal(validationWorkflowStage(row({
+    checkIn: '09:00',
+    checkOut: '17:00',
+    clientCheckIn: '09:00',
+    clientCheckOut: '17:00',
+    validationStatus: 'validated',
   })), TIME_VALIDATION_STAGE.ready);
   assert.equal(validationWorkflowStage(row({}, {
     eventValidated: true,
@@ -86,7 +94,7 @@ test('reopens finalized events into the stage that needs review', () => {
       clientCheckIn: '09:00',
       clientCheckOut: '17:00',
     }),
-  ]), TIME_VALIDATION_STAGE.ready);
+  ]), TIME_VALIDATION_STAGE.clientPending);
 
   assert.equal(reopenTargetStage([
     row({
@@ -95,7 +103,7 @@ test('reopens finalized events into the stage that needs review', () => {
       clientCheckIn: '09:30',
       clientCheckOut: '17:00',
     }, { isDifference: true }),
-  ]), TIME_VALIDATION_STAGE.differences);
+  ]), TIME_VALIDATION_STAGE.clientPending);
 });
 
 test('counts rows in each validation stage', () => {
@@ -119,11 +127,100 @@ test('counts rows in each validation stage', () => {
 
   assert.deepEqual(validationStageCounts(rows), {
     staff_pending: 1,
-    client_pending: 1,
-    differences: 1,
+    client_pending: 3,
+    differences: 0,
+    ready: 0,
+    finalized: 1,
+  });
+});
+
+test('summarizes an event workflow by actionable validation stage', () => {
+  const rows = [
+    row({}, { id: 1 }),
+    row({ checkIn: '09:00', checkOut: '17:00' }, { id: 2 }),
+    row({
+      checkIn: '09:00',
+      checkOut: '17:00',
+      clientCheckIn: '09:20',
+      clientCheckOut: '17:00',
+    }, { id: 3, isDifference: true }),
+    row({
+      checkIn: '09:00',
+      checkOut: '17:00',
+      clientCheckIn: '09:00',
+      clientCheckOut: '17:00',
+      validationStatus: 'validated',
+    }, { id: 4 }),
+    row({
+      checkIn: '09:00',
+      checkOut: '17:00',
+      clientCheckIn: '09:00',
+      clientCheckOut: '17:00',
+    }, { id: 5, eventValidated: true }),
+  ];
+
+  const summary = validationEventWorkflowSummary(rows);
+
+  assert.equal(summary.total, 5);
+  assert.equal(summary.staffComplete, 4);
+  assert.equal(summary.clientComplete, 3);
+  assert.equal(summary.differences, 1);
+  assert.equal(summary.validated, 1);
+  assert.equal(summary.ready, false);
+  assert.deepEqual(summary.stageCounts, {
+    staff_pending: 1,
+    client_pending: 2,
+    differences: 0,
     ready: 1,
     finalized: 1,
   });
+});
+
+test('summarizes only billable rows when a filter is supplied', () => {
+  const rows = [
+    row({
+      checkIn: '09:00',
+      checkOut: '17:00',
+      clientCheckIn: '09:00',
+      clientCheckOut: '17:00',
+      validationStatus: 'validated',
+      status: 'confirmed',
+    }, { id: 1 }),
+    row({
+      checkIn: '09:00',
+      checkOut: '17:00',
+      clientCheckIn: '09:00',
+      clientCheckOut: '17:00',
+      validationStatus: 'validated',
+      status: 'cancelled',
+    }, { id: 2 }),
+  ];
+
+  const summary = validationEventWorkflowSummary(rows, {
+    includeRow: (item) => item.assignment.status !== 'cancelled',
+  });
+
+  assert.equal(summary.total, 1);
+  assert.equal(summary.ready, true);
+  assert.equal(summary.stageCounts.ready, 1);
+});
+
+test('does not mark an event as closable while ready rows are not accepted', () => {
+  const rows = [
+    row({
+      checkIn: '09:00',
+      checkOut: '17:00',
+      clientCheckIn: '09:00',
+      clientCheckOut: '17:00',
+      validationStatus: 'matched',
+    }, { id: 1 }),
+  ];
+
+  const summary = validationEventWorkflowSummary(rows);
+
+  assert.equal(summary.stageCounts.client_pending, 1);
+  assert.equal(summary.stageCounts.ready, 0);
+  assert.equal(summary.ready, false);
 });
 
 test('counts the persisted workflow stage instead of unsaved draft values', () => {

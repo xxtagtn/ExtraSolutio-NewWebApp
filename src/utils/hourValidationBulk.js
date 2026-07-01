@@ -31,3 +31,36 @@ export function buildBulkValidationCandidates(rows = [], drafts = {}) {
     return result;
   }, { ready: [], missing: [] });
 }
+
+export function buildClientCopyCandidates(rows = [], drafts = {}) {
+  return rows.reduce((result, row) => {
+    if (hoursValidationState(row?.assignment).isValidated) {
+      result.unchanged.push({ row, merged: { ...(row?.assignment || {}), ...(drafts[row?.id] || drafts[row?.assignment?.id] || {}) } });
+      return result;
+    }
+
+    const merged = { ...(row?.assignment || {}), ...(drafts[row?.id] || drafts[row?.assignment?.id] || {}) };
+    const staffComplete = Boolean(merged.checkIn && merged.checkOut);
+    const clientComplete = Boolean(merged.clientCheckIn && merged.clientCheckOut);
+
+    if (clientComplete) {
+      result.unchanged.push({ row, merged });
+      return result;
+    }
+
+    if (!staffComplete) {
+      result.missing.push({ row, merged });
+      return result;
+    }
+
+    result.ready.push({
+      row,
+      merged: {
+        ...merged,
+        clientCheckIn: merged.checkIn,
+        clientCheckOut: merged.checkOut,
+      },
+    });
+    return result;
+  }, { ready: [], missing: [], unchanged: [] });
+}

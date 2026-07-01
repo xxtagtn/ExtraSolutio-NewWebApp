@@ -33,7 +33,9 @@ import {
   budgetStatusLabels,
   normalizeBudgetStatus,
 } from '../utils/budgetPipeline.js';
+import { normalizeBudgetFormState } from '../utils/budgetFormState.js';
 import { calculateBudgetTotals } from '../utils/budgetTotals.js';
+import { applyClientRulesToBudgetForm, clientPrepaymentRule, clientRuleRate } from '../utils/clientRules.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { externalCostsTotals, normalizeExternalCosts } from '../utils/externalCosts.js';
 import { date, money } from '../utils/formatters.js';
@@ -96,6 +98,22 @@ const lostReasonOptions = [
 
 const uniformOptions = ['Polo ExtraSolutio', 'Camisa Branca', 'Camisa Preta', 'Fato', 'Definido pelo cliente', 'Outros'];
 
+const billingMethodLabels = {
+  prepaid: 'Pré-pagamento',
+  per_event: 'Por evento',
+  biweekly: 'Quinzenal',
+  monthly: 'Mensal',
+  custom: 'Personalizado',
+};
+
+const paymentTermLabels = {
+  immediate: 'Pronto pagamento',
+  days_15: '15 dias',
+  days_30: '30 dias',
+  days_45: '45 dias',
+  custom: 'Personalizado',
+};
+
 const roleRates = {
   'Emp.Mesa': 12,
   'Copa Fina': 11,
@@ -132,6 +150,18 @@ function emptyTravelCar(index = 0) {
     travelPeople: 1,
     travelStaffHourlyRate: '',
   };
+}
+
+function paymentTermText(client) {
+  if (!client) return '-';
+  if (client.paymentTerm === 'custom') return `${client.paymentTermDays || '-'} dias`;
+  return paymentTermLabels[client.paymentTerm] || '-';
+}
+
+function prepaymentRuleText(client) {
+  const rule = clientPrepaymentRule(client);
+  if (!rule.enabled) return 'Não aplicável';
+  return `${rule.percent}% + restante ${rule.remainingDaysBefore} dias antes`;
 }
 
 function emptyEventDay() {
@@ -246,8 +276,9 @@ function cleanTravelCarsForPayload(cars = []) {
 }
 
 function getSmartSuggestion(form) {
-  const pax = Number(form.guestsCount || 0);
-  const firstDay = (form.eventDays || [])[0] || {};
+  const dayGuestCounts = (form.eventDays || []).map((day) => Number(day?.guestsCount || 0));
+  const pax = Math.max(Number(form.guestsCount || 0), ...dayGuestCounts, 0);
+  const firstDay = (form.eventDays || []).find((day) => Number(day?.guestsCount || 0) > 0 || day?.startTime || day?.endTime) || (form.eventDays || [])[0] || {};
   const startTime = firstDay.startTime || form.startTime;
   const endTime = firstDay.endTime || form.endTime;
   if (!pax) return null;
@@ -406,6 +437,7 @@ export default function Budgets() {
     [form.externalCosts, form.externalCostsEnabled],
   );
   const selectedClient = clients.find((client) => String(client.id) === String(form.clientId));
+  const selectedClientPrepayment = clientPrepaymentRule(selectedClient);
   const showDepositLine = form.budgetType === 'individual' || selectedClient?.type === 'particular';
 
   const stats = useMemo(() => {
@@ -455,7 +487,7 @@ export default function Budgets() {
         ? 'kilometers'
         : row.travelType;
     setEditing(row);
-    setForm({
+    setForm(normalizeBudgetFormState({
       ...emptyForm(),
       ...row,
       clientId: row.clientId ? String(row.clientId) : '',
@@ -487,7 +519,7 @@ export default function Budgets() {
           location: row.location || '',
         }],
       followUpHistory: row.followUpParsed,
-    });
+    }));
     setOpen(true);
     setFormError('');
     setFollowUpText('');
@@ -497,15 +529,12 @@ export default function Budgets() {
   function updateSelectedClient(clientId) {
     const client = clients.find((item) => String(item.id) === String(clientId));
     setForm((prev) => ({
-      ...prev,
-      clientId,
-      companyName: client?.name || prev.companyName,
-      leadName: client?.representativeName || client?.contactPerson || prev.leadName,
-      phone: client?.phone || prev.phone,
-      email: client?.email || prev.email,
-      nif: client?.nif || prev.nif,
+      ...applyClientRulesToBudgetForm(
+        { ...prev, clientId },
+        client,
+        { uniformOptions, fallbackRoleRates: roleRates },
+      ),
       location: client?.address || prev.location,
-      regularClient: Boolean(clientId),
     }));
   }
 
@@ -590,9 +619,17 @@ export default function Budgets() {
       return;
     }
     setFormError('');
+    const categories = suggestion.categories.map((category) => {
+      const clientRate = clientRuleRate(selectedClient, category.role);
+      return {
+        ...category,
+        rate: clientRate ?? category.rate,
+        uniform: category.uniform || selectedClient?.defaultUniform || '',
+      };
+    });
     setForm({
       ...form,
-      categories: suggestion.categories,
+      categories,
       travelType: suggestion.travelType,
       notes: form.notes || suggestion.notes,
     });
@@ -999,6 +1036,23 @@ export default function Budgets() {
                       </select>
                     </label>
                   </div>
+                  {selectedClient ? (
+                    <div className="client-rules-overview budget-client-rules">
+                      <header>
+                        <div>
+                          <strong>Regras herdadas do cliente</strong>
+                          <small>Aplicadas automaticamente na construção deste orçamento.</small>
+                        </div>
+                      </header>
+                      <div className="client-rules-grid">
+                        <div><span>Faturação</span><strong>{billingMethodLabels[selectedClient.billingMethod] || '-'}</strong></div>
+                        <div><span>Prazo</span><strong>{paymentTermText(selectedClient)}</strong></div>
+                        <div><span>Horas mínimas</span><strong>{Number(selectedClient.minimumHours || 0) > 0 ? `${Number(selectedClient.minimumHours)} h` : 'Sem mínimo'}</strong></div>
+                        <div><span>Uniforme</span><strong>{selectedClient.defaultUniform || 'Definir no orçamento'}</strong></div>
+                        <div><span>Pré-pagamento</span><strong>{prepaymentRuleText(selectedClient)}</strong></div>
+                      </div>
+                    </div>
+                  ) : null}
                 </section>
 
                 <section className="budget-panel">
@@ -1091,7 +1145,18 @@ export default function Budgets() {
                       </header>
                       <div className="budget-category-grid">
                         <label>Função
-                          <select value={cat.role} onChange={(event) => updateCategory(idx, { role: event.target.value, rate: roleRates[event.target.value] || cat.rate })}>
+                          <select
+                            value={cat.role}
+                            onChange={(event) => {
+                              const nextRole = event.target.value;
+                              const clientRate = clientRuleRate(selectedClient, nextRole);
+                              updateCategory(idx, {
+                                role: nextRole,
+                                rate: clientRate !== null ? clientRate : (roleRates[nextRole] || cat.rate),
+                                uniform: cat.uniform || selectedClient?.defaultUniform || '',
+                              });
+                            }}
+                          >
                             <option value="">Selecionar</option>
                             {collaboratorRoleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
                           </select>
@@ -1268,7 +1333,7 @@ export default function Budgets() {
                     <div><span>Valor Desconto</span><strong>- {money.format(totals.discountAmount)}</strong></div>
                     <div><span>IVA</span><strong>{money.format(totals.taxAmount)}</strong></div>
                     {showDepositLine ? (
-                      <div><span>Sinalização 70%</span><strong>{money.format(totals.totalAmount * 0.7)}</strong></div>
+                      <div><span>Sinalização {selectedClientPrepayment.percent}%</span><strong>{money.format(totals.totalAmount * (selectedClientPrepayment.percent / 100))}</strong></div>
                     ) : null}
                     <div className="budget-total"><span>Total Final</span><strong>{money.format(totals.totalAmount)}</strong></div>
                   </div>

@@ -1,7 +1,4 @@
-const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
-const CLOSED_BILLING_STATUSES = new Set(['partial70', 'invoiced', 'paid']);
 const FINANCE_READY_EVENT_STATUSES = new Set(['finalized', 'completed', 'invoiced', 'paid']);
-const VALIDATED_EVENT_MARKER = '[EVENT_VALIDATED_HOURS]';
 
 function normalized(value) {
   return String(value || '').trim().toLowerCase();
@@ -9,15 +6,13 @@ function normalized(value) {
 
 export function isFinanceReadyEvent(event) {
   const operationalStatus = normalized(event?.status);
-  const billingStatus = normalized(event?.billingStatus);
+  return FINANCE_READY_EVENT_STATUSES.has(operationalStatus);
+}
 
-  if (FINANCE_READY_EVENT_STATUSES.has(operationalStatus)) return true;
-  if (CLOSED_BILLING_STATUSES.has(billingStatus)) return true;
-  if (String(event?.notes || '').includes(VALIDATED_EVENT_MARKER)) return true;
-
-  const billableAssignments = (event?.assignments || [])
-    .filter((assignment) => !NON_BILLABLE_ASSIGNMENT.has(normalized(assignment?.status)));
-
-  return billableAssignments.length > 0
-    && billableAssignments.every((assignment) => normalized(assignment?.validationStatus) === 'validated');
+export function splitFinanceReadiness(events = []) {
+  return (events || []).reduce((result, event) => {
+    if (isFinanceReadyEvent(event)) result.readyEvents.push(event);
+    else result.forecastEvents.push(event);
+    return result;
+  }, { readyEvents: [], forecastEvents: [] });
 }

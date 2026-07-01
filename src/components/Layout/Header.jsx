@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
 import { date } from '../../utils/formatters.js';
+import EmptyState from '../UI/EmptyState.jsx';
 
 function notificationIcon(kind) {
   if (kind === 'followup') return <Clock3 size={15} />;
@@ -83,7 +84,14 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
                     </button>
                   )}
                 </div>
-              )) : <p className="muted">Sem notificações para mostrar.</p>}
+              )) : (
+                <EmptyState
+                  compact
+                  icon={Bell}
+                  title={showIgnored ? 'Sem notificações registadas' : 'Sem notificações ativas'}
+                  description={showIgnored ? 'Não existem notificações ativas ou ignoradas.' : 'Quando existir algo a acompanhar, aparece aqui por ordem cronológica.'}
+                />
+              )}
             </div>
           ) : null}
         </div>
