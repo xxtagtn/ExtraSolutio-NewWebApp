@@ -4,6 +4,9 @@ import {
   TIME_VALIDATION_STAGE,
   compareTimeValidationRowsNewest,
   clientTimeCorrection,
+  currentMonthPeriod,
+  currentWeekPeriod,
+  previousMonthPeriod,
   reopenTargetStage,
   preserveStageAfterManualRowSave,
   persistedWorkflowAssignment,
@@ -301,6 +304,35 @@ test('builds the last seven days period ending today', () => {
   assert.deepEqual(recentOperationalPeriod(new Date(2026, 5, 22, 12, 0, 0)), {
     start: '2026-06-16',
     end: '2026-06-22',
+  });
+});
+
+test('builds the current week period from monday to sunday', () => {
+  assert.deepEqual(currentWeekPeriod(new Date(2026, 6, 3, 12, 0, 0)), {
+    start: '2026-06-29',
+    end: '2026-07-05',
+  });
+
+  assert.deepEqual(currentWeekPeriod(new Date(2026, 6, 5, 12, 0, 0)), {
+    start: '2026-06-29',
+    end: '2026-07-05',
+  });
+});
+
+test('builds current and previous month periods', () => {
+  assert.deepEqual(currentMonthPeriod(new Date(2026, 6, 3, 12, 0, 0)), {
+    start: '2026-07-01',
+    end: '2026-07-31',
+  });
+
+  assert.deepEqual(previousMonthPeriod(new Date(2026, 6, 3, 12, 0, 0)), {
+    start: '2026-06-01',
+    end: '2026-06-30',
+  });
+
+  assert.deepEqual(previousMonthPeriod(new Date(2026, 0, 10, 12, 0, 0)), {
+    start: '2025-12-01',
+    end: '2025-12-31',
   });
 });
 

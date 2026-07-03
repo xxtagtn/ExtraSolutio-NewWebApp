@@ -121,24 +121,29 @@ function CalendarEvents({ items, showEmpty = false }) {
 
   return (
     <div className="calendar-events">
-      {items.map((item) => (
-        <Link
-          key={item._calendarKey || item.id}
-          to={item._budgetReminder ? '/budgets' : `/services?serviceId=${item.id}`}
-          className="calendar-event"
-        >
-          <strong>
-            {item._budgetReminder
-              ? `Follow-up: ${item.reference || 'Orçamento'}`
-              : (item._reminder ? `Restante sinalização: ${item.name}` : item.name)}
-          </strong>
-          <small>
-            {item._budgetReminder
-              ? `${item.clientName} · ${item.text || 'Follow-up'}`
-              : `${item.client?.name || 'Sem cliente'}${item._reminder ? ' · Pagamento restante' : ` · ${serviceStatusLabel(item.status)}`}`}
-          </small>
-        </Link>
-      ))}
+      {items.map((item) => {
+        const target = item._budgetReminder
+          ? `/budgets?budgetId=${item.budgetId || item.id}`
+          : `/services/${item.id}`;
+        return (
+          <Link
+            key={item._calendarKey || item.id}
+            to={target}
+            className="calendar-event"
+          >
+            <strong>
+              {item._budgetReminder
+                ? `Follow-up: ${item.reference || 'Orçamento'}`
+                : (item._reminder ? `Restante sinalização: ${item.name}` : item.name)}
+            </strong>
+            <small>
+              {item._budgetReminder
+                ? `${item.clientName} · ${item.text || 'Follow-up'}`
+                : `${item.client?.name || 'Sem cliente'}${item._reminder ? ' · Pagamento restante' : ` · ${serviceStatusLabel(item.status)}`}`}
+            </small>
+          </Link>
+        );
+      })}
     </div>
   );
 }

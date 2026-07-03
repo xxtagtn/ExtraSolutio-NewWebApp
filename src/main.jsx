@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.jsx';
 import { AuthProvider } from './hooks/useAuth.jsx';
+import { registerPwaServiceWorker } from './utils/pwaRegistration.js';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -14,3 +15,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </BrowserRouter>
   </React.StrictMode>,
 );
+
+registerPwaServiceWorker({ prod: import.meta.env.PROD });

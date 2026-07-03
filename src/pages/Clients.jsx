@@ -20,6 +20,7 @@ import IconButton from '../components/UI/IconButton.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 
 const typeLabels = {
   particular: 'Particular',
@@ -185,6 +186,7 @@ export default function Clients() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const [formBaseline, setFormBaseline] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -221,15 +223,16 @@ export default function Clients() {
   }
 
   function openCreate() {
+    const initial = emptyForm();
     setEditing(null);
-    setForm(emptyForm());
+    setForm(initial);
+    setFormBaseline(initial);
     setFormOpen(true);
     setFormError('');
   }
 
   function openEdit(row) {
-    setEditing(row);
-    setForm({
+    const nextForm = {
       type: row.type || 'particular',
       name: row.name || '',
       representativeName: row.representativeName || '',
@@ -252,8 +255,20 @@ export default function Clients() {
       prepaymentRemainingDaysBefore: row.prepaymentRemainingDaysBefore ?? '7',
       status: row.status || 'active',
       notes: row.notes || '',
-    });
+    };
+    setEditing(row);
+    setForm(nextForm);
+    setFormBaseline(nextForm);
     setFormOpen(true);
+    setFormError('');
+  }
+
+  function closeForm(force = false) {
+    if (!force && !confirmDiscardChanges(formHasChanges(formBaseline, form))) return;
+    setFormOpen(false);
+    setForm(emptyForm());
+    setFormBaseline(emptyForm());
+    setEditing(null);
     setFormError('');
   }
 
@@ -282,7 +297,7 @@ export default function Clients() {
         method: editing ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
       });
-      setFormOpen(false);
+      closeForm(true);
       reload();
     } catch (err) {
       setFormError(err.message);
@@ -552,7 +567,7 @@ export default function Clients() {
       )}
 
       {formOpen ? (
-        <Modal title={editing ? 'Editar Cliente' : 'Novo Cliente'} onClose={() => setFormOpen(false)}>
+        <Modal title={editing ? 'Editar Cliente' : 'Novo Cliente'} onClose={() => closeForm()}>
           <form className="resource-form" onSubmit={submit}>
             <div className="form-grid">
               <label>Tipo de cliente
@@ -683,9 +698,9 @@ export default function Clients() {
               <label className="span-2">Notas<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
             </div>
             {formError ? <p className="notice">{formError}</p> : null}
-            <footer className="form-actions">
+            <footer className="form-actions form-actions--sticky">
               <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar'}</button>
-              <button className="secondary-button" type="button" onClick={() => setFormOpen(false)}>Cancelar</button>
+              <button className="secondary-button" type="button" onClick={() => closeForm()}>Cancelar</button>
             </footer>
           </form>
         </Modal>

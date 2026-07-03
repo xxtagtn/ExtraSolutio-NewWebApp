@@ -1,4 +1,4 @@
-import { BarChart3, BriefcaseBusiness, CalendarCheck2, CalendarDays, CalendarRange, FileText, LayoutDashboard, ListChecks, ShieldCheck, Users, X } from 'lucide-react';
+import { BarChart3, BriefcaseBusiness, CalendarCheck2, CalendarDays, CalendarRange, FileText, LayoutDashboard, ListChecks, MessageSquareText, ShieldCheck, Users, X } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
 import { BALANCETE_PATH, DEFAULT_AUTHENTICATED_PATH } from '../../utils/navigation.js';
@@ -10,6 +10,7 @@ const links = [
   { to: '/clients', label: 'Clientes', icon: BriefcaseBusiness },
   { to: '/budgets', label: 'Orçamentos', icon: FileText },
   { to: '/services', label: 'Eventos/Serviços', icon: CalendarDays },
+  { to: '/communication', label: 'Comunicação', icon: MessageSquareText },
   { to: '/time-validation', label: 'Validação de Horas', icon: CalendarCheck2 },
   { to: '/finance', label: 'Financeiro', icon: BarChart3 },
   { to: BALANCETE_PATH, label: 'Balancete', icon: ListChecks },

@@ -1,0 +1,107 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg{fill:#071013}.sidebar{fill:#0b1519}.panel{fill:#101b20;stroke:#22333b;stroke-width:1.2}.panel2{fill:#0c171b;stroke:#22333b;stroke-width:1}.line{stroke:#253942;stroke-width:1}.text{fill:#e7f1f3;font-family:Inter,Segoe UI,Arial,sans-serif}.muted{fill:#91a3aa}.accent{fill:#18c6b8}.green{fill:#1f8f52}.greenSoft{fill:#10351f;stroke:#2ac46a}.amber{fill:#7a520b}.amberSoft{fill:#251c0c;stroke:#b98216}.blueSoft{fill:#0c2536;stroke:#1e6ba8}.dangerSoft{fill:#351414;stroke:#b33a3a}.chip{rx:7;ry:7}.small{font-size:15px}.body{font-size:18px}.title{font-size:30px;font-weight:800}.h2{font-size:22px;font-weight:750}.kpi{font-size:28px;font-weight:800}.bold{font-weight:750}.btn{fill:#12bdb0;rx:8;ry:8}.btn2{fill:#0b1519;stroke:#2a3e47;rx:8;ry:8}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <rect class="sidebar" x="0" y="0" width="230" height="900"/>
+  <text class="text" x="28" y="50" font-size="34" font-weight="800">ES</text>
+  <text class="text bold" x="76" y="38" font-size="20">ExtraSolutio</text>
+  <text class="accent" x="76" y="64" font-size="14">Staff &amp; Eventos</text>
+  <rect x="12" y="150" width="206" height="42" rx="8" fill="#0d5e58"/>
+  <text class="text body" x="50" y="177">Eventos/Serviços</text>
+  <text class="muted body" x="50" y="232">Dashboard</text>
+  <text class="muted body" x="50" y="285">Clientes</text>
+  <text class="muted body" x="50" y="338">Orçamentos</text>
+  <text class="muted body" x="50" y="391">Colaboradores</text>
+  <text class="muted body" x="50" y="444">Validação de Horas</text>
+  <text class="muted body" x="50" y="497">Financeiro</text>
+
+  <rect class="panel" x="258" y="36" width="1308" height="178" rx="10"/>
+  <text class="title text" x="288" y="88">Restaurante Luz Chakall</text>
+  <text class="muted body" x="288" y="121">SSH - Supreme Sport Hospitality · 17/06/2026 a 21/06/2026</text>
+  <rect class="amberSoft" x="288" y="144" width="174" height="34" rx="8"/>
+  <text class="text small" x="307" y="166">Estado: A preencher</text>
+  <rect class="btn" x="1360" y="62" width="176" height="44"/>
+  <text x="1400" y="90" class="text body bold" fill="#071013">Editar dados</text>
+
+  <g transform="translate(740 64)">
+    <rect class="panel2" x="0" y="0" width="174" height="104" rx="8"/>
+    <text class="muted small" x="18" y="28">Equipa</text>
+    <text class="text kpi" x="18" y="66">8/13</text>
+    <rect x="18" y="80" width="128" height="8" rx="4" fill="#203039"/>
+    <rect x="18" y="80" width="78" height="8" rx="4" fill="#18c6b8"/>
+  </g>
+  <g transform="translate(930 64)">
+    <rect class="panel2" x="0" y="0" width="174" height="104" rx="8"/>
+    <text class="muted small" x="18" y="28">Staff confirmado</text>
+    <text class="text kpi" x="18" y="66">6/8</text>
+    <rect x="18" y="80" width="128" height="8" rx="4" fill="#203039"/>
+    <rect x="18" y="80" width="96" height="8" rx="4" fill="#2ac46a"/>
+  </g>
+  <g transform="translate(1120 64)">
+    <rect class="panel2" x="0" y="0" width="174" height="104" rx="8"/>
+    <text class="muted small" x="18" y="28">Horários Staff</text>
+    <text class="text kpi" x="18" y="66">0/8</text>
+    <rect x="18" y="80" width="128" height="8" rx="4" fill="#203039"/>
+  </g>
+  <g transform="translate(1310 64)">
+    <rect class="blueSoft" x="0" y="0" width="206" height="104" rx="8"/>
+    <text class="muted small" x="18" y="28">Valor previsto</text>
+    <text class="text kpi" x="18" y="66">342,00 €</text>
+  </g>
+
+  <g transform="translate(258 236)">
+    <rect class="btn2" x="0" y="0" width="112" height="44"/>
+    <text class="muted body" x="28" y="28">Resumo</text>
+    <rect x="128" y="0" width="154" height="44" rx="8" fill="#083933" stroke="#18c6b8"/>
+    <text class="accent body" x="154" y="28">Colaboradores</text>
+    <rect class="btn2" x="298" y="0" width="128" height="44"/>
+    <text class="muted body" x="326" y="28">Validação</text>
+    <rect class="btn2" x="442" y="0" width="102" height="44"/>
+    <text class="muted body" x="470" y="28">Custos</text>
+    <rect class="btn2" x="560" y="0" width="112" height="44"/>
+    <text class="muted body" x="588" y="28">Histórico</text>
+  </g>
+
+  <rect class="panel" x="258" y="306" width="1308" height="520" rx="10"/>
+  <text class="h2 text" x="288" y="352">Colaboradores</text>
+  <rect x="288" y="380" width="78" height="42" rx="8" fill="#0d5e58" stroke="#18c6b8"/>
+  <text class="text body bold" x="309" y="407">17/06</text>
+  <rect class="btn2" x="374" y="380" width="78" height="42"/>
+  <text class="muted body" x="395" y="407">18/06</text>
+  <rect class="btn2" x="460" y="380" width="78" height="42"/>
+  <text class="muted body" x="481" y="407">19/06</text>
+  <rect class="btn" x="1350" y="374" width="172" height="44"/>
+  <text class="text body bold" x="1382" y="402" fill="#071013">Guardar equipa</text>
+  <rect class="btn2" x="1168" y="374" width="160" height="44"/>
+  <text class="accent body" x="1193" y="402">Adicionar linha</text>
+
+  <rect class="panel2" x="288" y="452" width="1234" height="144" rx="8"/>
+  <text class="text h2" x="310" y="488">Emp.Mesa</text>
+  <text class="muted body" x="468" y="488">Total horas: 16:30h</text>
+  <text class="muted body" x="690" y="488">Total a pagar: 136,00€</text>
+  <line class="line" x1="288" y1="512" x2="1522" y2="512"/>
+  <text class="muted small" x="310" y="540">Colaborador</text><text class="muted small" x="690" y="540">Estado</text><text class="muted small" x="865" y="540">Entrada</text><text class="muted small" x="1005" y="540">Saída</text><text class="muted small" x="1150" y="540">Valor/h</text><text class="muted small" x="1280" y="540">Sincronizado</text>
+  <text class="text body" x="310" y="572">Miriam Peçanha Oliveira | 326077405</text>
+  <rect class="greenSoft" x="690" y="552" width="110" height="28" rx="8"/><text class="text small" x="712" y="571">Confirmado</text>
+  <text class="text body" x="865" y="572">11:30</text><text class="text body" x="1005" y="572">16:00</text><text class="text body" x="1150" y="572">8,00€</text>
+  <rect class="greenSoft" x="1280" y="552" width="116" height="28" rx="8"/><text class="text small" x="1300" y="571">Cliente OK</text>
+
+  <rect class="panel2" x="288" y="620" width="1234" height="144" rx="8"/>
+  <text class="text h2" x="310" y="656">Barman</text>
+  <text class="muted body" x="468" y="656">Total horas: 8:00h</text>
+  <text class="muted body" x="690" y="656">Total a pagar: 64,00€</text>
+  <line class="line" x1="288" y1="680" x2="1522" y2="680"/>
+  <text class="muted small" x="310" y="708">Colaborador</text><text class="muted small" x="690" y="708">Estado</text><text class="muted small" x="865" y="708">Entrada</text><text class="muted small" x="1005" y="708">Saída</text><text class="muted small" x="1150" y="708">Valor/h</text>
+  <text class="text body" x="310" y="740">Por atribuir</text>
+  <rect x="690" y="720" width="150" height="28" rx="8" fill="#172228" stroke="#40525b"/><text class="muted small" x="713" y="739">A preencher</text>
+  <text class="text body" x="865" y="740">18:00</text><text class="text body" x="1005" y="740">23:00</text><text class="text body" x="1150" y="740">12,00€</text>
+
+  <rect class="panel2" x="258" y="846" width="1308" height="34" rx="8"/>
+  <text class="muted small" x="288" y="868">Resumo do dia</text>
+  <text class="text small bold" x="440" y="868">Total colaboradores: 3</text>
+  <text class="text small bold" x="660" y="868">Total horas: 24:30h</text>
+  <text class="text small bold" x="865" y="868">Total a pagar: 200,00€</text>
+</svg>

@@ -16,6 +16,7 @@ import {
 } from '../utils/collaboratorDetails.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { documentExpiryAlert } from '../utils/documentExpiry.js';
+import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import { money } from '../utils/formatters.js';
 import { paginateItems } from '../utils/pagination.js';
 
@@ -157,6 +158,7 @@ export default function Collaborators() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const [formBaseline, setFormBaseline] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [rolesOpen, setRolesOpen] = useState(false);
@@ -260,11 +262,13 @@ export default function Collaborators() {
       .then((detail) => {
         if (cancelled) return;
         const fullRow = mergeCollaboratorDetail(row, detail);
+        const nextForm = rowToForm(fullRow);
         setFormError('');
         setRolesOpen(false);
         setShortNameTouched(false);
         setEditing(fullRow);
-        setForm(rowToForm(fullRow));
+        setForm(nextForm);
+        setFormBaseline(nextForm);
         setHighlightFormSection(section);
         setFormOpen(true);
         const nextParams = new window.URLSearchParams(searchParams);
@@ -353,8 +357,10 @@ export default function Collaborators() {
   }, [form.birthDate]);
 
   function openCreate() {
+    const initial = emptyForm();
     setEditing(null);
-    setForm(emptyForm());
+    setForm(initial);
+    setFormBaseline(initial);
     setHighlightFormSection('');
     setFormOpen(true);
     setFormError('');
@@ -369,8 +375,10 @@ export default function Collaborators() {
     try {
       const detail = await loadCollaboratorDetail(row.id);
       const fullRow = mergeCollaboratorDetail(row, detail);
+      const nextForm = rowToForm(fullRow);
       setEditing(fullRow);
-      setForm(rowToForm(fullRow));
+      setForm(nextForm);
+      setFormBaseline(nextForm);
       setHighlightFormSection('');
       setFormOpen(true);
     } catch (err) {
@@ -378,11 +386,13 @@ export default function Collaborators() {
     }
   }
 
-  function closeForm() {
+  function closeForm(force = false) {
+    if (!force && !confirmDiscardChanges(formHasChanges(formBaseline, form))) return;
     setFormOpen(false);
     setHighlightFormSection('');
     setEditing(null);
     setForm(emptyForm());
+    setFormBaseline(emptyForm());
     setFormError('');
     setRolesOpen(false);
     setShortNameTouched(false);
@@ -470,7 +480,7 @@ export default function Collaborators() {
       if (saved?.id) {
         setCollaboratorDetails((prev) => ({ ...prev, [String(saved.id)]: saved }));
       }
-      closeForm();
+      closeForm(true);
       reload();
     } catch (err) {
       setFormError(err.message);
@@ -663,7 +673,7 @@ export default function Collaborators() {
       </Card>
 
       {formOpen ? (
-        <Modal title={editing ? 'Editar Colaborador' : 'Novo Colaborador'} onClose={closeForm} size="wide">
+        <Modal title={editing ? 'Editar Colaborador' : 'Novo Colaborador'} onClose={() => closeForm()} size="wide">
           <form className="collab-form" onSubmit={submit}>
             <div className="collab-form-grid">
               <div className="collab-main">
@@ -777,9 +787,9 @@ export default function Collaborators() {
               </aside>
             </div>
             {formError ? <p className="notice">{formError}</p> : null}
-            <footer className="form-actions">
+            <footer className="form-actions form-actions--sticky">
               <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar'}</button>
-              <button className="secondary-button" type="button" onClick={closeForm}>Cancelar</button>
+              <button className="secondary-button" type="button" onClick={() => closeForm()}>Cancelar</button>
             </footer>
           </form>
         </Modal>

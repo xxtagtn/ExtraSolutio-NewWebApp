@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
+import SourceBadge from '../components/UI/SourceBadge.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
@@ -25,6 +26,7 @@ import {
   clientPrepaymentRule,
   clientRuleRate,
 } from '../utils/clientRules.js';
+import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import {
   assignmentDraftsFromRows,
   normalizeAssignmentDrafts,
@@ -593,6 +595,7 @@ export default function Services() {
   const [activeTab, setActiveTab] = useState('summary');
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const [formBaseline, setFormBaseline] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [formError, setFormError] = useState('');
@@ -862,8 +865,10 @@ export default function Services() {
   }, [formOpen, form.isContinuous, teamDays, selectedTeamDay]);
 
   function openCreate() {
+    const initial = emptyForm();
     setEditing(null);
-    setForm(emptyForm());
+    setForm(initial);
+    setFormBaseline(initial);
     setActiveTab('summary');
     setFormOpen(true);
     setFormError('');
@@ -889,8 +894,10 @@ export default function Services() {
   }, [collaboratorsById]);
 
   const openEdit = useCallback((row) => {
+    const nextForm = formWithStaffRates(withAssignmentPlaceholders(toForm(row)));
     setEditing(row);
-    setForm(formWithStaffRates(withAssignmentPlaceholders(toForm(row))));
+    setForm(nextForm);
+    setFormBaseline(nextForm);
     setActiveTab('summary');
     setFormOpen(true);
     setFormError('');
@@ -903,6 +910,23 @@ export default function Services() {
     setCollaboratorPickerPlacement(null);
     setActiveAdvanceIndex(null);
   }, [formWithStaffRates]);
+
+  function closeForm(force = false) {
+    if (!force && !confirmDiscardChanges(formHasChanges(formBaseline, form))) return;
+    setFormOpen(false);
+    setEditing(null);
+    setForm(emptyForm());
+    setFormBaseline(emptyForm());
+    setFormError('');
+    setTemplateError('');
+    setTemplateName('');
+    setSelectedTemplateId('');
+    setStatusManualOverride(false);
+    setSelectedTeamDay('');
+    setActiveCollaboratorPickerIndex(null);
+    setCollaboratorPickerPlacement(null);
+    setActiveAdvanceIndex(null);
+  }
 
   function toggleCollaboratorPicker(event, index) {
     if (activeCollaboratorPickerIndex === index) {
@@ -1401,7 +1425,7 @@ export default function Services() {
           }
         }
       }
-      setFormOpen(false);
+      closeForm(true);
       reload();
     } catch (err) {
       setFormError(err.message);
@@ -1418,9 +1442,7 @@ export default function Services() {
     setFormError('');
     try {
       await api(`/services/${editing.id}`, { method: 'DELETE' });
-      setFormOpen(false);
-      setEditing(null);
-      setForm(emptyForm());
+      closeForm(true);
       reload();
     } catch (err) {
       setFormError(err.message || 'Não foi possível eliminar o evento/serviço.');
@@ -1442,7 +1464,9 @@ export default function Services() {
           notes: nextNotes,
         }),
       });
-      setForm((prev) => ({ ...prev, status: SERVICE_STATUS.toValidateStaff }));
+      const restoredForm = { ...form, status: SERVICE_STATUS.toValidateStaff, notes: nextNotes || '' };
+      setForm(restoredForm);
+      setFormBaseline(restoredForm);
       setEditing((prev) => (prev ? { ...prev, status: SERVICE_STATUS.toValidateStaff, notes: nextNotes } : prev));
       setListScope('active');
       reload();
@@ -1587,7 +1611,7 @@ export default function Services() {
       </Card>
 
       {formOpen ? (
-        <Modal title={editing ? form.name || 'Editar Evento/Serviço' : 'Novo Evento/Serviço'} onClose={() => setFormOpen(false)} size="wide">
+        <Modal title={editing ? form.name || 'Editar Evento/Serviço' : 'Novo Evento/Serviço'} onClose={() => closeForm()} size="wide">
           <form className="resource-form" onSubmit={submit}>
             <div className="service-tabs">
               {tabs.map((tab) => (
@@ -1737,11 +1761,31 @@ export default function Services() {
                       <p><span>Contacto</span><strong>{selectedClient?.representativeName || selectedClient?.contactPerson || '-'}</strong></p>
                       <p><span>Telefone</span><strong>{selectedClient?.phone || '-'}</strong></p>
                       <p><span>Email</span><strong>{selectedClient?.email || '-'}</strong></p>
-                      <p><span>Horas mínimas</span><strong>{minimumHoursSnapshot > 0 ? `${minimumHoursSnapshot} h por colaborador/turno` : 'Sem mínimo'}</strong></p>
-                      <p><span>Faturação</span><strong>{billingMethodLabels[selectedClient?.billingMethod] || '-'}</strong></p>
-                      <p><span>Prazo</span><strong>{paymentTermText(selectedClient)}</strong></p>
-                      <p><span>Uniforme habitual</span><strong>{selectedClient?.defaultUniform || 'Definir no evento'}</strong></p>
-                      <p><span>Pré-pagamento</span><strong>{prepaymentRuleText(selectedClient)}</strong></p>
+                      <p>
+                        <span>Horas mínimas</span>
+                        <strong>{minimumHoursSnapshot > 0 ? `${minimumHoursSnapshot} h por colaborador/turno` : 'Sem mínimo'}</strong>
+                        {minimumHoursSnapshot > 0 ? <SourceBadge>mínimo aplicado</SourceBadge> : null}
+                      </p>
+                      <p>
+                        <span>Faturação</span>
+                        <strong>{billingMethodLabels[selectedClient?.billingMethod] || '-'}</strong>
+                        {selectedClient?.billingMethod ? <SourceBadge>regra do cliente</SourceBadge> : null}
+                      </p>
+                      <p>
+                        <span>Prazo</span>
+                        <strong>{paymentTermText(selectedClient)}</strong>
+                        {selectedClient?.paymentTerm ? <SourceBadge>regra do cliente</SourceBadge> : null}
+                      </p>
+                      <p>
+                        <span>Uniforme habitual</span>
+                        <strong>{selectedClient?.defaultUniform || 'Definir no evento'}</strong>
+                        {selectedClient?.defaultUniform ? <SourceBadge>uniforme habitual</SourceBadge> : null}
+                      </p>
+                      <p>
+                        <span>Pré-pagamento</span>
+                        <strong>{prepaymentRuleText(selectedClient)}</strong>
+                        {selectedClient?.billingMethod === 'prepaid' ? <SourceBadge>regra de pré-pagamento</SourceBadge> : null}
+                      </p>
                     </div>
                     <label className="span-2">Local do evento
                       <input value={form.useDefaultLocation ? (selectedClient?.address || form.location) : form.location} readOnly={form.useDefaultLocation} onChange={(event) => setForm({ ...form, location: event.target.value })} />
@@ -1918,19 +1962,23 @@ export default function Services() {
                   <div className="service-role-requirements">
                     {availableRoles.map((role) => {
                       const item = form.requiredRoles.find((entry) => entry.role === role) || { qty: '', agreedRate: '' };
+                      const inheritedRate = clientRuleRate(selectedClient, role);
                       return (
                         <div key={role} className="service-role-requirement-row">
                           <strong>{role}</strong>
                           <input type="number" min="0" placeholder="Nº" value={item.qty || ''} onChange={(event) => updateRoleRequirement(role, { qty: event.target.value })} />
-                          <input
-                            type="text"
-                            placeholder="Valor/h cliente"
-                            value={item.agreedRate || ''}
-                            onChange={(event) => updateRoleRequirement(role, { agreedRate: event.target.value })}
-                            onBlur={(event) => {
-                              if (Number(item.qty || 0) > 0) updateRoleRequirement(role, { agreedRate: formatMoneyInline(event.target.value) });
-                            }}
-                          />
+                          <label className="service-role-rate-field">
+                            <input
+                              type="text"
+                              placeholder="Valor/h cliente"
+                              value={item.agreedRate || ''}
+                              onChange={(event) => updateRoleRequirement(role, { agreedRate: event.target.value })}
+                              onBlur={(event) => {
+                                if (Number(item.qty || 0) > 0) updateRoleRequirement(role, { agreedRate: formatMoneyInline(event.target.value) });
+                              }}
+                            />
+                            {inheritedRate !== null && item.agreedRate ? <SourceBadge>valor vindo do cliente</SourceBadge> : null}
+                          </label>
                         </div>
                       );
                     })}
@@ -1995,7 +2043,13 @@ export default function Services() {
                             const advancesOpen = activeAdvanceIndex === assignment.index;
                             return (
                               <div key={`${required.role}-${assignment.index}`} className="service-assignment-group">
-                                <div className={`service-assignment-row ${form.isContinuous ? 'service-assignment-row--dated' : ''}`}>
+                                <div className={[
+                                  'service-assignment-row',
+                                  form.isContinuous ? 'service-assignment-row--dated' : '',
+                                  normalizeAssignmentStatus(assignment.status) === 'confirmed' ? 'service-assignment-row--confirmed' : '',
+                                  !assignment.collaboratorId ? 'service-assignment-row--empty' : '',
+                                ].filter(Boolean).join(' ')}
+                                >
                                   <div className="service-assignment-collaborator">
                                     <label className="service-client-sync-check" title={assignment.clientSynced ? 'Sincronizado com o cliente' : 'Marcar como sincronizado com o cliente'}>
                                       <input
@@ -2022,7 +2076,7 @@ export default function Services() {
                                       >
                                         {assignment.collaboratorId
                                           ? collaboratorOptionLabel(collaboratorsById.get(String(assignment.collaboratorId)) || { id: assignment.collaboratorId, name: 'Colaborador' })
-                                          : 'Selecionar colaborador'}
+                                          : 'Por atribuir'}
                                       </button>
                                     {activeCollaboratorPickerIndex === assignment.index ? (
                                       <div
@@ -2229,7 +2283,8 @@ export default function Services() {
             ) : null}
 
             {formError ? <p className="notice">{formError}</p> : null}
-            <footer className="form-actions service-form-actions">
+            <footer className="form-actions form-actions--sticky service-form-actions">
+              <button className="command-button" type="submit" disabled={saving || removing}>{saving ? 'A guardar...' : 'Guardar'}</button>
               {editing ? (
                 <button className="secondary-button secondary-button--danger" type="button" onClick={removeEvent} disabled={saving || removing}>
                   <Trash2 size={16} />
@@ -2241,8 +2296,7 @@ export default function Services() {
                   Retirar do arquivo
                 </button>
               ) : null}
-              <button className="command-button" type="submit" disabled={saving || removing}>{saving ? 'A guardar...' : 'Guardar'}</button>
-              <button className="secondary-button" type="button" onClick={() => setFormOpen(false)}>Cancelar</button>
+              <button className="secondary-button" type="button" onClick={() => closeForm()}>Cancelar</button>
             </footer>
           </form>
         </Modal>

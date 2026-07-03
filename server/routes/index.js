@@ -6,6 +6,7 @@ import {
   normalizeInvoice,
   normalizeInvoiceItem,
   normalizePayment,
+  normalizeCommunicationLog,
   normalizeAssignment,
   normalizeTransaction,
   normalizeBudget,
@@ -18,6 +19,7 @@ import { usersRouter } from './users.js';
 import { collaboratorsRouter } from './collaborators.js';
 import { notificationsRouter } from './notifications.js';
 import { timeValidationImportsRouter } from './timeValidationImports.js';
+import { whatsappRouter } from './whatsapp.js';
 import {
   minimumHoursForEventUpdate,
   shouldPropagateMinimumHours,
@@ -85,6 +87,7 @@ apiRouter.use('/notifications', notificationsRouter);
 
 apiRouter.use('/collaborators', collaboratorsRouter);
 apiRouter.use('/time-validation-imports', timeValidationImportsRouter);
+apiRouter.use('/whatsapp', whatsappRouter);
 
 apiRouter.use('/clients', createCrudRouter(prisma.client, [
   'name',
@@ -195,6 +198,12 @@ apiRouter.use('/payments', createCrudRouter(prisma.payment, [], {
   include: { collaborator: true },
   normalizeCreate: normalizePayment,
   normalizeUpdate: normalizePayment,
+}));
+
+apiRouter.use('/communication-logs', createCrudRouter(prisma.communicationLog, [], {
+  normalizeCreate: normalizeCommunicationLog,
+  normalizeUpdate: normalizeCommunicationLog,
+  orderBy: { createdAt: 'desc' },
 }));
 
 apiRouter.use('/transactions', createCrudRouter(prisma.transaction, [

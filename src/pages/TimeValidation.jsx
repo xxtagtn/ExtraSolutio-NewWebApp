@@ -45,8 +45,11 @@ import {
 import {
   compareTimeValidationRowsNewest,
   clientTimeCorrection,
+  currentMonthPeriod,
+  currentWeekPeriod,
   persistedWorkflowAssignment,
   preserveStageAfterManualRowSave,
+  previousMonthPeriod,
   prunePersistedDrafts,
   recentOperationalPeriod,
   reopenTargetStage,
@@ -145,14 +148,6 @@ function dateKey(value) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function currentMonthPeriod(value = new Date()) {
-  const d = new Date(value);
-  return {
-    start: dateKey(new Date(d.getFullYear(), d.getMonth(), 1)),
-    end: dateKey(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
-  };
 }
 
 function periodLabel(start, end) {
@@ -779,26 +774,24 @@ export default function TimeValidation() {
     setPeriodEnd(end);
   }
 
-  function resetPeriodToRecentDays() {
-    const recent = recentOperationalPeriod();
-    setPeriod(recent.start, recent.end);
-  }
-
   function resetPeriodToToday() {
     const today = dateKey(new Date());
     setPeriod(today, today);
   }
 
-  function resetPeriodToYesterday() {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const key = dateKey(yesterday);
-    setPeriod(key, key);
+  function resetPeriodToCurrentWeek() {
+    const current = currentWeekPeriod();
+    setPeriod(current.start, current.end);
   }
 
   function resetPeriodToCurrentMonth() {
     const current = currentMonthPeriod();
     setPeriod(current.start, current.end);
+  }
+
+  function resetPeriodToPreviousMonth() {
+    const previous = previousMonthPeriod();
+    setPeriod(previous.start, previous.end);
   }
 
   function fileToDataUrl(file) {
@@ -1395,9 +1388,9 @@ export default function TimeValidation() {
           </div>
           <div className="validation-period-presets" aria-label="Atalhos de período">
             <button type="button" onClick={resetPeriodToToday}>Hoje</button>
-            <button type="button" onClick={resetPeriodToYesterday}>Ontem</button>
-            <button type="button" onClick={resetPeriodToRecentDays}>7 dias</button>
+            <button type="button" onClick={resetPeriodToCurrentWeek}>Semana</button>
             <button type="button" onClick={resetPeriodToCurrentMonth}>Este mês</button>
+            <button type="button" onClick={resetPeriodToPreviousMonth}>Mês passado</button>
           </div>
           <button className="secondary-button validation-pdf-button" type="button" onClick={generateStaffPdf} disabled={!staffPdfRows.length}>
             <FileDown size={16} />

@@ -76,6 +76,7 @@ model Collaborator {
   assignments EventAssignment[]
   payments    Payment[]
   roles       CollaboratorRole[]
+  communicationLogs CommunicationLog[]
 
   @@index([status])
   @@index([category])
@@ -244,6 +245,7 @@ model Event {
   updatedAt    DateTime          @updatedAt @db.DateTime(3)
   assignments  EventAssignment[]
   invoices     Invoice[]
+  communicationLogs CommunicationLog[]
 
   @@index([clientId])
   @@index([date])
@@ -297,12 +299,38 @@ model EventAssignment {
   advancePayments String?     @db.LongText
   createdAt      DateTime     @default(now()) @db.DateTime(3)
   updatedAt      DateTime     @updatedAt @db.DateTime(3)
+  communicationLogs CommunicationLog[]
 
   @@index([eventId, collaboratorId, role], map: "EventAssignment_eventId_collaboratorId_role_idx")
   @@index([collaboratorId])
   @@index([status])
   @@index([paymentStatus])
   @@index([paymentDeferredMonth])
+}
+
+model CommunicationLog {
+  id             Int              @id @default(autoincrement())
+  eventId        Int
+  event          Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignmentId   Int
+  assignment     EventAssignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  collaboratorId Int
+  collaborator   Collaborator     @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  type           String           @default("confirmation") @db.VarChar(40)
+  channel        String           @default("manual_whatsapp") @db.VarChar(40)
+  status         String           @default("prepared") @db.VarChar(40)
+  message        String?          @db.Text
+  response       String?          @db.Text
+  sentAt         DateTime?        @db.DateTime(3)
+  respondedAt    DateTime?        @db.DateTime(3)
+  createdAt      DateTime         @default(now()) @db.DateTime(3)
+  updatedAt      DateTime         @updatedAt @db.DateTime(3)
+
+  @@index([eventId])
+  @@index([assignmentId])
+  @@index([collaboratorId])
+  @@index([status])
+  @@index([type])
 }
 
 model Invoice {

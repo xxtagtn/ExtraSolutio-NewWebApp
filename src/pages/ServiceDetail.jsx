@@ -443,7 +443,7 @@ export default function ServiceDetail() {
                             >
                               {assignment.collaboratorId
                                 ? collaboratorOptionLabel(assignment.collaborator || activeCollaborators.find((collaborator) => String(collaborator.id) === String(assignment.collaboratorId)) || { id: assignment.collaboratorId, name: 'Colaborador' })
-                                : 'Selecionar colaborador'}
+                                : 'Por atribuir'}
                             </button>
                           {activeTeamCollaboratorPickerKey === assignment.rowKey ? (
                             <div

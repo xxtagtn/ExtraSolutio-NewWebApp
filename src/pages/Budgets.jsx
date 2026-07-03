@@ -12,10 +12,12 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
+import SourceBadge from '../components/UI/SourceBadge.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
@@ -38,6 +40,7 @@ import { calculateBudgetTotals } from '../utils/budgetTotals.js';
 import { applyClientRulesToBudgetForm, clientPrepaymentRule, clientRuleRate } from '../utils/clientRules.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { externalCostsTotals, normalizeExternalCosts } from '../utils/externalCosts.js';
+import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import { date, money } from '../utils/formatters.js';
 import { decimalValue } from '../utils/serviceFinance.js';
 import { calculateTravelAmount, normalizeTravelCars } from '../utils/travelCalculator.js';
@@ -395,20 +398,24 @@ function escapeHtml(value) {
 }
 
 export default function Budgets() {
+  const [searchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi('/budgets', []);
   const { data: clients, reload: reloadClients } = useApi('/clients', []);
   const [activeTab, setActiveTab] = useState('new_request');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const [formBaseline, setFormBaseline] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [followUpText, setFollowUpText] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
   const [conversionSource, setConversionSource] = useState(null);
   const [conversionDraft, setConversionDraft] = useState(null);
+  const [conversionBaseline, setConversionBaseline] = useState(null);
   const [conversionSaving, setConversionSaving] = useState(false);
   const [conversionError, setConversionError] = useState('');
+  const [openedFromQuery, setOpenedFromQuery] = useState(false);
 
   const rows = useMemo(() => data.map((row) => ({
     ...row,
@@ -467,11 +474,13 @@ export default function Budgets() {
   }
 
   function openCreate() {
-    setEditing(null);
-    setForm({
+    const initial = {
       ...emptyForm(generateReference()),
       status: 'new_request',
-    });
+    };
+    setEditing(null);
+    setForm(initial);
+    setFormBaseline(initial);
     setOpen(true);
     setFormError('');
     setFollowUpText('');
@@ -486,8 +495,7 @@ export default function Budgets() {
       : hasLegacyKilometerCalculation
         ? 'kilometers'
         : row.travelType;
-    setEditing(row);
-    setForm(normalizeBudgetFormState({
+    const nextForm = normalizeBudgetFormState({
       ...emptyForm(),
       ...row,
       clientId: row.clientId ? String(row.clientId) : '',
@@ -517,14 +525,37 @@ export default function Budgets() {
           endTime: row.endTime || '',
           guestsCount: row.guestsCount ?? '',
           location: row.location || '',
-        }],
+      }],
       followUpHistory: row.followUpParsed,
-    }));
+    });
+    setEditing(row);
+    setForm(nextForm);
+    setFormBaseline(nextForm);
     setOpen(true);
     setFormError('');
     setFollowUpText('');
     setFollowUpDate('');
   }
+
+  function closeBudgetForm(force = false) {
+    if (!force && !confirmDiscardChanges(formHasChanges(formBaseline, form))) return;
+    setOpen(false);
+    setEditing(null);
+    setForm(emptyForm());
+    setFormBaseline(emptyForm());
+    setFormError('');
+    setFollowUpText('');
+    setFollowUpDate('');
+  }
+
+  useEffect(() => {
+    const budgetId = searchParams.get('budgetId');
+    if (!budgetId || loading || openedFromQuery) return;
+    const target = rows.find((row) => String(row.id) === String(budgetId));
+    if (!target) return;
+    openEdit(target);
+    setOpenedFromQuery(true);
+  }, [loading, openedFromQuery, rows, searchParams]);
 
   function updateSelectedClient(clientId) {
     const client = clients.find((item) => String(item.id) === String(clientId));
@@ -744,7 +775,7 @@ export default function Budgets() {
         method: editing ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
       });
-      setOpen(false);
+      closeBudgetForm(true);
       reload();
     } catch (err) {
       setFormError(err.message);
@@ -801,14 +832,18 @@ export default function Budgets() {
   }
 
   function openConversion(row) {
+    const draft = buildBudgetConversionDraft(row);
     setConversionSource(row);
-    setConversionDraft(buildBudgetConversionDraft(row));
+    setConversionDraft(draft);
+    setConversionBaseline(draft);
     setConversionError('');
   }
 
-  function closeConversion() {
+  function closeConversion(force = false) {
+    if (!force && !confirmDiscardChanges(formHasChanges(conversionBaseline, conversionDraft))) return;
     setConversionSource(null);
     setConversionDraft(null);
+    setConversionBaseline(null);
     setConversionError('');
   }
 
@@ -883,7 +918,7 @@ export default function Budgets() {
         body: JSON.stringify(payload),
       });
       await updateBudgetStatus(conversionSource, 'accepted', { clientId });
-      closeConversion();
+      closeConversion(true);
       window.alert('Evento/Serviço criado com sucesso.');
     } catch (err) {
       setConversionError(err.message);
@@ -1010,7 +1045,7 @@ export default function Budgets() {
       </Card>
 
       {open ? (
-        <Modal title={editing ? `Editar Orçamento ${form.reference}` : 'Novo Pedido'} onClose={() => setOpen(false)} size="wide">
+        <Modal title={editing ? `Editar Orçamento ${form.reference}` : 'Novo Pedido'} onClose={() => closeBudgetForm()} size="wide">
           <form className="resource-form budget-form" onSubmit={submit}>
             <div className="budget-layout">
               <div className="budget-main">
@@ -1045,11 +1080,31 @@ export default function Budgets() {
                         </div>
                       </header>
                       <div className="client-rules-grid">
-                        <div><span>Faturação</span><strong>{billingMethodLabels[selectedClient.billingMethod] || '-'}</strong></div>
-                        <div><span>Prazo</span><strong>{paymentTermText(selectedClient)}</strong></div>
-                        <div><span>Horas mínimas</span><strong>{Number(selectedClient.minimumHours || 0) > 0 ? `${Number(selectedClient.minimumHours)} h` : 'Sem mínimo'}</strong></div>
-                        <div><span>Uniforme</span><strong>{selectedClient.defaultUniform || 'Definir no orçamento'}</strong></div>
-                        <div><span>Pré-pagamento</span><strong>{prepaymentRuleText(selectedClient)}</strong></div>
+                        <div>
+                          <span>Faturação</span>
+                          <strong>{billingMethodLabels[selectedClient.billingMethod] || '-'}</strong>
+                          {selectedClient.billingMethod ? <SourceBadge>regra do cliente</SourceBadge> : null}
+                        </div>
+                        <div>
+                          <span>Prazo</span>
+                          <strong>{paymentTermText(selectedClient)}</strong>
+                          {selectedClient.paymentTerm ? <SourceBadge>regra do cliente</SourceBadge> : null}
+                        </div>
+                        <div>
+                          <span>Horas mínimas</span>
+                          <strong>{Number(selectedClient.minimumHours || 0) > 0 ? `${Number(selectedClient.minimumHours)} h` : 'Sem mínimo'}</strong>
+                          {Number(selectedClient.minimumHours || 0) > 0 ? <SourceBadge>mínimo aplicado</SourceBadge> : null}
+                        </div>
+                        <div>
+                          <span>Uniforme</span>
+                          <strong>{selectedClient.defaultUniform || 'Definir no orçamento'}</strong>
+                          {selectedClient.defaultUniform ? <SourceBadge>uniforme habitual</SourceBadge> : null}
+                        </div>
+                        <div>
+                          <span>Pré-pagamento</span>
+                          <strong>{prepaymentRuleText(selectedClient)}</strong>
+                          {selectedClient.billingMethod === 'prepaid' ? <SourceBadge>regra de pré-pagamento</SourceBadge> : null}
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -1162,7 +1217,10 @@ export default function Budgets() {
                           </select>
                         </label>
                         <label>Quantidade<input type="number" min="1" value={cat.qty} onChange={(event) => updateCategory(idx, { qty: event.target.value })} /></label>
-                        <label>Valor/h<input type="number" step="0.01" value={cat.rate} onChange={(event) => updateCategory(idx, { rate: event.target.value })} /></label>
+                        <label>Valor/h
+                          <input type="number" step="0.01" value={cat.rate} onChange={(event) => updateCategory(idx, { rate: event.target.value })} />
+                          {clientRuleRate(selectedClient, cat.role) !== null && cat.rate !== '' ? <SourceBadge>valor vindo do cliente</SourceBadge> : null}
+                        </label>
                         {showCategoryDaySelect ? (
                           <label>Dia
                             <select value={cat.date || ''} onChange={(event) => updateCategory(idx, { date: event.target.value })}>
@@ -1180,6 +1238,7 @@ export default function Budgets() {
                             <option value="">Selecionar</option>
                             {uniformOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                           </select>
+                          {selectedClient?.defaultUniform && cat.uniform === selectedClient.defaultUniform ? <SourceBadge>uniforme habitual</SourceBadge> : null}
                         </label>
                       </div>
                     </div>
@@ -1381,16 +1440,16 @@ export default function Budgets() {
             </div>
 
             {formError ? <p className="notice">{formError}</p> : null}
-            <footer className="form-actions">
+            <footer className="form-actions form-actions--sticky">
               <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar Orçamento'}</button>
-              <button className="secondary-button" type="button" onClick={() => setOpen(false)}>Cancelar</button>
+              <button className="secondary-button" type="button" onClick={() => closeBudgetForm()}>Cancelar</button>
             </footer>
           </form>
         </Modal>
       ) : null}
 
       {conversionDraft ? (
-        <Modal title={`Converter Orçamento ${conversionDraft.budgetReference || ''} em Evento/Serviço`} onClose={closeConversion} size="wide">
+        <Modal title={`Converter Orçamento ${conversionDraft.budgetReference || ''} em Evento/Serviço`} onClose={() => closeConversion()} size="wide">
           <form className="resource-form budget-form" onSubmit={submitConversion}>
             <div className="budget-layout">
               <div className="budget-main">
@@ -1597,11 +1656,11 @@ export default function Budgets() {
             </div>
 
             {conversionError ? <p className="notice">{conversionError}</p> : null}
-            <footer className="form-actions">
+            <footer className="form-actions form-actions--sticky">
               <button className="command-button" type="submit" disabled={conversionSaving}>
                 {conversionSaving ? 'A criar...' : 'Guardar e criar Evento/Serviço'}
               </button>
-              <button className="secondary-button" type="button" onClick={closeConversion}>Cancelar</button>
+              <button className="secondary-button" type="button" onClick={() => closeConversion()}>Cancelar</button>
             </footer>
           </form>
         </Modal>

@@ -7,6 +7,7 @@ import Budgets from './pages/Budgets.jsx';
 import Calendar from './pages/Calendar.jsx';
 import Clients from './pages/Clients.jsx';
 import Collaborators from './pages/Collaborators.jsx';
+import Communication from './pages/Communication.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Login from './pages/Login.jsx';
 import PendingActions from './pages/PendingActions.jsx';
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="clients" element={<Clients />} />
         <Route path="services" element={<Services />} />
         <Route path="services/:serviceId" element={<ServiceDetail />} />
+        <Route path="communication" element={<Communication />} />
         <Route path="time-validation" element={<TimeValidation />} />
         <Route path="calendar" element={<Calendar />} />
         <Route path="budgets" element={<Budgets />} />

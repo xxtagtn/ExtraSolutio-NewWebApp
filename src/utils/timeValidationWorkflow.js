@@ -131,6 +131,36 @@ export function recentOperationalPeriod(value = new Date(), days = 7) {
   };
 }
 
+export function currentWeekPeriod(value = new Date()) {
+  const current = new Date(value);
+  const day = current.getDay();
+  const daysSinceMonday = day === 0 ? 6 : day - 1;
+  const start = new Date(current);
+  start.setDate(current.getDate() - daysSinceMonday);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return {
+    start: localDateKey(start),
+    end: localDateKey(end),
+  };
+}
+
+export function currentMonthPeriod(value = new Date()) {
+  const current = new Date(value);
+  return {
+    start: localDateKey(new Date(current.getFullYear(), current.getMonth(), 1)),
+    end: localDateKey(new Date(current.getFullYear(), current.getMonth() + 1, 0)),
+  };
+}
+
+export function previousMonthPeriod(value = new Date()) {
+  const current = new Date(value);
+  return {
+    start: localDateKey(new Date(current.getFullYear(), current.getMonth() - 1, 1)),
+    end: localDateKey(new Date(current.getFullYear(), current.getMonth(), 0)),
+  };
+}
+
 export function compareTimeValidationRowsNewest(a, b) {
   const byDate = String(effectiveRowDateKey(b) || '').localeCompare(String(effectiveRowDateKey(a) || ''));
   if (byDate) return byDate;

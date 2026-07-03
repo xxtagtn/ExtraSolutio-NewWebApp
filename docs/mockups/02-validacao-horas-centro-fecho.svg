@@ -1,0 +1,74 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg{fill:#071013}.panel{fill:#101b20;stroke:#22333b;stroke-width:1.2}.panel2{fill:#0c171b;stroke:#22333b;stroke-width:1}.text{fill:#e7f1f3;font-family:Inter,Segoe UI,Arial,sans-serif}.muted{fill:#91a3aa}.accent{fill:#18c6b8}.green{fill:#123620;stroke:#2ac46a}.amber{fill:#2e210c;stroke:#c18414}.red{fill:#351414;stroke:#c24141}.blue{fill:#0c2536;stroke:#1e6ba8}.chip{rx:8;ry:8}.small{font-size:14px}.body{font-size:18px}.title{font-size:30px;font-weight:800}.h2{font-size:22px;font-weight:750}.bold{font-weight:750}.btn{fill:#12bdb0;rx:8;ry:8}.btn2{fill:#0b1519;stroke:#2a3e47;rx:8;ry:8}.line{stroke:#253942;stroke-width:1}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <text class="title text" x="32" y="56">Conferência Operacional</text>
+  <text class="muted body" x="32" y="88">Centro de fecho: staff → cliente → finalizado → financeiro</text>
+
+  <g transform="translate(32 116)">
+    <rect class="btn2" x="0" y="0" width="210" height="48"/><text class="text small" x="20" y="30">Por preencher Staff</text><circle cx="182" cy="24" r="14" fill="#203039"/><text class="text small" x="178" y="29">4</text>
+    <rect class="amber" x="226" y="0" width="190" height="48" rx="8"/><text class="text small" x="246" y="30">Aguardar Cliente</text><circle cx="388" cy="24" r="14" fill="#8a5a08"/><text class="text small" x="384" y="29">9</text>
+    <rect class="btn2" x="432" y="0" width="206" height="48"/><text class="text small" x="452" y="30">Pronto a finalizar</text><circle cx="610" cy="24" r="14" fill="#0d5e58"/><text class="text small" x="606" y="29">3</text>
+    <rect class="btn2" x="654" y="0" width="154" height="48"/><text class="text small" x="674" y="30">Finalizado</text><circle cx="780" cy="24" r="14" fill="#1f8f52"/><text class="text small" x="776" y="29">5</text>
+    <rect class="btn2" x="824" y="0" width="150" height="48"/><text class="muted small" x="850" y="30">Histórico</text>
+  </g>
+
+  <rect class="panel" x="32" y="190" width="1536" height="88" rx="10"/>
+  <text class="muted small" x="56" y="220">Cliente</text><rect class="btn2" x="56" y="230" width="260" height="36"/><text class="text small" x="78" y="254">Todos os clientes</text>
+  <text class="muted small" x="340" y="220">Evento/Serviço</text><rect class="btn2" x="340" y="230" width="350" height="36"/><text class="text small" x="362" y="254">Restaurante Luz Chakall</text>
+  <text class="muted small" x="714" y="220">Período</text><rect class="btn2" x="714" y="230" width="260" height="36"/><text class="text small" x="736" y="254">16/06/2026 - 22/06/2026</text>
+  <rect class="btn2" x="1242" y="230" width="120" height="36"/><text class="text small" x="1268" y="254">PDF Staff</text>
+  <rect class="btn2" x="1378" y="230" width="130" height="36"/><text class="text small" x="1402" y="254">Excel Staff</text>
+
+  <rect class="panel" x="32" y="304" width="1536" height="124" rx="10"/>
+  <text class="h2 text" x="60" y="344">Restaurante Luz Chakall</text>
+  <text class="muted body" x="60" y="374">SSH - Supreme Sport Hospitality · 20/06/2026 · Restaurante</text>
+  <rect class="amber" x="384" y="324" width="160" height="32" rx="8"/><text class="text small" x="405" y="345">Aguardar Cliente</text>
+  <g transform="translate(860 326)">
+    <rect class="panel2" x="0" y="0" width="120" height="72" rx="8"/><text class="muted small" x="16" y="24">Staff</text><text class="text h2" x="16" y="52">11/11</text>
+    <rect class="panel2" x="136" y="0" width="120" height="72" rx="8"/><text class="muted small" x="152" y="24">Cliente</text><text class="text h2" x="152" y="52">8/11</text>
+    <rect class="red" x="272" y="0" width="140" height="72" rx="8"/><text class="muted small" x="288" y="24">Divergências</text><text class="text h2" x="288" y="52">2</text>
+  </g>
+  <rect class="btn2" x="1280" y="332" width="118" height="42"/><text class="text small" x="1302" y="358">Copiar Staff</text>
+  <rect class="btn" x="1412" y="332" width="128" height="42"/><text class="text small bold" x="1432" y="358" fill="#071013">Guardar</text>
+
+  <rect class="panel" x="32" y="454" width="1536" height="382" rx="10"/>
+  <text class="h2 text" x="60" y="494">Linhas de validação</text>
+  <text class="muted small" x="60" y="522">Divergências ficam na própria lista. Não há separador separado.</text>
+  <line class="line" x1="56" y1="552" x2="1544" y2="552"/>
+  <text class="muted small" x="70" y="578">Colaborador</text><text class="muted small" x="340" y="578">Evento</text><text class="muted small" x="610" y="578">Previsto</text><text class="muted small" x="790" y="578">Staff</text><text class="muted small" x="970" y="578">Cliente</text><text class="muted small" x="1160" y="578">Diferença</text><text class="muted small" x="1350" y="578">Notas</text>
+
+  <rect x="52" y="596" width="1490" height="70" rx="8" fill="#0f2719" stroke="#2ac46a"/>
+  <text class="text body bold" x="70" y="625">Miriam Peçanha Oliveira</text><text class="muted small" x="70" y="648">Emp.Mesa</text>
+  <text class="text body" x="340" y="625">Restaurante Luz Chakall</text><text class="muted small" x="340" y="648">20/06/2026</text>
+  <text class="text body" x="610" y="625">11:30 → 16:00</text>
+  <text class="text body" x="790" y="625">11:27 → 15:53</text>
+  <text class="text body" x="970" y="625">11:27 → 15:53</text>
+  <rect class="green" x="1160" y="608" width="154" height="30" rx="8"/><text class="text small" x="1178" y="628">Dentro tolerância</text>
+  <rect class="btn2" x="1350" y="608" width="160" height="30"/><text class="muted small" x="1372" y="628">Adicionar nota</text>
+
+  <rect x="52" y="678" width="1490" height="70" rx="8" fill="#2c210c" stroke="#c18414"/>
+  <text class="text body bold" x="70" y="707">Leonardo Barboza Lima</text><text class="muted small" x="70" y="730">Emp.Mesa</text>
+  <text class="text body" x="340" y="707">Restaurante Luz Chakall</text><text class="muted small" x="340" y="730">20/06/2026</text>
+  <text class="text body" x="610" y="707">11:30 → 16:00</text>
+  <text class="text body" x="790" y="707">11:30 → 16:10</text>
+  <text class="text body" x="970" y="707">11:45 → 16:00</text>
+  <rect class="amber" x="1160" y="690" width="150" height="30" rx="8"/><text class="text small" x="1178" y="710">Atenção · 25 min</text>
+  <rect class="btn2" x="1350" y="690" width="160" height="30"/><text class="muted small" x="1372" y="710">Cliente confirmou</text>
+
+  <rect x="52" y="760" width="1490" height="56" rx="8" fill="#121d22" stroke="#22333b"/>
+  <text class="text body bold" x="70" y="794">Ana Carolina Rodrigues</text>
+  <text class="text body" x="340" y="794">Restaurante Luz Chakall</text>
+  <text class="text body" x="790" y="794">10:00 → 22:00</text>
+  <text class="muted body" x="970" y="794">--:-- → --:--</text>
+  <rect class="blue" x="1160" y="776" width="154" height="30" rx="8"/><text class="text small" x="1182" y="796">Aguardar cliente</text>
+
+  <rect class="panel2" x="32" y="852" width="1536" height="34" rx="8"/>
+  <text class="muted small" x="60" y="874">Selecionadas: 3</text>
+  <text class="text small bold" x="310" y="874">Total Staff: 28:30h</text>
+  <text class="text small bold" x="520" y="874">Total Cliente: 16:00h</text>
+  <text class="accent small bold" x="740" y="874">Ação: Marcar evento validado só depois de rever</text>
+</svg>

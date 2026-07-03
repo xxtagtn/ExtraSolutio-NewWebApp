@@ -310,6 +310,17 @@ export function normalizePayment(input) {
   return compact({ ...pick(input, ['amount', 'description', 'status']), collaboratorId: asInt(input.collaboratorId), ...(input.date ? { date: toDate(input.date) } : {}) });
 }
 
+export function normalizeCommunicationLog(input) {
+  return compact({
+    ...pick(input, ['type', 'channel', 'status', 'message', 'response']),
+    eventId: asInt(input.eventId),
+    assignmentId: asInt(input.assignmentId),
+    collaboratorId: asInt(input.collaboratorId),
+    ...(input.sentAt !== undefined ? { sentAt: input.sentAt ? toDate(input.sentAt) : null } : {}),
+    ...(input.respondedAt !== undefined ? { respondedAt: input.respondedAt ? toDate(input.respondedAt) : null } : {}),
+  });
+}
+
 export function normalizeAssignment(input) {
   const syncedPaymentNotes = input.paymentNotes !== undefined ? input.paymentNotes : input.validationNotes;
   return compact({
