@@ -1,10 +1,12 @@
 ﻿import { Router } from 'express';
 import { prisma } from '../prisma.js';
-import { requireAdmin, requireRole } from '../middleware/auth.js';
-import { canViewSensitiveCollaboratorData, ROLES } from '../security/roles.js';
+import { canViewSensitiveCollaboratorData } from '../security/roles.js';
+import { PERMISSIONS } from '../../src/utils/accessPermissions.js';
+import { requirePermission } from '../security/permissions.js';
 import { asyncHandler } from '../utils/http.js';
 import { collaboratorLightSelect } from '../utils/listPayloads.js';
-import { deleteStoredPhoto, resolvePhotoForStorage } from '../utils/photoStorage.js';
+import { buildPaginatedPayload, parsePaginationQuery } from '../utils/listQuery.js';
+import { deleteStoredPhoto, resolvePhotoForStorage, resolvePhotoThumbForStorage } from '../utils/photoStorage.js';
 import { computeShortName } from '../../src/utils/collaboratorName.js';
 import { collaboratorRoleOptions } from '../../src/utils/collaboratorRoles.js';
 
@@ -30,6 +32,37 @@ const SENSITIVE_FIELDS = [
   'includeVat',
   'notes',
 ];
+
+collaboratorsRouter.use(requirePermission(PERMISSIONS.COLLABORATORS_VIEW));
+
+function stringContains(value) {
+  const text = String(value || '').trim();
+  return text ? { contains: text } : null;
+}
+
+function toOptionalBoolean(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  return value === true || value === 'true' || value === '1' || value === 1;
+}
+
+function buildCollaboratorWhere(query) {
+  const where = {};
+  const search = stringContains(query.search || query.q || query.name);
+  if (search) {
+    where.OR = [
+      { name: search },
+      { shortName: search },
+      { email: search },
+      { phone: search },
+      { nif: search },
+    ];
+  }
+  if (query.status) where.status = String(query.status);
+  if (query.role) where.roles = { some: { role: String(query.role) } };
+  const hasOwnCar = toOptionalBoolean(query.ownCar);
+  if (hasOwnCar !== undefined) where.hasOwnCar = hasOwnCar;
+  return where;
+}
 
 function parseId(req, res) {
   const id = Number(req.params.id);
@@ -159,13 +192,20 @@ function toOutput(row, user) {
 
 collaboratorsRouter.get('/', asyncHandler(async (req, res) => {
   const light = req.query.light === '1' || req.query.light === 'true';
+  const pagination = parsePaginationQuery(req.query, { defaultPageSize: 10, maxPageSize: 100 });
+  const where = buildCollaboratorWhere(req.query);
   const rows = await prisma.collaborator.findMany({
-    orderBy: { createdAt: 'desc' },
+    where,
+    orderBy: [{ isPreferred: 'desc' }, { name: 'asc' }],
+    ...(pagination.enabled ? { skip: (pagination.page - 1) * pagination.pageSize, take: pagination.pageSize } : {}),
     ...(light
       ? { select: collaboratorLightSelect }
       : { include: { roles: { orderBy: { role: 'asc' } } } }),
   });
-  res.json(rows.map((row) => toOutput(row, req.user)));
+  const items = rows.map((row) => toOutput(row, req.user));
+  if (!pagination.enabled) return res.json(items);
+  const total = await prisma.collaborator.count({ where });
+  return res.json(buildPaginatedPayload({ items, total, page: pagination.page, pageSize: pagination.pageSize }));
 }));
 
 collaboratorsRouter.get('/roles', asyncHandler(async (_req, res) => {
@@ -190,7 +230,7 @@ collaboratorsRouter.get('/:id', asyncHandler(async (req, res) => {
   return res.json(toOutput(row, req.user));
 }));
 
-collaboratorsRouter.post('/', requireRole(ROLES.MANAGEMENT), asyncHandler(async (req, res) => {
+collaboratorsRouter.post('/', requirePermission(PERMISSIONS.COLLABORATORS_CREATE), asyncHandler(async (req, res) => {
   let normalized;
   try {
     normalized = normalizeCollaboratorBody(req.body, { requireCore: true });
@@ -200,6 +240,8 @@ collaboratorsRouter.post('/', requireRole(ROLES.MANAGEMENT), asyncHandler(async 
   const { data, roles } = normalized;
   const photo = await resolvePhotoForStorage(req.body.photo);
   if (photo !== undefined) data.photo = photo;
+  const photoThumb = await resolvePhotoThumbForStorage(req.body.photoThumb);
+  if (photoThumb !== undefined) data.photoThumb = photoThumb;
   const row = await prisma.collaborator.create({
     data: { ...data, roles: { create: roles.map((role) => ({ role })) } },
     include: { roles: { orderBy: { role: 'asc' } } },
@@ -207,7 +249,7 @@ collaboratorsRouter.post('/', requireRole(ROLES.MANAGEMENT), asyncHandler(async 
   return res.status(201).json(toOutput(row, req.user));
 }));
 
-collaboratorsRouter.put('/:id', requireRole(ROLES.MANAGEMENT), asyncHandler(async (req, res) => {
+collaboratorsRouter.put('/:id', requirePermission(PERMISSIONS.COLLABORATORS_UPDATE), asyncHandler(async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
   let normalized;
@@ -219,10 +261,18 @@ collaboratorsRouter.put('/:id', requireRole(ROLES.MANAGEMENT), asyncHandler(asyn
   const { data, roles } = normalized;
   const hasRoles = Array.isArray(req.body.roles);
   if (hasRoles && roles.length === 0) return res.status(400).json({ message: 'Seleciona pelo menos uma função.' });
-  if (req.body.photo !== undefined) {
-    const existing = await prisma.collaborator.findUnique({ where: { id }, select: { photo: true } });
+  if (req.body.photo !== undefined || req.body.photoThumb !== undefined) {
+    const existing = await prisma.collaborator.findUnique({ where: { id }, select: { photo: true, photoThumb: true } });
     if (!existing) return res.status(404).json({ message: 'Registo não encontrado.' });
-    data.photo = await resolvePhotoForStorage(req.body.photo, existing.photo);
+    if (req.body.photo !== undefined) {
+      data.photo = await resolvePhotoForStorage(req.body.photo, existing.photo);
+    }
+    if (req.body.photoThumb !== undefined) {
+      data.photoThumb = await resolvePhotoThumbForStorage(req.body.photoThumb, existing.photoThumb);
+    } else if (req.body.photo !== undefined && req.body.photo !== existing.photo && existing.photoThumb) {
+      await deleteStoredPhoto(existing.photoThumb);
+      data.photoThumb = null;
+    }
   }
   const row = await prisma.collaborator.update({
     where: { id },
@@ -235,11 +285,12 @@ collaboratorsRouter.put('/:id', requireRole(ROLES.MANAGEMENT), asyncHandler(asyn
   return res.json(toOutput(row, req.user));
 }));
 
-collaboratorsRouter.delete('/:id', requireAdmin, asyncHandler(async (req, res) => {
+collaboratorsRouter.delete('/:id', requirePermission(PERMISSIONS.COLLABORATORS_DELETE), asyncHandler(async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
-  const existing = await prisma.collaborator.findUnique({ where: { id }, select: { photo: true } });
+  const existing = await prisma.collaborator.findUnique({ where: { id }, select: { photo: true, photoThumb: true } });
   await prisma.collaborator.delete({ where: { id } });
   await deleteStoredPhoto(existing?.photo);
+  await deleteStoredPhoto(existing?.photoThumb);
   return res.status(204).end();
 }));

@@ -1,3 +1,5 @@
+import { PERMISSIONS, hasPermission } from '../../src/utils/accessPermissions.js';
+
 export const ROLES = Object.freeze({
   ADMIN: 'admin',
   MANAGEMENT: 'management',
@@ -35,11 +37,14 @@ export function canAccessRole(user, allowedRoles = []) {
 }
 
 export function canViewSensitiveCollaboratorData(user) {
-  return canAccessRole(user, [ROLES.MANAGEMENT, ROLES.FINANCE]);
+  return hasPermission(user, PERMISSIONS.COLLABORATORS_VIEW_SENSITIVE)
+    || hasPermission(user, PERMISSIONS.CLIENTS_VIEW_SENSITIVE)
+    || canAccessRole(user, [ROLES.MANAGEMENT, ROLES.FINANCE]);
 }
 
 export function canViewFinancialData(user) {
-  return canAccessRole(user, [ROLES.MANAGEMENT, ROLES.FINANCE]);
+  return hasPermission(user, PERMISSIONS.FINANCE_VIEW_VALUES)
+    || canAccessRole(user, [ROLES.MANAGEMENT, ROLES.FINANCE]);
 }
 
 export function publicRole(role) {

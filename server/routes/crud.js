@@ -4,6 +4,7 @@ import { normalizeAssignmentDrafts } from '../../src/utils/serviceAssignmentDraf
 import { normalizeTravelCars } from '../../src/utils/travelCalculator.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { pick, toDate, asyncHandler } from '../utils/http.js';
+import { buildPaginatedPayload, parsePaginationQuery } from '../utils/listQuery.js';
 
 function parseId(req, res) {
   const id = Number(req.params.id);
@@ -19,19 +20,36 @@ export function createCrudRouter(model, fields, options = {}) {
   const include = options.include;
   const readMiddleware = options.readMiddleware ?? [];
   const writeMiddleware = options.writeMiddleware ?? [];
+  const createMiddleware = options.createMiddleware ?? writeMiddleware;
+  const updateMiddleware = options.updateMiddleware ?? writeMiddleware;
   const deleteMiddleware = options.deleteMiddleware ?? [requireAdmin];
   const readMiddlewares = Array.isArray(readMiddleware) ? readMiddleware : [readMiddleware];
-  const writeMiddlewares = Array.isArray(writeMiddleware) ? writeMiddleware : [writeMiddleware];
+  const createMiddlewares = Array.isArray(createMiddleware) ? createMiddleware : [createMiddleware];
+  const updateMiddlewares = Array.isArray(updateMiddleware) ? updateMiddleware : [updateMiddleware];
   const deleteMiddlewares = Array.isArray(deleteMiddleware) ? deleteMiddleware : [deleteMiddleware];
   const serializeRow = options.serializeRow ?? ((row) => row);
   const serializeRows = options.serializeRows ?? ((rows, req) => rows.map((row) => serializeRow(row, req)));
 
   router.get('/', ...readMiddlewares, asyncHandler(async (req, res) => {
+    const pagination = parsePaginationQuery(req.query, options.pagination);
+    const where = options.buildWhere?.(req.query, req);
+    const orderBy = options.buildOrderBy?.(req.query, req) ?? options.orderBy ?? { createdAt: 'desc' };
     const rows = await model.findMany({
-      orderBy: options.orderBy ?? { createdAt: 'desc' },
+      orderBy,
+      ...(where ? { where } : {}),
       include,
+      ...(pagination.enabled ? { skip: pagination.skip, take: pagination.take } : {}),
     });
-    res.json(serializeRows(rows, req));
+    const serializedRows = serializeRows(rows, req);
+    if (!pagination.enabled) return res.json(serializedRows);
+
+    const total = await model.count({ ...(where ? { where } : {}) });
+    return res.json(buildPaginatedPayload({
+      items: serializedRows,
+      total,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+    }));
   }));
 
   router.get('/:id', ...readMiddlewares, asyncHandler(async (req, res) => {
@@ -42,14 +60,14 @@ export function createCrudRouter(model, fields, options = {}) {
     return res.json(serializeRow(row, req));
   }));
 
-  router.post('/', ...writeMiddlewares, asyncHandler(async (req, res) => {
+  router.post('/', ...createMiddlewares, asyncHandler(async (req, res) => {
     const data = await (options.normalizeCreate?.(req.body) ?? pick(req.body, fields));
     const row = await model.create({ data, include });
     await options.afterCreate?.({ row, data, body: req.body });
     res.status(201).json(serializeRow(row, req));
   }));
 
-  router.put('/:id', ...writeMiddlewares, asyncHandler(async (req, res) => {
+  router.put('/:id', ...updateMiddlewares, asyncHandler(async (req, res) => {
     const id = parseId(req, res);
     if (!id) return;
     const existing = options.loadExistingForUpdate

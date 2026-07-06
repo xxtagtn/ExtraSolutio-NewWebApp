@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   collaboratorPhotoSource,
+  collaboratorThumbnailSource,
   mergeCollaboratorDetail,
   shouldFetchCollaboratorDetail,
 } from './collaboratorDetails.js';
@@ -33,4 +34,25 @@ test('resolves the photo from full detail before the light row', () => {
   assert.equal(collaboratorPhotoSource({ photo: 'old' }, { photo: 'new' }), 'new');
   assert.equal(collaboratorPhotoSource({ photo: 'old' }, null), 'old');
   assert.equal(collaboratorPhotoSource({}, { photo: null }), '');
+});
+
+test('resolves collaborator thumbnails before full-size photos', () => {
+  assert.equal(
+    collaboratorThumbnailSource(
+      { photo: '/uploads/collaborators/full.png', photoThumb: '/uploads/collaborators/thumbs/thumb.webp' },
+      null,
+    ),
+    '/uploads/collaborators/thumbs/thumb.webp',
+  );
+  assert.equal(
+    collaboratorThumbnailSource(
+      { photo: '/uploads/collaborators/full.png' },
+      { photoThumb: '/uploads/collaborators/thumbs/detail.webp', photo: '/uploads/collaborators/detail.png' },
+    ),
+    '/uploads/collaborators/thumbs/detail.webp',
+  );
+  assert.equal(
+    collaboratorThumbnailSource({ photo: '/uploads/collaborators/full.png' }, null),
+    '/uploads/collaborators/full.png',
+  );
 });

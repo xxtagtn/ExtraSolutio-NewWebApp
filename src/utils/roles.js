@@ -1,3 +1,5 @@
+import { hasAnyPermission, hasPermission } from './accessPermissions.js';
+
 export const ROLES = Object.freeze({
   ADMIN: 'admin',
   MANAGEMENT: 'management',
@@ -38,3 +40,5 @@ export const ROLE_GROUPS = {
   operations: [ROLES.MANAGEMENT, ROLES.OPERATIONS],
   commercial: [ROLES.MANAGEMENT],
 };
+
+export { hasAnyPermission, hasPermission };

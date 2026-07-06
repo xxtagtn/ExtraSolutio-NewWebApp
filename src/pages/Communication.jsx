@@ -2,19 +2,27 @@ import {
   CheckCircle2,
   Clock3,
   Copy,
+  Download,
+  Eye,
   ExternalLink,
   MessageSquareText,
   Phone,
+  Printer,
+  QrCode,
+  RefreshCw,
   Search,
   Send,
   UserCheck,
   UserX,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
+import { useAuth } from '../hooks/useAuth.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { buildCommunicationCenter, communicationSummary } from '../utils/communicationCenter.js';
 import { withCommunicationMessageDraft } from '../utils/communicationMessageDrafts.js';
 import { date } from '../utils/formatters.js';
@@ -76,7 +84,222 @@ function SummaryCard({ icon: Icon, label, value, tone = 'accent' }) {
   );
 }
 
+const qrStateTones = {
+  qr_generated: 'info',
+  entrada_registada: 'warning',
+  servico_concluido: 'success',
+};
+
+function QrCodesPanel({ services, canManageQrCodes }) {
+  const eventOptions = useMemo(() => (Array.isArray(services) ? services : [])
+    .filter((service) => (service.assignments || []).some((assignment) => assignment.collaboratorId))
+    .map((service) => ({
+      id: String(service.id),
+      name: service.name,
+      clientName: service.client?.name || '',
+      date: service.date,
+    }))
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || a.name.localeCompare(b.name, 'pt')), [services]);
+
+  const [eventId, setEventId] = useState('');
+  const [payload, setPayload] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [selectedQr, setSelectedQr] = useState(null);
+  const [qrImage, setQrImage] = useState('');
+
+  useEffect(() => {
+    if (!eventId && eventOptions[0]?.id) setEventId(eventOptions[0].id);
+  }, [eventId, eventOptions]);
+
+  const loadQrCodes = useCallback(async ({ background = false } = {}) => {
+    if (!eventId || !canManageQrCodes) return;
+    if (!background) setLoading(true);
+    setError('');
+    try {
+      setPayload(await api(`/qr-codes/events/${eventId}`));
+    } catch (err) {
+      setError(err.message || 'Não foi possível carregar os QR Codes.');
+    } finally {
+      if (!background) setLoading(false);
+    }
+  }, [canManageQrCodes, eventId]);
+
+  useEffect(() => {
+    loadQrCodes();
+  }, [loadQrCodes]);
+
+  useEffect(() => {
+    if (!eventId || !canManageQrCodes) return undefined;
+    const timer = window.setInterval(() => loadQrCodes({ background: true }), 15000);
+    return () => window.clearInterval(timer);
+  }, [canManageQrCodes, eventId, loadQrCodes]);
+
+  async function qrDataUrl(row) {
+    return QRCode.toDataURL(row.qrUrl, {
+      width: 900,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#041012',
+        light: '#ffffff',
+      },
+    });
+  }
+
+  async function openQr(row) {
+    setSelectedQr(row);
+    setQrImage(await qrDataUrl(row));
+  }
+
+  async function downloadQr(row) {
+    const dataUrl = await qrDataUrl(row);
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `qr-${row.collaboratorName || 'colaborador'}-${row.assignmentId}.png`;
+    link.click();
+  }
+
+  async function printQr(row) {
+    const dataUrl = await qrDataUrl(row);
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+    if (!printWindow) return;
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>QR Code - ${row.collaboratorName}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 32px; color: #111; }
+            .card { max-width: 420px; margin: 0 auto; text-align: center; border: 1px solid #ddd; border-radius: 14px; padding: 24px; }
+            img { width: 280px; height: 280px; }
+            h1 { font-size: 22px; margin: 16px 0 8px; }
+            p { margin: 4px 0; color: #444; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <img src="${dataUrl}" alt="QR Code" />
+            <h1>${row.collaboratorName}</h1>
+            <p>${payload?.event?.name || ''}</p>
+            <p>${formatTaskDate(row.assignmentDate)} · ${row.role || ''}</p>
+          </div>
+          <script>window.onload = () => { window.print(); window.close(); };</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  }
+
+  if (!canManageQrCodes) {
+    return (
+      <EmptyState
+        icon={QrCode}
+        title="Sem acesso aos QR Codes"
+        description="Este utilizador não tem permissão para gerir QR Codes de check-in/check-out."
+      />
+    );
+  }
+
+  return (
+    <section className="communication-qr-panel">
+      <div className="communication-qr-toolbar">
+        <label>
+          <span>Evento/Serviço</span>
+          <select value={eventId} onChange={(event) => setEventId(event.target.value)}>
+            {eventOptions.length ? eventOptions.map((item) => (
+              <option key={item.id} value={item.id}>{item.name} · {item.clientName}</option>
+            )) : <option value="">Sem eventos com colaboradores</option>}
+          </select>
+        </label>
+        <button type="button" className="secondary-button" onClick={() => loadQrCodes()} disabled={!eventId || loading}>
+          <RefreshCw size={16} /> Atualizar
+        </button>
+      </div>
+
+      {error ? <p className="notice">{error}</p> : null}
+
+      <div className="communication-qr-summary">
+        <article>
+          <small>Evento</small>
+          <strong>{payload?.event?.name || 'Seleciona um evento'}</strong>
+          <span>{payload?.event?.clientName || ''}</span>
+        </article>
+        <article>
+          <small>QR gerados</small>
+          <strong>{payload?.rows?.length || 0}</strong>
+          <span>colaboradores atribuídos</span>
+        </article>
+        <article>
+          <small>Entradas</small>
+          <strong>{(payload?.rows || []).filter((row) => row.checkIn).length}</strong>
+          <span>registadas</span>
+        </article>
+        <article>
+          <small>Concluídos</small>
+          <strong>{(payload?.rows || []).filter((row) => row.checkIn && row.checkOut).length}</strong>
+          <span>com entrada e saída</span>
+        </article>
+      </div>
+
+      <div className="communication-qr-table-wrap">
+        <table className="data-table communication-qr-table">
+          <thead>
+            <tr>
+              <th>Colaborador</th>
+              <th>Estado</th>
+              <th>Entrada</th>
+              <th>Saída</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan="5">A carregar QR Codes...</td></tr>
+            ) : (payload?.rows || []).length ? payload.rows.map((row) => (
+              <tr key={row.assignmentId}>
+                <td data-label="Colaborador">
+                  <strong>{row.collaboratorName}</strong>
+                  <small>{row.role || 'Sem função'} · {formatTaskDate(row.assignmentDate)}</small>
+                </td>
+                <td data-label="Estado"><Badge tone={qrStateTones[row.state?.key] || 'neutral'}>{row.state?.label || 'QR Gerado'}</Badge></td>
+                <td data-label="Entrada">{row.checkIn || '-'}</td>
+                <td data-label="Saída">{row.checkOut || '-'}</td>
+                <td data-label="Ações">
+                  <div className="communication-qr-actions">
+                    <button type="button" className="icon-button" title="Ver QR" onClick={() => openQr(row)}><Eye size={16} /></button>
+                    <button type="button" className="icon-button" title="Imprimir" onClick={() => printQr(row)}><Printer size={16} /></button>
+                    <button type="button" className="icon-button" title="Download" onClick={() => downloadQr(row)}><Download size={16} /></button>
+                  </div>
+                </td>
+              </tr>
+            )) : (
+              <tr><td colSpan="5">Sem colaboradores atribuídos neste evento.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedQr ? (
+        <div className="qr-modal-backdrop" role="presentation" onClick={() => setSelectedQr(null)}>
+          <section className="qr-modal" role="dialog" aria-modal="true" aria-label="QR Code" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="icon-button qr-modal-close" onClick={() => setSelectedQr(null)}>×</button>
+            <h2>{selectedQr.collaboratorName}</h2>
+            <p>{payload?.event?.name} · {formatTaskDate(selectedQr.assignmentDate)}</p>
+            {qrImage ? <img src={qrImage} alt={`QR Code de ${selectedQr.collaboratorName}`} /> : null}
+            <code>{selectedQr.qrUrl}</code>
+            <div className="form-actions">
+              <button type="button" className="secondary-button" onClick={() => printQr(selectedQr)}><Printer size={16} /> Imprimir</button>
+              <button type="button" className="command-button" onClick={() => downloadQr(selectedQr)}><Download size={16} /> Download</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function Communication() {
+  const { user } = useAuth();
   const { data: services, loading: loadingServices, error: servicesError, reload: reloadServices } = useApi('/services', []);
   const {
     data: communicationLogs,
@@ -93,6 +316,8 @@ export default function Communication() {
   const [messageDrafts, setMessageDrafts] = useState({});
   const [notice, setNotice] = useState('');
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('messages');
+  const canManageQrCodes = hasPermission(user, PERMISSIONS.COMMUNICATION_MANAGE_QR_CODES);
 
   const tasks = useMemo(
     () => buildCommunicationCenter({ services, communicationLogs }),
@@ -207,6 +432,20 @@ export default function Communication() {
 
       {error ? <p className="notice">{error}</p> : null}
       {notice ? <p className="notice">{notice}</p> : null}
+
+      <nav className="communication-tabs" aria-label="Áreas de comunicação">
+        <button type="button" className={activeTab === 'messages' ? 'active' : ''} onClick={() => setActiveTab('messages')}>
+          <MessageSquareText size={16} /> Mensagens
+        </button>
+        <button type="button" className={activeTab === 'qr' ? 'active' : ''} onClick={() => setActiveTab('qr')}>
+          <QrCode size={16} /> QR Codes
+        </button>
+      </nav>
+
+      {activeTab === 'qr' ? (
+        <QrCodesPanel services={services} canManageQrCodes={canManageQrCodes} />
+      ) : (
+        <>
 
       <section className="communication-summary-grid" aria-label="Resumo de comunicação">
         <SummaryCard icon={MessageSquareText} label="Total em lista" value={summary.total} />
@@ -370,6 +609,8 @@ export default function Communication() {
           )}
         </aside>
       </section>
+        </>
+      )}
     </div>
   );
 }

@@ -1,6 +1,17 @@
 import { invalidateApiCache } from './apiCache.js';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+function resolveApiUrl() {
+  const configured = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+  if (typeof window === 'undefined') return configured;
+  const host = window.location.hostname;
+  const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+  if (!isLocalHost && /^https?:\/\/(localhost|127\.0\.0\.1):3001\/api$/i.test(configured)) {
+    return `${window.location.protocol}//${host}:3001/api`;
+  }
+  return configured;
+}
+
+export const API_URL = resolveApiUrl();
 const AUTH_KEY = 'extrasolutio.auth';
 const REFRESH_MARGIN_SECONDS = 10 * 60;
 

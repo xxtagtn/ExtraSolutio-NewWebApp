@@ -22,6 +22,7 @@ export const collaboratorLightSelect = {
   hourlyRate: true,
   includeVat: true,
   hasOwnCar: true,
+  photoThumb: true,
   isPreferred: true,
   status: true,
   notes: true,
@@ -43,6 +44,7 @@ export const collaboratorSummarySelect = {
   hourlyRate: true,
   includeVat: true,
   hasOwnCar: true,
+  photoThumb: true,
   status: true,
   roles: { orderBy: { role: 'asc' } },
 };

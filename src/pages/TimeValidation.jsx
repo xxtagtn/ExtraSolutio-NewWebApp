@@ -382,6 +382,13 @@ export default function TimeValidation() {
   }, [loading, reload, services, statusSyncing]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') reload();
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [reload]);
+
+  useEffect(() => {
     setDrafts((current) => {
       const next = prunePersistedDrafts(current);
       return Object.keys(next).length === Object.keys(current).length ? current : next;

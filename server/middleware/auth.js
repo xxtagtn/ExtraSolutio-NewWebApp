@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../prisma.js';
+import { effectivePermissionsForUser } from '../../src/utils/accessPermissions.js';
 import { canAccessRole, normalizeRole, ROLES } from '../security/roles.js';
 
 export async function requireAuth(req, res, next) {
@@ -14,14 +15,25 @@ export async function requireAuth(req, res, next) {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await prisma.user.findUnique({
       where: { id: payload.id },
-      select: { id: true, email: true, name: true, role: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        accessProfileId: true,
+        permissionOverrides: true,
+        accessProfile: {
+          select: { id: true, key: true, name: true, description: true, permissions: true },
+        },
+      },
     });
 
     if (!user) {
       return res.status(401).json({ message: 'Utilizador inválido.' });
     }
 
-    req.user = { ...user, role: normalizeRole(user.role) };
+    const normalizedUser = { ...user, role: normalizeRole(user.role) };
+    req.user = { ...normalizedUser, permissions: effectivePermissionsForUser(normalizedUser) };
     return next();
   } catch (error) {
     if (error?.name === 'TokenExpiredError') {

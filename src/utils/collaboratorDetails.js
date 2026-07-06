@@ -16,12 +16,20 @@ function apiOrigin() {
   }
 }
 
-export function collaboratorPhotoSource(row, detail) {
-  const raw = String(detail?.photo || row?.photo || '');
+function imageSource(rawValue) {
+  const raw = String(rawValue || '');
   if (raw.startsWith('/uploads/')) {
     return `${apiOrigin()}${raw}`;
   }
   return raw;
+}
+
+export function collaboratorPhotoSource(row, detail) {
+  return imageSource(detail?.photo || row?.photo);
+}
+
+export function collaboratorThumbnailSource(row, detail) {
+  return imageSource(detail?.photoThumb || row?.photoThumb || detail?.photo || row?.photo);
 }
 
 export function shouldFetchCollaboratorDetail(row, detail, loading = false) {

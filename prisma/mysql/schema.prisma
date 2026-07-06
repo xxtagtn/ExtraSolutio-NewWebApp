@@ -8,14 +8,53 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique @db.VarChar(191)
-  password  String   @db.VarChar(191)
-  name      String   @db.VarChar(191)
-  role      String   @default("admin") @db.VarChar(40)
-  createdAt DateTime @default(now()) @db.DateTime(3)
-  updatedAt DateTime @updatedAt @db.DateTime(3)
+  id                    Int      @id @default(autoincrement())
+  email                 String   @unique @db.VarChar(191)
+  password              String   @db.VarChar(191)
+  name                  String   @db.VarChar(191)
+  role                  String   @default("admin") @db.VarChar(40)
+  accessProfileId       Int?
+  accessProfile         AccessProfile? @relation(fields: [accessProfileId], references: [id], onDelete: SetNull)
+  permissionOverrides   String?  @db.LongText
+  createdAt             DateTime @default(now()) @db.DateTime(3)
+  updatedAt             DateTime @updatedAt @db.DateTime(3)
   notificationDismissals NotificationDismissal[]
+  permissionAuditChanges PermissionAuditLog[] @relation("PermissionAuditActor")
+  permissionAuditTargets PermissionAuditLog[] @relation("PermissionAuditTarget")
+
+  @@index([accessProfileId], map: "User_accessProfileId_idx")
+}
+
+model AccessProfile {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique @db.VarChar(80)
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(255)
+  permissions String   @db.LongText
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+  updatedAt   DateTime @updatedAt @db.DateTime(3)
+  users       User[]
+  auditLogs   PermissionAuditLog[]
+
+  @@index([isSystem], map: "AccessProfile_isSystem_idx")
+}
+
+model PermissionAuditLog {
+  id              Int      @id @default(autoincrement())
+  actorId         Int?
+  actor           User?    @relation("PermissionAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetUserId    Int?
+  targetUser      User?    @relation("PermissionAuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  accessProfileId Int?
+  accessProfile   AccessProfile? @relation(fields: [accessProfileId], references: [id], onDelete: SetNull)
+  action          String   @db.VarChar(80)
+  changes         String   @db.LongText
+  createdAt       DateTime @default(now()) @db.DateTime(3)
+
+  @@index([actorId], map: "PermissionAuditLog_actorId_idx")
+  @@index([targetUserId], map: "PermissionAuditLog_targetUserId_idx")
+  @@index([accessProfileId], map: "PermissionAuditLog_accessProfileId_idx")
 }
 
 model NotificationDismissal {
@@ -63,6 +102,7 @@ model Collaborator {
   greenReceipt   String?        @db.VarChar(20)
   availability   String?        @db.Text
   photo          String?        @db.LongText
+  photoThumb     String?        @db.LongText
   address     String?           @db.Text
   category    String            @default("") @db.VarChar(80)
   hourlyRate  Decimal           @default(0) @db.Decimal(12, 2)
@@ -77,6 +117,8 @@ model Collaborator {
   payments    Payment[]
   roles       CollaboratorRole[]
   communicationLogs CommunicationLog[]
+  qrCheckCodes QrCheckCode[]
+  qrCheckLogs  QrCheckLog[]
 
   @@index([status])
   @@index([category])
@@ -246,6 +288,8 @@ model Event {
   assignments  EventAssignment[]
   invoices     Invoice[]
   communicationLogs CommunicationLog[]
+  qrCheckCodes QrCheckCode[]
+  qrCheckLogs  QrCheckLog[]
 
   @@index([clientId])
   @@index([date])
@@ -300,12 +344,61 @@ model EventAssignment {
   createdAt      DateTime     @default(now()) @db.DateTime(3)
   updatedAt      DateTime     @updatedAt @db.DateTime(3)
   communicationLogs CommunicationLog[]
+  qrCheckCode   QrCheckCode?
+  qrCheckLogs   QrCheckLog[]
 
   @@index([eventId, collaboratorId, role], map: "EventAssignment_eventId_collaboratorId_role_idx")
   @@index([collaboratorId])
   @@index([status])
   @@index([paymentStatus])
   @@index([paymentDeferredMonth])
+}
+
+model QrCheckCode {
+  id             Int              @id @default(autoincrement())
+  token          String           @unique @db.VarChar(191)
+  eventId        Int
+  event          Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignmentId   Int              @unique
+  assignment     EventAssignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  collaboratorId Int
+  collaborator   Collaborator     @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  eventDate      DateTime?        @db.DateTime(3)
+  expiresAt      DateTime?        @db.DateTime(3)
+  revokedAt      DateTime?        @db.DateTime(3)
+  createdAt      DateTime         @default(now()) @db.DateTime(3)
+  updatedAt      DateTime         @updatedAt @db.DateTime(3)
+  logs           QrCheckLog[]
+
+  @@index([eventId])
+  @@index([assignmentId])
+  @@index([collaboratorId])
+  @@index([eventDate])
+  @@index([expiresAt])
+}
+
+model QrCheckLog {
+  id             Int              @id @default(autoincrement())
+  qrCodeId       Int
+  qrCode         QrCheckCode      @relation(fields: [qrCodeId], references: [id], onDelete: Cascade)
+  eventId        Int
+  event          Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignmentId   Int
+  assignment     EventAssignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  collaboratorId Int
+  collaborator   Collaborator     @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  action         String           @db.VarChar(40)
+  recordedAt     DateTime         @default(now()) @db.DateTime(3)
+  ip             String?          @db.VarChar(191)
+  userAgent      String?          @db.Text
+  createdAt      DateTime         @default(now()) @db.DateTime(3)
+
+  @@index([qrCodeId])
+  @@index([eventId])
+  @@index([assignmentId])
+  @@index([collaboratorId])
+  @@index([action])
+  @@index([recordedAt])
 }
 
 model CommunicationLog {

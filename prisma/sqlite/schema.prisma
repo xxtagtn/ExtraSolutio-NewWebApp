@@ -8,14 +8,53 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  name      String
-  role      String   @default("admin")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                    Int      @id @default(autoincrement())
+  email                 String   @unique
+  password              String
+  name                  String
+  role                  String   @default("admin")
+  accessProfileId       Int?
+  accessProfile         AccessProfile? @relation(fields: [accessProfileId], references: [id], onDelete: SetNull)
+  permissionOverrides   String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
   notificationDismissals NotificationDismissal[]
+  permissionAuditChanges PermissionAuditLog[] @relation("PermissionAuditActor")
+  permissionAuditTargets PermissionAuditLog[] @relation("PermissionAuditTarget")
+
+  @@index([accessProfileId])
+}
+
+model AccessProfile {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  name        String
+  description String?
+  permissions String
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+  auditLogs   PermissionAuditLog[]
+
+  @@index([isSystem])
+}
+
+model PermissionAuditLog {
+  id              Int      @id @default(autoincrement())
+  actorId         Int?
+  actor           User?    @relation("PermissionAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetUserId    Int?
+  targetUser      User?    @relation("PermissionAuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  accessProfileId Int?
+  accessProfile   AccessProfile? @relation(fields: [accessProfileId], references: [id], onDelete: SetNull)
+  action          String
+  changes         String
+  createdAt       DateTime @default(now())
+
+  @@index([actorId])
+  @@index([targetUserId])
+  @@index([accessProfileId])
 }
 
 model NotificationDismissal {
@@ -63,6 +102,7 @@ model Collaborator {
   greenReceipt   String?
   availability   String?
   photo          String?
+  photoThumb     String?
   address     String?
   category    String            @default("")
   hourlyRate  Decimal           @default(0)
@@ -77,6 +117,8 @@ model Collaborator {
   payments    Payment[]
   roles       CollaboratorRole[]
   communicationLogs CommunicationLog[]
+  qrCheckCodes QrCheckCode[]
+  qrCheckLogs  QrCheckLog[]
 
   @@index([status])
   @@index([category])
@@ -246,6 +288,8 @@ model Event {
   assignments  EventAssignment[]
   invoices     Invoice[]
   communicationLogs CommunicationLog[]
+  qrCheckCodes QrCheckCode[]
+  qrCheckLogs  QrCheckLog[]
 
   @@index([clientId])
   @@index([date])
@@ -300,12 +344,61 @@ model EventAssignment {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   communicationLogs CommunicationLog[]
+  qrCheckCode   QrCheckCode?
+  qrCheckLogs   QrCheckLog[]
 
   @@index([eventId, collaboratorId, role])
   @@index([collaboratorId])
   @@index([status])
   @@index([paymentStatus])
   @@index([paymentDeferredMonth])
+}
+
+model QrCheckCode {
+  id             Int              @id @default(autoincrement())
+  token          String           @unique
+  eventId        Int
+  event          Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignmentId   Int              @unique
+  assignment     EventAssignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  collaboratorId Int
+  collaborator   Collaborator     @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  eventDate      DateTime?
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  logs           QrCheckLog[]
+
+  @@index([eventId])
+  @@index([assignmentId])
+  @@index([collaboratorId])
+  @@index([eventDate])
+  @@index([expiresAt])
+}
+
+model QrCheckLog {
+  id             Int              @id @default(autoincrement())
+  qrCodeId       Int
+  qrCode         QrCheckCode      @relation(fields: [qrCodeId], references: [id], onDelete: Cascade)
+  eventId        Int
+  event          Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignmentId   Int
+  assignment     EventAssignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  collaboratorId Int
+  collaborator   Collaborator     @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  action         String
+  recordedAt     DateTime         @default(now())
+  ip             String?
+  userAgent      String?
+  createdAt      DateTime         @default(now())
+
+  @@index([qrCodeId])
+  @@index([eventId])
+  @@index([assignmentId])
+  @@index([collaboratorId])
+  @@index([action])
+  @@index([recordedAt])
 }
 
 model CommunicationLog {

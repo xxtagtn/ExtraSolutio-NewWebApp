@@ -1,20 +1,35 @@
-import { BarChart3, BriefcaseBusiness, CalendarCheck2, CalendarDays, CalendarRange, FileText, LayoutDashboard, ListChecks, MessageSquareText, PanelLeftClose, PanelLeftOpen, ShieldCheck, Users, X } from 'lucide-react';
+import {
+  BarChart3,
+  BriefcaseBusiness,
+  CalendarCheck2,
+  CalendarDays,
+  CalendarRange,
+  FileText,
+  LayoutDashboard,
+  ListChecks,
+  MessageSquareText,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ShieldCheck,
+  Users,
+  X,
+} from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
 import { BALANCETE_PATH, DEFAULT_AUTHENTICATED_PATH } from '../../utils/navigation.js';
-import { canAccessRole, ROLE_GROUPS, ROLES } from '../../utils/roles.js';
+import { PERMISSIONS, hasPermission } from '../../utils/accessPermissions.js';
 
 const links = [
-  { to: DEFAULT_AUTHENTICATED_PATH, label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/calendar', label: 'Calendário', icon: CalendarRange },
-  { to: '/collaborators', label: 'Colaboradores', icon: Users },
-  { to: '/clients', label: 'Clientes', icon: BriefcaseBusiness, roles: ROLE_GROUPS.finance },
-  { to: '/budgets', label: 'Orçamentos', icon: FileText, roles: ROLE_GROUPS.commercial },
-  { to: '/services', label: 'Eventos/Serviços', icon: CalendarDays, roles: ROLE_GROUPS.operations },
-  { to: '/time-validation', label: 'Validação de Horas', icon: CalendarCheck2, roles: ROLE_GROUPS.operations },
-  { to: '/finance', label: 'Financeiro', icon: BarChart3, roles: ROLE_GROUPS.finance },
-  { to: '/communication', label: 'Comunicação', icon: MessageSquareText, roles: ROLE_GROUPS.operations },
-  { to: BALANCETE_PATH, label: 'Balancete', icon: ListChecks, roles: ROLE_GROUPS.finance },
+  { to: DEFAULT_AUTHENTICATED_PATH, label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
+  { to: '/calendar', label: 'Calendário', icon: CalendarRange, permission: PERMISSIONS.CALENDAR_VIEW },
+  { to: '/collaborators', label: 'Colaboradores', icon: Users, permission: PERMISSIONS.COLLABORATORS_VIEW },
+  { to: '/clients', label: 'Clientes', icon: BriefcaseBusiness, permission: PERMISSIONS.CLIENTS_VIEW },
+  { to: '/budgets', label: 'Orçamentos', icon: FileText, permission: PERMISSIONS.BUDGETS_VIEW },
+  { to: '/services', label: 'Eventos/Serviços', icon: CalendarDays, permission: PERMISSIONS.SERVICES_VIEW },
+  { to: '/time-validation', label: 'Validação de Horas', icon: CalendarCheck2, permission: PERMISSIONS.TIME_VALIDATION_VIEW },
+  { to: '/finance', label: 'Financeiro', icon: BarChart3, permission: PERMISSIONS.FINANCE_VIEW },
+  { to: '/communication', label: 'Comunicação', icon: MessageSquareText, permission: PERMISSIONS.COMMUNICATION_VIEW },
+  { to: BALANCETE_PATH, label: 'Balancete', icon: ListChecks, permission: PERMISSIONS.BALANCETE_VIEW },
 ];
 
 export default function Sidebar({
@@ -25,8 +40,8 @@ export default function Sidebar({
 }) {
   const { user } = useAuth();
   const visibleLinks = [
-    ...links.filter((link) => !link.roles || canAccessRole(user, link.roles)),
-    ...(canAccessRole(user, [ROLES.ADMIN]) ? [{ to: '/admin', label: 'Administração', icon: ShieldCheck }] : []),
+    ...links.filter((link) => !link.permission || hasPermission(user, link.permission)),
+    ...(hasPermission(user, PERMISSIONS.ADMIN_VIEW) ? [{ to: '/admin', label: 'Administração', icon: ShieldCheck }] : []),
   ];
 
   return (

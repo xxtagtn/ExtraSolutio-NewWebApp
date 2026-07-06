@@ -1,11 +1,12 @@
 import { Router } from 'express';
-import { requireAdmin } from '../middleware/auth.js';
+import { PERMISSIONS } from '../../src/utils/accessPermissions.js';
+import { requirePermission } from '../security/permissions.js';
 import { asyncHandler } from '../utils/http.js';
 import { createDatabaseBackup, listDatabaseBackups } from '../utils/backups.js';
 
 export const backupsRouter = Router();
 
-backupsRouter.use(requireAdmin);
+backupsRouter.use(requirePermission(PERMISSIONS.BACKUPS_MANAGE));
 
 backupsRouter.get('/', asyncHandler(async (_req, res) => {
   const backups = await listDatabaseBackups();

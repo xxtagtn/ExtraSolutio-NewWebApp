@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { prisma } from '../prisma.js';
 import { validatePasswordStrength } from '../security/passwordPolicy.js';
 import { publicRole } from '../security/roles.js';
+import { effectivePermissionsForUser } from '../../src/utils/accessPermissions.js';
 import { asyncHandler } from '../utils/http.js';
 
 export const authRouter = Router();
@@ -13,6 +14,17 @@ export const authRouter = Router();
 const LOGIN_WINDOW_MS = Number(process.env.LOGIN_WINDOW_MINUTES || 15) * 60 * 1000;
 const LOGIN_MAX_FAILURES = Number(process.env.LOGIN_MAX_FAILURES || 5);
 const TOKEN_TTL = process.env.JWT_EXPIRES_IN || '4h';
+const authUserSelect = {
+  id: true,
+  email: true,
+  name: true,
+  role: true,
+  accessProfileId: true,
+  permissionOverrides: true,
+  accessProfile: {
+    select: { id: true, key: true, name: true, description: true, permissions: true },
+  },
+};
 
 function createLoginThrottle({ windowMs = LOGIN_WINDOW_MS, maxFailures = LOGIN_MAX_FAILURES, now = () => Date.now() } = {}) {
   const failures = new Map();
@@ -64,7 +76,22 @@ function loginKey(req, email) {
 export const __loginThrottleForTests = { createLoginThrottle };
 
 function publicUser(user) {
-  return { id: user.id, email: user.email, name: user.name, role: publicRole(user.role) };
+  const output = {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: publicRole(user.role),
+    accessProfileId: user.accessProfileId ?? null,
+    accessProfile: user.accessProfile
+      ? {
+          id: user.accessProfile.id,
+          key: user.accessProfile.key,
+          name: user.accessProfile.name,
+          description: user.accessProfile.description,
+        }
+      : null,
+  };
+  return { ...output, permissions: effectivePermissionsForUser(user) };
 }
 
 function issueToken(user) {
@@ -88,7 +115,10 @@ authRouter.post('/login', asyncHandler(async (req, res) => {
     return res.status(429).json({ message: 'Demasiadas tentativas falhadas. Tenta novamente dentro de 15 minutos.' });
   }
 
-  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+    include: { accessProfile: true },
+  });
   const validPassword = user ? await bcrypt.compare(password, user.password) : false;
 
   if (!user || !validPassword) {
@@ -125,6 +155,7 @@ authRouter.put('/profile', requireAuth, asyncHandler(async (req, res) => {
   const user = await prisma.user.update({
     where: { id: req.user.id },
     data: { name: name.trim() },
+    select: authUserSelect,
   });
 
   return res.json({ user: publicUser(user) });

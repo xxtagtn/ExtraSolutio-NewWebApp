@@ -12,6 +12,7 @@ import { computeShortName } from '../utils/collaboratorName.js';
 import { filterCollaborators } from '../utils/collaboratorFilters.js';
 import {
   collaboratorPhotoSource,
+  collaboratorThumbnailSource,
   mergeCollaboratorDetail,
   shouldFetchCollaboratorDetail,
 } from '../utils/collaboratorDetails.js';
@@ -20,12 +21,21 @@ import { documentExpiryAlert } from '../utils/documentExpiry.js';
 import { shouldHandleDeepLink } from '../utils/deepLinks.js';
 import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import { money } from '../utils/formatters.js';
+import { createImageThumbnailDataUrl, readFileAsDataUrl } from '../utils/imageThumbnails.js';
 import { paginateItems } from '../utils/pagination.js';
 
 const PHOTO_VIEWER_BASE_WIDTH = 420;
 const PHOTO_VIEWER_MAX_ZOOM = 2;
 const PHOTO_VIEWER_ZOOM_STEP = 0.1;
 const OWN_CAR_ROLE_FILTER = '__own_car__';
+
+function pageNumbersFor(currentPage, totalPages) {
+  const safeTotal = Math.max(1, Number(totalPages) || 1);
+  const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage) || 1));
+  const start = Math.max(1, safeCurrent - 2);
+  const end = Math.min(safeTotal, start + 4);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
 
 function emptyForm() {
   return {
@@ -53,6 +63,7 @@ function emptyForm() {
     status: 'active',
     notes: '',
     photo: '',
+    photoThumb: '',
   };
 }
 
@@ -82,6 +93,7 @@ function rowToForm(row) {
     status: row.status || 'active',
     notes: row.notes || '',
     photo: row.photo || '',
+    photoThumb: row.photoThumb || '',
   };
 }
 
@@ -95,10 +107,12 @@ function LazyCollaboratorPhoto({
   const containerRef = useRef(null);
   const [visible, setVisible] = useState(false);
   const photo = collaboratorPhotoSource(row, detail);
+  const thumbnail = collaboratorThumbnailSource(row, detail);
+  const previewPhoto = thumbnail || photo;
   const fetched = Boolean(detail) || row.photo !== undefined;
 
   useEffect(() => {
-    if (photo || fetched || visible) return undefined;
+    if (fetched || visible) return undefined;
     const node = containerRef.current;
     if (!node) return undefined;
 
@@ -117,22 +131,22 @@ function LazyCollaboratorPhoto({
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [fetched, onVisible, photo, row.id, visible]);
+  }, [fetched, onVisible, previewPhoto, row.id, visible]);
 
   return (
     <aside
       ref={containerRef}
       className={`collab-detail-photo${loading || !fetched ? ' collab-detail-photo--loading' : ''}`}
     >
-      {photo ? (
+      {previewPhoto ? (
         <button
           type="button"
           className="photo-zoom-trigger"
-          onClick={() => onOpen(photo, row.shortName || row.name)}
+          onClick={() => onOpen(photo || previewPhoto, row.shortName || row.name)}
           aria-label={`Ampliar foto de ${row.name}`}
         >
           <img
-            src={photo}
+            src={previewPhoto}
             alt={`Foto de ${row.name}`}
             loading="lazy"
             decoding="async"
@@ -149,14 +163,33 @@ function LazyCollaboratorPhoto({
 
 export default function Collaborators() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data, loading, error, reload } = useApi('/collaborators?light=1', []);
-  const { data: services } = useApi('/services', []);
-  const { data: catalogRoles } = useApi('/collaborators/roles', []);
   const [nameFilter, setNameFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const collaboratorQuery = useMemo(() => {
+    const params = new window.URLSearchParams({
+      light: '1',
+      page: String(currentPage),
+      pageSize: String(pageSize),
+    });
+    const search = nameFilter.trim();
+    if (search) params.set('search', search);
+    if (statusFilter) params.set('status', statusFilter);
+    if (roleFilter === OWN_CAR_ROLE_FILTER) params.set('ownCar', '1');
+    else if (roleFilter) params.set('role', roleFilter);
+    return `/collaborators?${params.toString()}`;
+  }, [currentPage, nameFilter, pageSize, roleFilter, statusFilter]);
+  const { data: collaboratorPayload, loading, error, reload } = useApi(collaboratorQuery, {
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize,
+    totalPages: 1,
+  });
+  const { data: services } = useApi('/services', []);
+  const { data: catalogRoles } = useApi('/collaborators/roles', []);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
@@ -177,6 +210,11 @@ export default function Collaborators() {
   const rolesDropdownRef = useRef(null);
   const documentSectionRef = useRef(null);
   const openedFromQueryRef = useRef('');
+  const hasServerPagination = !Array.isArray(collaboratorPayload);
+  const data = useMemo(
+    () => (Array.isArray(collaboratorPayload) ? collaboratorPayload : collaboratorPayload?.items || []),
+    [collaboratorPayload],
+  );
   const collaboratorRowsRef = useRef(data);
 
   useEffect(() => {
@@ -299,19 +337,40 @@ export default function Collaborators() {
     };
   }, [formOpen, highlightFormSection]);
 
-  const rows = useMemo(() => filterCollaborators(data, {
-    nameFilter,
-    roleFilter: roleFilter === OWN_CAR_ROLE_FILTER ? '' : roleFilter,
-    statusFilter,
-    ownCarOnly: roleFilter === OWN_CAR_ROLE_FILTER,
-  }).sort((a, b) => {
-    if (Boolean(a.isPreferred) !== Boolean(b.isPreferred)) return a.isPreferred ? -1 : 1;
-    return String(a.name || '').localeCompare(String(b.name || ''), 'pt');
-  }), [data, nameFilter, roleFilter, statusFilter]);
+  const rows = useMemo(() => {
+    const baseRows = hasServerPagination
+      ? data
+      : filterCollaborators(data, {
+        nameFilter,
+        roleFilter: roleFilter === OWN_CAR_ROLE_FILTER ? '' : roleFilter,
+        statusFilter,
+        ownCarOnly: roleFilter === OWN_CAR_ROLE_FILTER,
+      });
+    return [...baseRows].sort((a, b) => {
+      if (Boolean(a.isPreferred) !== Boolean(b.isPreferred)) return a.isPreferred ? -1 : 1;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'pt');
+    });
+  }, [data, hasServerPagination, nameFilter, roleFilter, statusFilter]);
 
   const pagination = useMemo(
-    () => paginateItems(rows, currentPage, pageSize),
-    [currentPage, pageSize, rows],
+    () => {
+      if (!hasServerPagination) return paginateItems(rows, currentPage, pageSize);
+      const totalItems = Number(collaboratorPayload?.total || 0);
+      const totalPages = Math.max(1, Number(collaboratorPayload?.totalPages || 1));
+      const payloadPage = Math.min(totalPages, Math.max(1, Number(collaboratorPayload?.page || currentPage)));
+      const payloadPageSize = Number(collaboratorPayload?.pageSize || pageSize);
+      return {
+        items: rows,
+        totalItems,
+        totalPages,
+        currentPage: payloadPage,
+        pageSize: payloadPageSize,
+        startItem: totalItems === 0 ? 0 : ((payloadPage - 1) * payloadPageSize) + 1,
+        endItem: Math.min(totalItems, ((payloadPage - 1) * payloadPageSize) + rows.length),
+        pageNumbers: pageNumbersFor(payloadPage, totalPages),
+      };
+    },
+    [collaboratorPayload, currentPage, hasServerPagination, pageSize, rows],
   );
 
   useEffect(() => {
@@ -433,13 +492,11 @@ export default function Collaborators() {
 
   async function onPhotoSelected(file) {
     if (!file) return;
-    const imageSource = await new Promise((resolve, reject) => {
-      const reader = new window.FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-    setForm((prev) => ({ ...prev, photo: imageSource }));
+    const [imageSource, thumbnailSource] = await Promise.all([
+      readFileAsDataUrl(file),
+      createImageThumbnailDataUrl(file),
+    ]);
+    setForm((prev) => ({ ...prev, photo: imageSource, photoThumb: thumbnailSource }));
   }
 
   function payloadFromForm(source) {
@@ -466,6 +523,7 @@ export default function Collaborators() {
       hasOwnCar: Boolean(source.hasOwnCar),
       notes: source.notes || null,
       photo: source.photo || null,
+      photoThumb: source.photoThumb || null,
     };
   }
 
@@ -781,7 +839,7 @@ export default function Collaborators() {
                     <Upload size={16} />
                     <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(event) => onPhotoSelected(event.target.files?.[0])} />
                   </label>
-                  {form.photo ? <button className="icon-button icon-button--danger" type="button" onClick={() => setForm({ ...form, photo: '' })} title="Remover foto"><X size={16} /></button> : null}
+                  {form.photo ? <button className="icon-button icon-button--danger" type="button" onClick={() => setForm({ ...form, photo: '', photoThumb: '' })} title="Remover foto"><X size={16} /></button> : null}
                 </div>
                 <label>Estado</label>
                 <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
