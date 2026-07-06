@@ -87,6 +87,16 @@ test('detects collaborator document expiry windows', () => {
   ]);
 });
 
+test('labels residence title documents in pending actions', () => {
+  const actions = buildPendingActions({
+    collaborators: [
+      { id: 6, shortName: 'Vidal Silva', documentType: 'residence_title', documentExpiry: '2026-06-20T00:00:00.000Z', status: 'active' },
+    ],
+  }, { today });
+
+  assert.equal(actions[0].details.find((item) => item.label === 'Documento').value, 'Título de Residência');
+});
+
 test('adds client and service context to billing actions', () => {
   const actions = buildPendingActions({
     services: [
@@ -121,7 +131,7 @@ test('adds client and service context to billing actions', () => {
     { label: 'Cliente', value: 'SSH - Supreme Sport Hospitality' },
     { label: 'Evento', value: 'Restaurante Luz Chakall' },
     { label: 'Valor', value: '2.592,90 €' },
-    { label: 'Vencimento', value: 'Ontem' },
+    { label: 'Vencimento', value: 'Ontem (05/06/2026)' },
   ]);
 
   const billing = actions.find((action) => action.id === 'service-billing-91');
@@ -281,6 +291,7 @@ test('groups monthly ready-to-bill services into one client period action', () =
 
   const grouped = actions.find((action) => action.id === 'service-billing-group-7-monthly-2026-06-30');
   assert.ok(grouped);
+  assert.equal(grouped.to, '/finance?area=clients&clientId=7&eventId=71&eventIds=71,72');
   assert.equal(actions.some((action) => action.id === 'service-billing-71'), false);
   assert.equal(actions.some((action) => action.id === 'service-billing-72'), false);
   assert.equal(grouped.title, 'Período pronto para faturar');
@@ -318,7 +329,7 @@ test('uses the client prepayment rule when remaining payment date is missing', (
     { label: 'Cliente', value: 'Cliente Particular' },
     { label: 'Evento', value: 'Casa Particular' },
     { label: 'Valor', value: '700,00 €' },
-    { label: 'Vencimento', value: 'Hoje' },
+    { label: 'Vencimento', value: 'Hoje (13/06/2026)' },
   ]);
 });
 

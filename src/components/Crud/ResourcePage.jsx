@@ -4,6 +4,7 @@ import Card from '../UI/Card.jsx';
 import IconButton from '../UI/IconButton.jsx';
 import Modal from '../UI/Modal.jsx';
 import Table from '../UI/Table.jsx';
+import { useToast } from '../UI/ToastProvider.jsx';
 import { api } from '../../utils/api.js';
 
 function emptyRecord(fields) {
@@ -40,6 +41,7 @@ export default function ResourcePage({
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const toast = useToast();
 
   const tableColumns = [
     ...columns,
@@ -84,6 +86,7 @@ export default function ResourcePage({
       });
       closeForm();
       reload();
+      toast.success(editing ? 'Registo atualizado.' : 'Registo criado.');
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -92,9 +95,15 @@ export default function ResourcePage({
   }
 
   async function remove(row) {
-    if (!window.confirm(`Eliminar "${row.name || row.number || row.description || `#${row.id}`}"?`)) return;
-    await api(`${endpoint}/${row.id}`, { method: 'DELETE' });
-    reload();
+    const label = row.name || row.number || row.description || `#${row.id}`;
+    if (!window.confirm(`Eliminar "${label}"?`)) return;
+    try {
+      await api(`${endpoint}/${row.id}`, { method: 'DELETE' });
+      toast.success(`"${label}" eliminado.`);
+      reload();
+    } catch (err) {
+      toast.error(err?.message || 'Não foi possível eliminar o registo.');
+    }
   }
 
   function updateForm(name, value) {

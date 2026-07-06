@@ -1,7 +1,10 @@
 ﻿import { Router } from 'express';
 import { prisma } from '../prisma.js';
+import { requireAdmin, requireRole } from '../middleware/auth.js';
+import { canViewSensitiveCollaboratorData, ROLES } from '../security/roles.js';
 import { asyncHandler } from '../utils/http.js';
 import { collaboratorLightSelect } from '../utils/listPayloads.js';
+import { deleteStoredPhoto, resolvePhotoForStorage } from '../utils/photoStorage.js';
 import { computeShortName } from '../../src/utils/collaboratorName.js';
 import { collaboratorRoleOptions } from '../../src/utils/collaboratorRoles.js';
 
@@ -10,10 +13,27 @@ export const collaboratorsRouter = Router();
 const ALLOWED_ROLES = new Set(collaboratorRoleOptions);
 const ALLOWED_STATUS = new Set(['active', 'inactive', 'paused']);
 const ALLOWED_DOCUMENT_TYPES = new Set(['passport', 'citizen_card', 'residence_title']);
+const SENSITIVE_FIELDS = [
+  'nif',
+  'iban',
+  'birthDate',
+  'gender',
+  'documentType',
+  'documentNumber',
+  'documentExpiry',
+  'documentExtended',
+  'residenceArea',
+  'insurancePolicy',
+  'allergies',
+  'greenReceipt',
+  'hourlyRate',
+  'includeVat',
+  'notes',
+];
 
 function parseId(req, res) {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id)) {
+  if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ message: 'ID inválido.' });
     return null;
   }
@@ -109,7 +129,6 @@ function normalizeCollaboratorBody(input, { requireCore = false } = {}) {
     ...(input.allergies !== undefined ? { allergies: input.allergies ? String(input.allergies).trim() : null } : {}),
     ...(input.greenReceipt !== undefined ? { greenReceipt: input.greenReceipt ? String(input.greenReceipt).trim() : null } : {}),
     ...(input.availability !== undefined ? { availability: input.availability ? String(input.availability).trim() : null } : {}),
-    ...(input.photo !== undefined ? { photo: input.photo ? String(input.photo) : null } : {}),
     ...(input.hourlyRate !== undefined ? { hourlyRate } : {}),
     ...(input.includeVat !== undefined ? { includeVat } : {}),
     ...(input.hasOwnCar !== undefined ? { hasOwnCar: toBoolean(input.hasOwnCar) } : {}),
@@ -128,8 +147,14 @@ function normalizeCollaboratorBody(input, { requireCore = false } = {}) {
   return { data, roles };
 }
 
-function toOutput(row) {
-  return { ...row, roles: row.roles.map((item) => item.role) };
+function toOutput(row, user) {
+  const output = { ...row, roles: row.roles.map((item) => item.role) };
+  if (!canViewSensitiveCollaboratorData(user)) {
+    for (const field of SENSITIVE_FIELDS) {
+      if (field in output) output[field] = null;
+    }
+  }
+  return output;
 }
 
 collaboratorsRouter.get('/', asyncHandler(async (req, res) => {
@@ -140,7 +165,7 @@ collaboratorsRouter.get('/', asyncHandler(async (req, res) => {
       ? { select: collaboratorLightSelect }
       : { include: { roles: { orderBy: { role: 'asc' } } } }),
   });
-  res.json(rows.map(toOutput));
+  res.json(rows.map((row) => toOutput(row, req.user)));
 }));
 
 collaboratorsRouter.get('/roles', asyncHandler(async (_req, res) => {
@@ -162,10 +187,10 @@ collaboratorsRouter.get('/:id', asyncHandler(async (req, res) => {
     include: { roles: { orderBy: { role: 'asc' } } },
   });
   if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
-  return res.json(toOutput(row));
+  return res.json(toOutput(row, req.user));
 }));
 
-collaboratorsRouter.post('/', asyncHandler(async (req, res) => {
+collaboratorsRouter.post('/', requireRole(ROLES.MANAGEMENT), asyncHandler(async (req, res) => {
   let normalized;
   try {
     normalized = normalizeCollaboratorBody(req.body, { requireCore: true });
@@ -173,14 +198,16 @@ collaboratorsRouter.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ message: error.message });
   }
   const { data, roles } = normalized;
+  const photo = await resolvePhotoForStorage(req.body.photo);
+  if (photo !== undefined) data.photo = photo;
   const row = await prisma.collaborator.create({
     data: { ...data, roles: { create: roles.map((role) => ({ role })) } },
     include: { roles: { orderBy: { role: 'asc' } } },
   });
-  return res.status(201).json(toOutput(row));
+  return res.status(201).json(toOutput(row, req.user));
 }));
 
-collaboratorsRouter.put('/:id', asyncHandler(async (req, res) => {
+collaboratorsRouter.put('/:id', requireRole(ROLES.MANAGEMENT), asyncHandler(async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
   let normalized;
@@ -192,6 +219,11 @@ collaboratorsRouter.put('/:id', asyncHandler(async (req, res) => {
   const { data, roles } = normalized;
   const hasRoles = Array.isArray(req.body.roles);
   if (hasRoles && roles.length === 0) return res.status(400).json({ message: 'Seleciona pelo menos uma função.' });
+  if (req.body.photo !== undefined) {
+    const existing = await prisma.collaborator.findUnique({ where: { id }, select: { photo: true } });
+    if (!existing) return res.status(404).json({ message: 'Registo não encontrado.' });
+    data.photo = await resolvePhotoForStorage(req.body.photo, existing.photo);
+  }
   const row = await prisma.collaborator.update({
     where: { id },
     data: {
@@ -200,12 +232,14 @@ collaboratorsRouter.put('/:id', asyncHandler(async (req, res) => {
     },
     include: { roles: { orderBy: { role: 'asc' } } },
   });
-  return res.json(toOutput(row));
+  return res.json(toOutput(row, req.user));
 }));
 
-collaboratorsRouter.delete('/:id', asyncHandler(async (req, res) => {
+collaboratorsRouter.delete('/:id', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseId(req, res);
   if (!id) return;
+  const existing = await prisma.collaborator.findUnique({ where: { id }, select: { photo: true } });
   await prisma.collaborator.delete({ where: { id } });
+  await deleteStoredPhoto(existing?.photo);
   return res.status(204).end();
 }));

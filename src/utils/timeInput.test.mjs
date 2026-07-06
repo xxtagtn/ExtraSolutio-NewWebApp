@@ -15,6 +15,9 @@ test('completes hour-only values with zero minutes', () => {
 test('keeps complete valid times unchanged and normalizes compact values', () => {
   assert.equal(normalizeTimeInput('18:35'), '18:35');
   assert.equal(normalizeTimeInput('1430'), '14:30');
+  assert.equal(normalizeTimeInput('1019'), '10:19');
+  assert.equal(normalizeTimeInput('830'), '08:30');
+  assert.equal(normalizeTimeInput('930'), '09:30');
   assert.equal(normalizeTimeInput('8:5'), '08:50');
 });
 

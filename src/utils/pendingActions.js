@@ -21,6 +21,7 @@ const DOCUMENT_TYPE_LABELS = {
   passport: 'Passaporte',
   citizen_card: 'Cartão de Cidadão',
   residence_permit: 'Título de Residência',
+  residence_title: 'Título de Residência',
 };
 
 const dateFormatter = new Intl.DateTimeFormat('pt-PT');
@@ -103,6 +104,13 @@ function relativeDateLabel(value, today) {
 
 function actionDaysUntil(action, today) {
   return daysUntil(action?.dueDate, today);
+}
+
+function relativeDateWithExact(value, today) {
+  const relative = relativeDateLabel(value, today);
+  const exact = formatDate(value);
+  if (relative === '-' || exact === '-') return relative;
+  return `${relative} (${exact})`;
 }
 
 function addAction(actions, action) {
@@ -378,7 +386,7 @@ function addBillingActions(actions, services, today) {
             { label: 'Cliente', value: clientName(event) },
             { label: 'Evento', value: event.name || 'Evento/Serviço' },
             { label: 'Valor', value: formatEuro(event.totalRevenue) },
-            { label: 'Vencimento', value: relativeDateLabel(remainingDueDate, today) },
+            { label: 'Vencimento', value: relativeDateWithExact(remainingDueDate, today) },
           ],
         });
       }
@@ -430,7 +438,7 @@ function addBillingActions(actions, services, today) {
               { label: 'Cliente', value: clientName(event) },
               { label: 'Evento', value: event.name || 'Evento/Serviço' },
               { label: 'Valor', value: formatEuro(event.totalRevenue) },
-              { label: 'Vencimento', value: relativeDateLabel(actionDate, today) },
+              { label: 'Vencimento', value: relativeDateWithExact(actionDate, today) },
             ]
           : [
               { label: 'Cliente', value: clientName(event) },
@@ -443,6 +451,7 @@ function addBillingActions(actions, services, today) {
 
   for (const group of groupedReadyToBill.values()) {
     const eventIds = group.events.map((event) => event.id).filter(Boolean).join(',');
+    const firstEventId = group.events.find((event) => event?.id)?.id || '';
     addAction(actions, {
       id: group.id,
       category: 'Clientes',
@@ -451,7 +460,7 @@ function addBillingActions(actions, services, today) {
       priority: 'medium',
       tone: 'info',
       dueDate: group.actionDate,
-      to: `/finance?area=clients&clientId=${group.client?.id || ''}&eventIds=${eventIds}`,
+      to: `/finance?area=clients&clientId=${group.client?.id || ''}&eventId=${firstEventId}&eventIds=${eventIds}`,
       origin: group.clientName,
       meta: [`Valor: ${formatEuro(group.total)}`],
       buttonLabel: 'Faturar',
@@ -598,7 +607,7 @@ function addInvoiceActions(actions, invoices, today) {
         { label: 'Cliente', value: invoice.client?.name || 'Cliente' },
         { label: 'Fatura', value: invoice.number || `Fatura #${invoice.id}` },
         { label: 'Valor', value: formatEuro(invoice.total) },
-        { label: 'Vencimento', value: relativeDateLabel(invoice.dueDate, today) },
+        { label: 'Vencimento', value: relativeDateWithExact(invoice.dueDate, today) },
       ],
     });
   }

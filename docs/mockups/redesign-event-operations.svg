@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="page" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#061014"/><stop offset="1" stop-color="#0b171c"/></linearGradient>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#132128"/><stop offset="1" stop-color="#0b1519"/></linearGradient>
+    <linearGradient id="teal" x1="0" x2="1"><stop offset="0" stop-color="#14b8a6"/><stop offset="1" stop-color="#2dd4bf"/></linearGradient>
+    <style>
+      .bg{fill:url(#page)}.side{fill:#081216;stroke:#1f3037}.card{fill:url(#card);stroke:#263940}.soft{fill:#0d181d;stroke:#263940}.input{fill:#081216;stroke:#2b4048}.primary{fill:url(#teal)}.line{stroke:#263940}
+      .text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#eef5f3}.muted{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#a9bac0}.teal{fill:#2dd4bf}.green{fill:#86efac}.amber{fill:#fbbf24}.red{fill:#fb7185}.blue{fill:#93c5fd}
+      .xs{font-size:11px}.sm{font-size:12px}.base{font-size:14px}.md{font-size:16px}.lg{font-size:20px}.xl{font-size:28px}.xxl{font-size:36px}.bold{font-weight:700}.semi{font-weight:600}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <rect class="side" width="232" height="900"/>
+  <text class="text bold xxl" x="24" y="56">ES</text><text class="text bold md" x="78" y="38">ExtraSolutio</text><text class="teal sm" x="78" y="60" font-family="Inter,Segoe UI,Arial">Staff &amp; Eventos</text>
+  <g class="muted base"><text x="32" y="130">Dashboard</text><text x="32" y="178">Calendário</text></g>
+  <rect x="12" y="204" width="208" height="46" rx="10" fill="#0f4a49"/><text class="text semi base" x="32" y="233">Eventos/Serviços</text>
+  <g class="muted base"><text x="32" y="286">Clientes</text><text x="32" y="334">Orçamentos</text><text x="32" y="382">Colaboradores</text><text x="32" y="430">Conferência Operacional</text><text x="32" y="478">Financeiro</text></g>
+  <g transform="translate(232,0)">
+    <rect x="0" y="0" width="1368" height="76" fill="#081216" stroke="#1f3037"/>
+    <text class="muted base" x="34" y="45">Eventos/Serviços ›</text><text class="text bold base" x="172" y="45">Restaurante Luz Chakall</text>
+    <circle cx="1310" cy="38" r="24" fill="#1f2937"/><text class="text bold sm" x="1301" y="43">ES</text>
+    <g transform="translate(34,104)">
+      <rect class="card" x="0" y="0" width="1300" height="146" rx="13"/>
+      <text class="text bold xxl" x="28" y="48">Restaurante Luz Chakall</text>
+      <rect x="28" y="64" width="98" height="28" rx="14" fill="#123d27" stroke="#166534"/><text class="green sm" x="48" y="83" font-family="Inter,Segoe UI,Arial">Confirmado</text>
+      <text class="muted md" x="144" y="84">Evento contínuo</text>
+      <text class="muted base" x="28" y="120">17/06/2026 a 21/06/2026 · SSH - Supreme Sport Hospitality</text>
+      <g transform="translate(680,28)">
+        <text class="muted sm" x="0" y="16">Total horas</text><text class="text bold xl" x="0" y="50">42:30h</text>
+        <line class="line" x1="150" y1="0" x2="150" y2="72"/>
+        <text class="muted sm" x="190" y="16">Total a pagar</text><text class="text bold xl" x="190" y="50">340,00€</text>
+        <line class="line" x1="360" y1="0" x2="360" y2="72"/>
+        <text class="muted sm" x="400" y="16">Progresso</text><rect x="400" y="36" width="250" height="8" rx="4" fill="#24343b"/><rect x="400" y="36" width="204" height="8" rx="4" fill="#14b8a6"/><text class="text sm" x="400" y="66">8/10 colaboradores confirmados</text>
+      </g>
+    </g>
+    <g transform="translate(34,274)">
+      <rect class="card" x="0" y="0" width="1300" height="526" rx="12"/>
+      <text class="muted md" x="32" y="36">Resumo</text><text class="teal md semi" x="146" y="36" font-family="Inter,Segoe UI,Arial">Colaboradores</text><text class="muted md" x="306" y="36">Validação</text><text class="muted md" x="440" y="36">Custos</text><text class="muted md" x="540" y="36">Histórico</text>
+      <line x1="146" y1="52" x2="250" y2="52" stroke="#14b8a6" stroke-width="3"/>
+      <line class="line" x1="0" x2="1300" y1="66" y2="66"/>
+      <g transform="translate(28,90)">
+        <rect class="primary" x="0" y="0" width="72" height="40" rx="8"/><text class="text bold base" x="20" y="25">17/06</text>
+        <rect class="input" x="80" y="0" width="72" height="40" rx="8"/><text class="text base" x="100" y="25">18/06</text>
+        <rect class="input" x="160" y="0" width="72" height="40" rx="8"/><text class="text base" x="180" y="25">19/06</text>
+        <rect class="input" x="240" y="0" width="72" height="40" rx="8"/><text class="text base" x="260" y="25">20/06</text>
+        <rect class="input" x="320" y="0" width="72" height="40" rx="8"/><text class="text base" x="340" y="25">21/06</text>
+      </g>
+      <rect class="input" x="716" y="90" width="202" height="40" rx="8"/><text class="teal base" x="744" y="116" font-family="Inter,Segoe UI,Arial">+ Adicionar colaborador</text>
+      <rect class="input" x="930" y="90" width="214" height="40" rx="8"/><text class="text base" x="958" y="116">Copiar horário para todos</text>
+      <rect class="primary" x="1156" y="90" width="116" height="40" rx="8"/><text class="text bold base" x="1180" y="116">Guardar</text>
+      <g transform="translate(28,156)">
+        <rect class="soft" x="0" y="0" width="1244" height="168" rx="10"/>
+        <rect x="18" y="20" width="122" height="38" rx="8" fill="#173a63" stroke="#2563eb"/><text class="text bold base" x="48" y="44">Emp.Mesa</text>
+        <text class="teal base" x="162" y="44" font-family="Inter,Segoe UI,Arial">Total horas: 16:30h</text><text class="teal base" x="334" y="44" font-family="Inter,Segoe UI,Arial">Total a pagar: 136,00€</text>
+        <text class="muted xs" x="48" y="86">COLABORADOR</text><text class="muted xs" x="430" y="86">NIF</text><text class="muted xs" x="552" y="86">ESTADO</text><text class="muted xs" x="738" y="86">ENTRADA</text><text class="muted xs" x="850" y="86">SAÍDA</text><text class="muted xs" x="964" y="86">TOTAL</text><text class="muted xs" x="1064" y="86">SINCRONIZADO</text>
+        <line class="line" x1="0" x2="1244" y1="100" y2="100"/>
+        <text class="text base" x="48" y="128">Miriam Peçanha Oliveira</text><text class="muted sm" x="250" y="128">326077405</text><text class="text sm" x="430" y="128">326077405</text><rect x="552" y="110" width="112" height="28" rx="8" fill="#123d27" stroke="#166534"/><text class="green sm" x="578" y="129" font-family="Inter,Segoe UI,Arial">Confirmado</text><text class="text base" x="738" y="128">11:30</text><text class="text base" x="850" y="128">16:00</text><text class="text base" x="964" y="128">4:30h</text><rect x="1064" y="112" width="20" height="20" rx="4" fill="#22c55e"/><text class="muted sm" x="1094" y="128">Sincronizado</text>
+      </g>
+      <g transform="translate(28,342)">
+        <rect class="soft" x="0" y="0" width="1244" height="116" rx="10"/>
+        <rect x="18" y="20" width="98" height="38" rx="8" fill="#173a63" stroke="#2563eb"/><text class="text bold base" x="48" y="44">Barman</text>
+        <text class="teal base" x="138" y="44" font-family="Inter,Segoe UI,Arial">Total horas: 8:00h</text><text class="teal base" x="300" y="44" font-family="Inter,Segoe UI,Arial">Total a pagar: 64,00€</text>
+        <line class="line" x1="0" x2="1244" y1="68" y2="68"/>
+        <text class="text base" x="48" y="96">Celso Matias Fonseca</text><text class="muted sm" x="250" y="96">289849071</text><rect x="552" y="78" width="112" height="28" rx="8" fill="#123d27" stroke="#166534"/><text class="green sm" x="578" y="97" font-family="Inter,Segoe UI,Arial">Confirmado</text><text class="text base" x="738" y="96">16:00</text><text class="text base" x="850" y="96">00:00</text><text class="text base" x="964" y="96">8:00h</text>
+      </g>
+      <rect x="0" y="460" width="1300" height="66" fill="#091318" stroke="#263940"/>
+      <text class="muted base" x="68" y="500">Total colaboradores</text><text class="text bold lg" x="218" y="501">3</text><text class="muted base" x="390" y="500">Total horas do dia</text><text class="text bold lg" x="560" y="501">24:30h</text><text class="muted base" x="746" y="500">Total a pagar do dia</text><text class="text bold lg" x="930" y="501">200,00€</text>
+    </g>
+  </g>
+</svg>

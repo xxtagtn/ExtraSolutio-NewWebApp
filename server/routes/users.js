@@ -2,11 +2,12 @@ import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { requireAdmin } from '../middleware/auth.js';
 import { prisma } from '../prisma.js';
+import { validatePasswordStrength } from '../security/passwordPolicy.js';
+import { normalizeRole, publicRole } from '../security/roles.js';
 import { asyncHandler } from '../utils/http.js';
 
 export const usersRouter = Router();
 
-const PASSWORD_MIN_LENGTH = 10;
 const publicSelect = {
   id: true,
   email: true,
@@ -18,15 +19,15 @@ const publicSelect = {
 
 function parseId(req, res) {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id)) {
-    res.status(400).json({ message: 'ID invalido.' });
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ message: 'ID inválido.' });
     return null;
   }
   return id;
 }
 
-function normalizeRole(role) {
-  return role === 'admin' ? 'admin' : 'user';
+function toPublicUser(user) {
+  return { ...user, role: publicRole(user.role) };
 }
 
 usersRouter.use(requireAdmin);
@@ -36,7 +37,7 @@ usersRouter.get('/', asyncHandler(async (_req, res) => {
     orderBy: { createdAt: 'desc' },
     select: publicSelect,
   });
-  res.json(users);
+  res.json(users.map(toPublicUser));
 }));
 
 usersRouter.post('/', asyncHandler(async (req, res) => {
@@ -46,9 +47,8 @@ usersRouter.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ message: 'Nome, email e password sao obrigatorios.' });
   }
 
-  if (password.length < PASSWORD_MIN_LENGTH) {
-    return res.status(400).json({ message: `A password deve ter pelo menos ${PASSWORD_MIN_LENGTH} caracteres.` });
-  }
+  const passwordStrength = validatePasswordStrength(password);
+  if (!passwordStrength.valid) return res.status(400).json({ message: passwordStrength.message });
 
   const hashedPassword = await bcrypt.hash(password, 12);
   const user = await prisma.user.create({
@@ -61,7 +61,7 @@ usersRouter.post('/', asyncHandler(async (req, res) => {
     select: publicSelect,
   });
 
-  return res.status(201).json(user);
+  return res.status(201).json(toPublicUser(user));
 }));
 
 usersRouter.put('/:id', asyncHandler(async (req, res) => {
@@ -76,9 +76,8 @@ usersRouter.put('/:id', asyncHandler(async (req, res) => {
   if (role !== undefined) data.role = normalizeRole(role);
 
   if (password) {
-    if (password.length < PASSWORD_MIN_LENGTH) {
-      return res.status(400).json({ message: `A password deve ter pelo menos ${PASSWORD_MIN_LENGTH} caracteres.` });
-    }
+    const passwordStrength = validatePasswordStrength(password);
+    if (!passwordStrength.valid) return res.status(400).json({ message: passwordStrength.message });
     data.password = await bcrypt.hash(password, 12);
   }
 
@@ -92,7 +91,7 @@ usersRouter.put('/:id', asyncHandler(async (req, res) => {
     select: publicSelect,
   });
 
-  return res.json(user);
+  return res.json(toPublicUser(user));
 }));
 
 usersRouter.delete('/:id', asyncHandler(async (req, res) => {

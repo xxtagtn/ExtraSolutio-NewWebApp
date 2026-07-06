@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#f8fafc"/><stop offset="1" stop-color="#eef6f5"/></linearGradient>
+    <style>
+      .bg{fill:url(#bg)}.ink{fill:#111827;font-family:Inter,Segoe UI,Arial,sans-serif}.muted{fill:#64748b;font-family:Inter,Segoe UI,Arial,sans-serif}.white{fill:#fff;font-family:Inter,Segoe UI,Arial,sans-serif}.card{fill:#fff;stroke:#dce5e8}.soft{fill:#f8fafc;stroke:#dce5e8}.dark{fill:#111827}.teal{fill:#0d9488}.green{fill:#16a34a}.amber{fill:#d97706}.red{fill:#e11d48}.blue{fill:#2563eb}
+      .xs{font-size:11px}.sm{font-size:12px}.base{font-size:14px}.md{font-size:16px}.lg{font-size:20px}.xl{font-size:30px}.xxl{font-size:42px}.bold{font-weight:700}.semi{font-weight:600}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <rect class="dark" x="0" y="0" width="1600" height="86"/>
+  <text class="white bold xl" x="48" y="54">ExtraSolutio</text>
+  <text class="white sm" x="242" y="54" opacity="0.72">Staff &amp; Eventos</text>
+  <g class="white base" opacity="0.82">
+    <text x="510" y="54">Agenda</text><text x="602" y="54">Eventos</text><text x="698" y="54">Staff</text><text x="774" y="54">Validação</text><text x="890" y="54">Financeiro</text>
+  </g>
+  <rect x="1328" y="24" width="176" height="38" rx="19" fill="#0d9488"/>
+  <text class="white semi sm" x="1360" y="48">+ Novo evento</text>
+
+  <g transform="translate(54,124)">
+    <text class="ink bold xxl" x="0" y="48">Planeamento semanal</text>
+    <text class="muted md" x="0" y="82">Uma visão mais visual para eventos, staff e bloqueios de horário.</text>
+    <rect class="card" x="1060" y="0" width="428" height="88" rx="22"/>
+    <text class="muted sm" x="1088" y="34">Semana</text>
+    <text class="ink bold lg" x="1088" y="64">17 Jun - 23 Jun 2026</text>
+    <rect x="1360" y="22" width="104" height="44" rx="22" fill="#111827"/>
+    <text class="white semi sm" x="1390" y="50">Hoje</text>
+  </g>
+
+  <g transform="translate(54,242)">
+    <rect class="card" x="0" y="0" width="1040" height="560" rx="26"/>
+    <text class="ink bold lg" x="28" y="42">Calendário operacional</text>
+    <g transform="translate(28,78)">
+      <g>
+        <rect class="soft" x="0" y="0" width="138" height="432" rx="18"/><text class="muted sm" x="22" y="34">Seg 17</text>
+        <rect x="18" y="70" width="102" height="96" rx="14" fill="#ecfdf5" stroke="#bbf7d0"/><text class="ink semi sm" x="30" y="96">Luz Chakall</text><text class="green xs" x="30" y="118">Equipa completa</text><text class="muted xs" x="30" y="144">11:30 - 16:00</text>
+      </g>
+      <g transform="translate(148,0)">
+        <rect class="soft" x="0" y="0" width="138" height="432" rx="18"/><text class="muted sm" x="22" y="34">Ter 18</text>
+        <rect x="18" y="196" width="102" height="116" rx="14" fill="#fff7ed" stroke="#fed7aa"/><text class="ink semi sm" x="30" y="222">Embaixada</text><text class="amber xs" x="30" y="244">2 por confirmar</text><text class="muted xs" x="30" y="270">18:00 - 23:00</text>
+      </g>
+      <g transform="translate(296,0)">
+        <rect class="soft" x="0" y="0" width="138" height="432" rx="18"/><text class="muted sm" x="22" y="34">Qua 19</text>
+        <rect x="18" y="90" width="102" height="170" rx="14" fill="#eff6ff" stroke="#bfdbfe"/><text class="ink semi sm" x="30" y="116">FIC Lisboa</text><text class="blue xs" x="30" y="138">Lembrete</text><text class="muted xs" x="30" y="164">09:00 - 18:00</text>
+      </g>
+      <g transform="translate(444,0)">
+        <rect class="soft" x="0" y="0" width="138" height="432" rx="18"/><text class="muted sm" x="22" y="34">Qui 20</text>
+        <rect x="18" y="60" width="102" height="242" rx="14" fill="#fdf2f8" stroke="#fbcfe8"/><text class="ink semi sm" x="30" y="86">Hotel Altis</text><text class="red xs" x="30" y="108">Sem equipa</text><text class="muted xs" x="30" y="134">10:00 - 22:00</text>
+      </g>
+      <g transform="translate(592,0)">
+        <rect class="soft" x="0" y="0" width="138" height="432" rx="18"/><text class="muted sm" x="22" y="34">Sex 21</text>
+        <rect x="18" y="130" width="102" height="132" rx="14" fill="#ecfdf5" stroke="#bbf7d0"/><text class="ink semi sm" x="30" y="156">SSH</text><text class="green xs" x="30" y="178">Validado</text><text class="muted xs" x="30" y="204">11:30 - 17:00</text>
+      </g>
+      <g transform="translate(740,0)">
+        <rect class="soft" x="0" y="0" width="138" height="432" rx="18"/><text class="muted sm" x="22" y="34">Sáb 22</text>
+      </g>
+      <g transform="translate(888,0)">
+        <rect class="soft" x="0" y="0" width="96" height="432" rx="18"/><text class="muted sm" x="22" y="34">Dom</text>
+      </g>
+    </g>
+
+    <rect class="card" x="1070" y="0" width="418" height="560" rx="26"/>
+    <text class="ink bold lg" x="1098" y="42">Detalhe rápido</text>
+    <text class="muted sm" x="1098" y="74">Evento selecionado</text>
+    <text class="ink bold xl" x="1098" y="118">Hotel Altis</text>
+    <text class="muted base" x="1098" y="150">20/06/2026 · 10:00 - 22:00</text>
+    <rect x="1098" y="178" width="150" height="34" rx="17" fill="#ffe4e6"/><text class="red sm" x="1126" y="200" font-family="Inter,Segoe UI,Arial">Sem equipa</text>
+    <line x1="1098" x2="1460" y1="242" y2="242" stroke="#dce5e8"/>
+    <text class="muted sm" x="1098" y="282">Necessários</text><text class="ink bold xl" x="1370" y="286">13</text>
+    <text class="muted sm" x="1098" y="334">Confirmados</text><text class="ink bold xl" x="1370" y="338">8</text>
+    <text class="muted sm" x="1098" y="386">Por confirmar</text><text class="ink bold xl" x="1370" y="390">5</text>
+    <rect x="1098" y="438" width="166" height="44" rx="22" fill="#0d9488"/><text class="white semi sm" x="1130" y="466">Alocar staff</text>
+    <rect x="1280" y="438" width="166" height="44" rx="22" fill="#111827"/><text class="white semi sm" x="1310" y="466">Abrir ficha</text>
+  </g>
+</svg>

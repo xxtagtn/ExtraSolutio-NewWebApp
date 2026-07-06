@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="page" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#071014"/><stop offset="1" stop-color="#0b171c"/></linearGradient>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#132128"/><stop offset="1" stop-color="#0b1519"/></linearGradient>
+    <linearGradient id="teal" x1="0" x2="1"><stop offset="0" stop-color="#14b8a6"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <style>
+      .bg{fill:url(#page)}.side{fill:#081216;stroke:#1f3037}.card{fill:url(#card);stroke:#263940}.soft{fill:#0d181d;stroke:#263940}.input{fill:#081216;stroke:#2b4048}.primary{fill:url(#teal)}.line{stroke:#263940}.grid{stroke:#1f3037}
+      .text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#eef5f3}.muted{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#a9bac0}.teal{fill:#2dd4bf}.green{fill:#86efac}.amber{fill:#fbbf24}.red{fill:#fb7185}.blue{fill:#93c5fd}
+      .xs{font-size:11px}.sm{font-size:12px}.base{font-size:14px}.md{font-size:16px}.lg{font-size:20px}.xl{font-size:28px}.xxl{font-size:36px}.bold{font-weight:700}.semi{font-weight:600}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <rect class="side" width="232" height="900"/>
+  <text class="text bold xxl" x="24" y="56">ES</text><text class="text bold md" x="78" y="38">ExtraSolutio</text><text class="teal sm" x="78" y="60" font-family="Inter,Segoe UI,Arial">Staff &amp; Eventos</text>
+  <g class="muted base"><text x="32" y="130">Dashboard</text><text x="32" y="178">Calendário</text><text x="32" y="226">Eventos/Serviços</text><text x="32" y="274">Clientes</text><text x="32" y="322">Orçamentos</text><text x="32" y="370">Colaboradores</text><text x="32" y="418">Conferência Operacional</text></g>
+  <rect x="12" y="444" width="208" height="46" rx="10" fill="#0f4a49"/><text class="text semi base" x="32" y="473">Financeiro</text>
+  <g transform="translate(232,0)">
+    <rect x="0" y="0" width="1368" height="78" fill="#081216" stroke="#1f3037"/>
+    <text class="text bold xl" x="34" y="44">Financeiro</text><text class="muted sm" x="34" y="64">Processamento validado e previsões separadas</text>
+    <rect class="input" x="880" y="22" width="128" height="36" rx="8"/><text class="text sm" x="910" y="45">Junho</text>
+    <rect class="input" x="1020" y="22" width="112" height="36" rx="8"/><text class="text sm" x="1054" y="45">2026</text>
+    <rect class="primary" x="1150" y="22" width="136" height="36" rx="8"/><text class="text bold sm" x="1180" y="45">Atualizar</text>
+    <g transform="translate(34,104)">
+      <rect class="card" x="0" y="0" width="248" height="112" rx="12"/><text class="teal sm" x="24" y="34" font-family="Inter,Segoe UI,Arial">Receita validada</text><text class="text bold xl" x="24" y="72">34.295,00€</text><text class="green sm" x="24" y="96" font-family="Inter,Segoe UI,Arial">+18,6% vs. maio</text>
+      <rect class="card" x="268" y="0" width="248" height="112" rx="12"/><text class="blue sm" x="292" y="34" font-family="Inter,Segoe UI,Arial">Staff a pagar</text><text class="text bold xl" x="292" y="72">12.640,00€</text><text class="green sm" x="292" y="96" font-family="Inter,Segoe UI,Arial">+12,2% vs. maio</text>
+      <rect class="card" x="536" y="0" width="248" height="112" rx="12"/><text class="amber sm" x="560" y="34" font-family="Inter,Segoe UI,Arial">Margem real</text><text class="text bold xl" x="560" y="72">17.285,00€</text><text class="green sm" x="560" y="96" font-family="Inter,Segoe UI,Arial">50,4%</text>
+      <rect class="card" x="804" y="0" width="248" height="112" rx="12"/><text class="blue sm" x="828" y="34" font-family="Inter,Segoe UI,Arial">Por receber</text><text class="text bold xl" x="828" y="72">8.930,00€</text><text class="amber sm" x="828" y="96" font-family="Inter,Segoe UI,Arial">4 clientes em aberto</text>
+      <rect class="card" x="1072" y="0" width="228" height="112" rx="12"/><text class="green sm" x="1096" y="34" font-family="Inter,Segoe UI,Arial">Eventos finalizados</text><text class="text bold xl" x="1096" y="72">8</text><text class="muted sm" x="1096" y="96">prontos para processar</text>
+    </g>
+    <g transform="translate(34,246)">
+      <rect class="card" x="0" y="0" width="830" height="318" rx="12"/>
+      <text class="text lg bold" x="24" y="38">Evolução mensal</text>
+      <text class="teal sm" x="180" y="38" font-family="Inter,Segoe UI,Arial">Receita</text><text class="blue sm" x="260" y="38" font-family="Inter,Segoe UI,Arial">Staff</text><text class="amber sm" x="322" y="38" font-family="Inter,Segoe UI,Arial">Margem</text>
+      <g transform="translate(44,70)">
+        <line class="grid" x1="0" x2="720" y1="0" y2="0"/><line class="grid" x1="0" x2="720" y1="54" y2="54"/><line class="grid" x1="0" x2="720" y1="108" y2="108"/><line class="grid" x1="0" x2="720" y1="162" y2="162"/><line class="grid" x1="0" x2="720" y1="216" y2="216"/>
+        <rect x="34" y="92" width="18" height="124" fill="#14b8a6"/><rect x="60" y="132" width="18" height="84" fill="#3b82f6"/>
+        <rect x="134" y="66" width="18" height="150" fill="#14b8a6"/><rect x="160" y="118" width="18" height="98" fill="#3b82f6"/>
+        <rect x="234" y="58" width="18" height="158" fill="#14b8a6"/><rect x="260" y="120" width="18" height="96" fill="#3b82f6"/>
+        <rect x="334" y="74" width="18" height="142" fill="#14b8a6"/><rect x="360" y="144" width="18" height="72" fill="#3b82f6"/>
+        <rect x="434" y="84" width="18" height="132" fill="#14b8a6"/><rect x="460" y="122" width="18" height="94" fill="#3b82f6"/>
+        <rect x="534" y="50" width="18" height="166" fill="#14b8a6"/><rect x="560" y="100" width="18" height="116" fill="#3b82f6"/>
+        <polyline points="43,150 143,132 243,116 343,120 443,84 543,68" fill="none" stroke="#fbbf24" stroke-width="3"/>
+        <text class="muted xs" x="32" y="238">Jan</text><text class="muted xs" x="132" y="238">Fev</text><text class="muted xs" x="232" y="238">Mar</text><text class="muted xs" x="332" y="238">Abr</text><text class="muted xs" x="432" y="238">Mai</text><text class="muted xs" x="532" y="238">Jun</text>
+      </g>
+      <rect class="card" x="852" y="0" width="448" height="318" rx="12"/>
+      <text class="text lg bold" x="876" y="38">Alertas de gestão</text>
+      <g transform="translate(876,66)"><rect class="soft" width="400" height="62" rx="10"/><text class="text base semi" x="18" y="24">Margem baixa</text><text class="muted sm" x="18" y="44">2 eventos abaixo de 20%</text><text class="teal sm" x="314" y="36" font-family="Inter,Segoe UI,Arial">Ver eventos</text></g>
+      <g transform="translate(876,144)"><rect class="soft" width="400" height="62" rx="10"/><text class="text base semi" x="18" y="24">Cliente com valor em aberto</text><text class="muted sm" x="18" y="44">Total por receber: 8.930,00€</text><text class="teal sm" x="314" y="36" font-family="Inter,Segoe UI,Arial">Ver clientes</text></g>
+      <g transform="translate(876,222)"><rect class="soft" width="400" height="62" rx="10"/><text class="text base semi" x="18" y="24">Staff por processar</text><text class="muted sm" x="18" y="44">3 eventos com horas validadas</text><text class="teal sm" x="314" y="36" font-family="Inter,Segoe UI,Arial">Ver staff</text></g>
+    </g>
+    <g transform="translate(34,592)">
+      <rect class="card" x="0" y="0" width="1300" height="260" rx="12"/>
+      <text class="text lg bold" x="24" y="40">Pagamentos de Staff</text>
+      <rect class="input" x="980" y="18" width="142" height="36" rx="8"/><text class="text sm" x="1000" y="42">Por pagar</text>
+      <rect class="primary" x="1138" y="18" width="138" height="36" rx="8"/><text class="text bold sm" x="1160" y="42">Pagar selecionados</text>
+      <line class="line" x1="0" x2="1300" y1="68" y2="68"/>
+      <text class="muted xs" x="24" y="98">COLABORADOR</text><text class="muted xs" x="288" y="98">EVENTO</text><text class="muted xs" x="568" y="98">DATA</text><text class="muted xs" x="690" y="98">HORAS</text><text class="muted xs" x="800" y="98">VALOR</text><text class="muted xs" x="910" y="98">AJUSTES</text><text class="muted xs" x="1030" y="98">TOTAL</text><text class="muted xs" x="1150" y="98">ESTADO</text>
+      <g transform="translate(24,120)"><rect x="0" y="0" width="16" height="16" rx="3" fill="#0d181d" stroke="#4a5c63"/><text class="text base" x="34" y="15">Miriam Peçanha Oliveira</text><text class="muted sm" x="264" y="15">Restaurante Luz Chakall</text><text class="text sm" x="544" y="15">19/06/2026</text><text class="text sm" x="666" y="15">8:08h</text><text class="text sm" x="776" y="15">8,00€</text><rect class="input" x="886" y="-10" width="80" height="30" rx="6"/><text class="muted sm" x="898" y="10">+2,50</text><text class="text bold sm" x="1006" y="15">67,56€</text><rect x="1126" y="-10" width="90" height="30" rx="8" fill="#4c1218" stroke="#dc2626"/><text class="red sm" x="1146" y="10" font-family="Inter,Segoe UI,Arial">Por pagar</text></g>
+      <g transform="translate(24,174)"><rect x="0" y="0" width="16" height="16" rx="3" fill="#0d181d" stroke="#4a5c63"/><text class="text base" x="34" y="15">Ana Carolina Rodrigues</text><text class="muted sm" x="264" y="15">Embaixada da China</text><text class="text sm" x="544" y="15">11/07/2026</text><text class="text sm" x="666" y="15">12:00h</text><text class="text sm" x="776" y="15">10,00€</text><rect class="input" x="886" y="-10" width="80" height="30" rx="6"/><text class="muted sm" x="898" y="10">0,00</text><text class="text bold sm" x="1006" y="15">120,00€</text><rect x="1126" y="-10" width="90" height="30" rx="8" fill="#332508" stroke="#b45309"/><text class="amber sm" x="1140" y="10" font-family="Inter,Segoe UI,Arial">Validado ES</text></g>
+    </g>
+  </g>
+</svg>

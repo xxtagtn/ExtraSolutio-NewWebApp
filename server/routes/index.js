@@ -14,7 +14,9 @@ import {
   normalizeClient,
 } from './crud.js';
 import { authRouter } from './auth.js';
-import { requireAuth } from '../middleware/auth.js';
+import { backupsRouter } from './backups.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
+import { canViewFinancialData, canViewSensitiveCollaboratorData, ROLES } from '../security/roles.js';
 import { usersRouter } from './users.js';
 import { collaboratorsRouter } from './collaborators.js';
 import { notificationsRouter } from './notifications.js';
@@ -32,6 +34,86 @@ import { serviceListInclude } from '../utils/listPayloads.js';
 
 export const apiRouter = Router();
 const CLOSED_EVENT_STATUSES = ['finalized', 'completed', 'invoiced', 'paid'];
+const managementAccess = requireRole(ROLES.MANAGEMENT);
+const financeAccess = requireRole(ROLES.MANAGEMENT, ROLES.FINANCE);
+const operationsAccess = requireRole(ROLES.MANAGEMENT, ROLES.OPERATIONS);
+const communicationAccess = requireRole(ROLES.MANAGEMENT, ROLES.OPERATIONS);
+const financialEventFields = [
+  'totalCost',
+  'totalRevenue',
+  'travelExpenseAmount',
+  'travelStaffHourlyRate',
+  'travelManualAmount',
+  'billingStatus',
+  'billingPaymentDate',
+  'signaledAmount',
+  'paidAmount',
+  'remainingPaymentDate',
+];
+const financialAssignmentFields = [
+  'hourlyRate',
+  'totalPay',
+  'paymentAdjustment',
+  'paymentNotes',
+  'advancePayments',
+  'paymentStatus',
+  'paymentDate',
+  'paymentDeferredMonth',
+];
+const sensitiveCollaboratorFields = [
+  'nif',
+  'iban',
+  'birthDate',
+  'documentType',
+  'documentNumber',
+  'documentExpiry',
+  'hourlyRate',
+  'includeVat',
+  'greenReceipt',
+];
+
+function maskClientForRole(client, user) {
+  if (!client || canViewSensitiveCollaboratorData(user)) return client;
+  return { ...client, nif: null };
+}
+
+function maskCollaboratorForRole(collaborator, user) {
+  if (!collaborator || canViewSensitiveCollaboratorData(user)) return collaborator;
+  const output = { ...collaborator };
+  for (const field of sensitiveCollaboratorFields) {
+    if (field in output) output[field] = null;
+  }
+  return output;
+}
+
+function maskAssignmentForRole(assignment, user) {
+  const output = {
+    ...assignment,
+    collaborator: maskCollaboratorForRole(assignment.collaborator, user),
+  };
+  if (!canViewFinancialData(user)) {
+    for (const field of financialAssignmentFields) {
+      if (field in output) output[field] = null;
+    }
+  }
+  return output;
+}
+
+function maskEventForRole(event, user) {
+  const output = {
+    ...event,
+    client: maskClientForRole(event.client, user),
+    assignments: Array.isArray(event.assignments)
+      ? event.assignments.map((assignment) => maskAssignmentForRole(assignment, user))
+      : event.assignments,
+  };
+  if (!canViewFinancialData(user)) {
+    for (const field of financialEventFields) {
+      if (field in output) output[field] = null;
+    }
+  }
+  return output;
+}
 
 async function normalizeServiceCreate(input) {
   const data = normalizeEvent(input);
@@ -83,11 +165,12 @@ apiRouter.get('/health', (_req, res) => {
 apiRouter.use(requireAuth);
 
 apiRouter.use('/users', usersRouter);
+apiRouter.use('/backups', backupsRouter);
 apiRouter.use('/notifications', notificationsRouter);
 
 apiRouter.use('/collaborators', collaboratorsRouter);
-apiRouter.use('/time-validation-imports', timeValidationImportsRouter);
-apiRouter.use('/whatsapp', whatsappRouter);
+apiRouter.use('/time-validation-imports', operationsAccess, timeValidationImportsRouter);
+apiRouter.use('/whatsapp', communicationAccess, whatsappRouter);
 
 apiRouter.use('/clients', createCrudRouter(prisma.client, [
   'name',
@@ -115,6 +198,8 @@ apiRouter.use('/clients', createCrudRouter(prisma.client, [
   'status',
   'notes',
 ], {
+  readMiddleware: financeAccess,
+  writeMiddleware: managementAccess,
   normalizeCreate: normalizeClient,
   normalizeUpdate: normalizeClient,
   loadExistingForUpdate: true,
@@ -134,12 +219,15 @@ apiRouter.use('/clients', createCrudRouter(prisma.client, [
 
 apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   include: serviceListInclude,
+  writeMiddleware: operationsAccess,
+  serializeRow: (row, req) => maskEventForRole(row, req.user),
   normalizeCreate: normalizeServiceCreate,
   normalizeUpdate: normalizeServiceUpdate,
   loadExistingForUpdate: true,
 }));
 
 apiRouter.use('/service-templates', createCrudRouter(prisma.eventTemplate, [], {
+  writeMiddleware: operationsAccess,
   normalizeCreate: normalizeEventTemplate,
   normalizeUpdate: normalizeEventTemplate,
 }));
@@ -161,6 +249,8 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   'status',
 ], {
   include: { event: true, collaborator: true },
+  writeMiddleware: operationsAccess,
+  serializeRow: (row, req) => maskAssignmentForRole(row, req.user),
   normalizeCreate: normalizeAssignmentCreate,
   normalizeUpdate: normalizeAssignmentUpdate,
   loadExistingForUpdate: true,
@@ -179,6 +269,8 @@ apiRouter.use('/invoices', createCrudRouter(prisma.invoice, [
   'notes',
 ], {
   include: { client: true, event: true, items: true },
+  readMiddleware: financeAccess,
+  writeMiddleware: financeAccess,
   normalizeCreate: normalizeInvoice,
   normalizeUpdate: normalizeInvoice,
 }));
@@ -190,17 +282,22 @@ apiRouter.use('/invoice-items', createCrudRouter(prisma.invoiceItem, [
   'unitPrice',
   'total',
 ], {
+  readMiddleware: financeAccess,
+  writeMiddleware: financeAccess,
   normalizeCreate: normalizeInvoiceItem,
   normalizeUpdate: normalizeInvoiceItem,
 }));
 
 apiRouter.use('/payments', createCrudRouter(prisma.payment, [], {
   include: { collaborator: true },
+  readMiddleware: financeAccess,
+  writeMiddleware: financeAccess,
   normalizeCreate: normalizePayment,
   normalizeUpdate: normalizePayment,
 }));
 
 apiRouter.use('/communication-logs', createCrudRouter(prisma.communicationLog, [], {
+  writeMiddleware: communicationAccess,
   normalizeCreate: normalizeCommunicationLog,
   normalizeUpdate: normalizeCommunicationLog,
   orderBy: { createdAt: 'desc' },
@@ -214,12 +311,16 @@ apiRouter.use('/transactions', createCrudRouter(prisma.transaction, [
   'date',
   'referenceId',
 ], {
+  readMiddleware: financeAccess,
+  writeMiddleware: financeAccess,
   normalizeCreate: normalizeTransaction,
   normalizeUpdate: normalizeTransaction,
 }));
 
 apiRouter.use('/budgets', createCrudRouter(prisma.budget, [], {
   include: { client: true },
+  readMiddleware: managementAccess,
+  writeMiddleware: managementAccess,
   normalizeCreate: normalizeBudget,
   normalizeUpdate: normalizeBudget,
 }));

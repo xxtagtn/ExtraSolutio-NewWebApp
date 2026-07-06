@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../prisma.js';
+import { canAccessRole, normalizeRole, ROLES } from '../security/roles.js';
 
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -20,7 +21,7 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ message: 'Utilizador inválido.' });
     }
 
-    req.user = user;
+    req.user = { ...user, role: normalizeRole(user.role) };
     return next();
   } catch (error) {
     if (error?.name === 'TokenExpiredError') {
@@ -32,9 +33,18 @@ export async function requireAuth(req, res, next) {
 }
 
 export function requireAdmin(req, res, next) {
-  if (req.user.role !== 'admin') {
+  if (!canAccessRole(req.user, [ROLES.ADMIN])) {
     return res.status(403).json({ message: 'Acesso reservado a administradores.' });
   }
 
   return next();
+}
+
+export function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!canAccessRole(req.user, roles)) {
+      return res.status(403).json({ message: 'Sem permissões para aceder a este recurso.' });
+    }
+    return next();
+  };
 }

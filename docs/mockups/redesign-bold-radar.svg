@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <radialGradient id="bg" cx="52%" cy="46%" r="75%">
+      <stop offset="0" stop-color="#17231f"/>
+      <stop offset="0.46" stop-color="#080d0d"/>
+      <stop offset="1" stop-color="#030505"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#0f172a" stop-opacity="0.12"/>
+    </linearGradient>
+    <style>
+      .bg{fill:url(#bg)}
+      .glass{fill:url(#glass);stroke:#31413b}
+      .dark{fill:#050808;stroke:#26342f}
+      .ink{fill:#f7f4ed;font-family:Inter,Segoe UI,Arial,sans-serif}
+      .muted{fill:#9ca8a1;font-family:Inter,Segoe UI,Arial,sans-serif}
+      .mint{fill:#7dd3c7}.gold{fill:#e6c15a}.red{fill:#ff6b6b}.green{fill:#8ee6a8}.blue{fill:#86b7ff}
+      .xs{font-size:11px}.sm{font-size:12px}.base{font-size:14px}.md{font-size:16px}.lg{font-size:20px}.xl{font-size:32px}.xxl{font-size:58px}
+      .bold{font-weight:800}.semi{font-weight:650}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+
+  <g transform="translate(42,38)">
+    <text class="ink bold xxl" x="0" y="62">ES</text>
+    <text class="muted sm" x="84" y="28">EXTRASOLUTIO</text>
+    <text class="ink semi lg" x="84" y="56">Staff &amp; Eventos</text>
+  </g>
+
+  <g transform="translate(118,156)">
+    <text class="muted sm" x="0" y="0">PAINEL VIVO</text>
+    <text class="ink bold xxl" x="0" y="62">Operação em tempo real</text>
+    <text class="muted md" x="0" y="96">A app deixa de parecer uma lista de páginas e passa a ser um mapa operacional.</text>
+  </g>
+
+  <g transform="translate(90,304)">
+    <rect class="glass" x="0" y="0" width="318" height="470" rx="34"/>
+    <text class="muted sm" x="30" y="46">AGORA</text>
+    <text class="ink bold xl" x="30" y="88">3 eventos</text>
+    <text class="muted base" x="30" y="120">em movimento hoje</text>
+    <line x1="30" x2="288" y1="156" y2="156" stroke="#31413b"/>
+    <text class="mint md" x="30" y="200" font-family="Inter,Segoe UI,Arial">Restaurante Luz Chakall</text>
+    <text class="muted sm" x="30" y="226">11:30 - 16:00 · equipa completa</text>
+    <text class="gold md" x="30" y="278" font-family="Inter,Segoe UI,Arial">Embaixada da China</text>
+    <text class="muted sm" x="30" y="304">18:00 - 23:00 · 2 por confirmar</text>
+    <text class="red md" x="30" y="356" font-family="Inter,Segoe UI,Arial">Casa Oeiras</text>
+    <text class="muted sm" x="30" y="382">pagamento restante vence hoje</text>
+    <rect x="30" y="416" width="258" height="38" rx="19" fill="#f7f4ed"/>
+    <text x="94" y="441" font-family="Inter,Segoe UI,Arial" font-size="13" font-weight="700" fill="#071014">Abrir plano do dia</text>
+  </g>
+
+  <g transform="translate(530,210)">
+    <circle cx="360" cy="270" r="250" fill="none" stroke="#26342f" stroke-width="1.5"/>
+    <circle cx="360" cy="270" r="178" fill="none" stroke="#26342f" stroke-width="1.5"/>
+    <circle cx="360" cy="270" r="104" fill="none" stroke="#26342f" stroke-width="1.5"/>
+    <line x1="110" x2="610" y1="270" y2="270" stroke="#26342f"/>
+    <line x1="360" x2="360" y1="20" y2="520" stroke="#26342f"/>
+    <circle cx="360" cy="270" r="78" fill="#f7f4ed"/>
+    <text x="312" y="258" font-family="Inter,Segoe UI,Arial" font-size="13" font-weight="700" fill="#071014">HOJE</text>
+    <text x="300" y="300" font-family="Inter,Segoe UI,Arial" font-size="42" font-weight="800" fill="#071014">3</text>
+    <text x="365" y="300" font-family="Inter,Segoe UI,Arial" font-size="14" font-weight="700" fill="#071014">eventos</text>
+    <g>
+      <circle cx="192" cy="140" r="44" fill="#17352e" stroke="#7dd3c7" stroke-width="2"/>
+      <text class="mint sm" x="162" y="130" font-family="Inter,Segoe UI,Arial">Equipa</text>
+      <text class="ink bold xl" x="166" y="164">11/11</text>
+    </g>
+    <g>
+      <circle cx="565" cy="184" r="54" fill="#3d2f10" stroke="#e6c15a" stroke-width="2"/>
+      <text class="gold sm" x="530" y="172" font-family="Inter,Segoe UI,Arial">Cliente</text>
+      <text class="ink bold xl" x="528" y="208">8/11</text>
+    </g>
+    <g>
+      <circle cx="492" cy="442" r="48" fill="#3a1618" stroke="#ff6b6b" stroke-width="2"/>
+      <text class="red sm" x="456" y="430" font-family="Inter,Segoe UI,Arial">Diverg.</text>
+      <text class="ink bold xl" x="476" y="466">2</text>
+    </g>
+    <g>
+      <circle cx="206" cy="398" r="50" fill="#162741" stroke="#86b7ff" stroke-width="2"/>
+      <text class="blue sm" x="178" y="386" font-family="Inter,Segoe UI,Arial">Faturar</text>
+      <text class="ink bold lg" x="162" y="420">1.284€</text>
+    </g>
+  </g>
+
+  <g transform="translate(1190,124)">
+    <rect class="glass" x="0" y="0" width="318" height="650" rx="34"/>
+    <text class="muted sm" x="30" y="46">MISSÕES</text>
+    <text class="ink bold xl" x="30" y="88">Ações críticas</text>
+    <g transform="translate(30,130)">
+      <rect class="dark" x="0" y="0" width="258" height="92" rx="22"/>
+      <text class="red base semi" x="22" y="32" font-family="Inter,Segoe UI,Arial">Validar horários Cliente</text>
+      <text class="muted sm" x="22" y="58">Luz Chakall · hoje</text>
+      <text class="ink sm" x="22" y="80">Abrir →</text>
+    </g>
+    <g transform="translate(30,246)">
+      <rect class="dark" x="0" y="0" width="258" height="92" rx="22"/>
+      <text class="gold base semi" x="22" y="32" font-family="Inter,Segoe UI,Arial">Enviar lembrete 24h</text>
+      <text class="muted sm" x="22" y="58">Embaixada · amanhã</text>
+      <text class="ink sm" x="22" y="80">Preparar →</text>
+    </g>
+    <g transform="translate(30,362)">
+      <rect class="dark" x="0" y="0" width="258" height="92" rx="22"/>
+      <text class="green base semi" x="22" y="32" font-family="Inter,Segoe UI,Arial">Pronto para faturar</text>
+      <text class="muted sm" x="22" y="58">SSH · 1.284,00€</text>
+      <text class="ink sm" x="22" y="80">Financeiro →</text>
+    </g>
+    <line x1="30" x2="288" y1="500" y2="500" stroke="#31413b"/>
+    <text class="muted sm" x="30" y="542">ATALHO</text>
+    <text class="ink md semi" x="30" y="576">Enter abre a próxima ação</text>
+  </g>
+</svg>

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#101820"/><stop offset="1" stop-color="#061014"/></linearGradient>
+    <style>
+      .bg{fill:url(#bg)}.panel{fill:#f6f7f2;stroke:#d6d8ce}.dark{fill:#0b1116}.ink{fill:#101820;font-family:Inter,Segoe UI,Arial,sans-serif}.white{fill:#f6f7f2;font-family:Inter,Segoe UI,Arial,sans-serif}.muted{fill:#687279;font-family:Inter,Segoe UI,Arial,sans-serif}.line{stroke:#cfd4cf}.teal{fill:#0f766e}.orange{fill:#f97316}.rose{fill:#e11d48}.green{fill:#16a34a}.blue{fill:#2563eb}
+      .xs{font-size:11px}.sm{font-size:12px}.base{font-size:14px}.md{font-size:16px}.lg{font-size:20px}.xl{font-size:34px}.xxl{font-size:58px}.bold{font-weight:850}.semi{font-weight:650}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <text class="white bold xxl" x="54" y="90">ExtraSolutio</text>
+  <text class="white md" x="58" y="124" opacity="0.72">Staff &amp; Eventos</text>
+  <g transform="translate(56,184)">
+    <rect x="0" y="0" width="190" height="48" rx="24" fill="#f6f7f2"/><text class="ink semi base" x="42" y="31">Dashboard</text>
+    <text class="white base" x="22" y="92" opacity="0.72">Calendário</text>
+    <text class="white base" x="22" y="144" opacity="0.72">Eventos</text>
+    <text class="white base" x="22" y="196" opacity="0.72">Colaboradores</text>
+    <text class="white base" x="22" y="248" opacity="0.72">Validação</text>
+    <text class="white base" x="22" y="300" opacity="0.72">Financeiro</text>
+  </g>
+
+  <g transform="translate(314,38)">
+    <rect class="panel" x="0" y="0" width="1234" height="824" rx="38"/>
+    <text class="ink bold xxl" x="42" y="76">Mesa de trabalho</text>
+    <text class="muted md" x="46" y="110">O ecrã principal deixa de ser uma dashboard e passa a ser a mesa onde se fecha o dia.</text>
+    <rect x="1002" y="42" width="168" height="42" rx="21" fill="#101820"/><text class="white semi sm" x="1036" y="68">Criar evento</text>
+    <line class="line" x1="42" x2="1192" y1="142" y2="142"/>
+
+    <g transform="translate(42,178)">
+      <rect x="0" y="0" width="360" height="246" rx="28" fill="#101820"/>
+      <text class="white sm" x="28" y="40" opacity="0.72">FOCO DO DIA</text>
+      <text class="white bold xl" x="28" y="86">Luz Chakall</text>
+      <text class="white base" x="28" y="120" opacity="0.72">11:30 - 16:00 · SSH</text>
+      <rect x="28" y="154" width="140" height="34" rx="17" fill="#dcfce7"/>
+      <text class="green sm" x="52" y="176" font-family="Inter,Segoe UI,Arial">Equipa completa</text>
+      <text class="white sm" x="28" y="218">Abrir operação →</text>
+
+      <rect x="392" y="0" width="360" height="246" rx="28" fill="#fff"/>
+      <text class="muted sm" x="420" y="40">AÇÃO MAIS URGENTE</text>
+      <text class="ink bold xl" x="420" y="86">Validar Cliente</text>
+      <text class="muted base" x="420" y="120">8 de 11 horários preenchidos</text>
+      <rect x="420" y="154" width="176" height="34" rx="17" fill="#fff7ed"/>
+      <text class="orange sm" x="444" y="176" font-family="Inter,Segoe UI,Arial">2 divergências</text>
+      <text class="ink sm" x="420" y="218">Continuar validação →</text>
+
+      <rect x="784" y="0" width="360" height="246" rx="28" fill="#fff"/>
+      <text class="muted sm" x="812" y="40">FINANCEIRO</text>
+      <text class="ink bold xl" x="812" y="86">1.284,00€</text>
+      <text class="muted base" x="812" y="120">pronto para faturar</text>
+      <rect x="812" y="154" width="156" height="34" rx="17" fill="#ecfeff"/>
+      <text class="teal sm" x="836" y="176" font-family="Inter,Segoe UI,Arial">Validado ES</text>
+      <text class="ink sm" x="812" y="218">Abrir financeiro →</text>
+    </g>
+
+    <g transform="translate(42,468)">
+      <text class="ink bold lg" x="0" y="0">Fluxo de trabalho</text>
+      <rect x="0" y="30" width="1144" height="82" rx="22" fill="#fff"/>
+      <text class="ink semi md" x="28" y="62">1. Staff por confirmar</text><text class="muted sm" x="28" y="88">7 colaboradores ainda sem resposta</text><rect x="930" y="50" width="144" height="34" rx="17" fill="#fff7ed"/><text class="orange sm" x="962" y="72" font-family="Inter,Segoe UI,Arial">Resolver</text>
+      <rect x="0" y="132" width="1144" height="82" rx="22" fill="#fff"/>
+      <text class="ink semi md" x="28" y="164">2. Aguardar horários do cliente</text><text class="muted sm" x="28" y="190">18 linhas pendentes em 4 eventos</text><rect x="930" y="152" width="144" height="34" rx="17" fill="#ecfeff"/><text class="teal sm" x="954" y="174" font-family="Inter,Segoe UI,Arial">Conferir</text>
+      <rect x="0" y="234" width="1144" height="82" rx="22" fill="#fff"/>
+      <text class="ink semi md" x="28" y="266">3. Processar pagamentos</text><text class="muted sm" x="28" y="292">Janela salarial 08-14 · Junho</text><rect x="930" y="254" width="144" height="34" rx="17" fill="#f0fdf4"/><text class="green sm" x="966" y="276" font-family="Inter,Segoe UI,Arial">Pagar</text>
+    </g>
+  </g>
+</svg>

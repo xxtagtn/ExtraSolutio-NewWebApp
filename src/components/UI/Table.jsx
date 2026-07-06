@@ -1,7 +1,7 @@
 export default function Table({ columns, rows, empty = 'Sem dados para apresentar.' }) {
   return (
     <div className="table-wrap">
-      <table>
+      <table className="data-table">
         <thead>
           <tr>
             {columns.map((column) => (
@@ -17,7 +17,7 @@ export default function Table({ columns, rows, empty = 'Sem dados para apresenta
           ) : rows.map((row) => (
             <tr key={row.id}>
               {columns.map((column) => (
-                <td key={column.key}>{column.render ? column.render(row) : row[column.key]}</td>
+                <td key={column.key} data-label={column.label}>{column.render ? column.render(row) : row[column.key]}</td>
               ))}
             </tr>
           ))}

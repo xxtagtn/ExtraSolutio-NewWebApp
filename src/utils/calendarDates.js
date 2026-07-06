@@ -49,6 +49,27 @@ export function calendarWeekDates(value) {
   });
 }
 
+export function calendarMonthCells(value) {
+  const selected = localDate(value) || new Date();
+  const firstDay = new Date(selected.getFullYear(), selected.getMonth(), 1);
+  const mondayOffset = firstDay.getDay() === 0 ? -6 : 1 - firstDay.getDay();
+  const start = new Date(firstDay);
+  start.setDate(firstDay.getDate() + mondayOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+
+    return {
+      key: calendarDateKey(date),
+      date,
+      day: date.getDate(),
+      isCurrentMonth: date.getFullYear() === selected.getFullYear()
+        && date.getMonth() === selected.getMonth(),
+    };
+  });
+}
+
 export function serviceOccursOnDate(service, value) {
   const target = localDate(value);
   const start = localDate(service?.date);

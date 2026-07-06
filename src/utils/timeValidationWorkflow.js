@@ -55,7 +55,7 @@ export function reopenTargetStage(rows = []) {
 
   if (reopenedStages.includes(TIME_VALIDATION_STAGE.staffPending)) return TIME_VALIDATION_STAGE.staffPending;
   if (reopenedStages.includes(TIME_VALIDATION_STAGE.clientPending)) return TIME_VALIDATION_STAGE.clientPending;
-  return TIME_VALIDATION_STAGE.ready;
+  return TIME_VALIDATION_STAGE.clientPending;
 }
 
 export function validationStageCounts(rows = []) {
@@ -72,6 +72,24 @@ export function validationStageCounts(rows = []) {
     counts[stage] += 1;
   }
   return counts;
+}
+
+export function rowMatchesValidationStage(rowStage, selectedStage) {
+  if (selectedStage === TIME_VALIDATION_STAGE.clientPending) {
+    return rowStage === TIME_VALIDATION_STAGE.clientPending
+      || rowStage === TIME_VALIDATION_STAGE.ready;
+  }
+  return rowStage === selectedStage;
+}
+
+export function validationDisplayStageCounts(rows = []) {
+  const counts = validationStageCounts(rows);
+  return {
+    ...counts,
+    [TIME_VALIDATION_STAGE.clientPending]: counts[TIME_VALIDATION_STAGE.clientPending]
+      + counts[TIME_VALIDATION_STAGE.ready],
+    [TIME_VALIDATION_STAGE.ready]: 0,
+  };
 }
 
 export function validationEventWorkflowSummary(rows = [], options = {}) {

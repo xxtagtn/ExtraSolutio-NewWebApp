@@ -53,7 +53,9 @@ import {
   prunePersistedDrafts,
   recentOperationalPeriod,
   reopenTargetStage,
+  rowMatchesValidationStage,
   TIME_VALIDATION_STAGE,
+  validationDisplayStageCounts,
   validationEventWorkflowSummary,
   validationStageCounts,
   validationWorkflowStage,
@@ -64,7 +66,6 @@ const VALIDATED_EVENT_MARKER = '[EVENT_VALIDATED_HOURS]';
 const VALIDATION_STAGE_TABS = [
   { value: TIME_VALIDATION_STAGE.staffPending, label: 'Por preencher Staff', icon: Hourglass, tone: 'neutral' },
   { value: TIME_VALIDATION_STAGE.clientPending, label: 'Aguardar Cliente', icon: Hourglass, tone: 'warning' },
-  { value: TIME_VALIDATION_STAGE.ready, label: 'Prontos a finalizar', icon: Hourglass, tone: 'info' },
   { value: TIME_VALIDATION_STAGE.finalized, label: 'Finalizados', icon: CheckCircle2, tone: 'success' },
 ];
 
@@ -223,7 +224,7 @@ function rowAssessment(assignment) {
 function validationSummaryLabel(item = {}) {
   if (item.markedValidated) return 'Finalizado';
   if ((item.differences || 0) > 0) return 'Com divergências';
-  if (item.ready) return 'Pronto a finalizar';
+  if (item.ready) return 'Aguardar validação final';
   if ((item.stageCounts?.[TIME_VALIDATION_STAGE.clientPending] || 0) > 0) return 'Aguardar cliente';
   if ((item.stageCounts?.[TIME_VALIDATION_STAGE.staffPending] || 0) > 0) return 'Por preencher Staff';
   return 'Em validação';
@@ -235,6 +236,17 @@ function validationSummaryTone(item = {}) {
   if ((item.stageCounts?.[TIME_VALIDATION_STAGE.clientPending] || 0) > 0) return 'warning';
   if ((item.stageCounts?.[TIME_VALIDATION_STAGE.staffPending] || 0) > 0) return 'neutral';
   return 'info';
+}
+
+function clientRowsMissing(item = {}) {
+  return Math.max(0, Number(item.total || 0) - Number(item.clientComplete || 0));
+}
+
+function canBulkAcceptEvent(item = {}) {
+  return Number(item.total || 0) > 0
+    && clientRowsMissing(item) === 0
+    && Number(item.differences || 0) === 0
+    && Number(item.validated || 0) < Number(item.total || 0);
 }
 
 function rowsDuration(rows = [], getter) {
@@ -316,8 +328,8 @@ export default function TimeValidation() {
   const [selectedEventId, setSelectedEventId] = useState('all');
   const [selectedWorkDateKey, setSelectedWorkDateKey] = useState('all');
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('all');
-  const [periodStart, setPeriodStart] = useState(() => recentOperationalPeriod().start);
-  const [periodEnd, setPeriodEnd] = useState(() => recentOperationalPeriod().end);
+  const [periodStart, setPeriodStart] = useState(() => recentOperationalPeriod(new Date(), 30).start);
+  const [periodEnd, setPeriodEnd] = useState(() => recentOperationalPeriod(new Date(), 30).end);
   const [savingId, setSavingId] = useState(null);
   const [validatingEventId, setValidatingEventId] = useState(null);
   const [bulkValidatingEventId, setBulkValidatingEventId] = useState(null);
@@ -334,6 +346,12 @@ export default function TimeValidation() {
   const [importDragActive, setImportDragActive] = useState(false);
   const [expandedFinalizedEventId, setExpandedFinalizedEventId] = useState(null);
   const validationTableRef = useRef(null);
+
+  useEffect(() => {
+    if (stage === TIME_VALIDATION_STAGE.ready) {
+      setStage(TIME_VALIDATION_STAGE.clientPending);
+    }
+  }, [stage]);
 
   useEffect(() => {
     if (loading || statusSyncing || !services.length) return;
@@ -427,9 +445,7 @@ export default function TimeValidation() {
       ? TIME_VALIDATION_STAGE.finalized
       : counts[TIME_VALIDATION_STAGE.staffPending] > 0
         ? TIME_VALIDATION_STAGE.staffPending
-        : counts[TIME_VALIDATION_STAGE.clientPending] > 0
-          ? TIME_VALIDATION_STAGE.clientPending
-          : TIME_VALIDATION_STAGE.ready;
+        : TIME_VALIDATION_STAGE.clientPending;
 
     setViewMode('event');
     setSelectedClientId('all');
@@ -583,7 +599,7 @@ export default function TimeValidation() {
     }
     return map;
   }, [clientRows]);
-  const stageCounts = useMemo(() => validationStageCounts(clientRows), [clientRows]);
+  const stageCounts = useMemo(() => validationDisplayStageCounts(clientRows), [clientRows]);
 
   useEffect(() => {
     if (selectedClientId !== 'all' && !clientOptions.some((item) => item.id === selectedClientId)) {
@@ -607,7 +623,7 @@ export default function TimeValidation() {
   const rows = useMemo(
     () => clientRows
       .filter((row) => {
-        if (row.workflowStage !== stage) return false;
+        if (!rowMatchesValidationStage(row.workflowStage, stage)) return false;
         if (viewMode === 'event' && selectedEventId !== 'all' && String(row.event.id) !== selectedEventId) return false;
         if (viewMode === 'event' && selectedWorkDateKey !== 'all' && row.workDateKey !== selectedWorkDateKey) return false;
         if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
@@ -627,7 +643,7 @@ export default function TimeValidation() {
   const staffPdfRows = useMemo(
     () => clientRows
       .filter((row) => {
-        if (row.workflowStage !== stage) return false;
+        if (!rowMatchesValidationStage(row.workflowStage, stage)) return false;
         if (viewMode === 'event' && selectedEventId !== 'all' && String(row.event.id) !== selectedEventId) return false;
         if (viewMode === 'event' && selectedWorkDateKey !== 'all' && row.workDateKey !== selectedWorkDateKey) return false;
         if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
@@ -656,7 +672,7 @@ export default function TimeValidation() {
 
   const eventCardRows = useMemo(
     () => clientRows.filter((row) => {
-      if (row.workflowStage !== stage) return false;
+      if (!rowMatchesValidationStage(row.workflowStage, stage)) return false;
       if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
       return true;
     }),
@@ -1284,11 +1300,9 @@ export default function TimeValidation() {
     : selectedEventSummary?.dateLabel || periodLabel(periodStart, periodEnd);
   const selectedPanelTone = validationSummaryTone(selectedPanelSummary || {});
   const selectedPanelStatus = validationSummaryLabel(selectedPanelSummary || {});
-  const showPlannedColumn = stage === TIME_VALIDATION_STAGE.staffPending
-    || stage === TIME_VALIDATION_STAGE.ready;
+  const showPlannedColumn = stage === TIME_VALIDATION_STAGE.staffPending;
   const showClientColumn = stage !== TIME_VALIDATION_STAGE.staffPending;
-  const showDifferenceColumn = stage === TIME_VALIDATION_STAGE.clientPending
-    || stage === TIME_VALIDATION_STAGE.ready;
+  const showDifferenceColumn = stage === TIME_VALIDATION_STAGE.clientPending;
   const tableColumnCount = 5
     + Number(showPlannedColumn)
     + Number(showClientColumn)
@@ -1459,7 +1473,7 @@ export default function TimeValidation() {
                       <span>Staff em falta: <strong>{item.stageCounts[TIME_VALIDATION_STAGE.staffPending] || 0}</strong></span>
                       <span>Aguardar cliente: <strong>{item.stageCounts[TIME_VALIDATION_STAGE.clientPending] || 0}</strong></span>
                       <span>Divergências: <strong>{item.differences || 0}</strong></span>
-                      <span>Prontas: <strong>{item.stageCounts[TIME_VALIDATION_STAGE.ready] || 0}</strong></span>
+                      <span>Aceites: <strong>{item.stageCounts[TIME_VALIDATION_STAGE.ready] || 0}</strong></span>
                     </div>
                   </div>
                   <div className="validation-event-actions">
@@ -1474,23 +1488,23 @@ export default function TimeValidation() {
                       <button
                         className="secondary-button"
                         type="button"
-                        disabled={!item.stageCounts[TIME_VALIDATION_STAGE.clientPending] || copyingClientEventId === item.event.id || bulkValidatingEventId === item.event.id}
+                        disabled={!clientRowsMissing(item) || copyingClientEventId === item.event.id || bulkValidatingEventId === item.event.id}
                         onClick={() => copyStaffToClientForEvent(item)}
                       >
                         {copyingClientEventId === item.event.id ? 'A copiar...' : 'Copiar Staff para Cliente'}
                       </button>
                     ) : null}
-                    {stage === TIME_VALIDATION_STAGE.ready ? (
+                    {stage === TIME_VALIDATION_STAGE.clientPending && canBulkAcceptEvent(item) ? (
                       <button
                         className="secondary-button"
                         type="button"
-                        disabled={!item.total || item.validated >= item.total || bulkValidatingEventId === item.event.id}
+                        disabled={bulkValidatingEventId === item.event.id}
                         onClick={() => validateAllRowsForEvent(item)}
                       >
                         {bulkValidatingEventId === item.event.id ? 'A validar...' : 'Validar tudo'}
                       </button>
                     ) : null}
-                    {stage === TIME_VALIDATION_STAGE.ready ? (
+                    {stage === TIME_VALIDATION_STAGE.clientPending && item.ready ? (
                       <button className="secondary-button" type="button" disabled={!item.ready || validatingEventId === item.event.id || bulkValidatingEventId === item.event.id} onClick={() => markEventValidated(item)}>
                         {validatingEventId === item.event.id ? 'A validar...' : 'Marcar evento validado'}
                       </button>
@@ -1566,42 +1580,25 @@ export default function TimeValidation() {
                       <button
                         className="secondary-button"
                         type="button"
-                        disabled={!selectedPanelSummary.stageCounts[TIME_VALIDATION_STAGE.clientPending] || copyingClientEventId === selectedPanelEvent.id || bulkValidatingEventId === selectedPanelEvent.id}
+                        disabled={!clientRowsMissing(selectedPanelSummary) || copyingClientEventId === selectedPanelEvent.id || bulkValidatingEventId === selectedPanelEvent.id}
                         onClick={() => copyStaffToClientForEvent(selectedPanelSummary)}
                       >
                         <Copy size={16} />
                         {copyingClientEventId === selectedPanelEvent.id ? 'A copiar...' : 'Copiar Staff para Cliente'}
                       </button>
                     ) : null}
-                    {stage === TIME_VALIDATION_STAGE.clientPending ? (
+                    {stage === TIME_VALIDATION_STAGE.clientPending && canBulkAcceptEvent(selectedPanelSummary) ? (
                       <button
                         className="secondary-button"
                         type="button"
-                        disabled={
-                          !selectedPanelSummary.total
-                          || selectedPanelSummary.clientComplete < selectedPanelSummary.total
-                          || selectedPanelSummary.differences > 0
-                          || bulkValidatingEventId === selectedPanelEvent.id
-                        }
-                        title={selectedPanelSummary.differences > 0 ? 'Resolve ou aceita as divergências antes de concluir.' : undefined}
-                        onClick={() => validateAllRowsForEvent(selectedPanelSummary)}
-                      >
-                        <CheckCircle2 size={16} />
-                        {bulkValidatingEventId === selectedPanelEvent.id ? 'A concluir...' : 'Concluir validação'}
-                      </button>
-                    ) : null}
-                    {stage === TIME_VALIDATION_STAGE.ready ? (
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        disabled={!selectedPanelSummary.total || selectedPanelSummary.validated >= selectedPanelSummary.total || bulkValidatingEventId === selectedPanelEvent.id}
+                        disabled={bulkValidatingEventId === selectedPanelEvent.id}
                         onClick={() => validateAllRowsForEvent(selectedPanelSummary)}
                       >
                         <CheckCircle2 size={16} />
                         {bulkValidatingEventId === selectedPanelEvent.id ? 'A validar...' : 'Validar tudo'}
                       </button>
                     ) : null}
-                    {stage === TIME_VALIDATION_STAGE.ready ? (
+                    {stage === TIME_VALIDATION_STAGE.clientPending && selectedPanelSummary.ready ? (
                       <button
                         className="command-button"
                         type="button"
@@ -1787,8 +1784,9 @@ export default function TimeValidation() {
                                     <RotateCcw size={16} />
                                   </button>
                                 ) : (
-                                  <button className="icon-button" type="button" title="Aceitar validação" aria-label="Aceitar validação" onClick={() => acceptRow(row)} disabled={!completeForAcceptance || savingId === row.id || bulkValidatingEventId !== null}>
-                                    <CheckCircle2 size={16} />
+                                  <button className="secondary-button validation-row-action" type="button" title="Aceitar validação" onClick={() => acceptRow(row)} disabled={!completeForAcceptance || savingId === row.id || bulkValidatingEventId !== null}>
+                                    <CheckCircle2 size={14} />
+                                    Aceitar
                                   </button>
                                 )}
                                 <button className="icon-button" type="button" title="Guardar validação" onClick={() => saveRow(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>

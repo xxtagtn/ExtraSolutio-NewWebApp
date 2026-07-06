@@ -2,6 +2,7 @@ import ResourcePage from '../components/Crud/ResourcePage.jsx';
 import Badge from '../components/UI/Badge.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { ROLES, roleLabels, roleOptions } from '../utils/roles.js';
 
 const fields = [
   { name: 'name', label: 'Nome', required: true },
@@ -10,17 +11,14 @@ const fields = [
     name: 'role',
     label: 'Perfil',
     type: 'select',
-    defaultValue: 'user',
-    options: [
-      { value: 'user', label: 'Utilizador' },
-      { value: 'admin', label: 'Administrador' },
-    ],
+    defaultValue: ROLES.OPERATIONS,
+    options: roleOptions,
   },
   {
     name: 'password',
     label: 'Password',
     type: 'password',
-    minLength: 10,
+    minLength: 12,
     required: (editing) => !editing,
   },
 ];
@@ -53,7 +51,7 @@ export default function Admin() {
 
   return (
     <ResourcePage
-      title="Administracao"
+      title="Administração"
       endpoint="/users"
       rows={data}
       loading={loading}
@@ -67,7 +65,7 @@ export default function Admin() {
         {
           key: 'role',
           label: 'Perfil',
-          render: (row) => <Badge tone={row.role === 'admin' ? 'success' : 'info'}>{row.role}</Badge>,
+          render: (row) => <Badge tone={row.role === ROLES.ADMIN ? 'success' : 'info'}>{roleLabels[row.role] || row.role}</Badge>,
         },
       ]}
       empty="Ainda não há utilizadores para apresentar."

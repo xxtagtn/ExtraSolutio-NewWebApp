@@ -12,6 +12,8 @@ import {
   persistedWorkflowAssignment,
   prunePersistedDrafts,
   recentOperationalPeriod,
+  rowMatchesValidationStage,
+  validationDisplayStageCounts,
   validationEventWorkflowSummary,
   validationStageCounts,
   validationWorkflowStage,
@@ -89,6 +91,27 @@ test('keeps the current tab after manually saving or accepting a row', () => {
   );
 });
 
+test('shows ready rows inside the client pending validation tab', () => {
+  const readyRow = row({
+    checkIn: '09:00',
+    checkOut: '17:00',
+    clientCheckIn: '09:00',
+    clientCheckOut: '17:00',
+    validationStatus: 'validated',
+  });
+  readyRow.workflowStage = TIME_VALIDATION_STAGE.ready;
+
+  assert.equal(rowMatchesValidationStage(readyRow.workflowStage, TIME_VALIDATION_STAGE.clientPending), true);
+  assert.equal(rowMatchesValidationStage(readyRow.workflowStage, TIME_VALIDATION_STAGE.staffPending), false);
+  assert.deepEqual(validationDisplayStageCounts([readyRow]), {
+    staff_pending: 0,
+    client_pending: 1,
+    differences: 0,
+    ready: 0,
+    finalized: 0,
+  });
+});
+
 test('reopens finalized events into the stage that needs review', () => {
   assert.equal(reopenTargetStage([
     row({
@@ -106,6 +129,18 @@ test('reopens finalized events into the stage that needs review', () => {
       clientCheckIn: '09:30',
       clientCheckOut: '17:00',
     }, { isDifference: true }),
+  ]), TIME_VALIDATION_STAGE.clientPending);
+});
+
+test('reopens events with all rows accepted into the client pending tab', () => {
+  assert.equal(reopenTargetStage([
+    row({
+      checkIn: '09:00',
+      checkOut: '17:00',
+      clientCheckIn: '09:00',
+      clientCheckOut: '17:00',
+      validationStatus: 'validated',
+    }),
   ]), TIME_VALIDATION_STAGE.clientPending);
 });
 
@@ -303,6 +338,13 @@ test('removes persisted drafts after fresh API data arrives', () => {
 test('builds the last seven days period ending today', () => {
   assert.deepEqual(recentOperationalPeriod(new Date(2026, 5, 22, 12, 0, 0)), {
     start: '2026-06-16',
+    end: '2026-06-22',
+  });
+});
+
+test('builds the last thirty days period ending today', () => {
+  assert.deepEqual(recentOperationalPeriod(new Date(2026, 5, 22, 12, 0, 0), 30), {
+    start: '2026-05-24',
     end: '2026-06-22',
   });
 });

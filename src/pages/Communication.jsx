@@ -144,7 +144,7 @@ export default function Communication() {
   async function copyMessage(task) {
     if (!task) return;
     try {
-      await navigator.clipboard.writeText(task.message);
+      await window.navigator.clipboard.writeText(task.message);
       setNotice('Mensagem copiada.');
     } catch {
       window.prompt('Copiar mensagem:', task.message);

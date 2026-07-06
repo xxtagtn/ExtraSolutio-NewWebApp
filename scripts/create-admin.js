@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import '../server/config/env.js';
 import { prisma } from '../server/prisma.js';
+import { validatePasswordStrength } from '../server/security/passwordPolicy.js';
 
 const email = process.env.ADMIN_EMAIL;
 const password = process.env.ADMIN_PASSWORD;
@@ -11,8 +12,9 @@ if (!email || !password) {
   process.exit(1);
 }
 
-if (password.length < 10) {
-  console.error('ADMIN_PASSWORD deve ter pelo menos 10 caracteres.');
+const passwordStrength = validatePasswordStrength(password);
+if (!passwordStrength.valid) {
+  console.error(`ADMIN_PASSWORD inválida. ${passwordStrength.message}`);
   process.exit(1);
 }
 

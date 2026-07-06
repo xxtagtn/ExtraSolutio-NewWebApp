@@ -46,6 +46,7 @@ import {
   buildMoveToPaidPayload,
   buildStaffPaymentStatusPayload,
 } from '../utils/staffPaymentBulk.js';
+import { staffPaymentLinkSelection } from '../utils/deepLinks.js';
 import {
   assignmentWorkDateValue,
   nextStaffPaymentMonth,
@@ -499,6 +500,7 @@ export default function Accounting() {
   const [archiveClientId, setArchiveClientId] = useState('all');
   const [staffFilters, setStaffFilters] = useState({ eventId: 'all', collaboratorId: 'all', date: '' });
   const [staffPaymentTab, setStaffPaymentTab] = useState('unpaid');
+  const [pendingStaffAssignmentLink, setPendingStaffAssignmentLink] = useState('');
   const [staffPaymentDrafts, setStaffPaymentDrafts] = useState({});
   const [selectedStaffPaymentIds, setSelectedStaffPaymentIds] = useState([]);
   const [bulkPaymentStatus, setBulkPaymentStatus] = useState('paid');
@@ -824,10 +826,14 @@ export default function Accounting() {
     [archiveClientId, archivedClientRows],
   );
 
-  const selectedPaymentStaffEntries = useMemo(() => financeServices
+  const allPaymentStaffEntries = useMemo(() => financeServices
     .flatMap((event) => billableAssignments(event).map((assignment) => ({ ...assignment, event })))
+    .sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)),
+  [financeServices]);
+
+  const selectedPaymentStaffEntries = useMemo(() => allPaymentStaffEntries
     .filter((assignment) => paymentMonthMatches(assignment, selectedMonth)),
-  [financeServices, selectedMonth]);
+  [allPaymentStaffEntries, selectedMonth]);
 
   const forecastPaymentStaffEntries = useMemo(() => forecastServices
     .flatMap((event) => billableAssignments(event).map((assignment) => ({ ...assignment, event })))
@@ -855,6 +861,47 @@ export default function Accounting() {
     }
     return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
   }, [selectedPaymentStaffEntries]);
+
+  useEffect(() => {
+    const area = searchParams.get('area');
+    const assignmentId = searchParams.get('assignmentId');
+    if (area !== 'staff' || !assignmentId) return;
+
+    const target = allPaymentStaffEntries.find((assignment) => String(assignment.id) === String(assignmentId));
+    if (!target) return;
+
+    const timing = staffPaymentTiming(target);
+    const fallbackDate = assignmentWorkDateValue(target) || target.event?.date;
+    const targetMonth = timing.paymentMonth
+      || timing.defaultMonth
+      || (fallbackDate ? monthKey(fallbackDate) : '');
+    if (targetMonth && targetMonth !== selectedMonth) setSelectedMonth(targetMonth);
+    setPendingStaffAssignmentLink(String(target.id));
+  }, [allPaymentStaffEntries, searchParams, selectedMonth]);
+
+  useEffect(() => {
+    if (!pendingStaffAssignmentLink) return;
+    const target = selectedPaymentStaffEntries.find((assignment) => String(assignment.id) === pendingStaffAssignmentLink);
+    if (!target) return;
+
+    const timing = staffPaymentTiming(target);
+    const linkState = staffPaymentLinkSelection(target, {
+      paymentMonth: timing.paymentMonth || timing.defaultMonth || selectedMonth,
+      workDate: assignmentWorkDateInputValue(target),
+    });
+    if (!linkState) return;
+
+    setActiveArea('staff');
+    setSelectedMonth(linkState.selectedMonth || selectedMonth);
+    setStaffFilters(linkState.staffFilters);
+    setStaffPaymentTab(linkState.staffPaymentTab);
+    setSelectedStaffPaymentIds(linkState.selectedStaffPaymentIds);
+    setPendingStaffAssignmentLink('');
+
+    const nextParams = new window.URLSearchParams(searchParams);
+    nextParams.delete('assignmentId');
+    setSearchParams(nextParams, { replace: true });
+  }, [pendingStaffAssignmentLink, searchParams, selectedMonth, selectedPaymentStaffEntries, setSearchParams]);
 
   useEffect(() => {
     if (staffFilters.eventId !== 'all' && !staffEventOptions.some((event) => event.id === staffFilters.eventId)) {

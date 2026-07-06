@@ -5,6 +5,7 @@ import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import IconButton from '../components/UI/IconButton.jsx';
 import Modal from '../components/UI/Modal.jsx';
+import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { computeShortName } from '../utils/collaboratorName.js';
@@ -16,6 +17,7 @@ import {
 } from '../utils/collaboratorDetails.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { documentExpiryAlert } from '../utils/documentExpiry.js';
+import { shouldHandleDeepLink } from '../utils/deepLinks.js';
 import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import { money } from '../utils/formatters.js';
 import { paginateItems } from '../utils/pagination.js';
@@ -171,9 +173,15 @@ export default function Collaborators() {
   const [photoZoom, setPhotoZoom] = useState(1);
   const [highlightFormSection, setHighlightFormSection] = useState('');
   const [expiryReferenceDate, setExpiryReferenceDate] = useState(() => new Date());
+  const toast = useToast();
   const rolesDropdownRef = useRef(null);
   const documentSectionRef = useRef(null);
   const openedFromQueryRef = useRef('');
+  const collaboratorRowsRef = useRef(data);
+
+  useEffect(() => {
+    collaboratorRowsRef.current = data;
+  }, [data]);
 
   useEffect(() => {
     if (!rolesOpen) return undefined;
@@ -249,19 +257,15 @@ export default function Collaborators() {
     }
     if (loading) return;
     const key = String(collaboratorId);
-    if (openedFromQueryRef.current === key) return;
+    if (!shouldHandleDeepLink(key, openedFromQueryRef.current, loading)) return;
 
-    const row = data.find((item) => String(item.id) === key);
-    if (!row) return;
+    const row = collaboratorRowsRef.current.find((item) => String(item.id) === key) || { id: collaboratorId };
 
-    openedFromQueryRef.current = key;
     setExpandedRows((prev) => ({ ...prev, [key]: true }));
-    let cancelled = false;
 
     loadCollaboratorDetail(row.id)
       .then((detail) => {
-        if (cancelled) return;
-        const fullRow = mergeCollaboratorDetail(row, detail);
+        const fullRow = mergeCollaboratorDetail(row, detail || row);
         const nextForm = rowToForm(fullRow);
         setFormError('');
         setRolesOpen(false);
@@ -271,19 +275,17 @@ export default function Collaborators() {
         setFormBaseline(nextForm);
         setHighlightFormSection(section);
         setFormOpen(true);
+        openedFromQueryRef.current = key;
         const nextParams = new window.URLSearchParams(searchParams);
         nextParams.delete('collaboratorId');
         nextParams.delete('section');
         setSearchParams(nextParams, { replace: true });
       })
       .catch((err) => {
-        if (!cancelled) window.alert(err?.message || 'Não foi possível carregar a ficha completa do colaborador.');
+        openedFromQueryRef.current = '';
+        toast.error(err?.message || 'Não foi possível carregar a ficha completa do colaborador.');
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [data, loadCollaboratorDetail, loading, searchParams, setSearchParams]);
+  }, [loadCollaboratorDetail, loading, searchParams, setSearchParams, toast]);
 
   useEffect(() => {
     if (!formOpen || highlightFormSection !== 'documents') return undefined;
@@ -382,7 +384,7 @@ export default function Collaborators() {
       setHighlightFormSection('');
       setFormOpen(true);
     } catch (err) {
-      window.alert(err?.message || 'Não foi possível carregar a ficha completa do colaborador.');
+      toast.error(err?.message || 'Não foi possível carregar a ficha completa do colaborador.');
     }
   }
 
@@ -482,6 +484,7 @@ export default function Collaborators() {
       }
       closeForm(true);
       reload();
+      toast.success(editing ? 'Colaborador atualizado.' : 'Colaborador criado.');
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -491,24 +494,34 @@ export default function Collaborators() {
 
   async function removeRow(row) {
     if (!window.confirm(`Eliminar "${row.name}"?`)) return;
-    await api(`/collaborators/${row.id}`, { method: 'DELETE' });
-    setCollaboratorDetails((prev) => {
-      const next = { ...prev };
-      delete next[String(row.id)];
-      return next;
-    });
-    reload();
+    try {
+      await api(`/collaborators/${row.id}`, { method: 'DELETE' });
+      setCollaboratorDetails((prev) => {
+        const next = { ...prev };
+        delete next[String(row.id)];
+        return next;
+      });
+      toast.success(`Colaborador "${row.shortName || row.name}" eliminado.`);
+      reload();
+    } catch (err) {
+      toast.error(err?.message || 'Não foi possível eliminar o colaborador.');
+    }
   }
 
   async function togglePreferred(row) {
-    const updated = await api(`/collaborators/${row.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ isPreferred: !row.isPreferred }),
-    });
-    if (updated?.id) {
-      setCollaboratorDetails((prev) => ({ ...prev, [String(updated.id)]: updated }));
+    try {
+      const updated = await api(`/collaborators/${row.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ isPreferred: !row.isPreferred }),
+      });
+      if (updated?.id) {
+        setCollaboratorDetails((prev) => ({ ...prev, [String(updated.id)]: updated }));
+      }
+      reload();
+      toast.success(updated?.isPreferred ? 'Colaborador marcado como preferência.' : 'Preferência removida.');
+    } catch (err) {
+      toast.error(err?.message || 'Não foi possível atualizar a preferência.');
     }
-    reload();
   }
 
   return (
@@ -787,9 +800,11 @@ export default function Collaborators() {
               </aside>
             </div>
             {formError ? <p className="notice">{formError}</p> : null}
-            <footer className="form-actions form-actions--sticky">
+            <footer className="form-actions form-actions--sticky form-actions--collab-safe">
+              <button className="icon-button form-cancel-icon" type="button" onClick={() => closeForm()} title="Cancelar" aria-label="Cancelar">
+                <X size={16} />
+              </button>
               <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar'}</button>
-              <button className="secondary-button" type="button" onClick={() => closeForm()}>Cancelar</button>
             </footer>
           </form>
         </Modal>

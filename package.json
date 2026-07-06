@@ -19,6 +19,8 @@
     "db:generate:mysql": "prisma generate --schema prisma/mysql/schema.prisma",
     "db:deploy:mysql": "prisma migrate deploy --schema prisma/mysql/schema.prisma",
     "db:studio:mysql": "prisma studio --schema prisma/mysql/schema.prisma",
+    "db:backup": "node scripts/backup-database.js",
+    "db:restore": "node scripts/restore-sqlite-backup.js",
     "user:admin": "node scripts/create-admin.js"
   },
   "dependencies": {

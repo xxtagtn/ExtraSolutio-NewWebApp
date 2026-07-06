@@ -12,7 +12,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
@@ -398,7 +398,7 @@ function escapeHtml(value) {
 }
 
 export default function Budgets() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi('/budgets', []);
   const { data: clients, reload: reloadClients } = useApi('/clients', []);
   const [activeTab, setActiveTab] = useState('new_request');
@@ -415,7 +415,7 @@ export default function Budgets() {
   const [conversionBaseline, setConversionBaseline] = useState(null);
   const [conversionSaving, setConversionSaving] = useState(false);
   const [conversionError, setConversionError] = useState('');
-  const [openedFromQuery, setOpenedFromQuery] = useState(false);
+  const openedFromQueryRef = useRef('');
 
   const rows = useMemo(() => data.map((row) => ({
     ...row,
@@ -550,12 +550,15 @@ export default function Budgets() {
 
   useEffect(() => {
     const budgetId = searchParams.get('budgetId');
-    if (!budgetId || loading || openedFromQuery) return;
+    if (!budgetId || loading || openedFromQueryRef.current === String(budgetId)) return;
     const target = rows.find((row) => String(row.id) === String(budgetId));
     if (!target) return;
+    openedFromQueryRef.current = String(budgetId);
     openEdit(target);
-    setOpenedFromQuery(true);
-  }, [loading, openedFromQuery, rows, searchParams]);
+    const nextParams = new window.URLSearchParams(searchParams);
+    nextParams.delete('budgetId');
+    setSearchParams(nextParams, { replace: true });
+  }, [loading, rows, searchParams, setSearchParams]);
 
   function updateSelectedClient(clientId) {
     const client = clients.find((item) => String(item.id) === String(clientId));

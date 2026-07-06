@@ -13,14 +13,17 @@ import {
   Plus,
   Shirt,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Card from '../components/UI/Card.jsx';
 import Badge from '../components/UI/Badge.jsx';
 import IconButton from '../components/UI/IconButton.jsx';
 import Modal from '../components/UI/Modal.jsx';
+import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
+import { clientDetailTabFromQuery } from '../utils/deepLinks.js';
 
 const typeLabels = {
   particular: 'Particular',
@@ -177,6 +180,7 @@ function prepaymentText(row) {
 }
 
 export default function Clients() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi('/clients', []);
   const { data: catalogRoles } = useApi('/collaborators/roles', []);
   const [search, setSearch] = useState('');
@@ -189,6 +193,7 @@ export default function Clients() {
   const [formBaseline, setFormBaseline] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const toast = useToast();
 
   const rows = useMemo(() => {
     const q = String(search || '').trim().toLowerCase();
@@ -215,6 +220,23 @@ export default function Clients() {
     () => data.find((row) => String(row.id) === String(selectedClientId)) || null,
     [data, selectedClientId],
   );
+
+  useEffect(() => {
+    const clientId = searchParams.get('clientId');
+    if (!clientId || loading) return;
+    const target = data.find((row) => String(row.id) === String(clientId));
+    if (!target) return;
+
+    setSelectedClientId(target.id);
+    const requestedTab = clientDetailTabFromQuery(searchParams.get('tab') || searchParams.get('section'));
+    if (requestedTab) setClientTab(requestedTab);
+
+    const nextParams = new window.URLSearchParams(searchParams);
+    nextParams.delete('clientId');
+    nextParams.delete('tab');
+    nextParams.delete('section');
+    setSearchParams(nextParams, { replace: true });
+  }, [data, loading, searchParams, setSearchParams]);
 
   function openClientDetail(row) {
     setSelectedClientId(row.id);
@@ -299,6 +321,7 @@ export default function Clients() {
       });
       closeForm(true);
       reload();
+      toast.success(editing ? 'Cliente atualizado.' : 'Cliente criado.');
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -307,10 +330,15 @@ export default function Clients() {
   }
 
   async function removeRow(row) {
-    if (!window.confirm(`Eliminar "${row.name}"`)) return;
-    await api(`/clients/${row.id}`, { method: 'DELETE' });
-    if (String(selectedClientId) === String(row.id)) setSelectedClientId(null);
-    reload();
+    if (!window.confirm(`Eliminar "${row.name}"?`)) return;
+    try {
+      await api(`/clients/${row.id}`, { method: 'DELETE' });
+      if (String(selectedClientId) === String(row.id)) setSelectedClientId(null);
+      toast.success(`Cliente "${row.name}" eliminado.`);
+      reload();
+    } catch (err) {
+      toast.error(err?.message || 'Não foi possível eliminar o cliente.');
+    }
   }
 
   function renderRulesTab(row) {

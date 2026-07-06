@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 *.log
+backups/
 prisma/sqlite/*.db
 prisma/sqlite/*.db-journal
 old-app/

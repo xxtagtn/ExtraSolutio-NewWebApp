@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#080b0f"/><stop offset="1" stop-color="#15171d"/></linearGradient>
+    <linearGradient id="panel" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#1b222b"/><stop offset="1" stop-color="#111820"/></linearGradient>
+    <style>
+      .bg{fill:url(#bg)}.rail{fill:#05080b;stroke:#242c35}.panel{fill:url(#panel);stroke:#2a3642}.tile{fill:#0e141b;stroke:#293541}.input{fill:#090e13;stroke:#303d49}
+      .text{fill:#eef5f3;font-family:Inter,Segoe UI,Arial,sans-serif}.muted{fill:#94a3ad;font-family:Inter,Segoe UI,Arial,sans-serif}.cyan{fill:#67e8f9}.lime{fill:#bef264}.gold{fill:#facc15}.red{fill:#fb7185}.violet{fill:#c4b5fd}
+      .xs{font-size:11px}.sm{font-size:12px}.base{font-size:14px}.md{font-size:16px}.lg{font-size:20px}.xl{font-size:30px}.xxl{font-size:42px}.bold{font-weight:700}.semi{font-weight:600}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <rect class="rail" x="0" y="0" width="92" height="900"/>
+  <text class="text bold xl" x="24" y="56">ES</text>
+  <g fill="#1d2730" stroke="#34414d">
+    <rect x="24" y="124" width="44" height="44" rx="14"/>
+    <rect x="24" y="190" width="44" height="44" rx="14"/>
+    <rect x="24" y="256" width="44" height="44" rx="14"/>
+    <rect x="24" y="322" width="44" height="44" rx="14"/>
+    <rect x="24" y="388" width="44" height="44" rx="14"/>
+  </g>
+  <rect x="18" y="124" width="6" height="44" rx="3" fill="#67e8f9"/>
+
+  <g transform="translate(128,34)">
+    <text class="muted sm" x="0" y="16">EXTRASOLUTIO / OPERAÇÃO</text>
+    <text class="text bold xxl" x="0" y="62">Sala de controlo</text>
+    <text class="muted md" x="0" y="92">Tudo o que precisa de ação, separado por etapa.</text>
+    <rect class="input" x="1018" y="8" width="260" height="42" rx="21"/>
+    <text class="muted sm" x="1048" y="35">Pesquisar evento, cliente, staff...</text>
+    <circle cx="1334" cy="30" r="24" fill="#222a34"/>
+    <text class="text bold sm" x="1325" y="35">ES</text>
+  </g>
+
+  <g transform="translate(128,154)">
+    <rect class="panel" x="0" y="0" width="318" height="690" rx="28"/>
+    <text class="text bold lg" x="28" y="46">Fila de trabalho</text>
+    <rect x="28" y="78" width="262" height="50" rx="16" fill="#082f49" stroke="#0e7490"/>
+    <text class="cyan semi base" x="50" y="109" font-family="Inter,Segoe UI,Arial">A validar horários</text>
+    <text class="text bold base" x="248" y="109">18</text>
+    <rect class="tile" x="28" y="148" width="262" height="50" rx="16"/>
+    <text class="muted base" x="50" y="179">Staff por confirmar</text><text class="text bold base" x="254" y="179">7</text>
+    <rect class="tile" x="28" y="218" width="262" height="50" rx="16"/>
+    <text class="muted base" x="50" y="249">Pré-pagamentos</text><text class="text bold base" x="254" y="249">3</text>
+    <rect class="tile" x="28" y="288" width="262" height="50" rx="16"/>
+    <text class="muted base" x="50" y="319">Por faturar</text><text class="text bold base" x="244" y="319">12</text>
+    <text class="muted sm" x="28" y="386">Hoje</text>
+    <rect class="tile" x="28" y="408" width="262" height="86" rx="18"/>
+    <text class="text semi base" x="48" y="436">Restaurante Luz Chakall</text>
+    <text class="muted sm" x="48" y="462">11:30 - 16:00</text>
+    <text class="lime sm" x="48" y="482" font-family="Inter,Segoe UI,Arial">Equipa completa</text>
+    <rect class="tile" x="28" y="510" width="262" height="86" rx="18"/>
+    <text class="text semi base" x="48" y="538">Embaixada da China</text>
+    <text class="muted sm" x="48" y="564">18:00 - 23:00</text>
+    <text class="gold sm" x="48" y="584" font-family="Inter,Segoe UI,Arial">2 por confirmar</text>
+  </g>
+
+  <g transform="translate(478,154)">
+    <rect class="panel" x="0" y="0" width="984" height="248" rx="28"/>
+    <text class="muted sm" x="32" y="40">EVENTO EM FOCO</text>
+    <text class="text bold xl" x="32" y="82">Restaurante Luz Chakall</text>
+    <text class="muted md" x="32" y="112">SSH - Supreme Sport Hospitality · 17/06/2026 a 21/06/2026</text>
+    <rect x="32" y="144" width="174" height="40" rx="20" fill="#26340e" stroke="#65a30d"/>
+    <text class="lime sm" x="62" y="169" font-family="Inter,Segoe UI,Arial">Operação estável</text>
+    <g transform="translate(460,42)">
+      <rect class="tile" x="0" y="0" width="130" height="128" rx="22"/><text class="muted sm" x="24" y="34">Equipa</text><text class="text bold xl" x="24" y="78">11/11</text>
+      <rect class="tile" x="154" y="0" width="130" height="128" rx="22"/><text class="muted sm" x="178" y="34">Validação</text><text class="text bold xl" x="178" y="78">8/11</text>
+      <rect class="tile" x="308" y="0" width="154" height="128" rx="22"/><text class="muted sm" x="332" y="34">Valor</text><text class="text bold xl" x="332" y="78">1.284€</text>
+    </g>
+  </g>
+
+  <g transform="translate(478,434)">
+    <rect class="panel" x="0" y="0" width="984" height="410" rx="28"/>
+    <text class="text bold lg" x="32" y="46">Quadro operacional</text>
+    <g transform="translate(32,82)">
+      <rect class="tile" x="0" y="0" width="292" height="286" rx="20"/>
+      <text class="cyan semi md" x="22" y="36" font-family="Inter,Segoe UI,Arial">Aguardar Cliente</text>
+      <rect x="22" y="64" width="248" height="64" rx="14" fill="#111820" stroke="#334155"/>
+      <text class="text semi sm" x="38" y="88">Miriam Peçanha Oliveira</text>
+      <text class="muted xs" x="38" y="110">Staff preenchido · falta cliente</text>
+      <rect x="22" y="144" width="248" height="64" rx="14" fill="#241a0b" stroke="#92400e"/>
+      <text class="text semi sm" x="38" y="168">Leonardo Barboza Lima</text>
+      <text class="gold xs" x="38" y="190" font-family="Inter,Segoe UI,Arial">Divergência 00:25h</text>
+
+      <rect class="tile" x="322" y="0" width="292" height="286" rx="20"/>
+      <text class="lime semi md" x="344" y="36" font-family="Inter,Segoe UI,Arial">Pronto a finalizar</text>
+      <rect x="344" y="64" width="248" height="64" rx="14" fill="#10251b" stroke="#166534"/>
+      <text class="text semi sm" x="360" y="88">Ana Carolina Rodrigues</text>
+      <text class="muted xs" x="360" y="110">Dentro da tolerância</text>
+
+      <rect class="tile" x="644" y="0" width="292" height="286" rx="20"/>
+      <text class="violet semi md" x="666" y="36" font-family="Inter,Segoe UI,Arial">Financeiro</text>
+      <rect x="666" y="64" width="248" height="64" rx="14" fill="#151122" stroke="#5b21b6"/>
+      <text class="text semi sm" x="682" y="88">Staff a pagar</text>
+      <text class="muted xs" x="682" y="110">12.640,00 € · Junho</text>
+      <rect x="666" y="144" width="248" height="64" rx="14" fill="#151122" stroke="#5b21b6"/>
+      <text class="text semi sm" x="682" y="168">Clientes por receber</text>
+      <text class="muted xs" x="682" y="190">8.930,00 €</text>
+    </g>
+  </g>
+</svg>

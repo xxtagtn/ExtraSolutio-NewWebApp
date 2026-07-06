@@ -2,11 +2,12 @@
 import { normalizeExternalCosts } from '../../src/utils/externalCosts.js';
 import { normalizeAssignmentDrafts } from '../../src/utils/serviceAssignmentDrafts.js';
 import { normalizeTravelCars } from '../../src/utils/travelCalculator.js';
+import { requireAdmin } from '../middleware/auth.js';
 import { pick, toDate, asyncHandler } from '../utils/http.js';
 
 function parseId(req, res) {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id)) {
+  if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ message: 'ID inválido.' });
     return null;
   }
@@ -16,31 +17,39 @@ function parseId(req, res) {
 export function createCrudRouter(model, fields, options = {}) {
   const router = Router();
   const include = options.include;
+  const readMiddleware = options.readMiddleware ?? [];
+  const writeMiddleware = options.writeMiddleware ?? [];
+  const deleteMiddleware = options.deleteMiddleware ?? [requireAdmin];
+  const readMiddlewares = Array.isArray(readMiddleware) ? readMiddleware : [readMiddleware];
+  const writeMiddlewares = Array.isArray(writeMiddleware) ? writeMiddleware : [writeMiddleware];
+  const deleteMiddlewares = Array.isArray(deleteMiddleware) ? deleteMiddleware : [deleteMiddleware];
+  const serializeRow = options.serializeRow ?? ((row) => row);
+  const serializeRows = options.serializeRows ?? ((rows, req) => rows.map((row) => serializeRow(row, req)));
 
-  router.get('/', asyncHandler(async (_req, res) => {
+  router.get('/', ...readMiddlewares, asyncHandler(async (req, res) => {
     const rows = await model.findMany({
       orderBy: options.orderBy ?? { createdAt: 'desc' },
       include,
     });
-    res.json(rows);
+    res.json(serializeRows(rows, req));
   }));
 
-  router.get('/:id', asyncHandler(async (req, res) => {
+  router.get('/:id', ...readMiddlewares, asyncHandler(async (req, res) => {
     const id = parseId(req, res);
     if (!id) return;
     const row = await model.findUnique({ where: { id }, include });
     if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
-    return res.json(row);
+    return res.json(serializeRow(row, req));
   }));
 
-  router.post('/', asyncHandler(async (req, res) => {
+  router.post('/', ...writeMiddlewares, asyncHandler(async (req, res) => {
     const data = await (options.normalizeCreate?.(req.body) ?? pick(req.body, fields));
     const row = await model.create({ data, include });
     await options.afterCreate?.({ row, data, body: req.body });
-    res.status(201).json(row);
+    res.status(201).json(serializeRow(row, req));
   }));
 
-  router.put('/:id', asyncHandler(async (req, res) => {
+  router.put('/:id', ...writeMiddlewares, asyncHandler(async (req, res) => {
     const id = parseId(req, res);
     if (!id) return;
     const existing = options.loadExistingForUpdate
@@ -50,10 +59,10 @@ export function createCrudRouter(model, fields, options = {}) {
     const data = await (options.normalizeUpdate?.(req.body, existing) ?? pick(req.body, fields));
     const row = await model.update({ where: { id }, data, include });
     await options.afterUpdate?.({ id, row, existing, data, body: req.body });
-    res.json(row);
+    res.json(serializeRow(row, req));
   }));
 
-  router.delete('/:id', asyncHandler(async (req, res) => {
+  router.delete('/:id', ...deleteMiddlewares, asyncHandler(async (req, res) => {
     const id = parseId(req, res);
     if (!id) return;
     await model.delete({ where: { id } });

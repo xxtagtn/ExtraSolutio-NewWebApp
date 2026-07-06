@@ -1,6 +1,6 @@
 ﻿import { ChevronDown, ChevronRight, LayoutTemplate, Plus, Save, Trash2, Users } from 'lucide-react';
 import { CarFront } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
@@ -26,11 +26,13 @@ import {
   clientPrepaymentRule,
   clientRuleRate,
 } from '../utils/clientRules.js';
+import { filterCollaboratorOptions } from '../utils/collaboratorSearch.js';
 import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import {
   assignmentDraftsFromRows,
   normalizeAssignmentDrafts,
 } from '../utils/serviceAssignmentDrafts.js';
+import { resolveSelectedTeamDay } from '../utils/serviceDetail.js';
 import {
   assignmentStaffCost,
   assignmentStaffRate,
@@ -603,6 +605,7 @@ export default function Services() {
   const [statusManualOverride, setStatusManualOverride] = useState(false);
   const [activeCollaboratorPickerIndex, setActiveCollaboratorPickerIndex] = useState(null);
   const [collaboratorPickerPlacement, setCollaboratorPickerPlacement] = useState(null);
+  const collaboratorSearchRef = useRef(null);
   const [activeAdvanceIndex, setActiveAdvanceIndex] = useState(null);
   const [selectedTeamDay, setSelectedTeamDay] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
@@ -822,6 +825,15 @@ export default function Services() {
   }, [activeCollaboratorPickerIndex]);
 
   useEffect(() => {
+    if (activeCollaboratorPickerIndex === null) return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      collaboratorSearchRef.current?.focus();
+      collaboratorSearchRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeCollaboratorPickerIndex]);
+
+  useEffect(() => {
     if (loading || statusSyncing || formOpen || !data.length) return;
     const updates = data
       .map((row) => ({ row, nextStatus: nextAutomaticServiceStatus(row) }))
@@ -851,17 +863,12 @@ export default function Services() {
 
   useEffect(() => {
     if (!formOpen) return;
-    if (!form.isContinuous) {
-      setSelectedTeamDay('');
-      return;
-    }
-    if (!teamDays.length) {
-      setSelectedTeamDay('');
-      return;
-    }
-    if (!selectedTeamDay || !teamDays.includes(selectedTeamDay)) {
-      setSelectedTeamDay(teamDays[0]);
-    }
+    const nextDay = resolveSelectedTeamDay({
+      isContinuous: form.isContinuous,
+      days: teamDays,
+      selectedDay: selectedTeamDay,
+    });
+    if (nextDay !== selectedTeamDay) setSelectedTeamDay(nextDay);
   }, [formOpen, form.isContinuous, teamDays, selectedTeamDay]);
 
   function openCreate() {
@@ -2090,27 +2097,22 @@ export default function Services() {
                                         } : undefined}
                                       >
                                         <input
+                                          ref={collaboratorSearchRef}
+                                          autoFocus
                                           type="text"
                                           placeholder="Filtrar por nome"
                                           value={assignment.collaboratorSearch || ''}
                                           onChange={(event) => updateAssignment(assignment.index, { collaboratorSearch: event.target.value })}
                                         />
                                         <div className="service-collab-options">
-                                          {[
+                                          {filterCollaboratorOptions([
                                             ...activeCollaborators.filter((collab) => collaboratorHasRole(collab, required.role)),
                                             ...((assignment.collaboratorId && !activeCollaborators.some((c) => String(c.id) === String(assignment.collaboratorId)))
                                               ? [collaboratorsById.get(String(assignment.collaboratorId))].filter(Boolean)
                                               : []),
                                           ]
                                             .filter((collab, index, arr) => collab && arr.findIndex((item) => String(item.id) === String(collab.id)) === index)
-                                            .filter((collab) => collaboratorHasRole(collab, required.role) || String(collab.id) === String(assignment.collaboratorId))
-                                            .filter((collab) => {
-                                              const q = String(assignment.collaboratorSearch || '').trim().toLowerCase();
-                                              if (!q) return true;
-                                              return String(collab.name || '').toLowerCase().includes(q)
-                                                || String(collab.shortName || '').toLowerCase().includes(q)
-                                                || String(collab.nif || '').includes(q);
-                                            })
+                                            .filter((collab) => collaboratorHasRole(collab, required.role) || String(collab.id) === String(assignment.collaboratorId)), assignment.collaboratorSearch)
                                             .map((collab) => (
                                               <button
                                                 type="button"

@@ -7,8 +7,21 @@ export function mergeCollaboratorDetail(row, detail) {
   };
 }
 
+function apiOrigin() {
+  try {
+    const base = import.meta.env?.VITE_API_URL || '';
+    return base ? new globalThis.URL(base).origin : '';
+  } catch {
+    return '';
+  }
+}
+
 export function collaboratorPhotoSource(row, detail) {
-  return String(detail?.photo || row?.photo || '');
+  const raw = String(detail?.photo || row?.photo || '');
+  if (raw.startsWith('/uploads/')) {
+    return `${apiOrigin()}${raw}`;
+  }
+  return raw;
 }
 
 export function shouldFetchCollaboratorDetail(row, detail, loading = false) {

@@ -20,7 +20,7 @@ export function formHasChanges(original, current) {
   return normalizeForDirtyCheck(original) !== normalizeForDirtyCheck(current);
 }
 
-export function confirmDiscardChanges(hasChanges, message = 'Existem alterações por guardar. Queres sair sem guardar?') {
+export function confirmDiscardChanges(hasChanges, message = 'Existem alterações por guardar. Pretende sair sem guardar?') {
   if (!hasChanges) return true;
   if (typeof window === 'undefined' || typeof window.confirm !== 'function') return true;
   return window.confirm(message);

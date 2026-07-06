@@ -38,6 +38,13 @@ function startOfDay(value) {
 export default function Layout() {
   const [dismissed, setDismissed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem('extrasolutio.sidebar.collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [ignoredNotifications, setIgnoredNotifications] = useState([]);
   const [notificationReferenceDate, setNotificationReferenceDate] = useState(() => new Date());
   const location = useLocation();
@@ -232,6 +239,14 @@ export default function Layout() {
   }, [location.pathname]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem('extrasolutio.sidebar.collapsed', sidebarCollapsed ? 'true' : 'false');
+    } catch {
+      // Storage can be unavailable in restricted browser contexts.
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
     if (!Array.isArray(ignoredFromDb)) return;
     setIgnoredNotifications(ignoredFromDb.filter(Boolean));
   }, [ignoredFromDb]);
@@ -252,8 +267,13 @@ export default function Layout() {
   }
 
   return (
-    <div className="app-shell">
-      <Sidebar mobileOpen={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
+    <div className={`app-shell ${sidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`}>
+      <Sidebar
+        mobileOpen={mobileNavOpen}
+        collapsed={sidebarCollapsed && !mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
+      />
       <button
         type="button"
         className={`sidebar-backdrop ${mobileNavOpen ? 'sidebar-backdrop--open' : ''}`}

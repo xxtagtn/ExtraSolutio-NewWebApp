@@ -4,6 +4,7 @@ import {
   calendarDateKey,
   calendarInitialCursor,
   calendarDateWithMonth,
+  calendarMonthCells,
   calendarWeekDates,
   serviceOccursOnDate,
 } from './calendarDates.js';
@@ -48,4 +49,14 @@ test('detects every day of a continuous event', () => {
   assert.equal(serviceOccursOnDate(service, new Date(2026, 5, 19)), true);
   assert.equal(serviceOccursOnDate(service, new Date(2026, 5, 20)), true);
   assert.equal(serviceOccursOnDate(service, new Date(2026, 5, 21)), false);
+});
+
+test('builds a six-row month grid with adjacent month days', () => {
+  const cells = calendarMonthCells(new Date(2026, 6, 4));
+
+  assert.equal(cells.length, 42);
+  assert.equal(cells[0].key, '2026-06-29');
+  assert.equal(cells[41].key, '2026-08-09');
+  assert.equal(cells.find((cell) => cell.key === '2026-07-01').isCurrentMonth, true);
+  assert.equal(cells[0].isCurrentMonth, false);
 });

@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="page" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#071014"/>
+      <stop offset="0.55" stop-color="#0b171c"/>
+      <stop offset="1" stop-color="#061216"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#132128"/>
+      <stop offset="1" stop-color="#0b1519"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1">
+      <stop offset="0" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <style>
+      .bg{fill:url(#page)}
+      .sidebar{fill:#081216;stroke:#1f3037}
+      .card{fill:url(#card);stroke:#263940}
+      .soft{fill:#0d181d;stroke:#263940}
+      .input{fill:#081216;stroke:#2b4048}
+      .primary{fill:url(#accent)}
+      .line{stroke:#263940}
+      .text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#eef5f3}
+      .muted{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#a9bac0}
+      .green{fill:#86efac}.teal{fill:#2dd4bf}.amber{fill:#fbbf24}.red{fill:#fb7185}.blue{fill:#93c5fd}
+      .xs{font-size:11px}.sm{font-size:12px}.base{font-size:14px}.md{font-size:16px}.lg{font-size:20px}.xl{font-size:28px}.xxl{font-size:38px}
+      .bold{font-weight:700}.semi{font-weight:600}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <rect class="sidebar" x="0" y="0" width="232" height="900"/>
+  <text class="text bold xxl" x="24" y="58">ES</text>
+  <text class="text bold md" x="78" y="40">ExtraSolutio</text>
+  <text class="teal sm" x="78" y="62" font-family="Inter,Segoe UI,Arial">Staff &amp; Eventos</text>
+  <rect x="12" y="108" width="208" height="46" rx="10" fill="#0f4a49"/>
+  <text class="text semi base" x="32" y="137">Dashboard</text>
+  <g class="muted base">
+    <text x="32" y="190">Calendário</text>
+    <text x="32" y="238">Eventos/Serviços</text>
+    <text x="32" y="286">Clientes</text>
+    <text x="32" y="334">Orçamentos</text>
+    <text x="32" y="382">Colaboradores</text>
+    <text x="32" y="430">Conferência Operacional</text>
+    <text x="32" y="478">Financeiro</text>
+    <text x="32" y="526">Balancete</text>
+    <text x="32" y="574">Comunicação</text>
+  </g>
+  <rect x="16" y="822" width="200" height="58" rx="12" fill="#0c171c" stroke="#263940"/>
+  <circle cx="46" cy="851" r="19" fill="#14532d"/>
+  <text class="text bold sm" x="38" y="856">ES</text>
+  <text class="text semi sm" x="76" y="846">Extra Solutio</text>
+  <text class="muted xs" x="76" y="866">Administrador</text>
+
+  <g transform="translate(232,0)">
+    <rect x="0" y="0" width="1368" height="78" fill="#081216" stroke="#1f3037"/>
+    <text class="text bold xl" x="34" y="44">Dashboard</text>
+    <text class="muted sm" x="34" y="64">Centro de ações operacionais</text>
+    <rect class="input" x="930" y="22" width="210" height="36" rx="18"/>
+    <text class="muted sm" x="954" y="45">Pesquisar...</text>
+    <circle cx="1194" cy="40" r="18" fill="#0d181d" stroke="#2b4048"/>
+    <circle cx="1246" cy="40" r="18" fill="#0d181d" stroke="#2b4048"/>
+    <circle cx="1310" cy="40" r="24" fill="#1f2937"/>
+    <text class="text bold sm" x="1301" y="45">ES</text>
+
+    <g transform="translate(34,104)">
+      <rect class="card" x="0" y="0" width="298" height="136" rx="12" filter="url(#shadow)"/>
+      <rect x="22" y="22" width="58" height="58" rx="12" fill="#053d3b" stroke="#0f766e"/>
+      <text class="teal xl bold" x="39" y="61" font-family="Inter,Segoe UI,Arial">3</text>
+      <text class="text md semi" x="106" y="44">Eventos hoje</text>
+      <text class="muted sm" x="106" y="72">2 equipas completas</text>
+      <text class="green sm" x="106" y="104" font-family="Inter,Segoe UI,Arial">+1 vs. ontem</text>
+
+      <rect class="card" x="318" y="0" width="298" height="136" rx="12"/>
+      <rect x="340" y="22" width="58" height="58" rx="12" fill="#332508" stroke="#b45309"/>
+      <text class="amber xl bold" x="357" y="61" font-family="Inter,Segoe UI,Arial">7</text>
+      <text class="text md semi" x="424" y="44">Staff por confirmar</text>
+      <text class="muted sm" x="424" y="72">4 eventos afetados</text>
+      <text class="amber sm" x="424" y="104" font-family="Inter,Segoe UI,Arial">prioridade alta</text>
+
+      <rect class="card" x="636" y="0" width="298" height="136" rx="12"/>
+      <rect x="658" y="22" width="58" height="58" rx="12" fill="#0b2746" stroke="#2563eb"/>
+      <text class="blue xl bold" x="671" y="61" font-family="Inter,Segoe UI,Arial">18</text>
+      <text class="text md semi" x="742" y="44">Horários por validar</text>
+      <text class="muted sm" x="742" y="72">aguardar cliente</text>
+      <text class="blue sm" x="742" y="104" font-family="Inter,Segoe UI,Arial">abrir conferência</text>
+
+      <rect class="card" x="954" y="0" width="346" height="136" rx="12"/>
+      <rect x="976" y="22" width="58" height="58" rx="12" fill="#052e20" stroke="#16a34a"/>
+      <text class="green xl bold" x="992" y="61" font-family="Inter,Segoe UI,Arial">€</text>
+      <text class="text md semi" x="1060" y="44">Valor pronto para faturar</text>
+      <text class="text xl bold" x="1060" y="84">1.284,00€</text>
+      <text class="green sm" x="1060" y="110" font-family="Inter,Segoe UI,Arial">+214,00€ vs. ontem</text>
+    </g>
+
+    <g transform="translate(34,270)">
+      <rect class="card" x="0" y="0" width="480" height="310" rx="12"/>
+      <text class="text lg bold" x="24" y="38">Hoje</text>
+      <text class="teal sm" x="396" y="38" font-family="Inter,Segoe UI,Arial">Ver agenda</text>
+      <line class="line" x1="0" x2="480" y1="58" y2="58"/>
+      <g transform="translate(24,82)">
+        <circle cx="24" cy="24" r="24" fill="#064e3b"/>
+        <text class="text md" x="72" y="18">Restaurante Luz Chakall</text>
+        <text class="muted sm" x="72" y="40">11:30 → 16:00</text>
+        <rect x="302" y="8" width="120" height="30" rx="8" fill="#123d27" stroke="#166534"/>
+        <text class="green sm" x="324" y="28" font-family="Inter,Segoe UI,Arial">Equipa completa</text>
+      </g>
+      <g transform="translate(24,154)">
+        <circle cx="24" cy="24" r="24" fill="#3b2607"/>
+        <text class="text md" x="72" y="18">Embaixada da China</text>
+        <text class="muted sm" x="72" y="40">18:00 → 23:00</text>
+        <rect x="302" y="8" width="120" height="30" rx="8" fill="#332508" stroke="#b45309"/>
+        <text class="amber sm" x="326" y="28" font-family="Inter,Segoe UI,Arial">2 por confirmar</text>
+      </g>
+      <g transform="translate(24,226)">
+        <circle cx="24" cy="24" r="24" fill="#4c1218"/>
+        <text class="text md" x="72" y="18">Restante pagamento</text>
+        <text class="red sm" x="72" y="40" font-family="Inter,Segoe UI,Arial">Casa Oeiras vence hoje</text>
+        <rect class="input" x="302" y="8" width="120" height="30" rx="8"/>
+        <text class="text sm" x="326" y="28">Abrir</text>
+      </g>
+
+      <rect class="card" x="502" y="0" width="454" height="310" rx="12"/>
+      <text class="text lg bold" x="526" y="38">Próximas 48h</text>
+      <text class="teal sm" x="872" y="38" font-family="Inter,Segoe UI,Arial">Ver todas</text>
+      <line class="line" x1="502" x2="956" y1="58" y2="58"/>
+      <g transform="translate(526,82)">
+        <text class="text md semi" x="0" y="18">Hotel Altis</text>
+        <text class="muted sm" x="0" y="40">21/06/2026 · 10:00 → 22:00</text>
+        <rect x="286" y="8" width="126" height="30" rx="8" fill="#4c1218" stroke="#dc2626"/>
+        <text class="red sm" x="306" y="28" font-family="Inter,Segoe UI,Arial">Sem equipa</text>
+      </g>
+      <g transform="translate(526,154)">
+        <text class="text md semi" x="0" y="18">FIC Lisboa</text>
+        <text class="muted sm" x="0" y="40">21/06/2026 · 09:00 → 18:00</text>
+        <rect x="248" y="8" width="164" height="30" rx="8" fill="#0b2746" stroke="#2563eb"/>
+        <text class="blue sm" x="268" y="28" font-family="Inter,Segoe UI,Arial">Lembrete por enviar</text>
+      </g>
+      <g transform="translate(526,226)">
+        <text class="text md semi" x="0" y="18">SSH Estádio</text>
+        <text class="muted sm" x="0" y="40">22/06/2026 · 11:30 → 17:00</text>
+        <rect x="238" y="8" width="174" height="30" rx="8" fill="#332508" stroke="#b45309"/>
+        <text class="amber sm" x="254" y="28" font-family="Inter,Segoe UI,Arial">Validar horários amanhã</text>
+      </g>
+
+      <rect class="card" x="978" y="0" width="322" height="310" rx="12"/>
+      <text class="text lg bold" x="1002" y="38">Resumo rápido</text>
+      <line class="line" x1="978" x2="1300" y1="58" y2="58"/>
+      <text class="muted sm" x="1002" y="94">Próximos 7 dias</text><text class="text xl bold" x="1228" y="98">12</text>
+      <text class="muted sm" x="1002" y="146">Staff ativo</text><text class="text xl bold" x="1228" y="150">48</text>
+      <text class="muted sm" x="1002" y="198">Orçamentos em aberto</text><text class="text xl bold" x="1228" y="202">6</text>
+      <text class="muted sm" x="1002" y="250">Follow-ups pendentes</text><text class="text xl bold" x="1228" y="254">4</text>
+    </g>
+
+    <g transform="translate(34,606)">
+      <rect class="card" x="0" y="0" width="1300" height="246" rx="12"/>
+      <text class="text lg bold" x="24" y="40">Ações Pendentes</text>
+      <text class="teal sm" x="1170" y="40" font-family="Inter,Segoe UI,Arial">Ver todas as ações</text>
+      <line class="line" x1="0" x2="1300" y1="62" y2="62"/>
+      <text class="muted xs" x="24" y="92">PRIORIDADE</text><text class="muted xs" x="184" y="92">AÇÃO</text><text class="muted xs" x="568" y="92">ORIGEM</text><text class="muted xs" x="846" y="92">PRAZO</text><text class="muted xs" x="1030" y="92">ESTADO</text>
+      <g transform="translate(24,112)">
+        <rect x="0" y="0" width="84" height="30" rx="8" fill="#4c1218" stroke="#dc2626"/><text class="red sm" x="18" y="20" font-family="Inter,Segoe UI,Arial">Crítica</text>
+        <text class="text base" x="160" y="20">Validar horários Cliente</text><text class="muted sm" x="544" y="20">Restaurante Luz Chakall</text><text class="text sm" x="822" y="20">Hoje</text><rect x="1006" y="0" width="120" height="30" rx="8" fill="#332508" stroke="#b45309"/><text class="amber sm" x="1022" y="20" font-family="Inter,Segoe UI,Arial">Aguardar cliente</text><rect class="input" x="1176" y="0" width="92" height="30" rx="8"/><text class="teal sm" x="1208" y="20" font-family="Inter,Segoe UI,Arial">Abrir</text>
+      </g>
+      <g transform="translate(24,162)">
+        <rect x="0" y="0" width="84" height="30" rx="8" fill="#3b2607" stroke="#b45309"/><text class="amber sm" x="24" y="20" font-family="Inter,Segoe UI,Arial">Alta</text>
+        <text class="text base" x="160" y="20">Enviar lembrete 24h</text><text class="muted sm" x="544" y="20">Embaixada da China</text><text class="text sm" x="822" y="20">Amanhã 18:00</text><rect x="1006" y="0" width="92" height="30" rx="8" fill="#0b2746" stroke="#2563eb"/><text class="blue sm" x="1026" y="20" font-family="Inter,Segoe UI,Arial">Por enviar</text><rect class="input" x="1176" y="0" width="92" height="30" rx="8"/><text class="teal sm" x="1206" y="20" font-family="Inter,Segoe UI,Arial">Enviar</text>
+      </g>
+    </g>
+  </g>
+</svg>

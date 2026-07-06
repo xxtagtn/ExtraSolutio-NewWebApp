@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#e9e3d4"/>
+      <stop offset="1" stop-color="#111111"/>
+    </linearGradient>
+    <style>
+      .bg{fill:#111}
+      .cream{fill:#efe7d5}
+      .black{fill:#111}
+      .paper{fill:#f8f1df;stroke:#111;stroke-width:2}
+      .ink{fill:#111;font-family:Inter,Segoe UI,Arial,sans-serif}
+      .muted{fill:#565048;font-family:Inter,Segoe UI,Arial,sans-serif}
+      .white{fill:#f8f1df;font-family:Inter,Segoe UI,Arial,sans-serif}
+      .teal{fill:#008f84}.red{fill:#d64545}.gold{fill:#bd8b13}.green{fill:#218348}
+      .xs{font-size:11px}.sm{font-size:12px}.base{font-size:14px}.md{font-size:16px}.lg{font-size:20px}.xl{font-size:34px}.xxl{font-size:64px}
+      .bold{font-weight:850}.semi{font-weight:650}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <rect class="cream" x="0" y="0" width="420" height="900"/>
+  <text class="ink bold xxl" x="54" y="94">ES</text>
+  <text class="ink bold xl" x="54" y="160">ExtraSolutio</text>
+  <text class="muted md" x="56" y="192">Staff &amp; Eventos</text>
+  <line x1="54" x2="346" y1="240" y2="240" stroke="#111" stroke-width="2"/>
+  <g class="ink md semi">
+    <text x="54" y="292">01 Dashboard</text>
+    <text x="54" y="344">02 Eventos</text>
+    <text x="54" y="396">03 Colaboradores</text>
+    <text x="54" y="448">04 Conferência</text>
+    <text x="54" y="500">05 Financeiro</text>
+    <text x="54" y="552">06 Balancete</text>
+  </g>
+  <rect x="54" y="728" width="292" height="82" fill="#111"/>
+  <text class="white semi md" x="78" y="762">3 eventos hoje</text>
+  <text class="white sm" x="78" y="790" opacity="0.72">modo operação ativa</text>
+
+  <g transform="translate(474,52)">
+    <text class="white xxl bold" x="0" y="70">Mapa do dia</text>
+    <text class="white md" x="4" y="108" opacity="0.72">Uma interface tipo parede de produção: cartões grandes, leitura imediata, menos micro-caixas.</text>
+  </g>
+
+  <g transform="translate(474,190)">
+    <rect class="paper" x="0" y="0" width="304" height="256" rx="0"/>
+    <text class="ink bold xl" x="26" y="56">11:30</text>
+    <text class="ink semi lg" x="26" y="102">Restaurante Luz Chakall</text>
+    <text class="muted base" x="26" y="132">SSH · 11 colaboradores</text>
+    <rect x="26" y="164" width="150" height="36" fill="#d9f2e3"/>
+    <text class="green semi sm" x="48" y="187" font-family="Inter,Segoe UI,Arial">Equipa completa</text>
+    <text class="ink sm" x="26" y="226">Abrir ficha →</text>
+
+    <rect class="paper" x="336" y="0" width="304" height="256" rx="0"/>
+    <text class="ink bold xl" x="362" y="56">18:00</text>
+    <text class="ink semi lg" x="362" y="102">Embaixada da China</text>
+    <text class="muted base" x="362" y="132">3 colaboradores · 2 pendentes</text>
+    <rect x="362" y="164" width="150" height="36" fill="#f7e0ad"/>
+    <text class="gold semi sm" x="390" y="187" font-family="Inter,Segoe UI,Arial">Por confirmar</text>
+    <text class="ink sm" x="362" y="226">Resolver →</text>
+
+    <rect class="paper" x="672" y="0" width="304" height="256" rx="0"/>
+    <text class="ink bold xl" x="698" y="56">Hoje</text>
+    <text class="ink semi lg" x="698" y="102">Casa Oeiras</text>
+    <text class="muted base" x="698" y="132">restante pagamento</text>
+    <rect x="698" y="164" width="150" height="36" fill="#f5c8c8"/>
+    <text class="red semi sm" x="724" y="187" font-family="Inter,Segoe UI,Arial">Vence hoje</text>
+    <text class="ink sm" x="698" y="226">Financeiro →</text>
+  </g>
+
+  <g transform="translate(474,500)">
+    <rect x="0" y="0" width="976" height="292" fill="#f8f1df"/>
+    <text class="ink bold xl" x="28" y="56">Fila de fecho operacional</text>
+    <line x1="28" x2="948" y1="86" y2="86" stroke="#111" stroke-width="2"/>
+    <g transform="translate(28,116)">
+      <text class="ink bold md" x="0" y="20">Validação de horas Cliente</text>
+      <text class="muted base" x="0" y="48">Restaurante Luz Chakall · 8/11 preenchidos · 2 divergências</text>
+      <rect x="742" y="-2" width="150" height="38" fill="#111"/>
+      <text class="white semi sm" x="790" y="22">Abrir</text>
+    </g>
+    <line x1="28" x2="948" y1="188" y2="188" stroke="#111" stroke-width="1"/>
+    <g transform="translate(28,218)">
+      <text class="ink bold md" x="0" y="20">Staff por processar</text>
+      <text class="muted base" x="0" y="48">Junho · 12.640,00€ · 3 eventos finalizados</text>
+      <rect x="742" y="-2" width="150" height="38" fill="#111"/>
+      <text class="white semi sm" x="778" y="22">Processar</text>
+    </g>
+  </g>
+</svg>

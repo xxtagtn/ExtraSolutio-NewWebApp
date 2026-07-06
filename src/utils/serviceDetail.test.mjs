@@ -5,6 +5,7 @@ import {
   editableTeamRowsToAssignmentDrafts,
   editableTeamRowsToAssignmentPayloads,
   groupAssignmentsByRole,
+  resolveSelectedTeamDay,
   serviceAssignmentDays,
   serviceChecklist,
   serviceDetailMetrics,
@@ -54,7 +55,7 @@ test('serviceAssignmentDays returns continuous event days and assignment dates c
   assert.deepEqual(days, ['2026-06-17', '2026-06-18', '2026-06-19', '2026-06-20']);
 });
 
-test('groupAssignmentsByRole filters by selected date and sorts names', () => {
+test('groupAssignmentsByRole filters by selected date and keeps the editing order stable', () => {
   const groups = groupAssignmentsByRole([
     { role: 'Emp.Mesa', assignmentDate: '2026-06-17', collaborator: { shortName: 'Miriam' } },
     { role: 'Emp.Mesa', assignmentDate: '2026-06-17', collaborator: { shortName: 'Ana' } },
@@ -63,7 +64,7 @@ test('groupAssignmentsByRole filters by selected date and sorts names', () => {
 
   assert.equal(groups.length, 1);
   assert.equal(groups[0].role, 'Emp.Mesa');
-  assert.deepEqual(groups[0].rows.map((row) => row.collaborator.shortName), ['Ana', 'Miriam']);
+  assert.deepEqual(groups[0].rows.map((row) => row.collaborator.shortName), ['Miriam', 'Ana']);
 });
 
 test('buildEditableTeamRows creates missing rows from required roles', () => {
@@ -128,4 +129,25 @@ test('editable team rows split assigned rows from empty saved drafts', () => {
   assert.equal(drafts.length, 1);
   assert.equal(drafts[0].role, 'Emp.Mesa');
   assert.equal(drafts[0].collaboratorId, undefined);
+});
+
+test('keeps the selected continuous event day when it is still available', () => {
+  assert.equal(resolveSelectedTeamDay({
+    isContinuous: true,
+    days: ['2026-06-01', '2026-06-02', '2026-06-03'],
+    selectedDay: '2026-06-02',
+  }), '2026-06-02');
+});
+
+test('falls back to the first continuous event day only when the selected day is invalid', () => {
+  assert.equal(resolveSelectedTeamDay({
+    isContinuous: true,
+    days: ['2026-06-01', '2026-06-02'],
+    selectedDay: '2026-06-09',
+  }), '2026-06-01');
+  assert.equal(resolveSelectedTeamDay({
+    isContinuous: false,
+    days: ['2026-06-01'],
+    selectedDay: '2026-06-01',
+  }), '');
 });

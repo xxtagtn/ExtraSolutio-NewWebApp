@@ -123,6 +123,12 @@ export function serviceAssignmentDays(event = {}) {
   return [...days].filter(Boolean).sort((a, b) => a.localeCompare(b));
 }
 
+export function resolveSelectedTeamDay({ isContinuous = false, days = [], selectedDay = '' } = {}) {
+  if (!isContinuous || !days.length) return '';
+  if (selectedDay && days.includes(selectedDay)) return selectedDay;
+  return days[0] || '';
+}
+
 export function groupAssignmentsByRole(assignments = [], event = {}, selectedDate = '') {
   const groups = new Map();
   for (const assignment of assignments) {
@@ -135,12 +141,7 @@ export function groupAssignmentsByRole(assignments = [], event = {}, selectedDat
   return [...groups.entries()]
     .map(([role, rows]) => ({
       role,
-      rows: [...rows].sort((a, b) => {
-        const byName = String(a.collaborator?.shortName || a.collaborator?.name || '')
-          .localeCompare(String(b.collaborator?.shortName || b.collaborator?.name || ''), 'pt');
-        if (byName) return byName;
-        return String(a.plannedCheckIn || a.checkIn || '').localeCompare(String(b.plannedCheckIn || b.checkIn || ''));
-      }),
+      rows,
     }))
     .sort((a, b) => a.role.localeCompare(b.role, 'pt'));
 }

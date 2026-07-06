@@ -16,13 +16,16 @@ import {
   Users,
   WalletCards,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
+import TimeInput from '../components/UI/TimeInput.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
+import { filterCollaboratorOptions } from '../utils/collaboratorSearch.js';
+import { serviceDetailTabFromQuery } from '../utils/deepLinks.js';
 import { date, money } from '../utils/formatters.js';
 import {
   assignmentWorkDate,
@@ -31,6 +34,7 @@ import {
   editableTeamRowsToAssignmentDrafts,
   editableTeamRowsToAssignmentPayloads,
   groupAssignmentsByRole,
+  resolveSelectedTeamDay,
   safeJsonArray,
   serviceAssignmentDays,
   serviceChecklist,
@@ -100,6 +104,7 @@ function ProgressStat({ label, value, detail, tone = 'neutral' }) {
 
 export default function ServiceDetail() {
   const { serviceId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', []);
   const { data: collaborators } = useApi('/collaborators?light=1', []);
   const [activeTab, setActiveTab] = useState('summary');
@@ -120,6 +125,7 @@ export default function ServiceDetail() {
   const [selectedDay, setSelectedDay] = useState('');
   const [activeTeamCollaboratorPickerKey, setActiveTeamCollaboratorPickerKey] = useState(null);
   const [teamCollaboratorPickerPlacement, setTeamCollaboratorPickerPlacement] = useState(null);
+  const teamCollaboratorSearchRef = useRef(null);
   const currentDay = selectedDay && days.includes(selectedDay) ? selectedDay : days[0] || '';
   const assignmentGroups = useMemo(
     () => groupAssignmentsByRole(displayAssignments, service || {}, currentDay),
@@ -138,13 +144,30 @@ export default function ServiceDetail() {
   );
 
   useEffect(() => {
+    const requestedTab = serviceDetailTabFromQuery(searchParams.get('tab'));
+    if (!requestedTab) return;
+    setActiveTab(requestedTab);
+    const nextParams = new window.URLSearchParams(searchParams);
+    nextParams.delete('tab');
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
     if (!service) return;
     setTeamRows(buildEditableTeamRows(service));
-    setSelectedDay('');
     setTeamError('');
     setActiveTeamCollaboratorPickerKey(null);
     setTeamCollaboratorPickerPlacement(null);
   }, [service]);
+
+  useEffect(() => {
+    const nextDay = resolveSelectedTeamDay({
+      isContinuous: Boolean(service?.isContinuous),
+      days,
+      selectedDay,
+    });
+    if (nextDay !== selectedDay) setSelectedDay(nextDay);
+  }, [days, selectedDay, service?.isContinuous]);
 
   useEffect(() => {
     if (activeTeamCollaboratorPickerKey === null) return undefined;
@@ -171,6 +194,15 @@ export default function ServiceDetail() {
       window.removeEventListener('resize', closePickerFromOutside);
       window.removeEventListener('scroll', closePickerFromOutside, true);
     };
+  }, [activeTeamCollaboratorPickerKey]);
+
+  useEffect(() => {
+    if (activeTeamCollaboratorPickerKey === null) return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      teamCollaboratorSearchRef.current?.focus();
+      teamCollaboratorSearchRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frameId);
   }, [activeTeamCollaboratorPickerKey]);
 
   function updateTeamRow(rowKey, patch) {
@@ -457,6 +489,8 @@ export default function ServiceDetail() {
                               } : undefined}
                             >
                               <input
+                                ref={teamCollaboratorSearchRef}
+                                autoFocus
                                 type="text"
                                 placeholder="Filtrar por nome"
                                 value={assignment.collaboratorSearch || ''}
@@ -478,18 +512,12 @@ export default function ServiceDetail() {
                                   const roleCollaborators = activeCollaborators.filter((collaborator) => collaboratorHasRole(collaborator, group.role));
                                   const selectedCollaborator = assignment.collaborator
                                     || activeCollaborators.find((collaborator) => String(collaborator.id) === String(assignment.collaboratorId));
-                                  const query = String(assignment.collaboratorSearch || '').trim().toLowerCase();
-                                  return [
+                                  return filterCollaboratorOptions([
                                     ...roleCollaborators,
                                     ...(selectedCollaborator && !roleCollaborators.some((collaborator) => String(collaborator.id) === String(selectedCollaborator.id)) ? [selectedCollaborator] : []),
                                   ]
                                     .filter((collaborator, index, list) => list.findIndex((item) => String(item.id) === String(collaborator.id)) === index)
-                                    .filter((collaborator) => {
-                                      if (!query) return true;
-                                      return String(collaborator.name || '').toLowerCase().includes(query)
-                                        || String(collaborator.shortName || '').toLowerCase().includes(query)
-                                        || String(collaborator.nif || '').includes(query);
-                                    })
+                                    .filter(Boolean), assignment.collaboratorSearch)
                                     .map((collaborator) => (
                                       <button
                                         type="button"
@@ -524,11 +552,11 @@ export default function ServiceDetail() {
                       )}
                       <label>
                         <span>Entrada prevista</span>
-                        <input value={assignment.plannedCheckIn || ''} placeholder="HH:MM" onChange={(event) => updateTeamRow(assignment.rowKey, { plannedCheckIn: event.target.value })} />
+                        <TimeInput value={assignment.plannedCheckIn || ''} placeholder="HH:MM" onChange={(value) => updateTeamRow(assignment.rowKey, { plannedCheckIn: value })} />
                       </label>
                       <label>
                         <span>Saída prevista</span>
-                        <input value={assignment.plannedCheckOut || ''} placeholder="HH:MM" onChange={(event) => updateTeamRow(assignment.rowKey, { plannedCheckOut: event.target.value })} />
+                        <TimeInput value={assignment.plannedCheckOut || ''} placeholder="HH:MM" onChange={(value) => updateTeamRow(assignment.rowKey, { plannedCheckOut: value })} />
                       </label>
                       <label>
                         <span>Valor/h</span>

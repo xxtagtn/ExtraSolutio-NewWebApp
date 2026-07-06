@@ -1,5 +1,8 @@
+import { invalidateApiCache } from './apiCache.js';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const AUTH_KEY = 'extrasolutio.auth';
+const REFRESH_MARGIN_SECONDS = 10 * 60;
 
 export function getStoredAuth() {
   const raw = localStorage.getItem(AUTH_KEY);
@@ -20,8 +23,48 @@ export function clearStoredAuth() {
   localStorage.removeItem(AUTH_KEY);
 }
 
+function tokenPayload(token) {
+  try {
+    const [, payload] = String(token || '').split('.');
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(globalThis.atob(normalized));
+  } catch {
+    return null;
+  }
+}
+
+function tokenNeedsRefresh(token) {
+  const payload = tokenPayload(token);
+  if (!payload?.exp) return false;
+  const secondsLeft = payload.exp - Math.floor(Date.now() / 1000);
+  return secondsLeft > 0 && secondsLeft <= REFRESH_MARGIN_SECONDS;
+}
+
+async function refreshStoredAuth(auth) {
+  const response = await fetch(`${API_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${auth.token}`,
+    },
+  });
+  if (!response.ok) throw new Error('Login Expirado');
+  const refreshed = await response.json();
+  setStoredAuth(refreshed);
+  return refreshed;
+}
+
 export async function api(path, options = {}) {
-  const auth = getStoredAuth();
+  let auth = getStoredAuth();
+  if (auth?.token && !path.startsWith('/auth/') && tokenNeedsRefresh(auth.token)) {
+    try {
+      auth = await refreshStoredAuth(auth);
+    } catch {
+      clearStoredAuth();
+      throw new Error('Login Expirado');
+    }
+  }
   const response = await fetch(`${API_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
@@ -30,6 +73,11 @@ export async function api(path, options = {}) {
     },
     ...options,
   });
+
+  const method = String(options.method || 'GET').toUpperCase();
+  if (response.ok && method !== 'GET') {
+    invalidateApiCache();
+  }
 
   if (!response.ok) {
     if (response.status === 401) clearStoredAuth();

@@ -1,25 +1,33 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../utils/api.js';
+import { invalidateApiCache, readApiCache, writeApiCache } from '../utils/apiCache.js';
+
+export { invalidateApiCache };
 
 export function useApi(path, fallback = []) {
-  const [data, setData] = useState(fallback);
-  const [loading, setLoading] = useState(true);
+  const cached = readApiCache(path);
+  const [data, setData] = useState(cached === undefined ? fallback : cached);
+  const [loading, setLoading] = useState(cached === undefined);
   const [error, setError] = useState('');
+  const activeRef = useRef(true);
 
-  const load = useCallback(() => {
+  const load = useCallback(({ background = false } = {}) => {
     let active = true;
-    setLoading(true);
+    if (!background) {
+      setLoading(readApiCache(path) === undefined);
+    }
     setError('');
 
     api(path)
       .then((result) => {
-        if (active) setData(result);
+        writeApiCache(path, result);
+        if (active && activeRef.current) setData(result);
       })
       .catch((err) => {
-        if (active) setError(err.message);
+        if (active && activeRef.current) setError(err.message);
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active && activeRef.current) setLoading(false);
       });
 
     return () => {
@@ -27,7 +35,24 @@ export function useApi(path, fallback = []) {
     };
   }, [path]);
 
-  useEffect(() => load(), [load]);
+  useEffect(() => {
+    activeRef.current = true;
+    const fresh = readApiCache(path);
+    if (fresh !== undefined) {
+      setData(fresh);
+      setLoading(false);
+    }
+    const cancel = load({ background: fresh !== undefined });
+    return () => {
+      activeRef.current = false;
+      cancel();
+    };
+  }, [load, path]);
 
-  return { data, loading, error, reload: load };
+  const reload = useCallback(() => {
+    invalidateApiCache(path);
+    return load();
+  }, [load, path]);
+
+  return { data, loading, error, reload };
 }
