@@ -8,6 +8,10 @@ function asNumber(value) {
   return decimalValue(value) || 0;
 }
 
+function precisePercent(value) {
+  return Number(value.toFixed(6));
+}
+
 function parseArray(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -32,7 +36,7 @@ export function normalizeExternalCosts(value = []) {
         supplier: asText(item?.supplier),
         description: asText(item?.description),
         costAmount: Number(costAmount.toFixed(2)),
-        marginPercent: Number(marginPercent.toFixed(2)),
+        marginPercent: precisePercent(marginPercent),
         marginAmount: Number(marginAmount.toFixed(2)),
         chargeAmount: Number(chargeAmount.toFixed(2)),
         status: asText(item?.status) || 'pending',

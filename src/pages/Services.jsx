@@ -49,7 +49,13 @@ import {
   SERVICE_STATUS,
   statusLabel,
 } from '../utils/serviceStatus.js';
-import { calculateTravelAmount, normalizeTravelCars } from '../utils/travelCalculator.js';
+import {
+  applyServiceTemplateToForm,
+  cleanTravelCarsForPayload,
+  templatePayloadFromForm,
+  travelCarsFromSource,
+} from '../utils/serviceTemplateForm.js';
+import { calculateTravelAmount } from '../utils/travelCalculator.js';
 
 const eventTypeOptions = [
   'Restaurante',
@@ -273,42 +279,6 @@ function safeArrayJson(value) {
   }
 }
 
-function travelCarsFromSource(source = {}) {
-  const cars = normalizeTravelCars(source.travelCars).map((item, index) => ({
-    ...item,
-    id: item.id || `car-${index + 1}`,
-    label: item.label || `Carro ${index + 1}`,
-    km: item.km || '',
-    kmRate: item.kmRate || 0.4,
-    durationHours: item.durationHours || '',
-    travelPeople: item.travelPeople || 1,
-    travelStaffHourlyRate: item.travelStaffHourlyRate ? formatMoneyInline(item.travelStaffHourlyRate) : '',
-  }));
-  if (cars.length) return cars;
-  const hasLegacyValues = ['km', 'durationHours', 'travelPeople', 'travelStaffHourlyRate']
-    .some((field) => source[field] !== undefined && source[field] !== null && source[field] !== '' && Number(source[field]) !== 0);
-  if (hasLegacyValues) {
-    return [{
-      ...emptyTravelCar(0),
-      id: 'car-1',
-      km: source.km ?? '',
-      kmRate: source.kmRate ?? 0.4,
-      durationHours: source.durationHours ?? '',
-      travelPeople: source.travelPeople ?? 1,
-      travelStaffHourlyRate: source.travelStaffHourlyRate ? formatMoneyInline(source.travelStaffHourlyRate) : '',
-    }];
-  }
-  return [emptyTravelCar()];
-}
-
-function cleanTravelCarsForPayload(cars = []) {
-  return normalizeTravelCars(cars).map((item, index) => ({
-    ...item,
-    id: item.id || `car-${index + 1}`,
-    label: item.label || `Carro ${index + 1}`,
-  }));
-}
-
 function clientRateForRole(client, role) {
   const value = clientRuleRate(client, role);
   return value === null ? '' : formatMoneyInline(value);
@@ -341,53 +311,6 @@ function removeValidatedMarker(notes) {
     .filter((line) => !line.includes('[EVENT_VALIDATED_HOURS]'))
     .join('\n')
     .trim();
-}
-
-function parseTemplatePayload(template) {
-  if (!template?.payload) return {};
-  if (typeof template.payload === 'object') return template.payload;
-  try {
-    const parsed = JSON.parse(template.payload);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function templatePayloadFromForm(currentForm) {
-  const calculatedTravelAmount = calculateTravelAmount(currentForm);
-  return {
-    eventName: currentForm.name || '',
-    eventType: currentForm.eventType || '',
-    isContinuous: Boolean(currentForm.isContinuous),
-    useDefaultLocation: Boolean(currentForm.useDefaultLocation),
-    location: currentForm.location || '',
-    guestsCount: currentForm.guestsCount || '',
-    startTime: currentForm.startTime || '',
-    endTime: currentForm.endTime || '',
-    uniform: currentForm.uniform || '',
-    uniformOther: currentForm.uniformOther || '',
-    meetingPoint: currentForm.meetingPoint || '',
-    onsiteContactName: currentForm.onsiteContactName || '',
-    onsiteContactPhone: currentForm.onsiteContactPhone || '',
-    travelExpenseEnabled: calculatedTravelAmount > 0,
-    travelExpenseAmount: calculatedTravelAmount,
-    travelType: currentForm.travelType || 'none',
-    travelPeople: currentForm.travelPeople || 1,
-    km: currentForm.km || 0,
-    kmRate: currentForm.kmRate || 0.4,
-    durationHours: currentForm.durationHours || 0,
-    travelStaffHourlyRate: currentForm.travelStaffHourlyRate || '',
-    travelCars: cleanTravelCarsForPayload(currentForm.travelCars),
-    split5050: Boolean(currentForm.split5050),
-    travelManualAmount: currentForm.travelManualAmount || '',
-    description: currentForm.description || '',
-    requiredRoles: (currentForm.requiredRoles || []).map((item) => ({
-      role: item.role || '',
-      qty: Number(item.qty || 0),
-      agreedRate: item.agreedRate || '',
-    })).filter((item) => item.role && item.qty > 0),
-  };
 }
 
 function collaboratorHasRole(collab, role) {
@@ -981,45 +904,10 @@ export default function Services() {
     setSelectedTemplateId(templateId);
     setTemplateError('');
     if (!template) return;
-    const payload = parseTemplatePayload(template);
-    const nextUniform = payload.uniform || '';
-    const isKnownUniform = uniformOptions.includes(nextUniform) && nextUniform !== 'Outros';
-    const useDefaultLocation = payload.useDefaultLocation !== false;
     setTemplateName(template.name || '');
-    setForm((prev) => ({
-      ...prev,
-      name: prev.name || payload.eventName || template.name || '',
-      eventType: payload.eventType || prev.eventType,
-      isContinuous: Boolean(payload.isContinuous),
-      endDate: payload.isContinuous ? prev.endDate : '',
-      useDefaultLocation,
-      location: useDefaultLocation ? (selectedClient?.address || payload.location || prev.location) : (payload.location || prev.location),
-      guestsCount: payload.guestsCount ?? prev.guestsCount,
-      startTime: payload.startTime || prev.startTime,
-      endTime: payload.endTime || prev.endTime,
-      uniform: isKnownUniform ? nextUniform : (nextUniform ? 'Outros' : prev.uniform),
-      uniformOther: isKnownUniform ? '' : (payload.uniformOther || nextUniform || prev.uniformOther),
-      meetingPoint: payload.meetingPoint || prev.meetingPoint,
-      onsiteContactName: payload.onsiteContactName || prev.onsiteContactName,
-      onsiteContactPhone: payload.onsiteContactPhone || prev.onsiteContactPhone,
-      travelExpenseEnabled: Boolean(payload.travelExpenseEnabled),
-      travelExpenseAmount: payload.travelExpenseAmount || '',
-      travelType: payload.travelType || (payload.travelExpenseEnabled ? 'manual' : 'none'),
-      travelPeople: payload.travelPeople || 1,
-      km: payload.km || 0,
-      kmRate: payload.kmRate || 0.4,
-      durationHours: payload.durationHours || 0,
-      travelStaffHourlyRate: payload.travelStaffHourlyRate || '',
-      travelCars: travelCarsFromSource(payload),
-      split5050: Boolean(payload.split5050),
-      travelManualAmount: payload.travelManualAmount || payload.travelExpenseAmount || '',
-      description: payload.description || prev.description,
-      requiredRoles: Array.isArray(payload.requiredRoles) ? payload.requiredRoles.map((item) => ({
-        role: item.role || '',
-        qty: Number(item.qty || 0),
-        agreedRate: item.agreedRate || '',
-      })).filter((item) => item.role && item.qty > 0) : prev.requiredRoles,
-      assignments: [],
+    setForm((prev) => applyServiceTemplateToForm(prev, template, {
+      uniformOptions,
+      selectedClient,
     }));
   }
 
@@ -1883,7 +1771,7 @@ export default function Services() {
                               aria-label="Quilómetros"
                               type="number"
                               min="0"
-                              step="0.01"
+                              step="any"
                               placeholder="KM"
                               value={car.km ?? ''}
                               onChange={(event) => updateTravelCar(index, { km: event.target.value })}
@@ -1892,7 +1780,7 @@ export default function Services() {
                               aria-label="Valor por quilómetro"
                               type="number"
                               min="0"
-                              step="0.01"
+                              step="any"
                               placeholder="€/KM"
                               value={car.kmRate ?? ''}
                               onChange={(event) => updateTravelCar(index, { kmRate: event.target.value })}
@@ -1901,7 +1789,7 @@ export default function Services() {
                               aria-label="Duração da deslocação"
                               type="number"
                               min="0"
-                              step="0.01"
+                              step="any"
                               placeholder="Duração"
                               value={car.durationHours ?? ''}
                               onChange={(event) => updateTravelCar(index, { durationHours: event.target.value })}

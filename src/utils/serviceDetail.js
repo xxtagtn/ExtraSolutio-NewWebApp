@@ -1,6 +1,7 @@
 import { normalizeAssignmentDrafts } from './serviceAssignmentDrafts.js';
 
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
+export const MANUAL_TEAM_ROLE = 'Sem função';
 
 export function safeJsonArray(value) {
   if (!value) return [];
@@ -133,7 +134,7 @@ export function groupAssignmentsByRole(assignments = [], event = {}, selectedDat
   const groups = new Map();
   for (const assignment of assignments) {
     if (selectedDate && assignmentWorkDate(assignment, event) !== selectedDate) continue;
-    const role = assignment.role || 'Sem função';
+    const role = assignment.role || MANUAL_TEAM_ROLE;
     if (!groups.has(role)) groups.set(role, []);
     groups.get(role).push(assignment);
   }
@@ -202,6 +203,24 @@ function emptyEditableTeamRow(event = {}, required = {}, index = 0) {
     assignmentDate: rowDateKeyForRequirement(event, required),
     plannedCheckIn: required.start || event.startTime || '',
     plannedCheckOut: required.end || event.endTime || '',
+    hourlyRate: '',
+    status: 'pending_confirmation',
+    clientSynced: false,
+    isDriver: false,
+    isDraft: true,
+  };
+}
+
+export function createManualTeamRow(event = {}, { role = MANUAL_TEAM_ROLE, selectedDay = '', rowKey = '' } = {}) {
+  const normalizedRole = role || MANUAL_TEAM_ROLE;
+  const assignmentDate = event.isContinuous ? dateKey(selectedDay || event.date) : '';
+  return {
+    rowKey: rowKey || `manual-${normalizedRole}-${assignmentDate || 'single'}-${Date.now()}`,
+    role: normalizedRole,
+    collaboratorId: '',
+    assignmentDate,
+    plannedCheckIn: event.startTime || '',
+    plannedCheckOut: event.endTime || '',
     hourlyRate: '',
     status: 'pending_confirmation',
     clientSynced: false,

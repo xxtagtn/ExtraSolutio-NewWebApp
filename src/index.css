@@ -1719,7 +1719,7 @@ th {
 
 .budget-main {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .budget-panel {
@@ -1733,7 +1733,44 @@ th {
 
 .budget-panel h3 {
   margin: 0;
-  font-size: 0.95rem;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  color: var(--text);
+  font-size: 1rem;
+  letter-spacing: 0;
+}
+
+.budget-panel--identity,
+.budget-panel--event {
+  border-color: rgba(20, 184, 166, 0.24);
+  background:
+    linear-gradient(135deg, rgba(20, 184, 166, 0.08), rgba(15, 21, 25, 0.96) 42%),
+    #0f1519;
+}
+
+.budget-panel--builder {
+  border-color: rgba(59, 130, 246, 0.28);
+  background:
+    linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(15, 21, 25, 0.98) 46%),
+    #0f1519;
+}
+
+.budget-panel--assistant,
+.budget-panel--costs,
+.budget-panel--travel {
+  background: #101820;
+}
+
+.budget-panel--summary {
+  border-color: rgba(20, 184, 166, 0.34);
+  background:
+    linear-gradient(180deg, rgba(20, 184, 166, 0.09), rgba(15, 21, 25, 0.98)),
+    #0f1519;
+}
+
+.budget-panel--responses,
+.budget-panel--followup {
+  background: #0d1419;
 }
 
 .budget-category {
@@ -1787,11 +1824,13 @@ th {
 .budget-side {
   position: sticky;
   top: 0;
+  display: grid;
+  gap: 14px;
 }
 
 .budget-summary {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .budget-summary > div {
@@ -1799,6 +1838,9 @@ th {
   justify-content: space-between;
   gap: 10px;
   color: var(--muted);
+  min-height: 34px;
+  align-items: center;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
 }
 
 .budget-summary strong {
@@ -1806,9 +1848,17 @@ th {
 }
 
 .budget-total {
-  border-top: 1px solid var(--line);
+  border: 1px solid rgba(20, 184, 166, 0.22);
+  border-radius: 8px;
   margin-top: 4px;
-  padding-top: 8px;
+  padding: 10px;
+  background: rgba(20, 184, 166, 0.1);
+  color: var(--text);
+}
+
+.budget-total strong {
+  color: #5eead4;
+  font-size: 1.15rem;
 }
 
 .budget-dashboard {
@@ -2772,7 +2822,6 @@ th {
 
 .service-detail-hero__top,
 .service-detail-title-row,
-.service-detail-bottom-actions,
 .service-detail-card-actions {
   display: flex;
   align-items: center;
@@ -2878,6 +2927,14 @@ th {
   min-width: 0;
 }
 
+.service-detail-team-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .service-detail-info-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2951,8 +3008,11 @@ th {
 .service-detail-role {
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #0f1519;
-  padding: 10px;
+  background:
+    linear-gradient(90deg, rgba(20, 184, 166, 0.1), rgba(15, 21, 25, 0.98) 18%),
+    #0f1519;
+  padding: 10px 10px 10px 14px;
+  box-shadow: inset 4px 0 0 rgba(20, 184, 166, 0.58);
 }
 
 .service-detail-role > header {
@@ -2961,6 +3021,11 @@ th {
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+  margin: -2px -2px 4px -2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(20, 184, 166, 0.12);
+  border-radius: 7px;
+  background: rgba(20, 184, 166, 0.055);
 }
 
 .service-detail-role > header span {
@@ -3232,8 +3297,11 @@ th {
 .service-role-block {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px;
-  background: #0f1519;
+  padding: 10px 10px 10px 14px;
+  background:
+    linear-gradient(90deg, rgba(20, 184, 166, 0.1), rgba(15, 21, 25, 0.98) 18%),
+    #0f1519;
+  box-shadow: inset 4px 0 0 rgba(20, 184, 166, 0.58);
   display: grid;
   gap: 10px;
 }
@@ -3244,6 +3312,11 @@ th {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  margin: -2px -2px 4px -2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(20, 184, 166, 0.12);
+  border-radius: 7px;
+  background: rgba(20, 184, 166, 0.055);
 }
 
 .service-planner {
@@ -9480,7 +9553,6 @@ th {
 
   .service-detail-hero__top,
   .service-detail-title-row,
-  .service-detail-bottom-actions,
   .service-detail-card-actions,
   .service-detail-actions {
     align-items: stretch;
@@ -9489,7 +9561,6 @@ th {
   .service-detail-actions,
   .service-detail-actions a,
   .service-detail-back,
-  .service-detail-bottom-actions a,
   .service-detail-card-actions a {
     width: 100%;
   }
@@ -9629,8 +9700,7 @@ th {
   }
 
   .form-actions--sticky,
-  .service-form-actions,
-  .service-detail-bottom-actions {
+  .service-form-actions {
     position: sticky;
     bottom: 0;
     z-index: 7;

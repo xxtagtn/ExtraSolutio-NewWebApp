@@ -1052,7 +1052,7 @@ export default function Budgets() {
           <form className="resource-form budget-form" onSubmit={submit}>
             <div className="budget-layout">
               <div className="budget-main">
-                <section className="budget-panel">
+                <section className="budget-panel budget-panel--identity">
                   <h3>Dados do Cliente</h3>
                   <div className="form-grid">
                     <label>Referência<input value={form.reference} disabled /></label>
@@ -1113,7 +1113,7 @@ export default function Budgets() {
                   ) : null}
                 </section>
 
-                <section className="budget-panel">
+                <section className="budget-panel budget-panel--event">
                   <h3>Dados do Evento</h3>
                   <div className="budget-category-actions">
                     <button className="secondary-button" type="button" onClick={addEventDay}>
@@ -1166,7 +1166,7 @@ export default function Budgets() {
                   </div>
                 </section>
 
-                <section className="budget-panel">
+                <section className="budget-panel budget-panel--assistant">
                   <h3>Assistente Comercial</h3>
                   <div className="form-grid">
                     <label>Tipo de serviço
@@ -1187,7 +1187,7 @@ export default function Budgets() {
                   </button>
                 </section>
 
-                <section className="budget-panel">
+                <section className="budget-panel budget-panel--builder">
                   <h3>Construção do Orçamento</h3>
                   <div className="budget-category-actions">
                     <button className="secondary-button" type="button" onClick={() => setForm({ ...form, categories: [...form.categories, emptyCategory()] })}>
@@ -1221,7 +1221,7 @@ export default function Budgets() {
                         </label>
                         <label>Quantidade<input type="number" min="1" value={cat.qty} onChange={(event) => updateCategory(idx, { qty: event.target.value })} /></label>
                         <label>Valor/h
-                          <input type="number" step="0.01" value={cat.rate} onChange={(event) => updateCategory(idx, { rate: event.target.value })} />
+                          <input type="number" step="any" value={cat.rate} onChange={(event) => updateCategory(idx, { rate: event.target.value })} />
                           {clientRuleRate(selectedClient, cat.role) !== null && cat.rate !== '' ? <SourceBadge>valor vindo do cliente</SourceBadge> : null}
                         </label>
                         {showCategoryDaySelect ? (
@@ -1248,7 +1248,7 @@ export default function Budgets() {
                   ))}
                 </section>
 
-                <section className="budget-panel budget-external-costs">
+                <section className="budget-panel budget-panel--costs budget-external-costs">
                   <div className="budget-external-header">
                     <label className="check-inline budget-check">
                       <input
@@ -1286,8 +1286,8 @@ export default function Budgets() {
                                 </select>
                               </label>
                               <label>Fornecedor<input value={item.supplier || ''} onChange={(event) => updateExternalCost(idx, { supplier: event.target.value })} /></label>
-                              <label>Custo parceiro<input type="number" min="0" step="0.01" value={item.costAmount || ''} onChange={(event) => updateExternalCost(idx, { costAmount: event.target.value })} /></label>
-                              <label>Margem %<input type="number" min="0" step="0.01" value={item.marginPercent || ''} onChange={(event) => updateExternalCost(idx, { marginPercent: event.target.value })} /></label>
+                              <label>Custo parceiro<input type="number" min="0" step="any" value={item.costAmount || ''} onChange={(event) => updateExternalCost(idx, { costAmount: event.target.value })} /></label>
+                              <label>Margem %<input type="number" min="0" step="any" value={item.marginPercent || ''} onChange={(event) => updateExternalCost(idx, { marginPercent: event.target.value })} /></label>
                               <div className="budget-external-result">
                                 <span>Valor cliente</span>
                                 <strong>{money.format(calculated.chargeAmount || 0)}</strong>
@@ -1302,7 +1302,7 @@ export default function Budgets() {
                   ) : null}
                 </section>
 
-                <section className="budget-panel">
+                <section className="budget-panel budget-panel--travel">
                   <h3>Deslocação e Observações</h3>
                   <div className="form-grid">
                     <label>IVA
@@ -1314,7 +1314,7 @@ export default function Budgets() {
                         <option value="exempt">Isento</option>
                       </select>
                     </label>
-                    <label>Desconto %<input type="number" step="0.01" value={form.discountRate} onChange={(event) => setForm({ ...form, discountRate: event.target.value })} /></label>
+                    <label>Desconto %<input type="number" step="any" value={form.discountRate} onChange={(event) => setForm({ ...form, discountRate: event.target.value })} /></label>
                     <label>Deslocação
                       <select value={form.travelType} onChange={(event) => setTravelType(event.target.value)}>
                         <option value="none">Nenhuma</option>
@@ -1332,9 +1332,9 @@ export default function Budgets() {
                         {(form.travelCars || [emptyTravelCar()]).map((car, index) => (
                           <div className="service-travel-car-row" key={car.id || index}>
                             <input aria-label="Nome da viatura" placeholder={`Carro ${index + 1}`} value={car.label || ''} onChange={(event) => updateTravelCar(index, { label: event.target.value })} />
-                            <input aria-label="Quilómetros" type="number" min="0" step="0.01" placeholder="KM" value={car.km ?? ''} onChange={(event) => updateTravelCar(index, { km: event.target.value })} />
-                            <input aria-label="Valor por quilómetro" type="number" min="0" step="0.01" placeholder="€/KM" value={car.kmRate ?? ''} onChange={(event) => updateTravelCar(index, { kmRate: event.target.value })} />
-                            <input aria-label="Duração da deslocação" type="number" min="0" step="0.01" placeholder="Duração" value={car.durationHours ?? ''} onChange={(event) => updateTravelCar(index, { durationHours: event.target.value })} />
+                            <input aria-label="Quilómetros" type="number" min="0" step="any" placeholder="KM" value={car.km ?? ''} onChange={(event) => updateTravelCar(index, { km: event.target.value })} />
+                            <input aria-label="Valor por quilómetro" type="number" min="0" step="any" placeholder="€/KM" value={car.kmRate ?? ''} onChange={(event) => updateTravelCar(index, { kmRate: event.target.value })} />
+                            <input aria-label="Duração da deslocação" type="number" min="0" step="any" placeholder="Duração" value={car.durationHours ?? ''} onChange={(event) => updateTravelCar(index, { durationHours: event.target.value })} />
                             <input aria-label="Pessoas na deslocação" type="number" min="0" step="1" placeholder="Pessoas" value={car.travelPeople ?? ''} onChange={(event) => updateTravelCar(index, { travelPeople: event.target.value })} />
                             <input
                               aria-label="Valor por hora da deslocação do staff"
@@ -1360,9 +1360,9 @@ export default function Budgets() {
                     ) : null}
                     {false && form.travelType === 'kilometers' ? (
                       <>
-                        <label>KM<input type="number" min="0" step="0.01" value={form.km} onChange={(event) => setForm({ ...form, km: event.target.value })} /></label>
-                        <label>Valor/KM<input type="number" min="0" step="0.01" value={form.kmRate} onChange={(event) => setForm({ ...form, kmRate: event.target.value })} /></label>
-                        <label>Duração deslocação (h)<input type="number" min="0" step="0.01" value={form.durationHours} onChange={(event) => setForm({ ...form, durationHours: event.target.value })} /></label>
+                        <label>KM<input type="number" min="0" step="any" value={form.km} onChange={(event) => setForm({ ...form, km: event.target.value })} /></label>
+                        <label>Valor/KM<input type="number" min="0" step="any" value={form.kmRate} onChange={(event) => setForm({ ...form, kmRate: event.target.value })} /></label>
+                        <label>Duração deslocação (h)<input type="number" min="0" step="any" value={form.durationHours} onChange={(event) => setForm({ ...form, durationHours: event.target.value })} /></label>
                         <label className="check-inline budget-check"><input type="checkbox" checked={form.split5050} onChange={(event) => setForm({ ...form, split5050: event.target.checked })} /><span>50/50 no tempo de deslocação</span></label>
                       </>
                     ) : null}
@@ -1371,7 +1371,7 @@ export default function Budgets() {
                         <input
                           type="number"
                           min="0"
-                          step="0.01"
+                          step="any"
                           value={form.travelManualAmount}
                           placeholder="Ex: 35,00"
                           onChange={(event) => setForm({ ...form, travelManualAmount: event.target.value })}
@@ -1384,7 +1384,7 @@ export default function Budgets() {
               </div>
 
               <aside className="budget-side">
-                <section className="budget-panel">
+                <section className="budget-panel budget-panel--summary">
                   <h3>Resumo Comercial</h3>
                   <div className="budget-summary">
                     <div><span>Valor Staff</span><strong>{money.format(totals.baseAmount)}</strong></div>
@@ -1401,7 +1401,7 @@ export default function Budgets() {
                   </div>
                 </section>
 
-                <section className="budget-panel">
+                <section className="budget-panel budget-panel--responses">
                   <h3>Gerador de Respostas</h3>
                   <div className="budget-response-actions">
                     <button type="button" className="secondary-button" onClick={() => generateResponse('email')}><Mail size={15} />Gerar Email</button>
@@ -1420,7 +1420,7 @@ export default function Budgets() {
                   </label>
                 </section>
 
-                <section className="budget-panel">
+                <section className="budget-panel budget-panel--followup">
                   <h3>Follow-up</h3>
                   <div className="budget-followup-list">
                     {form.followUpHistory.map((item, index) => (
@@ -1587,9 +1587,9 @@ export default function Budgets() {
                         {(conversionDraft.travelCars || [emptyTravelCar()]).map((car, index) => (
                           <div className="service-travel-car-row" key={car.id || index}>
                             <input aria-label="Nome da viatura" placeholder={`Carro ${index + 1}`} value={car.label || ''} onChange={(event) => updateConversionTravelCar(index, { label: event.target.value })} />
-                            <input aria-label="Quilómetros" type="number" min="0" step="0.01" placeholder="KM" value={car.km ?? ''} onChange={(event) => updateConversionTravelCar(index, { km: event.target.value })} />
-                            <input aria-label="Valor por quilómetro" type="number" min="0" step="0.01" placeholder="€/KM" value={car.kmRate ?? ''} onChange={(event) => updateConversionTravelCar(index, { kmRate: event.target.value })} />
-                            <input aria-label="Duração da deslocação" type="number" min="0" step="0.01" placeholder="Duração" value={car.durationHours ?? ''} onChange={(event) => updateConversionTravelCar(index, { durationHours: event.target.value })} />
+                            <input aria-label="Quilómetros" type="number" min="0" step="any" placeholder="KM" value={car.km ?? ''} onChange={(event) => updateConversionTravelCar(index, { km: event.target.value })} />
+                            <input aria-label="Valor por quilómetro" type="number" min="0" step="any" placeholder="€/KM" value={car.kmRate ?? ''} onChange={(event) => updateConversionTravelCar(index, { kmRate: event.target.value })} />
+                            <input aria-label="Duração da deslocação" type="number" min="0" step="any" placeholder="Duração" value={car.durationHours ?? ''} onChange={(event) => updateConversionTravelCar(index, { durationHours: event.target.value })} />
                             <input aria-label="Pessoas na deslocação" type="number" min="0" step="1" placeholder="Pessoas" value={car.travelPeople ?? ''} onChange={(event) => updateConversionTravelCar(index, { travelPeople: event.target.value })} />
                             <input
                               aria-label="Valor por hora da deslocação do staff"
@@ -1619,13 +1619,13 @@ export default function Budgets() {
                     {false && conversionDraft.travelType === 'kilometers' ? (
                       <>
                         <label>KM
-                          <input type="number" min="0" step="0.01" value={conversionDraft.km ?? ''} onChange={(event) => updateConversionDraft({ km: event.target.value })} />
+                          <input type="number" min="0" step="any" value={conversionDraft.km ?? ''} onChange={(event) => updateConversionDraft({ km: event.target.value })} />
                         </label>
                         <label>Valor/KM
-                          <input type="number" min="0" step="0.01" value={conversionDraft.kmRate ?? ''} onChange={(event) => updateConversionDraft({ kmRate: event.target.value })} />
+                          <input type="number" min="0" step="any" value={conversionDraft.kmRate ?? ''} onChange={(event) => updateConversionDraft({ kmRate: event.target.value })} />
                         </label>
                         <label>Duração deslocação (h)
-                          <input type="number" min="0" step="0.01" value={conversionDraft.durationHours ?? ''} onChange={(event) => updateConversionDraft({ durationHours: event.target.value })} />
+                          <input type="number" min="0" step="any" value={conversionDraft.durationHours ?? ''} onChange={(event) => updateConversionDraft({ durationHours: event.target.value })} />
                         </label>
                         <label className="check-inline budget-check">
                           <input type="checkbox" checked={Boolean(conversionDraft.split5050)} onChange={(event) => updateConversionDraft({ split5050: event.target.checked })} />

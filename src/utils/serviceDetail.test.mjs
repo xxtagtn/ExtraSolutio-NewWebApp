@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildEditableTeamRows,
+  createManualTeamRow,
   editableTeamRowsToAssignmentDrafts,
   editableTeamRowsToAssignmentPayloads,
   groupAssignmentsByRole,
@@ -82,6 +83,39 @@ test('buildEditableTeamRows creates missing rows from required roles', () => {
   assert.deepEqual(rows.map((row) => row.role), ['Emp.Mesa', 'Emp.Mesa', 'Emp.Mesa']);
   assert.deepEqual(rows.map((row) => row.plannedCheckIn), ['12:00', '12:00', '12:00']);
   assert.equal(rows.every((row) => row.isDraft), true);
+});
+
+test('createManualTeamRow adds a directly editable collaborator slot to the selected event day', () => {
+  const row = createManualTeamRow({
+    id: 9,
+    isContinuous: true,
+    date: '2026-06-21',
+    startTime: '10:00',
+    endTime: '18:00',
+  }, {
+    role: 'Emp.Mesa',
+    selectedDay: '2026-06-23',
+    rowKey: 'manual-test-row',
+  });
+
+  assert.deepEqual(row, {
+    rowKey: 'manual-test-row',
+    role: 'Emp.Mesa',
+    collaboratorId: '',
+    assignmentDate: '2026-06-23',
+    plannedCheckIn: '10:00',
+    plannedCheckOut: '18:00',
+    hourlyRate: '',
+    status: 'pending_confirmation',
+    clientSynced: false,
+    isDriver: false,
+    isDraft: true,
+  });
+
+  const drafts = editableTeamRowsToAssignmentDrafts([row]);
+  assert.equal(drafts.length, 1);
+  assert.equal(drafts[0].assignmentDate, '2026-06-23');
+  assert.equal(drafts[0].role, 'Emp.Mesa');
 });
 
 test('editable team rows split assigned rows from empty saved drafts', () => {

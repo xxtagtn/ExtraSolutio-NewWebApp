@@ -30,10 +30,12 @@ import { date, money } from '../utils/formatters.js';
 import {
   assignmentWorkDate,
   buildEditableTeamRows,
+  createManualTeamRow,
   dateKey,
   editableTeamRowsToAssignmentDrafts,
   editableTeamRowsToAssignmentPayloads,
   groupAssignmentsByRole,
+  MANUAL_TEAM_ROLE,
   resolveSelectedTeamDay,
   safeJsonArray,
   serviceAssignmentDays,
@@ -74,7 +76,7 @@ function fieldValue(value) {
 }
 
 function collaboratorHasRole(collaborator, role) {
-  if (!role) return true;
+  if (!role || role === MANUAL_TEAM_ROLE) return true;
   const roles = Array.isArray(collaborator?.roles) ? collaborator.roles : [];
   return roles.includes(role) || String(collaborator?.category || '') === String(role);
 }
@@ -244,23 +246,20 @@ export default function ServiceDetail() {
     setActiveTeamCollaboratorPickerKey(rowKey);
   }
 
-  function addTeamRow(role) {
+  function addTeamRow(role = MANUAL_TEAM_ROLE) {
     setTeamRows((current) => ([
       ...current,
-      {
-        rowKey: `manual-${role}-${Date.now()}`,
+      createManualTeamRow(service || {}, {
         role,
-        collaboratorId: '',
-        assignmentDate: service?.isContinuous ? currentDay : '',
-        plannedCheckIn: service?.startTime || '',
-        plannedCheckOut: service?.endTime || '',
-        hourlyRate: '',
-        status: 'pending_confirmation',
-        clientSynced: false,
-        isDriver: false,
-        isDraft: true,
-      },
+        selectedDay: currentDay,
+        rowKey: `manual-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      }),
     ]));
+  }
+
+  function addDirectTeamRow() {
+    const role = assignmentGroups.length === 1 ? assignmentGroups[0].role : MANUAL_TEAM_ROLE;
+    addTeamRow(role);
   }
 
   function removeTeamRow(rowKey) {
@@ -427,10 +426,16 @@ export default function ServiceDetail() {
           title="Colaboradores"
           className="service-detail-card"
           action={(
-            <button className="command-button" type="button" onClick={saveTeamRows} disabled={savingTeam}>
-              <Save size={16} />
-              {savingTeam ? 'A guardar...' : 'Guardar equipa'}
-            </button>
+            <div className="service-detail-team-actions">
+              <button className="secondary-button" type="button" onClick={addDirectTeamRow}>
+                <Plus size={16} />
+                Adicionar Colaborador
+              </button>
+              <button className="command-button" type="button" onClick={saveTeamRows} disabled={savingTeam}>
+                <Save size={16} />
+                {savingTeam ? 'A guardar...' : 'Guardar equipa'}
+              </button>
+            </div>
           )}
         >
           {days.length > 1 ? (
@@ -601,7 +606,7 @@ export default function ServiceDetail() {
                 <EmptyState
                   icon={Users}
                   title="Sem funções necessárias definidas"
-                  description="Define as funções necessárias para este evento antes de alocar colaboradores."
+                  description="Podes adicionar colaboradores diretamente nesta ficha ou definir funções necessárias se quiseres planear por cargo."
                   action={<Link className="secondary-button" to={`/services?serviceId=${service.id}`}>Definir funções</Link>}
                 />
               </div>
@@ -696,10 +701,6 @@ export default function ServiceDetail() {
         </Card>
       ) : null}
 
-      <div className="service-detail-bottom-actions">
-        <Link className="secondary-button" to="/services">Voltar à lista</Link>
-        <Link className="command-button" to={`/services?serviceId=${service.id}`}>Editar Evento/Serviço</Link>
-      </div>
     </div>
   );
 }
