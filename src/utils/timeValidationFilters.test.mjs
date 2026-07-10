@@ -54,6 +54,18 @@ test('sorts validation rows by date and collaborator name', () => {
   assert.deepEqual([...rows].sort(compareTimeValidationRows).map((row) => row.id), [2, 1, 3]);
 });
 
+test('sorts validation rows by resolved work date before grouping by day', () => {
+  const rows = [
+    { id: 1, workDateKey: '2026-06-02', event: { name: 'Evento', date: '2026-06-01' }, assignment: { plannedCheckIn: '10:00', collaborator: { shortName: 'Ana' } } },
+    { id: 2, workDateKey: '2026-06-01', event: { name: 'Evento', date: '2026-06-01' }, assignment: { plannedCheckIn: '12:00', collaborator: { shortName: 'Rui' } } },
+    { id: 3, workDateKey: '2026-06-06', event: { name: 'Evento', date: '2026-06-01' }, assignment: { plannedCheckIn: '09:00', collaborator: { shortName: 'Debora' } } },
+    { id: 4, workDateKey: '2026-06-03', event: { name: 'Evento', date: '2026-06-01' }, assignment: { plannedCheckIn: '08:00', collaborator: { shortName: 'Diego' } } },
+    { id: 5, workDateKey: '2026-06-01', event: { name: 'Evento', date: '2026-06-01' }, assignment: { plannedCheckIn: '08:00', collaborator: { shortName: 'Marta' } } },
+  ];
+
+  assert.deepEqual([...rows].sort(compareTimeValidationRows).map((row) => row.id), [5, 2, 1, 4, 3]);
+});
+
 test('keeps collaborator order stable while staff and client times are edited', () => {
   const rows = [
     {

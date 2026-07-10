@@ -24,6 +24,7 @@ import { collaboratorsRouter } from './collaborators.js';
 import { notificationsRouter } from './notifications.js';
 import { timeValidationImportsRouter } from './timeValidationImports.js';
 import { whatsappRouter } from './whatsapp.js';
+import { calendarFeedPublicRouter, calendarFeedRouter } from './calendarFeed.js';
 import {
   ensureQrCodeForAssignmentId,
   qrCodesRouter,
@@ -289,6 +290,7 @@ async function normalizeAssignmentUpdate(input, existing) {
 
 apiRouter.use('/auth', authRouter);
 apiRouter.use('/qr-check', qrPublicRouter);
+apiRouter.use('/calendar-feed', calendarFeedPublicRouter);
 
 apiRouter.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'extrasolutio-api' });
@@ -299,6 +301,7 @@ apiRouter.use(requireAuth);
 apiRouter.use('/users', usersRouter);
 apiRouter.use('/backups', backupsRouter);
 apiRouter.use('/notifications', notificationsRouter);
+apiRouter.use('/calendar-feed', requirePermission(PERMISSIONS.CALENDAR_VIEW), calendarFeedRouter);
 
 apiRouter.use('/collaborators', collaboratorsRouter);
 apiRouter.use('/time-validation-imports', requirePermission(PERMISSIONS.TIME_VALIDATION_IMPORT), timeValidationImportsRouter);

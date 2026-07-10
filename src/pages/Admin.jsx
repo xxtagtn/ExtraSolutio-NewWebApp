@@ -1,10 +1,12 @@
-import { Edit2, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { Edit2, Plus, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import Modal from '../components/UI/Modal.jsx';
 import Badge from '../components/UI/Badge.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
 import { api } from '../utils/api.js';
+import { createImageThumbnailDataUrl } from '../utils/imageThumbnails.js';
 import { ROLES, roleLabels, roleOptions } from '../utils/roles.js';
+import { userInitials } from '../utils/userProfile.js';
 
 const emptyOverrides = { allow: [], deny: [] };
 const tabs = [
@@ -110,6 +112,18 @@ function auditSummary(row) {
   return actionLabels[row.action] || row.action;
 }
 
+function UserAvatar({ user, size = 'default' }) {
+  return (
+    <span className={`user-avatar user-avatar--${size}`}>
+      {user?.photo ? (
+        <img src={user.photo} alt={`Foto de ${user.name || 'utilizador'}`} />
+      ) : (
+        <span>{userInitials(user?.name || '')}</span>
+      )}
+    </span>
+  );
+}
+
 export default function Admin() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState('users');
@@ -150,11 +164,22 @@ export default function Admin() {
       id: row?.id || null,
       name: row?.name || '',
       email: row?.email || '',
+      photo: row?.photo || '',
       role: row?.role || ROLES.OPERATIONS,
       accessProfileId: row?.accessProfileId || '',
       password: '',
       permissionOverrides: row?.permissionOverrides || emptyOverrides,
     });
+  }
+
+  async function onUserPhotoSelected(file) {
+    if (!file) return;
+    try {
+      const photo = await createImageThumbnailDataUrl(file, { maxSize: 240, quality: 0.8 });
+      setUserModal((current) => ({ ...current, photo }));
+    } catch {
+      toast.error('Não foi possível carregar a fotografia.');
+    }
   }
 
   function openProfile(row = null) {
@@ -175,6 +200,7 @@ export default function Admin() {
       const payload = {
         name: userModal.name,
         email: userModal.email,
+        photo: userModal.photo || null,
         role: userModal.role,
         accessProfileId: userModal.accessProfileId || null,
         permissionOverrides: userModal.permissionOverrides,
@@ -291,7 +317,15 @@ export default function Admin() {
               <tbody>
                 {users.map((row) => (
                   <tr key={row.id}>
-                    <td data-label="Nome"><strong>{row.name}</strong></td>
+                    <td data-label="Nome">
+                      <div className="admin-user-cell">
+                        <UserAvatar user={row} />
+                        <div>
+                          <strong>{row.name}</strong>
+                          <small>{roleLabels[row.role] || row.role}</small>
+                        </div>
+                      </div>
+                    </td>
                     <td data-label="Email">{row.email}</td>
                     <td data-label="Role"><Badge tone={row.role === ROLES.ADMIN ? 'success' : 'info'}>{roleLabels[row.role] || row.role}</Badge></td>
                     <td data-label="Perfil">{row.accessProfile?.name || 'Pelo role'}</td>
@@ -389,6 +423,35 @@ export default function Admin() {
       {userModal ? (
         <Modal title={userModal.id ? 'Editar Utilizador' : 'Novo Utilizador'} size="wide" onClose={() => setUserModal(null)}>
           <form className="admin-form" onSubmit={saveUser}>
+            <section className="admin-user-profile-editor">
+              <UserAvatar user={userModal} size="large" />
+              <div className="admin-user-profile-editor__content">
+                <strong>{userModal.name || 'Novo utilizador'}</strong>
+                <span>{userModal.email || 'Ainda sem email definido'}</span>
+                <div className="admin-user-profile-editor__actions">
+                  <label className="button button--ghost">
+                    <Upload size={16} />
+                    Escolher foto
+                    <input
+                      type="file"
+                      accept="image/*"
+                      hidden
+                      onChange={(event) => onUserPhotoSelected(event.target.files?.[0])}
+                    />
+                  </label>
+                  {userModal.photo ? (
+                    <button
+                      type="button"
+                      className="button button--ghost button--danger"
+                      onClick={() => setUserModal((current) => ({ ...current, photo: '' }))}
+                    >
+                      <X size={16} />
+                      Remover
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </section>
             <div className="form-grid">
               <label>
                 Nome

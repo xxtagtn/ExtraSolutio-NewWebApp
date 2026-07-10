@@ -1,7 +1,8 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarPlus, Copy, ExternalLink, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../hooks/useApi.js';
+import { api } from '../utils/api.js';
 import { birthdaysByDayForMonth, birthdaysOnDate } from '../utils/birthdays.js';
 import {
   calendarDateKey,
@@ -201,6 +202,10 @@ export default function Calendar() {
   const { data: services = [], loading, error } = useApi('/services', []);
   const { data: budgets = [] } = useApi('/budgets', []);
   const { data: collaborators = [] } = useApi('/collaborators?light=1', []);
+  const { data: calendarFeed = null, reload: reloadCalendarFeed } = useApi('/calendar-feed/me', null);
+  const [calendarFeedMessage, setCalendarFeedMessage] = useState('');
+  const [calendarFeedBusy, setCalendarFeedBusy] = useState(false);
+  const [showCalendarSubscription, setShowCalendarSubscription] = useState(false);
 
   const birthdaysByDay = useMemo(
     () => birthdaysByDayForMonth(collaborators, cursor.getFullYear(), cursor.getMonth()),
@@ -311,6 +316,36 @@ export default function Calendar() {
     return calendarDateKey(value) === calendarDateKey(today);
   }
 
+  async function regenerateCalendarFeed() {
+    setCalendarFeedBusy(true);
+    setCalendarFeedMessage('');
+    try {
+      await api('/calendar-feed/regenerate', { method: 'POST' });
+      await reloadCalendarFeed();
+      setCalendarFeedMessage('Link do calendário atualizado.');
+    } catch (err) {
+      setCalendarFeedMessage(err.message || 'Não foi possível gerar o link.');
+    } finally {
+      setCalendarFeedBusy(false);
+    }
+  }
+
+  async function copyCalendarFeedUrl() {
+    if (!calendarFeed?.feedUrl) return;
+    try {
+      if (!globalThis.navigator?.clipboard?.writeText) throw new Error('clipboard_unavailable');
+      await globalThis.navigator?.clipboard?.writeText(calendarFeed.feedUrl);
+      setCalendarFeedMessage('Link copiado. Adiciona-o no Outlook da conta geral@extrasolutio.pt.');
+    } catch {
+      setCalendarFeedMessage('Não foi possível copiar automaticamente. Seleciona e copia o link abaixo.');
+    }
+  }
+
+  function openCalendarFeed() {
+    if (!calendarFeed?.webcalUrl) return;
+    window.open(calendarFeed.webcalUrl, '_blank', 'noopener,noreferrer');
+  }
+
   return (
     <div className="page calendar-page">
       <section className="calendar-shell" aria-label="Calendário">
@@ -371,6 +406,65 @@ export default function Calendar() {
 
         {error ? <p className="notice">{error}</p> : null}
         {loading ? <p className="muted">A carregar...</p> : null}
+
+        {showCalendarSubscription ? (
+          <section className="calendar-subscription-card" aria-label="Subscrição Outlook">
+            <div className="calendar-subscription-copy">
+              <span className="calendar-subscription-icon" aria-hidden="true">
+                <CalendarPlus size={18} />
+              </span>
+              <div>
+                <h2>Outlook</h2>
+                <p>
+                  Subscreve este calendário no Outlook de <strong>geral@extrasolutio.pt</strong>.
+                  As alterações ficam disponíveis no feed e o Outlook sincroniza automaticamente.
+                </p>
+                {calendarFeed?.isLocalUrl ? (
+                  <p className="calendar-subscription-warning">
+                    Este link é local. Para sincronizar automaticamente no Outlook, a API tem de estar publicada num URL HTTPS acessível pela internet.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <div className="calendar-subscription-actions">
+              <input
+                type="text"
+                readOnly
+                value={calendarFeed?.enabled && calendarFeed?.feedUrl ? calendarFeed.feedUrl : 'Gera um link privado para subscrição no Outlook'}
+                aria-label="Link privado do calendário"
+                onFocus={(event) => event.target.select()}
+              />
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={copyCalendarFeedUrl}
+                disabled={!calendarFeed?.enabled || !calendarFeed?.feedUrl}
+              >
+                <Copy size={15} />
+                Copiar link
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={openCalendarFeed}
+                disabled={!calendarFeed?.enabled || !calendarFeed?.webcalUrl}
+              >
+                <ExternalLink size={15} />
+                Abrir
+              </button>
+              <button
+                type="button"
+                className="command-button"
+                onClick={regenerateCalendarFeed}
+                disabled={calendarFeedBusy}
+              >
+                <RefreshCw size={15} />
+                {calendarFeed?.enabled ? 'Regenerar' : 'Gerar link'}
+              </button>
+            </div>
+            {calendarFeedMessage ? <p className="calendar-subscription-message">{calendarFeedMessage}</p> : null}
+          </section>
+        ) : null}
 
         {calendarView === 'month' ? (
           <div className="calendar-month-frame">
@@ -437,6 +531,17 @@ export default function Calendar() {
         )}
 
         <CalendarLegend />
+
+        <div className="calendar-subscription-footer">
+          <button
+            type="button"
+            className="calendar-subscription-toggle"
+            aria-expanded={showCalendarSubscription}
+            onClick={() => setShowCalendarSubscription((current) => !current)}
+          >
+            Outlook
+          </button>
+        </div>
       </section>
     </div>
   );

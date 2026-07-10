@@ -67,12 +67,6 @@ const quickItems = [
   },
 ];
 
-function formatDelta(delta, valueFormatter = (value) => value) {
-  if (!delta) return '0';
-  const sign = delta > 0 ? '+' : '';
-  return `${sign}${valueFormatter(delta)}`;
-}
-
 function actionDaysUntil(value) {
   if (!value) return null;
   const parsed = new Date(value);
@@ -116,7 +110,7 @@ function KpiCard({ icon: Icon, label, value, detail, tone = 'accent' }) {
       <div>
         <span>{label}</span>
         <strong>{value}</strong>
-        <small>{detail}</small>
+        {detail ? <small>{detail}</small> : null}
       </div>
     </article>
   );
@@ -232,21 +226,18 @@ export default function PendingActions() {
           icon={CalendarDays}
           label="Eventos hoje"
           value={overview.kpis.eventsToday.value}
-          detail={`vs. ontem ${formatDelta(overview.kpis.eventsToday.delta)}`}
           tone="accent"
         />
         <KpiCard
           icon={UsersRound}
           label="Staff por confirmar"
           value={overview.kpis.staffPending.value}
-          detail={`vs. ontem ${formatDelta(overview.kpis.staffPending.delta)}`}
           tone="warning"
         />
         <KpiCard
           icon={Clock3}
           label="Horários por validar"
           value={overview.kpis.hoursPending.value}
-          detail={`vs. ontem ${formatDelta(overview.kpis.hoursPending.delta)}`}
           tone="info"
         />
         <KpiCard

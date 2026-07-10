@@ -12,6 +12,10 @@ model User {
   email                 String   @unique
   password              String
   name                  String
+  photo                 String?
+  calendarFeedToken     String?  @unique
+  calendarFeedEnabled   Boolean  @default(false)
+  calendarFeedPreferences String?
   role                  String   @default("admin")
   accessProfileId       Int?
   accessProfile         AccessProfile? @relation(fields: [accessProfileId], references: [id], onDelete: SetNull)

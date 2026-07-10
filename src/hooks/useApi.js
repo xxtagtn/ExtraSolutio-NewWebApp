@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../utils/api.js';
 import { invalidateApiCache, readApiCache, writeApiCache } from '../utils/apiCache.js';
+import { isSameApiData } from '../utils/apiDataEquality.js';
 
 export { invalidateApiCache };
 
@@ -21,7 +22,9 @@ export function useApi(path, fallback = []) {
     api(path)
       .then((result) => {
         writeApiCache(path, result);
-        if (active && activeRef.current) setData(result);
+        if (active && activeRef.current) {
+          setData((current) => (isSameApiData(current, result) ? current : result));
+        }
       })
       .catch((err) => {
         if (active && activeRef.current) setError(err.message);
@@ -49,9 +52,9 @@ export function useApi(path, fallback = []) {
     };
   }, [load, path]);
 
-  const reload = useCallback(() => {
-    invalidateApiCache(path);
-    return load();
+  const reload = useCallback(({ background = false } = {}) => {
+    if (!background) invalidateApiCache(path);
+    return load({ background });
   }, [load, path]);
 
   return { data, loading, error, reload };

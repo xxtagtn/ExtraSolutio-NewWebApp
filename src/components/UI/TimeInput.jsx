@@ -24,6 +24,7 @@ export default function TimeInput({
     <input
       {...props}
       type="text"
+      data-time-input="true"
       inputMode="numeric"
       maxLength={5}
       placeholder={placeholder}

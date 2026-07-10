@@ -18,6 +18,7 @@ import { requirePermission } from '../security/permissions.js';
 import { validatePasswordStrength } from '../security/passwordPolicy.js';
 import { normalizeRole, publicRole } from '../security/roles.js';
 import { asyncHandler } from '../utils/http.js';
+import { normalizeUserPhoto } from '../../src/utils/userProfile.js';
 
 export const usersRouter = Router();
 
@@ -25,6 +26,7 @@ const publicSelect = {
   id: true,
   email: true,
   name: true,
+  photo: true,
   role: true,
   accessProfileId: true,
   permissionOverrides: true,
@@ -47,6 +49,7 @@ function toPublicUser(user) {
     id: user.id,
     email: user.email,
     name: user.name,
+    photo: user.photo,
     role: publicRole(user.role),
     accessProfileId: user.accessProfileId,
     accessProfile: publicProfile(user.accessProfile),
@@ -170,7 +173,7 @@ usersRouter.get('/', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), asyncHan
 }));
 
 usersRouter.post('/', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), asyncHandler(async (req, res) => {
-  const { email, name, password, role, accessProfileId, permissionOverrides } = req.body;
+  const { email, name, password, role, accessProfileId, permissionOverrides, photo } = req.body;
 
   if (!email || !name || !password) {
     return res.status(400).json({ message: 'Nome, email e password sao obrigatorios.' });
@@ -186,10 +189,17 @@ usersRouter.post('/', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), asyncHa
   }
 
   const hashedPassword = await bcrypt.hash(password, 12);
+  let normalizedPhoto;
+  try {
+    normalizedPhoto = normalizeUserPhoto(photo);
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
   const user = await prisma.user.create({
     data: {
       email: email.trim().toLowerCase(),
       name: name.trim(),
+      photo: normalizedPhoto ?? null,
       password: hashedPassword,
       role: normalizeRole(role),
       accessProfileId: profileId,
@@ -215,11 +225,18 @@ usersRouter.put('/:id', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), async
   const existing = await prisma.user.findUnique({ where: { id }, select: publicSelect });
   if (!existing) return res.status(404).json({ message: 'Utilizador não encontrado.' });
 
-  const { email, name, password, role, accessProfileId, permissionOverrides } = req.body;
+  const { email, name, password, role, accessProfileId, permissionOverrides, photo } = req.body;
   const data = {};
 
   if (email !== undefined) data.email = email.trim().toLowerCase();
   if (name !== undefined) data.name = name.trim();
+  if (photo !== undefined) {
+    try {
+      data.photo = normalizeUserPhoto(photo);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+  }
   if (role !== undefined) data.role = normalizeRole(role);
   if (accessProfileId !== undefined) {
     const profileId = accessProfileId ? Number(accessProfileId) : null;

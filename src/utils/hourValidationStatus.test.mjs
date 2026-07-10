@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { hoursValidationState, validationPersistenceFields } from './hourValidationStatus.js';
+import {
+  STAFF_ACCEPTED_VALIDATION_STATUS,
+  hoursValidationState,
+  validationPersistenceFields,
+} from './hourValidationStatus.js';
 
 test('shows a validated state when status, staff and client times are complete', () => {
   assert.deepEqual(hoursValidationState({
@@ -19,6 +23,18 @@ test('shows a validated state when status, staff and client times are complete',
 test('does not trust a legacy validated status while client times are missing', () => {
   assert.deepEqual(hoursValidationState({
     validationStatus: 'validated',
+    checkIn: '09:00',
+    checkOut: '17:00',
+  }), {
+    isValidated: false,
+    tone: 'info',
+    label: 'Por validar',
+  });
+});
+
+test('shows waiting for client only after staff validation is accepted', () => {
+  assert.deepEqual(hoursValidationState({
+    validationStatus: STAFF_ACCEPTED_VALIDATION_STATUS,
     checkIn: '09:00',
     checkOut: '17:00',
   }), {
@@ -60,6 +76,20 @@ test('clears accepted validation when client times are removed', () => {
   });
 });
 
+test('keeps a staff accepted row waiting for client when client times are cleared', () => {
+  assert.deepEqual(validationPersistenceFields({
+    checkIn: '09:00',
+    checkOut: '17:00',
+    clientCheckIn: '',
+    clientCheckOut: '',
+    validationStatus: STAFF_ACCEPTED_VALIDATION_STATUS,
+  }, 'auto', 'pending'), {
+    validatedCheckIn: null,
+    validatedCheckOut: null,
+    validationStatus: STAFF_ACCEPTED_VALIDATION_STATUS,
+  });
+});
+
 test('clears accepted validation when corrected client times no longer match it', () => {
   assert.deepEqual(validationPersistenceFields({
     checkIn: '09:00',
@@ -86,5 +116,16 @@ test('accepts complete client times as the validated values', () => {
     validatedCheckIn: '09:15',
     validatedCheckOut: '17:00',
     validationStatus: 'validated',
+  });
+});
+
+test('accepts staff times without validating client times', () => {
+  assert.deepEqual(validationPersistenceFields({
+    checkIn: '09:00',
+    checkOut: '17:00',
+  }, STAFF_ACCEPTED_VALIDATION_STATUS, 'pending'), {
+    validatedCheckIn: null,
+    validatedCheckOut: null,
+    validationStatus: STAFF_ACCEPTED_VALIDATION_STATUS,
   });
 });

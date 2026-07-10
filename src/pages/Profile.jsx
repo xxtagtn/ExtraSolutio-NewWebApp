@@ -1,12 +1,15 @@
-import { Save } from 'lucide-react';
+import { Save, Upload, X } from 'lucide-react';
 import { useState } from 'react';
 import Card from '../components/UI/Card.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { api } from '../utils/api.js';
+import { createImageThumbnailDataUrl } from '../utils/imageThumbnails.js';
+import { userInitials } from '../utils/userProfile.js';
 
 export default function Profile() {
   const { user, updateUser } = useAuth();
   const [name, setName] = useState(user?.name || '');
+  const [photo, setPhoto] = useState(user?.photo || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -22,12 +25,22 @@ export default function Profile() {
     try {
       const result = await api('/auth/profile', {
         method: 'PUT',
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, photo: photo || null }),
       });
       updateUser(result.user);
       setProfileMessage('Perfil atualizado.');
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function onPhotoSelected(file) {
+    if (!file) return;
+    try {
+      const nextPhoto = await createImageThumbnailDataUrl(file, { maxSize: 240, quality: 0.8 });
+      setPhoto(nextPhoto);
+    } catch {
+      setError('Não foi possível carregar a fotografia.');
     }
   }
 
@@ -60,6 +73,28 @@ export default function Profile() {
       <div className="grid grid--two">
         <Card title="Perfil">
           <form className="resource-form profile-form" onSubmit={saveProfile}>
+            <section className="profile-photo-editor">
+              <span className="user-avatar user-avatar--large">
+                {photo ? <img src={photo} alt={`Foto de ${name || 'utilizador'}`} /> : <span>{userInitials(name)}</span>}
+              </span>
+              <div>
+                <strong>{name || 'Utilizador'}</strong>
+                <span>{user?.email || ''}</span>
+                <div className="profile-photo-editor__actions">
+                  <label className="button button--ghost">
+                    <Upload size={16} />
+                    Escolher foto
+                    <input type="file" accept="image/*" hidden onChange={(event) => onPhotoSelected(event.target.files?.[0])} />
+                  </label>
+                  {photo ? (
+                    <button type="button" className="button button--ghost button--danger" onClick={() => setPhoto('')}>
+                      <X size={16} />
+                      Remover
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </section>
             <label>
               Nome
               <input value={name} required onChange={(event) => setName(event.target.value)} />

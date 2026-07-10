@@ -1,8 +1,10 @@
-import { AlertTriangle, Bell, BellRing, CakeSlice, CalendarClock, Clock3, FileWarning, LogOut, Menu, Receipt, UserRound, Wallet } from 'lucide-react';
+import { AlertTriangle, Bell, BellRing, CakeSlice, CalendarClock, ChevronDown, Clock3, FileWarning, LogOut, Menu, Receipt, UserRound, Wallet } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
+import { visibleProfileMenuItems } from '../../utils/appNavigation.js';
 import { date } from '../../utils/formatters.js';
+import { userInitials } from '../../utils/userProfile.js';
 import EmptyState from '../UI/EmptyState.jsx';
 
 function notificationIcon(kind) {
@@ -16,22 +18,31 @@ function notificationIcon(kind) {
   return <BellRing size={15} />;
 }
 
+const roleLabels = {
+  admin: 'Administrador',
+  manager: 'Gestão',
+  operations: 'Operacional',
+  finance: 'Financeiro',
+  viewer: 'Consulta',
+};
+
 export default function Header({ onToggleMenu, notifications, onIgnoreNotification }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [showIgnored, setShowIgnored] = useState(false);
   const panelRef = useRef(null);
+  const profileRef = useRef(null);
 
   useEffect(() => {
     function onPointerDown(event) {
-      if (!panelRef.current) return;
-      if (panelRef.current.contains(event.target)) return;
-      setOpen(false);
+      if (open && panelRef.current && !panelRef.current.contains(event.target)) setOpen(false);
+      if (profileOpen && profileRef.current && !profileRef.current.contains(event.target)) setProfileOpen(false);
     }
-    if (open) document.addEventListener('mousedown', onPointerDown);
+    if (open || profileOpen) document.addEventListener('mousedown', onPointerDown);
     return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [open]);
+  }, [open, profileOpen]);
 
   function handleLogout() {
     logout();
@@ -39,6 +50,7 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
   }
 
   const list = showIgnored ? (notifications?.allItems || []) : (notifications?.items || []);
+  const profileItems = visibleProfileMenuItems(user);
 
   return (
     <header className="topbar">
@@ -95,10 +107,36 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
             </div>
           ) : null}
         </div>
-        <Link className="profile-link" to="/profile">
-          <UserRound size={17} />
-          {user?.name || 'Perfil'}
-        </Link>
+        <div className="profile-menu-box" ref={profileRef}>
+          <button
+            type="button"
+            className="profile-link"
+            onClick={() => setProfileOpen((prev) => !prev)}
+            aria-label="Abrir menu do perfil"
+            aria-haspopup="menu"
+            aria-expanded={profileOpen}
+          >
+            {user?.photo ? (
+              <span className="topbar-profile-avatar"><img src={user.photo} alt={`Foto de ${user.name || 'utilizador'}`} /></span>
+            ) : (
+              <span className="topbar-profile-avatar topbar-profile-avatar--initials">{userInitials(user?.name || '') || <UserRound size={17} />}</span>
+            )}
+            <span className="topbar-profile-copy">
+              <strong>{user?.name || 'Perfil'}</strong>
+              <small>{roleLabels[user?.role] || user?.profile?.name || 'Perfil'}</small>
+            </span>
+            <ChevronDown className={`topbar-profile-chevron ${profileOpen ? 'topbar-profile-chevron--open' : ''}`} size={15} aria-hidden="true" />
+          </button>
+          {profileOpen ? (
+            <div className="profile-menu" role="menu">
+              {profileItems.map((item) => (
+                <Link key={item.key} to={item.to} role="menuitem" onClick={() => setProfileOpen(false)}>
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <button className="secondary-button" type="button" onClick={handleLogout}>
           <LogOut size={17} />
           Sair

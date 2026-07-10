@@ -8,6 +8,7 @@ import { validatePasswordStrength } from '../security/passwordPolicy.js';
 import { publicRole } from '../security/roles.js';
 import { effectivePermissionsForUser } from '../../src/utils/accessPermissions.js';
 import { asyncHandler } from '../utils/http.js';
+import { normalizeUserPhoto } from '../../src/utils/userProfile.js';
 
 export const authRouter = Router();
 
@@ -18,6 +19,7 @@ const authUserSelect = {
   id: true,
   email: true,
   name: true,
+  photo: true,
   role: true,
   accessProfileId: true,
   permissionOverrides: true,
@@ -80,6 +82,7 @@ function publicUser(user) {
     id: user.id,
     email: user.email,
     name: user.name,
+    photo: user.photo,
     role: publicRole(user.role),
     accessProfileId: user.accessProfileId ?? null,
     accessProfile: user.accessProfile
@@ -146,15 +149,25 @@ authRouter.post('/refresh', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 authRouter.put('/profile', requireAuth, asyncHandler(async (req, res) => {
-  const { name } = req.body;
+  const { name, photo } = req.body;
 
   if (!name || name.trim().length < 2) {
     return res.status(400).json({ message: 'Nome invalido.' });
   }
 
+  let normalizedPhoto;
+  try {
+    normalizedPhoto = normalizeUserPhoto(photo);
+  } catch (error) {
+    return res.status(400).json({ message: error.message });
+  }
+
   const user = await prisma.user.update({
     where: { id: req.user.id },
-    data: { name: name.trim() },
+    data: {
+      name: name.trim(),
+      ...(normalizedPhoto !== undefined ? { photo: normalizedPhoto } : {}),
+    },
     select: authUserSelect,
   });
 

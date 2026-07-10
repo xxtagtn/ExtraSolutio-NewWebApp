@@ -1,3 +1,5 @@
+import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
+
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const RETIRED_FINAL_STATUSES = new Set(['completed', 'invoiced', 'paid']);
 
@@ -67,7 +69,15 @@ function billableAssignments(assignments = []) {
 
 export function eventHasCompleteStaffSchedule(event) {
   const assignments = billableAssignments(event?.assignments || []);
-  return assignments.length > 0 && assignments.every((assignment) => Boolean(assignment.checkIn && assignment.checkOut));
+  return assignments.length > 0 && assignments.every((assignment) => Boolean(
+    assignment.checkIn
+    && assignment.checkOut
+    && (
+      isStaffAcceptedValidationStatus(assignment.validationStatus)
+      || assignment.validationStatus === 'validated'
+      || (assignment.clientCheckIn && assignment.clientCheckOut)
+    ),
+  ));
 }
 
 export function eventHasCompleteClientSchedule(event) {

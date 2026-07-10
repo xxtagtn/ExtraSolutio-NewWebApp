@@ -2,7 +2,10 @@ import {
   compareTimeValidationRows,
   effectiveRowDateKey,
 } from './timeValidationFilters.js';
-import { hoursValidationState } from './hourValidationStatus.js';
+import {
+  hoursValidationState,
+  isStaffAcceptedValidationStatus,
+} from './hourValidationStatus.js';
 
 export const TIME_VALIDATION_STAGE = Object.freeze({
   staffPending: 'staff_pending',
@@ -30,6 +33,11 @@ export function validationWorkflowStage(row = {}) {
   if (!staffComplete) return TIME_VALIDATION_STAGE.staffPending;
 
   const clientComplete = hasTimePair(assignment.clientCheckIn, assignment.clientCheckOut);
+  const staffAccepted = isStaffAcceptedValidationStatus(assignment.validationStatus)
+    || assignment.validationStatus === 'validated'
+    || clientComplete;
+  if (!staffAccepted) return TIME_VALIDATION_STAGE.staffPending;
+
   if (!clientComplete) return TIME_VALIDATION_STAGE.clientPending;
 
   if (assignment.validationStatus === 'validated') return TIME_VALIDATION_STAGE.ready;
@@ -182,5 +190,9 @@ export function previousMonthPeriod(value = new Date()) {
 export function compareTimeValidationRowsNewest(a, b) {
   const byDate = String(effectiveRowDateKey(b) || '').localeCompare(String(effectiveRowDateKey(a) || ''));
   if (byDate) return byDate;
+  return compareTimeValidationRows(a, b);
+}
+
+export function compareTimeValidationRowsChronological(a, b) {
   return compareTimeValidationRows(a, b);
 }

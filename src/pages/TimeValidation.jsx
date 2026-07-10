@@ -25,7 +25,11 @@ import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { externalCostsTotals } from '../utils/externalCosts.js';
 import { date, durationHours } from '../utils/formatters.js';
 import { buildBulkValidationCandidates, buildClientCopyCandidates } from '../utils/hourValidationBulk.js';
-import { hoursValidationState, validationPersistenceFields } from '../utils/hourValidationStatus.js';
+import {
+  STAFF_ACCEPTED_VALIDATION_STATUS,
+  hoursValidationState,
+  validationPersistenceFields,
+} from '../utils/hourValidationStatus.js';
 import { clientChargeHours, clientRealHours, decimalValue, staffWorkedHours } from '../utils/serviceFinance.js';
 import { nextAutomaticServiceStatus, nextTimeValidationServiceStatus, SERVICE_STATUS } from '../utils/serviceStatus.js';
 import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
@@ -43,7 +47,7 @@ import {
   normalizeTimeInput,
 } from '../utils/timeValidationFilters.js';
 import {
-  compareTimeValidationRowsNewest,
+  compareTimeValidationRowsChronological,
   clientTimeCorrection,
   currentMonthPeriod,
   currentWeekPeriod,
@@ -383,7 +387,7 @@ export default function TimeValidation() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') reload();
+      if (document.visibilityState === 'visible') reload({ background: true });
     }, 15000);
     return () => window.clearInterval(timer);
   }, [reload]);
@@ -602,7 +606,7 @@ export default function TimeValidation() {
       map.get(key).push(row);
     }
     for (const eventRows of map.values()) {
-      eventRows.sort(compareTimeValidationRowsNewest);
+      eventRows.sort(compareTimeValidationRowsChronological);
     }
     return map;
   }, [clientRows]);
@@ -640,9 +644,9 @@ export default function TimeValidation() {
         if (viewMode === 'collaborator') {
           const byName = String(a.collaboratorName || '').localeCompare(String(b.collaboratorName || ''), 'pt');
           if (byName !== 0) return byName;
-          return compareTimeValidationRowsNewest(a, b);
+          return compareTimeValidationRowsChronological(a, b);
         }
-        return compareTimeValidationRowsNewest(a, b);
+        return compareTimeValidationRowsChronological(a, b);
       }),
     [clientRows, stage, selectedCollaboratorId, selectedEventId, selectedWorkDateKey, viewMode],
   );
@@ -708,18 +712,22 @@ export default function TimeValidation() {
 
     return [...map.values()]
       .map((item) => {
+        const sortedRows = [...item.rows].sort(compareTimeValidationRowsChronological);
         const summary = validationEventWorkflowSummary(item.rows, {
           includeRow: (row) => !NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status)),
         });
         return {
           ...item,
+          rows: sortedRows,
           ...summary,
           markedValidated: eventIsMarkedValidated(item.event),
         };
       })
       .sort((a, b) => {
-        const byDate = String(b.workDateKey || '').localeCompare(String(a.workDateKey || ''));
+        const byDate = String(a.workDateKey || '').localeCompare(String(b.workDateKey || ''));
         if (byDate) return byDate;
+        const byFirstRow = compareTimeValidationRowsChronological(a.rows[0], b.rows[0]);
+        if (byFirstRow) return byFirstRow;
         return String(a.event.name || '').localeCompare(String(b.event.name || ''), 'pt');
       });
   }, [eventCardRows]);
@@ -1113,6 +1121,16 @@ export default function TimeValidation() {
 
   async function acceptRow(row) {
     const merged = { ...row.assignment, ...(drafts[row.id] || {}) };
+    const isStaffValidation = row.workflowStage === TIME_VALIDATION_STAGE.staffPending;
+    if (isStaffValidation) {
+      if (!merged.checkIn || !merged.checkOut) {
+        window.alert('Preenche os horários Staff antes de aceitar a validação.');
+        return;
+      }
+      await persistRow(row, merged, STAFF_ACCEPTED_VALIDATION_STATUS);
+      return;
+    }
+
     if (!merged.checkIn || !merged.checkOut || !merged.clientCheckIn || !merged.clientCheckOut) {
       window.alert('Preenche os horários Staff e Cliente antes de aceitar a validação.');
       return;
@@ -1663,12 +1681,14 @@ export default function TimeValidation() {
                         </th>
                       </tr>
                       {group.rows.map((row) => {
-                        const completeForAcceptance = Boolean(
-                          row.assignment.checkIn
-                          && row.assignment.checkOut
-                          && row.assignment.clientCheckIn
-                          && row.assignment.clientCheckOut,
-                        );
+                        const completeForAcceptance = row.workflowStage === TIME_VALIDATION_STAGE.staffPending
+                          ? Boolean(row.assignment.checkIn && row.assignment.checkOut)
+                          : Boolean(
+                            row.assignment.checkIn
+                            && row.assignment.checkOut
+                            && row.assignment.clientCheckIn
+                            && row.assignment.clientCheckOut,
+                          );
                         return (
                           <tr key={row.id} className={`validation-row validation-row--${row.validationState.isValidated ? 'success' : row.tone}`}>
                             <td>

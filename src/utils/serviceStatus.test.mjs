@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { STAFF_ACCEPTED_VALIDATION_STATUS } from './hourValidationStatus.js';
 import {
   isArchivedService,
   nextAutomaticServiceStatus,
@@ -88,12 +89,23 @@ test('does not move service to client hour validation during automatic status sy
   }, new Date('2026-06-11T09:00:00')), 'to_validate_staff');
 });
 
-test('time validation moves service to client hour validation when staff column is complete', () => {
+test('time validation keeps service in staff validation when staff times are only saved', () => {
   assert.equal(nextTimeValidationServiceStatus({
     status: 'to_validate_staff',
     date: '2026-06-10',
     assignments: [
-      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00' },
+      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00', validationStatus: 'pending' },
+      { status: 'missed_justified' },
+    ],
+  }), 'to_validate_staff');
+});
+
+test('time validation moves service to client hour validation when staff column is accepted', () => {
+  assert.equal(nextTimeValidationServiceStatus({
+    status: 'to_validate_staff',
+    date: '2026-06-10',
+    assignments: [
+      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00', validationStatus: STAFF_ACCEPTED_VALIDATION_STATUS },
       { status: 'missed_justified' },
     ],
   }), 'to_validate_client');

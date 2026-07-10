@@ -19,6 +19,7 @@ export async function requireAuth(req, res, next) {
         id: true,
         email: true,
         name: true,
+        photo: true,
         role: true,
         accessProfileId: true,
         permissionOverrides: true,

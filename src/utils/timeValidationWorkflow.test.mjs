@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { STAFF_ACCEPTED_VALIDATION_STATUS } from './hourValidationStatus.js';
 import {
   TIME_VALIDATION_STAGE,
   compareTimeValidationRowsNewest,
@@ -41,6 +42,11 @@ test('classifies time validation rows by operational stage', () => {
   assert.equal(validationWorkflowStage(row({
     checkIn: '09:00',
     checkOut: '17:00',
+  })), TIME_VALIDATION_STAGE.staffPending);
+  assert.equal(validationWorkflowStage(row({
+    checkIn: '09:00',
+    checkOut: '17:00',
+    validationStatus: STAFF_ACCEPTED_VALIDATION_STATUS,
   })), TIME_VALIDATION_STAGE.clientPending);
   assert.equal(validationWorkflowStage(row({
     checkIn: '09:00',
@@ -74,6 +80,14 @@ test('keeps an accepted divergent row in the ready stage', () => {
     clientCheckOut: '18:00',
     validationStatus: 'validated',
   }, { isDifference: true })), TIME_VALIDATION_STAGE.ready);
+});
+
+test('keeps a previously matched staff row waiting for client if client times are cleared', () => {
+  assert.equal(validationWorkflowStage(row({
+    checkIn: '09:00',
+    checkOut: '17:00',
+    validationStatus: 'matched',
+  })), TIME_VALIDATION_STAGE.clientPending);
 });
 
 test('keeps the current tab after manually saving or accepting a row', () => {
@@ -164,8 +178,8 @@ test('counts rows in each validation stage', () => {
   ];
 
   assert.deepEqual(validationStageCounts(rows), {
-    staff_pending: 1,
-    client_pending: 3,
+    staff_pending: 2,
+    client_pending: 2,
     differences: 0,
     ready: 0,
     finalized: 1,
@@ -206,8 +220,8 @@ test('summarizes an event workflow by actionable validation stage', () => {
   assert.equal(summary.validated, 1);
   assert.equal(summary.ready, false);
   assert.deepEqual(summary.stageCounts, {
-    staff_pending: 1,
-    client_pending: 2,
+    staff_pending: 2,
+    client_pending: 1,
     differences: 0,
     ready: 1,
     finalized: 1,

@@ -31,7 +31,7 @@ function localDateKey(value) {
 }
 
 export function effectiveRowDateKey(row) {
-  return localDateKey(row?.assignment?.assignmentDate || row?.event?.date);
+  return localDateKey(row?.workDateKey || row?.assignment?.assignmentDate || row?.event?.date);
 }
 
 export function effectiveRowStartTime(row) {
@@ -50,21 +50,24 @@ function timeToMinutes(value) {
   return (hours * 60) + minutes;
 }
 
+function plannedSortTime(row) {
+  return row?.plannedCheckIn || row?.assignment?.plannedCheckIn || row?.event?.startTime || '';
+}
+
 export function compareTimeValidationRows(a, b) {
   const byDate = String(effectiveRowDateKey(a) || '').localeCompare(String(effectiveRowDateKey(b) || ''));
   if (byDate) return byDate;
 
-  const byEvent = String(a?.event?.name || '').localeCompare(String(b?.event?.name || ''), 'pt');
-  if (byEvent) return byEvent;
+  const byPlannedTime = timeToMinutes(plannedSortTime(a)) - timeToMinutes(plannedSortTime(b));
+  if (byPlannedTime) return byPlannedTime;
 
   const aName = a?.collaboratorName || a?.assignment?.collaborator?.shortName || a?.assignment?.collaborator?.name || '';
   const bName = b?.collaboratorName || b?.assignment?.collaborator?.shortName || b?.assignment?.collaborator?.name || '';
   const byName = String(aName).localeCompare(String(bName), 'pt', { sensitivity: 'base' });
   if (byName) return byName;
 
-  const byPlannedTime = timeToMinutes(a?.assignment?.plannedCheckIn)
-    - timeToMinutes(b?.assignment?.plannedCheckIn);
-  if (byPlannedTime) return byPlannedTime;
+  const byEvent = String(a?.event?.name || '').localeCompare(String(b?.event?.name || ''), 'pt');
+  if (byEvent) return byEvent;
 
   return String(a?.id || a?.assignment?.id || '').localeCompare(
     String(b?.id || b?.assignment?.id || ''),
