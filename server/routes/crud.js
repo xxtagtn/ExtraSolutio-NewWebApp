@@ -83,7 +83,12 @@ export function createCrudRouter(model, fields, options = {}) {
   router.delete('/:id', ...deleteMiddlewares, asyncHandler(async (req, res) => {
     const id = parseId(req, res);
     if (!id) return;
+    const existing = options.loadExistingForDelete
+      ? await model.findUnique({ where: { id } })
+      : null;
+    if (options.loadExistingForDelete && !existing) return res.status(404).json({ message: 'Registo não encontrado.' });
     await model.delete({ where: { id } });
+    await options.afterDelete?.({ id, existing });
     res.status(204).end();
   }));
 
@@ -133,6 +138,11 @@ function parseBoolean(value) {
   if (value === true || value === 'true' || value === 1 || value === '1') return true;
   if (value === false || value === 'false' || value === 0 || value === '0') return false;
   return Boolean(value);
+}
+
+function normalizeStatusMode(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  return String(value).trim().toLowerCase() === 'manual' ? 'manual' : 'automatic';
 }
 
 function parseArray(value) {
@@ -198,7 +208,8 @@ export function normalizeEvent(input) {
       'name', 'eventType', 'description', 'location', 'useDefaultLocation', 'isContinuous', 'startTime', 'endTime',
       'actualStartTime', 'actualEndTime', 'uniform', 'meetingPoint', 'onsiteContactName',
       'onsiteContactPhone', 'travelExpenseEnabled', 'travelType', 'split5050', 'billingStatus', 'signaledAmount', 'paidAmount',
-      'billingPaymentDate', 'remainingPaymentDate', 'status', 'notes',
+      'signaledAt',
+      'billingPaymentDate', 'remainingPaymentDate', 'status', 'statusMode', 'notes', 'clientName',
     ]),
     totalCost: parseDecimal(input.totalCost),
     totalRevenue: parseDecimal(input.totalRevenue),
@@ -216,6 +227,7 @@ export function normalizeEvent(input) {
     realHours: parseDecimal(input.realHours),
     billableHours: parseDecimal(input.billableHours),
     minimumHoursSnapshot: parseDecimal(input.minimumHoursSnapshot),
+    statusMode: normalizeStatusMode(input.statusMode),
     guestsCount: asInt(input.guestsCount),
     requiredRoles: input.requiredRoles === undefined ? undefined : JSON.stringify(
       requiredRoles
@@ -223,10 +235,12 @@ export function normalizeEvent(input) {
         .filter((item) => item.role && Number.isFinite(item.qty) && item.qty > 0),
     ),
     externalCosts: input.externalCosts === undefined ? undefined : JSON.stringify(normalizeExternalCosts(input.externalCosts)),
-    clientId: asInt(input.clientId),
+    clientId: input.clientId === undefined ? undefined : (asInt(input.clientId) || null),
+    ...(input.clientName !== undefined ? { clientName: String(input.clientName || '').trim() || null } : {}),
     ...(input.date ? { date: toDate(input.date) } : {}),
     ...(input.endDate !== undefined ? (input.endDate ? { endDate: toDate(input.endDate) } : { endDate: null }) : {}),
     ...(input.billingPaymentDate !== undefined ? (input.billingPaymentDate ? { billingPaymentDate: toDate(input.billingPaymentDate) } : { billingPaymentDate: null }) : {}),
+    ...(input.signaledAt !== undefined ? (input.signaledAt ? { signaledAt: toDate(input.signaledAt) } : { signaledAt: null }) : {}),
     ...(input.remainingPaymentDate !== undefined ? (input.remainingPaymentDate ? { remainingPaymentDate: toDate(input.remainingPaymentDate) } : { remainingPaymentDate: null }) : {}),
   });
 }

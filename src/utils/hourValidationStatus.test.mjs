@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   STAFF_ACCEPTED_VALIDATION_STATUS,
   hoursValidationState,
+  validationStatusAfterClientImport,
   validationPersistenceFields,
 } from './hourValidationStatus.js';
 
@@ -128,4 +129,14 @@ test('accepts staff times without validating client times', () => {
     validatedCheckOut: null,
     validationStatus: STAFF_ACCEPTED_VALIDATION_STATUS,
   });
+});
+
+test('client Excel import preserves Staff acceptance but reopens Client validation', () => {
+  assert.equal(
+    validationStatusAfterClientImport(STAFF_ACCEPTED_VALIDATION_STATUS),
+    STAFF_ACCEPTED_VALIDATION_STATUS,
+  );
+  assert.equal(validationStatusAfterClientImport('validated'), STAFF_ACCEPTED_VALIDATION_STATUS);
+  assert.equal(validationStatusAfterClientImport('pending'), 'pending');
+  assert.equal(validationStatusAfterClientImport('reopened'), 'reopened');
 });

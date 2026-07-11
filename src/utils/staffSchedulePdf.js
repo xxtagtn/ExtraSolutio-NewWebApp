@@ -103,7 +103,7 @@ export function buildStaffScheduleRows(rows) {
       return {
         eventId: row.event.id,
         eventName: row.event.name || '-',
-        clientName: row.event.client?.name || '-',
+        clientName: row.event.client?.name || row.event.clientName || '-',
         eventDate: formatDate(effectiveRowDateKey(row)),
         location: row.event.location || '-',
         collaboratorName: row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-',

@@ -249,3 +249,34 @@ test('builds styled excel html grouped by event with totals', () => {
   assert.equal(html.includes('7:30h'), true);
   assert.equal(html.includes('mso-number-format'), true);
 });
+
+test('keeps Portuguese accents intact in PDF and Excel exports', () => {
+  const rows = [{
+    event: {
+      id: 1,
+      name: 'Serviço de verão',
+      client: { name: 'Fundação São João' },
+      date: '2026-07-08',
+      location: 'Lisboa',
+      requiredRoles: JSON.stringify([{ role: 'Função', agreedRate: 10 }]),
+    },
+    assignment: {
+      collaborator: { shortName: 'João Silva' },
+      role: 'Função',
+      checkIn: '09:00',
+      checkOut: '12:00',
+    },
+    staffScheduleHours: 3,
+  }];
+
+  const pdf = buildStaffSchedulePdfHtml(rows, { clientLabel: 'Fundação São João' });
+  const excel = buildStaffScheduleExcelHtml(rows, { clientLabel: 'Fundação São João' });
+  const mojibake = /(?:\u00c3[\u00a1\u00a2\u00a3\u00a7\u00a9\u00aa\u00ad\u00b3\u00ba]|\u00c2[\u00ab\u00bb\u00b7]|\u00c3\u0192|\u00ef\u00bf\u00bd)/u;
+
+  for (const output of [pdf, excel]) {
+    assert.equal(output.includes('Serviço de verão'), true);
+    assert.equal(output.includes('João Silva'), true);
+    assert.equal(output.includes('Função'), true);
+    assert.equal(mojibake.test(output), false);
+  }
+});

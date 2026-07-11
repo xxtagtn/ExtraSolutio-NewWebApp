@@ -8,6 +8,14 @@ export function isStaffAcceptedValidationStatus(value) {
   return STAFF_ACCEPTED_COMPATIBLE_STATUSES.has(String(value || ''));
 }
 
+export function validationStatusAfterClientImport(value) {
+  const current = String(value || 'pending');
+  if (current === 'validated' || isStaffAcceptedValidationStatus(current)) {
+    return STAFF_ACCEPTED_VALIDATION_STATUS;
+  }
+  return current;
+}
+
 export function hoursValidationState(assignment = {}) {
   const staffComplete = Boolean(assignment.checkIn && assignment.checkOut);
   const clientComplete = Boolean(assignment.clientCheckIn && assignment.clientCheckOut);

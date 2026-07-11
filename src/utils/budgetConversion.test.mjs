@@ -53,6 +53,20 @@ test('passes adjudicated budget total with cents to the converted event payload'
   assert.equal(payload.totalRevenue, 284.5);
 });
 
+test('converts a budget without a registered client using its free-text client name', () => {
+  const draft = buildBudgetConversionDraft({
+    reference: 'ORC-0102-FREE-TEXT',
+    companyName: 'Restaurante XPTO',
+    eventDate: '2026-07-12',
+    totalAmount: 150,
+  });
+
+  const payload = buildEventPayloadFromBudgetConversion(draft, null);
+
+  assert.equal(payload.clientId, null);
+  assert.equal(payload.clientName, 'Restaurante XPTO');
+});
+
 test('does not invent an automatic staff travel rate when converting a kilometer budget', () => {
   const draft = buildBudgetConversionDraft({
     reference: 'ORC-0103',

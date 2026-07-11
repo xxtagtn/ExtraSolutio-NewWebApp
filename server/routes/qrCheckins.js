@@ -153,7 +153,7 @@ function publicPayload(req, qrCode) {
     state,
     collaboratorName: collaborator.shortName || collaborator.name || 'Colaborador',
     eventName: event.name || 'Evento/Serviço',
-    clientName: event.client?.name || '',
+    clientName: event.client?.name || event.clientName || '',
     assignmentDate: assignment.assignmentDate || event.date || null,
     role: assignment.role || '',
     plannedCheckIn: assignment.plannedCheckIn || '',
@@ -301,7 +301,7 @@ qrCodesRouter.get('/events/:eventId', asyncHandler(async (req, res) => {
     event: {
       id: event.id,
       name: event.name,
-      clientName: event.client?.name || '',
+    clientName: event.client?.name || event.clientName || '',
       date: event.date,
       endDate: event.endDate,
       status: event.status,

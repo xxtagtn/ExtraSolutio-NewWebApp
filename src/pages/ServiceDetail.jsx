@@ -42,7 +42,9 @@ import {
   serviceChecklist,
   serviceDetailMetrics,
 } from '../utils/serviceDetail.js';
-import { nextAutomaticServiceStatus, statusLabel } from '../utils/serviceStatus.js';
+import {
+  statusLabel,
+} from '../utils/serviceStatus.js';
 
 const tabs = [
   { id: 'summary', label: 'Resumo', icon: ClipboardList },
@@ -113,6 +115,14 @@ export default function ServiceDetail() {
   const [teamRows, setTeamRows] = useState([]);
   const [savingTeam, setSavingTeam] = useState(false);
   const [teamError, setTeamError] = useState('');
+  const [billingDraft, setBillingDraft] = useState({
+    billingStatus: 'pending',
+    signaledAmount: '',
+    signaledAt: '',
+    remainingPaymentDate: '',
+  });
+  const [savingBilling, setSavingBilling] = useState(false);
+  const [billingError, setBillingError] = useState('');
   const service = useMemo(
     () => services.find((item) => String(item.id) === String(serviceId)),
     [serviceId, services],
@@ -138,6 +148,13 @@ export default function ServiceDetail() {
   const totalCost = parseNumber(service?.totalCost);
   const travelAmount = service?.travelExpenseEnabled ? parseNumber(service.travelExpenseAmount) : 0;
   const profit = totalRevenue - totalCost;
+  const signalAmount = Math.min(totalRevenue, Math.max(0, parseNumber(billingDraft.signaledAmount)));
+  const clientPaidAmount = billingDraft.billingStatus === 'paid'
+    ? totalRevenue
+    : billingDraft.billingStatus === 'partial70'
+      ? signalAmount
+      : 0;
+  const clientRemainingAmount = Math.max(0, totalRevenue - clientPaidAmount);
   const activeCollaborators = useMemo(
     () => (collaborators || [])
       .filter((collaborator) => collaborator.status !== 'inactive')
@@ -158,9 +175,58 @@ export default function ServiceDetail() {
     if (!service) return;
     setTeamRows(buildEditableTeamRows(service));
     setTeamError('');
+    setBillingDraft({
+      billingStatus: service.billingStatus || 'pending',
+      signaledAmount: service.signaledAmount ? String(service.signaledAmount).replace('.', ',') : '',
+      signaledAt: service.signaledAt ? String(service.signaledAt).slice(0, 10) : '',
+      remainingPaymentDate: service.remainingPaymentDate ? String(service.remainingPaymentDate).slice(0, 10) : '',
+    });
+    setBillingError('');
     setActiveTeamCollaboratorPickerKey(null);
     setTeamCollaboratorPickerPlacement(null);
   }, [service]);
+
+  function updateBillingDraft(patch) {
+    setBillingDraft((current) => ({ ...current, ...patch }));
+    setBillingError('');
+  }
+
+  async function saveClientPayment() {
+    if (!service || savingBilling) return;
+    const status = billingDraft.billingStatus || 'pending';
+    const signal = Number(signalAmount.toFixed(2));
+    if (status === 'partial70' && signal <= 0) {
+      setBillingError('Indica o valor sinalizado pelo cliente.');
+      return;
+    }
+    if (status === 'partial70' && !billingDraft.signaledAt) {
+      setBillingError('Indica a data da sinalização.');
+      return;
+    }
+
+    setSavingBilling(true);
+    setBillingError('');
+    try {
+      const today = new Date();
+      const todayInput = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      await api(`/services/${service.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          billingStatus: status,
+          signaledAmount: status === 'partial70' || status === 'paid' ? signal : 0,
+          paidAmount: status === 'paid' ? totalRevenue : status === 'partial70' ? signal : 0,
+          signaledAt: billingDraft.signaledAt || null,
+          billingPaymentDate: status === 'paid' ? todayInput : null,
+          remainingPaymentDate: status === 'partial70' ? (billingDraft.remainingPaymentDate || null) : null,
+        }),
+      });
+      await reload();
+    } catch (err) {
+      setBillingError(err.message || 'Não foi possível guardar o pagamento.');
+    } finally {
+      setSavingBilling(false);
+    }
+  }
 
   useEffect(() => {
     const nextDay = resolveSelectedTeamDay({
@@ -270,12 +336,6 @@ export default function ServiceDetail() {
     if (!service || savingTeam) return;
     const assignmentPayloads = editableTeamRowsToAssignmentPayloads(teamRows, service);
     const assignmentDrafts = editableTeamRowsToAssignmentDrafts(teamRows);
-    const nextStatus = nextAutomaticServiceStatus({
-      ...service,
-      assignments: teamRows
-        .filter((row) => row.role && row.collaboratorId)
-        .map((row) => ({ ...row, collaboratorId: Number(row.collaboratorId) })),
-    });
     const keptIds = new Set(assignmentPayloads.filter((row) => row.id).map((row) => Number(row.id)));
     const removedIds = (service.assignments || [])
       .map((assignment) => Number(assignment.id))
@@ -284,18 +344,20 @@ export default function ServiceDetail() {
     setSavingTeam(true);
     setTeamError('');
     try {
-      await api(`/services/${service.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ assignmentDrafts, status: nextStatus }),
-      });
-      await Promise.all(removedIds.map((id) => api(`/assignments/${id}`, { method: 'DELETE' })));
-      await Promise.all(assignmentPayloads.map((payload) => {
+      for (const id of removedIds) {
+        await api(`/assignments/${id}`, { method: 'DELETE' });
+      }
+      for (const payload of assignmentPayloads) {
         const { id, ...body } = payload;
-        return api(id ? `/assignments/${id}` : '/assignments', {
+        await api(id ? `/assignments/${id}` : '/assignments', {
           method: id ? 'PUT' : 'POST',
           body: JSON.stringify(body),
         });
-      }));
+      }
+      await api(`/services/${service.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ assignmentDrafts }),
+      });
       await reload();
     } catch (err) {
       setTeamError(err?.message || 'Não foi possível guardar os colaboradores.');
@@ -323,6 +385,8 @@ export default function ServiceDetail() {
     );
   }
 
+  const financeArea = service.clientId ? 'clients' : 'overview';
+
   return (
     <div className="page service-detail-page">
       <div className="service-detail-hero">
@@ -336,7 +400,7 @@ export default function ServiceDetail() {
               <Clock size={16} />
               Validação de Horas
             </Link>
-            <Link className="secondary-button" to={`/finance?area=clients&eventId=${service.id}`}>
+            <Link className="secondary-button" to={`/finance?area=${financeArea}&eventId=${service.id}`}>
               <WalletCards size={16} />
               Financeiro
             </Link>
@@ -351,14 +415,14 @@ export default function ServiceDetail() {
           <div>
             <span className="eyebrow">Ficha do Evento/Serviço</span>
             <h1>{service.name}</h1>
-            <p>{service.client?.name || 'Cliente por associar'} · {formatDateRange(service)}</p>
+            <p>{service.client?.name || service.clientName || 'Cliente por associar'} · {formatDateRange(service)}</p>
           </div>
           <Badge tone={service.status === 'finalized' ? 'success' : 'info'}>{statusLabel(service.status)}</Badge>
         </div>
 
         <div className="service-detail-progress-grid">
           <ProgressStat label="Equipa" value={`${metrics.confirmed}/${metrics.requested || metrics.assigned}`} detail="confirmados" tone={metrics.teamComplete ? 'success' : 'warning'} />
-          <ProgressStat label="Staff" value={`${metrics.staffFilled}/${metrics.assigned}`} detail="horários preenchidos" tone={metrics.staffHoursComplete ? 'success' : 'warning'} />
+          <ProgressStat label="Staff" value={`${metrics.staffFilled}/${metrics.assigned}`} detail={metrics.staffAcceptedComplete ? 'horários aceites' : 'horários guardados'} tone={metrics.staffHoursComplete ? 'success' : 'warning'} />
           <ProgressStat label="Cliente" value={`${metrics.clientFilled}/${metrics.assigned}`} detail="horários preenchidos" tone={metrics.clientHoursComplete ? 'success' : 'warning'} />
           <ProgressStat label="Valor" value={money.format(totalRevenue)} detail="previsto/validado" tone="info" />
         </div>
@@ -389,7 +453,7 @@ export default function ServiceDetail() {
 
           <Card title="Cliente e local" className="service-detail-card">
             <div className="service-detail-info-grid">
-              <InfoItem label="Cliente" value={service.client?.name || '-'} />
+              <InfoItem label="Cliente" value={service.client?.name || service.clientName || '-'} />
               <InfoItem label="Local" value={service.location || service.client?.address || '-'} />
               <InfoItem label="Ponto de encontro" value={service.meetingPoint || '-'} />
               <InfoItem label="Contacto no local" value={[service.onsiteContactName, service.onsiteContactPhone].filter(Boolean).join(' · ') || '-'} />
@@ -619,7 +683,7 @@ export default function ServiceDetail() {
         <div className="service-detail-grid">
           <Card title="Estado da validação" className="service-detail-card">
             <div className="service-detail-validation-grid">
-              <ProgressStat label="Staff" value={`${metrics.staffFilled}/${metrics.assigned}`} detail="horários preenchidos" tone={metrics.staffHoursComplete ? 'success' : 'warning'} />
+              <ProgressStat label="Staff" value={`${metrics.staffFilled}/${metrics.assigned}`} detail={metrics.staffAcceptedComplete ? 'horários aceites' : 'horários guardados'} tone={metrics.staffHoursComplete ? 'success' : 'warning'} />
               <ProgressStat label="Cliente" value={`${metrics.clientFilled}/${metrics.assigned}`} detail="horários preenchidos" tone={metrics.clientHoursComplete ? 'success' : 'warning'} />
               <ProgressStat label="Validados" value={`${metrics.validated}/${metrics.assigned}`} detail="linhas aceites" tone={metrics.validationComplete ? 'success' : 'warning'} />
             </div>
@@ -645,6 +709,61 @@ export default function ServiceDetail() {
               <div><span>Custo total</span><strong>{money.format(totalCost)}</strong></div>
               <div><span>Deslocação</span><strong>{money.format(travelAmount)}</strong></div>
               <div className={profit >= 0 ? 'service-detail-profit--positive' : 'service-detail-profit--negative'}><span>Margem</span><strong>{money.format(profit)}</strong></div>
+            </div>
+          </Card>
+          <Card title="Pagamento do cliente" className="service-detail-card service-detail-payment-card">
+            <div className="service-detail-payment-summary">
+              <div>
+                <span>Valor em falta</span>
+                <strong className={clientRemainingAmount > 0 ? 'service-detail-payment-due' : 'service-detail-payment-paid'}>
+                  {money.format(clientRemainingAmount)}
+                </strong>
+              </div>
+              <Badge tone={billingDraft.billingStatus === 'paid' ? 'success' : billingDraft.billingStatus === 'partial70' ? 'warning' : 'neutral'}>
+                {billingDraft.billingStatus === 'partial70' ? 'Sinalização' : billingDraft.billingStatus === 'paid' ? 'Pago' : billingDraft.billingStatus === 'invoiced' ? 'Faturado' : 'Pendente'}
+              </Badge>
+            </div>
+            <div className="service-detail-payment-grid">
+              <label>Estado do pagamento
+                <select value={billingDraft.billingStatus} onChange={(event) => updateBillingDraft({ billingStatus: event.target.value })}>
+                  <option value="pending">Pendente</option>
+                  <option value="partial70">Sinalização</option>
+                  <option value="invoiced">Faturado</option>
+                  <option value="paid">Pago</option>
+                </select>
+              </label>
+              <label>Valor total
+                <input value={money.format(totalRevenue)} readOnly />
+              </label>
+              <label>Valor sinalizado
+                <input
+                  inputMode="decimal"
+                  value={billingDraft.signaledAmount}
+                  placeholder="Ex: 700,00"
+                  onChange={(event) => updateBillingDraft({ signaledAmount: event.target.value })}
+                />
+              </label>
+              <label>Valor em falta
+                <input value={money.format(clientRemainingAmount)} readOnly />
+              </label>
+              {billingDraft.billingStatus === 'partial70' || signalAmount > 0 ? (
+                <label>Data da sinalização
+                  <input type="date" value={billingDraft.signaledAt} onChange={(event) => updateBillingDraft({ signaledAt: event.target.value })} />
+                </label>
+              ) : null}
+              {billingDraft.billingStatus === 'partial70' ? (
+                <label>Data do restante pagamento
+                  <input type="date" value={billingDraft.remainingPaymentDate} onChange={(event) => updateBillingDraft({ remainingPaymentDate: event.target.value })} />
+                </label>
+              ) : null}
+            </div>
+            {billingError ? <p className="form-error">{billingError}</p> : null}
+            <div className="service-detail-card-actions service-detail-payment-actions">
+              <span className="muted">Regista aqui a sinalização recebida e o valor que ainda falta cobrar.</span>
+              <button className="command-button" type="button" onClick={saveClientPayment} disabled={savingBilling}>
+                <Save size={15} />
+                {savingBilling ? 'A guardar...' : 'Guardar pagamento'}
+              </button>
             </div>
           </Card>
           <Card title="Custos externos/parceiros" className="service-detail-card">

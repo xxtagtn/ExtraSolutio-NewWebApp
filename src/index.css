@@ -1836,6 +1836,11 @@ th {
   padding-top: 4px;
 }
 
+.modal-actions--save-cancel,
+.form-actions--save-cancel {
+  justify-content: space-between;
+}
+
 .form-grid__full {
   grid-column: 1 / -1;
 }
@@ -2286,6 +2291,16 @@ th {
 }
 
 .form-actions--sticky > .secondary-button:last-child {
+  margin-left: auto;
+}
+
+.form-actions--save-cancel.form-actions--sticky > .secondary-button:last-child {
+  margin-left: 0;
+}
+
+.form-actions--save-cancel > .command-button:last-child,
+.form-actions--save-cancel > .primary-button:last-child,
+.modal-actions--save-cancel > .button--primary:last-child {
   margin-left: auto;
 }
 
@@ -3418,6 +3433,75 @@ th {
 
 .service-detail-profit--negative strong {
   color: #fca5a5;
+}
+
+.service-detail-payment-card {
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.service-detail-payment-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  border-radius: 8px;
+  background: rgba(120, 53, 15, 0.14);
+}
+
+.service-detail-payment-summary > div {
+  display: grid;
+  gap: 4px;
+}
+
+.service-detail-payment-summary strong {
+  font-size: 1.2rem;
+}
+
+.service-detail-payment-due {
+  color: #fbbf24;
+}
+
+.service-detail-payment-paid {
+  color: #86efac;
+}
+
+.service-detail-payment-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.service-detail-payment-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.service-detail-payment-grid input,
+.service-detail-payment-grid select {
+  min-height: 36px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b1114;
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.service-detail-payment-grid input[readonly] {
+  color: #cbd5e1;
+  opacity: 0.9;
+}
+
+.service-detail-payment-actions {
+  margin-top: 12px;
+}
+
+.service-detail-payment-actions .muted {
+  max-width: 60ch;
 }
 
 .service-detail-external-list {
@@ -9318,7 +9402,8 @@ th {
   }
 
   .service-detail-grid,
-  .service-detail-team-row {
+  .service-detail-team-row,
+  .service-detail-payment-grid {
     grid-template-columns: 1fr;
   }
 

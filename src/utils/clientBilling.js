@@ -267,7 +267,10 @@ export function filterBillingGroupsByPeriod(groups, period) {
 }
 
 export function filterServicesByPeriod(services, period) {
-  return (services || []).filter((service) => isDateInBillingPeriod(service.date, period));
+  return (services || []).filter((service) => {
+    const dates = [service.date, service.endDate, ...(service.assignments || []).map((assignment) => assignment.assignmentDate)];
+    return dates.some((value) => isDateInBillingPeriod(value, period));
+  });
 }
 
 export function filterInvoicesByPeriod(invoices, period) {

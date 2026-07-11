@@ -1,4 +1,5 @@
 import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
+import { requiredStaffTotal } from './serviceRequirements.js';
 
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const RETIRED_FINAL_STATUSES = new Set(['completed', 'invoiced', 'paid']);
@@ -48,17 +49,6 @@ function eventEndDate(event) {
   return event?.isContinuous && event?.endDate ? event.endDate : event?.date;
 }
 
-function safeRequiredRoles(value) {
-  if (!value) return [];
-  if (Array.isArray(value)) return value;
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
 function assignmentStatus(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -75,7 +65,6 @@ export function eventHasCompleteStaffSchedule(event) {
     && (
       isStaffAcceptedValidationStatus(assignment.validationStatus)
       || assignment.validationStatus === 'validated'
-      || (assignment.clientCheckIn && assignment.clientCheckOut)
     ),
   ));
 }
@@ -91,7 +80,7 @@ export function eventHasCompleteClientSchedule(event) {
 }
 
 function requestedStaffCount(event) {
-  return safeRequiredRoles(event?.requiredRoles).reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  return requiredStaffTotal(event);
 }
 
 function eventHasCompleteTeam(event) {
@@ -148,11 +137,26 @@ export function nextAutomaticServiceStatus(event = {}, now = new Date()) {
   return SERVICE_STATUS.drafting;
 }
 
+export function serviceStatusForDisplay(event = {}, now = new Date()) {
+  if (String(event?.statusMode || '').trim().toLowerCase() === 'manual') {
+    return normalizeStatus(event.status);
+  }
+  return nextAutomaticServiceStatus(event, now);
+}
+
 export function nextTimeValidationServiceStatus(event = {}) {
   const current = normalizeStatus(event.status);
+  const assignments = billableAssignments(event?.assignments || []);
 
   if (current === 'cancelled') return current;
+  if (current === SERVICE_STATUS.finalized) return current;
   if (eventHasCompleteStaffSchedule(event)) return SERVICE_STATUS.toValidateClient;
+  if (current === SERVICE_STATUS.toValidateClient) {
+    const legacyClientStageIsStillComplete = assignments.length > 0
+      && assignments.every((assignment) => assignment.checkIn && assignment.checkOut)
+      && assignments.every((assignment) => assignment.validationStatus !== 'reopened');
+    if (legacyClientStageIsStillComplete) return current;
+  }
   return SERVICE_STATUS.toValidateStaff;
 }
 

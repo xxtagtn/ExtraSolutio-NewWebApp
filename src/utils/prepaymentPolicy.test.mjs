@@ -68,3 +68,21 @@ test('resolves the remaining prepayment reminder date from manual date or client
     client: { prepaymentRemainingDaysBefore: 10 },
   }), '2026-11-11');
 });
+
+test('preserves a manually registered signal and remaining payment date', () => {
+  assert.deepEqual(buildPrepaymentSummary({
+    total: 1000,
+    serviceDate: '2026-11-21',
+    billingStatus: 'partial70',
+    signaledAmount: '350,50',
+    paidAmount: '350,50',
+    remainingPaymentDate: '2026-11-20',
+  }), {
+    total: 1000,
+    status: 'partial70',
+    signaledAmount: 350.5,
+    paidAmount: 350.5,
+    remainingAmount: 649.5,
+    remainingPaymentDate: '2026-11-20',
+  });
+});

@@ -96,7 +96,7 @@ function QrCodesPanel({ services, canManageQrCodes }) {
     .map((service) => ({
       id: String(service.id),
       name: service.name,
-      clientName: service.client?.name || '',
+      clientName: service.client?.name || service.clientName || '',
       date: service.date,
     }))
     .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || a.name.localeCompare(b.name, 'pt')), [services]);

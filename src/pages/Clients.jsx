@@ -726,9 +726,9 @@ export default function Clients() {
               <label className="span-2">Notas<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
             </div>
             {formError ? <p className="notice">{formError}</p> : null}
-            <footer className="form-actions form-actions--sticky">
-              <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar'}</button>
+            <footer className="form-actions form-actions--sticky form-actions--save-cancel">
               <button className="secondary-button" type="button" onClick={() => closeForm()}>Cancelar</button>
+              <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar'}</button>
             </footer>
           </form>
         </Modal>

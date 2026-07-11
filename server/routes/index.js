@@ -39,6 +39,14 @@ import {
   assignmentConflictNeedsCheck,
 } from '../utils/assignmentConflict.js';
 import { serviceListInclude } from '../utils/listPayloads.js';
+import { assignmentHasRecordedHours } from '../utils/eventTotals.js';
+import { asyncHandler } from '../utils/http.js';
+import {
+  markEventValidated,
+  reopenEventValidation,
+  setManualEventStatus,
+  synchronizeEventWorkflow,
+} from '../services/eventWorkflow.js';
 
 export const apiRouter = Router();
 const CLOSED_EVENT_STATUSES = ['finalized', 'completed', 'invoiced', 'paid'];
@@ -77,6 +85,7 @@ const financialEventFields = [
   'travelManualAmount',
   'billingStatus',
   'billingPaymentDate',
+  'signaledAt',
   'signaledAmount',
   'paidAmount',
   'remainingPaymentDate',
@@ -149,6 +158,7 @@ function buildServiceWhere(query = {}) {
       OR: [
         { name: search },
         { location: search },
+        { clientName: search },
         { client: { is: { name: search } } },
       ],
     });
@@ -262,8 +272,11 @@ async function normalizeServiceCreate(input) {
 
 async function normalizeServiceUpdate(input, existing) {
   const data = normalizeEvent(input);
-  const clientId = data.clientId ?? existing?.clientId;
-  if (!clientId) return data;
+  if (existing?.statusMode === 'manual' && input.status !== undefined && input.statusMode === undefined) {
+    data.status = existing.status;
+  }
+  const clientId = data.clientId !== undefined ? data.clientId : existing?.clientId;
+  if (!clientId) return { ...data, minimumHoursSnapshot: 0 };
   const client = await prisma.client.findUnique({
     where: { id: clientId },
     select: { minimumHours: true },
@@ -286,6 +299,10 @@ async function normalizeAssignmentUpdate(input, existing) {
     await assertNoAssignmentConflict(prisma, data, existing);
   }
   return data;
+}
+
+async function synchronizeEventAfterAssignmentMutation(eventId, { recalculateTotals = false } = {}) {
+  await synchronizeEventWorkflow(prisma, eventId, { recalculateTotals });
 }
 
 apiRouter.use('/auth', authRouter);
@@ -357,6 +374,56 @@ apiRouter.use('/clients', createCrudRouter(prisma.client, [
   },
 }));
 
+const workflowWrite = requireAnyPermission([
+  PERMISSIONS.SERVICES_UPDATE,
+  PERMISSIONS.TIME_VALIDATION_UPDATE,
+]);
+
+function workflowEventId(req, res) {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ message: 'ID inválido.' });
+    return null;
+  }
+  return id;
+}
+
+apiRouter.post('/services/:id/workflow/synchronize', workflowWrite, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await synchronizeEventWorkflow(prisma, id, {
+    recalculateTotals: Boolean(req.body?.recalculateTotals),
+  });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/workflow/status', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await setManualEventStatus(prisma, id, req.body?.status, {
+    notes: req.body?.notes,
+  });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/workflow/finalize', workflowWrite, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await markEventValidated(prisma, id, req.body?.notes);
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/workflow/reopen', workflowWrite, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await reopenEventValidation(prisma, id, req.body?.notes);
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
 apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   include: serviceListInclude,
   readMiddleware: servicesRead,
@@ -369,6 +436,9 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   normalizeCreate: normalizeServiceCreate,
   normalizeUpdate: normalizeServiceUpdate,
   loadExistingForUpdate: true,
+  afterUpdate: async ({ id }) => {
+    await synchronizeEventWorkflow(prisma, id, { recalculateTotals: false });
+  },
 }));
 
 apiRouter.use('/service-templates', createCrudRouter(prisma.eventTemplate, [], {
@@ -407,9 +477,26 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   loadExistingForUpdate: true,
   afterCreate: async ({ row }) => {
     await ensureQrCodeForAssignmentId(row.id);
+    await synchronizeEventAfterAssignmentMutation(row.eventId, {
+      recalculateTotals: assignmentHasRecordedHours(row),
+    });
   },
-  afterUpdate: async ({ id }) => {
+  afterUpdate: async ({ id, row, existing }) => {
     await ensureQrCodeForAssignmentId(id);
+    await synchronizeEventAfterAssignmentMutation(row.eventId, {
+      recalculateTotals: assignmentHasRecordedHours(row) || assignmentHasRecordedHours(existing),
+    });
+    if (Number(existing?.eventId) !== Number(row.eventId)) {
+      await synchronizeEventAfterAssignmentMutation(existing?.eventId, {
+        recalculateTotals: assignmentHasRecordedHours(existing),
+      });
+    }
+  },
+  loadExistingForDelete: true,
+  afterDelete: async ({ existing }) => {
+    await synchronizeEventAfterAssignmentMutation(existing?.eventId, {
+      recalculateTotals: assignmentHasRecordedHours(existing),
+    });
   },
 }));
 

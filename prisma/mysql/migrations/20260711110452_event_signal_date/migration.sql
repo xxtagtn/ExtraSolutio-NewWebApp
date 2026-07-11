@@ -1,0 +1,2 @@
+ALTER TABLE `Event`
+  ADD COLUMN `signaledAt` DATETIME(3) NULL;

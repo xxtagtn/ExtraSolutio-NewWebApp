@@ -6,6 +6,7 @@ import {
   nextAutomaticServiceStatus,
   nextTimeValidationServiceStatus,
   operationalStatusOptions,
+  serviceStatusForDisplay,
   statusLabel,
 } from './serviceStatus.js';
 
@@ -100,6 +101,34 @@ test('time validation keeps service in staff validation when staff times are onl
   }), 'to_validate_staff');
 });
 
+test('continuous service requires every scheduled slot to be confirmed', () => {
+  assert.equal(nextAutomaticServiceStatus({
+    status: 'team_complete',
+    isContinuous: true,
+    date: '2026-06-10',
+    endDate: '2026-06-12',
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 1 }],
+    assignments: [
+      { role: 'Emp.Mesa', collaboratorId: 1, assignmentDate: '2026-06-10', status: 'confirmed' },
+      { role: 'Emp.Mesa', collaboratorId: 2, assignmentDate: '2026-06-11', status: 'pending_confirmation' },
+    ],
+  }, new Date('2026-06-09T09:00:00')), 'drafting');
+});
+
+test('continuous service is complete when all scheduled slots are confirmed', () => {
+  assert.equal(nextAutomaticServiceStatus({
+    status: 'drafting',
+    isContinuous: true,
+    date: '2026-06-10',
+    endDate: '2026-06-12',
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 1 }],
+    assignments: [
+      { role: 'Emp.Mesa', collaboratorId: 1, assignmentDate: '2026-06-10', status: 'confirmed' },
+      { role: 'Emp.Mesa', collaboratorId: 2, assignmentDate: '2026-06-11', status: 'confirmed' },
+    ],
+  }, new Date('2026-06-09T09:00:00')), 'team_complete');
+});
+
 test('time validation moves service to client hour validation when staff column is accepted', () => {
   assert.equal(nextTimeValidationServiceStatus({
     status: 'to_validate_staff',
@@ -143,6 +172,56 @@ test('time validation keeps service awaiting explicit event validation when clie
   }), 'to_validate_client');
 });
 
+test('adding an unfilled collaborator moves Client validation back to Staff validation', () => {
+  assert.equal(nextTimeValidationServiceStatus({
+    status: 'to_validate_client',
+    assignments: [
+      {
+        status: 'confirmed',
+        checkIn: '09:00',
+        checkOut: '17:00',
+        validationStatus: STAFF_ACCEPTED_VALIDATION_STATUS,
+      },
+      {
+        status: 'confirmed',
+        checkIn: null,
+        checkOut: null,
+        validationStatus: 'pending',
+      },
+    ],
+  }), 'to_validate_staff');
+});
+
+test('reopening one collaborator moves Client validation back to Staff validation', () => {
+  assert.equal(nextTimeValidationServiceStatus({
+    status: 'to_validate_client',
+    assignments: [
+      {
+        status: 'confirmed',
+        checkIn: '09:00',
+        checkOut: '17:00',
+        validationStatus: 'reopened',
+      },
+    ],
+  }), 'to_validate_staff');
+});
+
+test('copying client hours does not accept the staff validation automatically', () => {
+  assert.equal(nextTimeValidationServiceStatus({
+    status: 'to_validate_staff',
+    assignments: [
+      {
+        status: 'confirmed',
+        checkIn: '09:00',
+        checkOut: '17:00',
+        clientCheckIn: '09:00',
+        clientCheckOut: '17:00',
+        validationStatus: 'pending',
+      },
+    ],
+  }), 'to_validate_staff');
+});
+
 test('does not move a future service to client validation just because planned staff times exist', () => {
   assert.equal(nextAutomaticServiceStatus({
     status: 'team_complete',
@@ -159,4 +238,12 @@ test('keeps finalized services archived and maps retired final statuses to Final
   assert.equal(nextAutomaticServiceStatus({ status: 'paid', date: '2026-06-10' }), 'finalized');
   assert.equal(isArchivedService({ status: 'finalized' }), true);
   assert.equal(statusLabel('invoiced'), 'Finalizado');
+});
+
+test('uses the persisted manual status when rendering an event', () => {
+  assert.equal(serviceStatusForDisplay({
+    status: 'team_complete',
+    statusMode: 'manual',
+    date: '2026-06-10',
+  }, new Date('2026-06-11T09:00:00')), 'team_complete');
 });

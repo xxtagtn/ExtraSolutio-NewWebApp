@@ -245,8 +245,9 @@ model Event {
   name         String            @db.VarChar(191)
   eventType    String?           @db.VarChar(80)
   description  String?           @db.Text
-  clientId     Int
-  client       Client            @relation(fields: [clientId], references: [id])
+  clientId     Int?
+  client       Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientName   String?           @db.VarChar(191)
   location     String?           @db.Text
   useDefaultLocation Boolean      @default(true)
   date         DateTime          @db.DateTime(3)
@@ -280,10 +281,12 @@ model Event {
   assignmentDrafts String?        @db.LongText
   billingStatus String           @default("pending") @db.VarChar(40)
   billingPaymentDate DateTime?   @db.DateTime(3)
+  signaledAt    DateTime?        @db.DateTime(3)
   signaledAmount Decimal         @default(0) @db.Decimal(12, 2)
   paidAmount Decimal             @default(0) @db.Decimal(12, 2)
   remainingPaymentDate DateTime? @db.DateTime(3)
   status       String            @default("pending") @db.VarChar(40)
+  statusMode   String            @default("automatic") @db.VarChar(20)
   totalCost    Decimal           @default(0) @db.Decimal(12, 2)
   totalRevenue Decimal           @default(0) @db.Decimal(12, 2)
   notes        String?           @db.Text

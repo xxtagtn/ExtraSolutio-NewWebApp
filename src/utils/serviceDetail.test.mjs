@@ -44,6 +44,39 @@ test('serviceChecklist exposes incomplete client hours before finance readiness'
   assert.equal(checklist.find((item) => item.id === 'finance').done, false);
 });
 
+test('continuous event metrics use scheduled rows instead of the global role quantity', () => {
+  const metrics = serviceDetailMetrics({
+    isContinuous: true,
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 1 }],
+    assignments: [
+      { collaboratorId: 1, role: 'Emp.Mesa', assignmentDate: '2026-06-17', status: 'confirmed' },
+      { collaboratorId: 2, role: 'Emp.Mesa', assignmentDate: '2026-06-18', status: 'confirmed' },
+      { collaboratorId: 3, role: 'Emp.Mesa', assignmentDate: '2026-06-19', status: 'pending_confirmation' },
+    ],
+  });
+
+  assert.equal(metrics.requested, 3);
+  assert.equal(metrics.confirmed, 2);
+  assert.equal(metrics.teamComplete, false);
+});
+
+test('continuous event metrics include empty saved drafts as planned slots', () => {
+  const metrics = serviceDetailMetrics({
+    isContinuous: true,
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 1 }],
+    assignments: [
+      { collaboratorId: 1, role: 'Emp.Mesa', assignmentDate: '2026-06-17', status: 'confirmed' },
+    ],
+    assignmentDrafts: JSON.stringify([
+      { role: 'Emp.Mesa', assignmentDate: '2026-06-18' },
+    ]),
+  });
+
+  assert.equal(metrics.requested, 2);
+  assert.equal(metrics.assigned, 1);
+  assert.equal(metrics.teamComplete, false);
+});
+
 test('serviceAssignmentDays returns continuous event days and assignment dates chronologically', () => {
   const days = serviceAssignmentDays({
     date: '2026-06-17T00:00:00.000Z',

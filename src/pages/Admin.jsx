@@ -493,9 +493,9 @@ export default function Admin() {
               inherited={profiles.find((profile) => String(profile.id) === String(userModal.accessProfileId))?.permissions || []}
               onChange={(permissionOverrides) => setUserModal((current) => ({ ...current, permissionOverrides }))}
             />
-            <footer className="modal-actions">
-              <button type="submit" className="button button--primary" disabled={saving}>Guardar</button>
+            <footer className="modal-actions modal-actions--save-cancel">
               <button type="button" className="button button--ghost" onClick={() => setUserModal(null)}>Cancelar</button>
+              <button type="submit" className="button button--primary" disabled={saving}>Guardar</button>
             </footer>
           </form>
         </Modal>
@@ -528,9 +528,9 @@ export default function Admin() {
               value={profileModal.permissions}
               onChange={(permissions) => setProfileModal((current) => ({ ...current, permissions }))}
             />
-            <footer className="modal-actions">
-              <button type="submit" className="button button--primary" disabled={saving}>Guardar</button>
+            <footer className="modal-actions modal-actions--save-cancel">
               <button type="button" className="button button--ghost" onClick={() => setProfileModal(null)}>Cancelar</button>
+              <button type="submit" className="button button--primary" disabled={saving}>Guardar</button>
             </footer>
           </form>
         </Modal>

@@ -1,4 +1,6 @@
 import { normalizeAssignmentDrafts } from './serviceAssignmentDrafts.js';
+import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
+import { requiredStaffTotal } from './serviceRequirements.js';
 
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 export const MANUAL_TEAM_ROLE = 'Sem função';
@@ -38,17 +40,16 @@ export function billableAssignments(assignments = []) {
   ));
 }
 
-export function requiredStaffTotal(event = {}) {
-  return safeJsonArray(event.requiredRoles)
-    .reduce((sum, role) => sum + Math.max(0, Number(role.qty || 0)), 0);
-}
-
 export function serviceDetailMetrics(event = {}) {
   const assignments = Array.isArray(event.assignments) ? event.assignments : [];
   const billable = billableAssignments(assignments);
   const requested = requiredStaffTotal(event);
   const confirmed = billable.filter((assignment) => normalizeStatus(assignment.status) === 'confirmed').length;
   const staffFilled = billable.filter((assignment) => assignment.checkIn && assignment.checkOut).length;
+  const staffAccepted = billable.filter((assignment) => (
+    isStaffAcceptedValidationStatus(assignment.validationStatus)
+    || normalizeStatus(assignment.validationStatus) === 'validated'
+  )).length;
   const clientFilled = billable.filter((assignment) => assignment.clientCheckIn && assignment.clientCheckOut).length;
   const validated = billable.filter((assignment) => normalizeStatus(assignment.validationStatus) === 'validated').length;
 
@@ -57,11 +58,13 @@ export function serviceDetailMetrics(event = {}) {
     assigned: billable.length,
     confirmed,
     staffFilled,
+    staffAccepted,
     clientFilled,
     validated,
     missingStaff: Math.max(0, requested - confirmed),
     teamComplete: requested > 0 && confirmed >= requested,
     staffHoursComplete: billable.length > 0 && staffFilled === billable.length,
+    staffAcceptedComplete: billable.length > 0 && staffAccepted === billable.length,
     clientHoursComplete: billable.length > 0 && clientFilled === billable.length,
     validationComplete: billable.length > 0 && validated === billable.length,
   };
@@ -80,7 +83,7 @@ export function serviceChecklist(event = {}) {
       id: 'staff',
       label: 'Horários Staff preenchidos',
       done: metrics.staffHoursComplete,
-      detail: `${metrics.staffFilled}/${metrics.assigned} registos`,
+      detail: `${metrics.staffFilled}/${metrics.assigned} guardados · ${metrics.staffAccepted}/${metrics.assigned} aceites`,
     },
     {
       id: 'client',

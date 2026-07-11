@@ -245,7 +245,9 @@ function collaboratorDisplayName(collaborator) {
 
 function serviceDescription(service) {
   const rows = [
-    service?.client?.name ? `Cliente: ${service.client.name}` : '',
+    service?.client?.name || service?.clientName
+      ? `Cliente: ${service.client?.name || service.clientName}`
+      : '',
     service?.status ? `Estado: ${service.status}` : '',
   ].filter(Boolean);
   return rows.join('\n');
@@ -276,7 +278,9 @@ function buildServiceEvents(services, stamp, timezone) {
         uid: `payment-${service.id}-${compactDate(paymentDate)}@extrasolutio`,
         stamp,
         summary: `Restante pagamento: ${service.name || 'Evento/Serviço'}`,
-        description: service.client?.name ? `Cliente: ${service.client.name}` : '',
+        description: service.client?.name || service.clientName
+          ? `Cliente: ${service.client?.name || service.clientName}`
+          : '',
         date: paymentDate,
         allDay: true,
       }));

@@ -188,9 +188,9 @@ export default function ResourcePage({
               ))}
             </div>
             {formError && <p className="notice">{formError}</p>}
-            <footer className="form-actions">
-              <button className="command-button" type="submit" disabled={saving}><Save size={17} />Guardar</button>
+            <footer className="form-actions form-actions--save-cancel">
               <button className="secondary-button" type="button" onClick={closeForm}>Cancelar</button>
+              <button className="command-button" type="submit" disabled={saving}><Save size={17} />Guardar</button>
             </footer>
           </form>
         </Modal>

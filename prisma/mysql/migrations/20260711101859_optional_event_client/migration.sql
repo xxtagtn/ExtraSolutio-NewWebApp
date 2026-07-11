@@ -1,0 +1,11 @@
+ALTER TABLE `Event`
+  DROP FOREIGN KEY `Event_clientId_fkey`;
+
+ALTER TABLE `Event`
+  MODIFY COLUMN `clientId` INTEGER NULL,
+  ADD COLUMN `clientName` VARCHAR(191) NULL;
+
+ALTER TABLE `Event`
+  ADD CONSTRAINT `Event_clientId_fkey`
+  FOREIGN KEY (`clientId`) REFERENCES `Client`(`id`)
+  ON DELETE SET NULL ON UPDATE CASCADE;

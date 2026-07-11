@@ -107,7 +107,7 @@ export async function resolvePhotoThumbForStorage(inputPhotoThumb, existingPhoto
   if (raw.startsWith('data:')) {
     const url = await storeCollaboratorPhotoThumb(raw);
     if (!url) {
-      const error = new Error('Formato de thumbnail nÃ£o suportado. Usa JPG, PNG ou WEBP.');
+      const error = new Error('Formato de thumbnail não suportado. Usa JPG, PNG ou WEBP.');
       error.statusCode = 400;
       error.expose = true;
       throw error;

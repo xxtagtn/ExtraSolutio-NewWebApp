@@ -2,9 +2,8 @@ import { Buffer } from 'node:buffer';
 import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
-import { nextTimeValidationServiceStatus } from '../../src/utils/serviceStatus.js';
-import { clientChargeHours, decimalValue } from '../../src/utils/serviceFinance.js';
-import { externalCostsTotals } from '../../src/utils/externalCosts.js';
+import { validationStatusAfterClientImport } from '../../src/utils/hourValidationStatus.js';
+import { synchronizeEventWorkflow } from '../services/eventWorkflow.js';
 import {
   assignmentUpdateFromPreviewRow,
   buildImportPreview,
@@ -25,53 +24,6 @@ function base64ToBuffer(fileData = '') {
     throw error;
   }
   return Buffer.from(base64, 'base64');
-}
-
-function requiredRolesFor(event = {}) {
-  try {
-    return JSON.parse(event.requiredRoles || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function billableStatus(status) {
-  return !['missed_justified', 'missed_unjustified', 'cancelled'].includes(String(status || '').toLowerCase());
-}
-
-function eventTotals(event, assignments) {
-  const roleRates = new Map(requiredRolesFor(event).map((item) => [item.role, decimalValue(item.agreedRate)]));
-  let totalRevenue = 0;
-  let totalCost = 0;
-  let realHours = 0;
-  let billableHours = 0;
-
-  for (const assignment of assignments || []) {
-    if (!billableStatus(assignment.status)) continue;
-    const clientHours = clientChargeHours(
-      assignment,
-      event.startTime,
-      event.endTime,
-      event.minimumHoursSnapshot,
-    );
-    const staffHours = decimalValue(assignment.staffPayableHours || assignment.hoursWorked);
-    const rate = decimalValue(assignment.hourlyRate);
-    totalRevenue += clientHours * (roleRates.get(assignment.role) || 0);
-    totalCost += staffHours * rate;
-    realHours += decimalValue(assignment.clientRealHours);
-    billableHours += clientHours;
-  }
-
-  if (event.travelExpenseEnabled) totalRevenue += decimalValue(event.travelExpenseAmount);
-  const externalTotals = externalCostsTotals(event.externalCosts);
-  totalRevenue += externalTotals.chargeAmount;
-  totalCost += externalTotals.costAmount;
-  return {
-    totalRevenue: Number(totalRevenue.toFixed(2)),
-    totalCost: Number(totalCost.toFixed(2)),
-    realHours: Number(realHours.toFixed(2)),
-    billableHours: Number(billableHours.toFixed(2)),
-  };
 }
 
 async function importContext() {
@@ -112,20 +64,7 @@ async function saveMappings(mappings = []) {
 async function updateAffectedEvents(eventIds = []) {
   const uniqueIds = [...new Set(eventIds.map(Number).filter(Boolean))];
   for (const eventId of uniqueIds) {
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-      include: { assignments: true },
-    });
-    if (!event) continue;
-    const totals = eventTotals(event, event.assignments);
-    const nextStatus = nextTimeValidationServiceStatus(event);
-    await prisma.event.update({
-      where: { id: eventId },
-      data: {
-        ...totals,
-        status: nextStatus,
-      },
-    });
+    await synchronizeEventWorkflow(prisma, eventId, { recalculateTotals: true });
   }
 }
 
@@ -164,7 +103,7 @@ timeValidationImportsRouter.post('/commit', asyncHandler(async (req, res) => {
     const update = assignmentUpdateFromPreviewRow(row);
     const existing = await prisma.eventAssignment.findUnique({
       where: { id: update.assignmentId },
-      select: { id: true, eventId: true },
+      select: { id: true, eventId: true, validationStatus: true },
     });
     if (!existing) continue;
     await prisma.eventAssignment.update({
@@ -173,7 +112,7 @@ timeValidationImportsRouter.post('/commit', asyncHandler(async (req, res) => {
         ...update.data,
         validatedCheckIn: null,
         validatedCheckOut: null,
-        validationStatus: 'pending',
+        validationStatus: validationStatusAfterClientImport(existing.validationStatus),
       },
     });
     eventIds.push(existing.eventId);

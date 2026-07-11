@@ -11,6 +11,34 @@ test('does not make an event processable only because it has a validated marker'
   }), false);
 });
 
+test('reconciles a stale operational status after explicit event validation', () => {
+  assert.equal(isFinanceReadyEvent({
+    status: 'to_validate_client',
+    notes: '[EVENT_VALIDATED_HOURS] 2026-06-03T12:00:00.000Z',
+    assignments: [{
+      collaboratorId: 7,
+      status: 'confirmed',
+      validationStatus: 'validated',
+      clientCheckIn: '10:00',
+      clientCheckOut: '16:00',
+    }],
+  }), true);
+});
+
+test('does not reconcile a marker when client validation is incomplete', () => {
+  assert.equal(isFinanceReadyEvent({
+    status: 'to_validate_client',
+    notes: '[EVENT_VALIDATED_HOURS] 2026-06-03T12:00:00.000Z',
+    assignments: [{
+      collaboratorId: 7,
+      status: 'confirmed',
+      validationStatus: 'validated',
+      clientCheckIn: '10:00',
+      clientCheckOut: null,
+    }],
+  }), false);
+});
+
 test('includes finalized events in finance', () => {
   assert.equal(isFinanceReadyEvent({
     status: 'finalized',

@@ -9,6 +9,7 @@ import {
   dueDateForBillingGroup,
   expandClientBillingRows,
   filterBillingGroupsByPeriod,
+  filterServicesByPeriod,
   splitClientBillingRows,
 } from './clientBilling.js';
 
@@ -49,6 +50,19 @@ test('includes all groups from the selected year when all months is selected', (
   const annualGroups = filterBillingGroupsByPeriod(groups, '2026-00');
 
   assert.deepEqual(annualGroups.map((group) => group.key), ['black:monthly:2026-10', 'black:monthly:2026-11']);
+});
+
+test('includes a continuous event when a turn falls in the selected month', () => {
+  const services = filterServicesByPeriod([{
+    date: '2026-06-29',
+    endDate: '2026-07-05',
+    assignments: [
+      { assignmentDate: '2026-06-29' },
+      { assignmentDate: '2026-07-04' },
+    ],
+  }], '2026-07');
+
+  assert.equal(services.length, 1);
 });
 
 test('does not match a monthly group by due date when the service belongs to another month', () => {

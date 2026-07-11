@@ -9,10 +9,42 @@ test('normalizes event billing payment date when provided', () => {
   assert.equal(payload.billingPaymentDate.toISOString().slice(0, 10), '2026-06-05');
 });
 
+test('normalizes the event workflow mode', () => {
+  assert.equal(normalizeEvent({ statusMode: 'manual' }).statusMode, 'manual');
+  assert.equal(normalizeEvent({ statusMode: 'unexpected-value' }).statusMode, 'automatic');
+});
+
 test('normalizes empty event billing payment date to null', () => {
   const payload = normalizeEvent({ billingPaymentDate: '' });
 
   assert.equal(payload.billingPaymentDate, null);
+});
+
+test('normalizes the client signal date for event payment tracking', () => {
+  const payload = normalizeEvent({ signaledAt: '2026-07-11' });
+
+  assert.equal(payload.signaledAt instanceof Date, true);
+  assert.equal(payload.signaledAt.toISOString().slice(0, 10), '2026-07-11');
+});
+
+test('allows an event without a registered client and preserves its free-text name', () => {
+  const payload = normalizeEvent({
+    clientId: '',
+    clientName: 'Restaurante XPTO',
+  });
+
+  assert.equal(payload.clientId, null);
+  assert.equal(payload.clientName, 'Restaurante XPTO');
+});
+
+test('clears a previously selected client when an event is switched to a free-text client', () => {
+  const payload = normalizeEvent({
+    clientId: null,
+    clientName: 'João Silva',
+  });
+
+  assert.equal(payload.clientId, null);
+  assert.equal(payload.clientName, 'João Silva');
 });
 
 test('normalizes event financial totals from budget conversion values', () => {

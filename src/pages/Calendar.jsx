@@ -140,7 +140,7 @@ function CalendarEvents({ items, showEmpty = false }) {
             <small>
               {item._budgetReminder
                 ? `${item.clientName} · ${item.text || 'Follow-up'}`
-                : `${item.client?.name || 'Sem cliente'}${item._reminder ? ' · Pagamento restante' : ` · ${statusLabel(item.status)}`}`}
+                : `${item.client?.name || item.clientName || 'Sem cliente'}${item._reminder ? ' · Pagamento restante' : ` · ${statusLabel(item.status)}`}`}
             </small>
           </Link>
         );

@@ -400,7 +400,7 @@ function escapeHtml(value) {
 export default function Budgets() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi('/budgets', []);
-  const { data: clients, reload: reloadClients } = useApi('/clients', []);
+  const { data: clients } = useApi('/clients', []);
   const [activeTab, setActiveTab] = useState('new_request');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -811,29 +811,6 @@ export default function Budgets() {
     await updateBudgetStatus(row, 'lost', { lostReason: reason || 'Outro' });
   }
 
-  async function ensureClient(row) {
-    if (row.clientId) return row.clientId;
-    const name = row.companyName || row.leadName;
-    if (!name) throw new Error('Indica o nome do cliente ou empresa antes de converter em evento.');
-    const created = await api('/clients', {
-      method: 'POST',
-      body: JSON.stringify({
-        name,
-        representativeName: row.leadName || '',
-        phone: row.phone || '',
-        email: row.email || '',
-        nif: row.nif || '',
-        address: row.location || '',
-        type: row.budgetType === 'individual' ? 'particular' : 'empresarial',
-        billingMethod: row.budgetType === 'individual' ? 'prepaid' : 'per_event',
-        paymentTerm: row.budgetType === 'individual' ? 'immediate' : 'days_30',
-        status: 'active',
-      }),
-    });
-    reloadClients();
-    return created.id;
-  }
-
   function openConversion(row) {
     const draft = buildBudgetConversionDraft(row);
     setConversionSource(row);
@@ -914,13 +891,13 @@ export default function Budgets() {
       if (!conversionDraft.clientId && !conversionDraft.clientLabel) {
         throw new Error('Indica o cliente antes de converter em evento/serviço.');
       }
-      const clientId = conversionDraft.clientId || await ensureClient(conversionSource);
+      const clientId = conversionDraft.clientId || null;
       const payload = buildEventPayloadFromBudgetConversion(conversionDraft, clientId);
       await api('/services', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      await updateBudgetStatus(conversionSource, 'accepted', { clientId });
+      await updateBudgetStatus(conversionSource, 'accepted', clientId ? { clientId } : {});
       closeConversion(true);
       window.alert('Evento/Serviço criado com sucesso.');
     } catch (err) {
@@ -1443,9 +1420,9 @@ export default function Budgets() {
             </div>
 
             {formError ? <p className="notice">{formError}</p> : null}
-            <footer className="form-actions form-actions--sticky">
-              <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar Orçamento'}</button>
+            <footer className="form-actions form-actions--sticky form-actions--save-cancel">
               <button className="secondary-button" type="button" onClick={() => closeBudgetForm()}>Cancelar</button>
+              <button className="command-button" type="submit" disabled={saving}>{saving ? 'A guardar...' : 'Guardar Orçamento'}</button>
             </footer>
           </form>
         </Modal>
@@ -1659,11 +1636,11 @@ export default function Budgets() {
             </div>
 
             {conversionError ? <p className="notice">{conversionError}</p> : null}
-            <footer className="form-actions form-actions--sticky">
+            <footer className="form-actions form-actions--sticky form-actions--save-cancel">
+              <button className="secondary-button" type="button" onClick={() => closeConversion()}>Cancelar</button>
               <button className="command-button" type="submit" disabled={conversionSaving}>
                 {conversionSaving ? 'A criar...' : 'Guardar e criar Evento/Serviço'}
               </button>
-              <button className="secondary-button" type="button" onClick={() => closeConversion()}>Cancelar</button>
             </footer>
           </form>
         </Modal>

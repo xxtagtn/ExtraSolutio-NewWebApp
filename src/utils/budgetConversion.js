@@ -138,7 +138,8 @@ export function buildEventPayloadFromBudgetConversion(draft = {}, clientId) {
   return {
     name: String(draft.name || '').trim(),
     eventType: draft.eventType || '',
-    clientId,
+    clientId: clientId || null,
+    clientName: clientId ? null : (draft.clientLabel || null),
     date: draft.date || '',
     endDate: isContinuous ? draft.endDate : null,
     isContinuous,

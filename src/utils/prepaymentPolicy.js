@@ -25,24 +25,33 @@ export function buildPrepaymentSummary({
   serviceDate = '',
   billingStatus = 'pending',
   client = null,
+  signaledAmount = 0,
+  paidAmount: storedPaidAmount = 0,
+  remainingPaymentDate = '',
 } = {}) {
   const totalAmount = Number(((decimalValue(total) || 0)).toFixed(2));
   const status = String(billingStatus || 'pending');
   const rule = clientPrepaymentRule(client);
-  const signaledAmount = prepaymentDepositAmount(totalAmount, client);
+  const calculatedSignaledAmount = prepaymentDepositAmount(totalAmount, client);
+  const manualSignaledAmount = decimalValue(signaledAmount) || 0;
+  const resolvedSignaledAmount = Number(Math.min(
+    totalAmount,
+    manualSignaledAmount > 0 ? manualSignaledAmount : calculatedSignaledAmount,
+  ).toFixed(2));
+  const manualPaidAmount = decimalValue(storedPaidAmount) || 0;
   const paidAmount = status === 'paid'
     ? totalAmount
     : status === 'partial70'
-      ? signaledAmount
+      ? Number(Math.min(totalAmount, manualPaidAmount > 0 ? manualPaidAmount : resolvedSignaledAmount).toFixed(2))
       : 0;
 
   return {
     total: totalAmount,
     status,
-    signaledAmount,
+    signaledAmount: resolvedSignaledAmount,
     paidAmount,
     remainingAmount: Number(Math.max(0, totalAmount - paidAmount).toFixed(2)),
-    remainingPaymentDate: defaultPrepaymentRemainingDate(serviceDate, rule.remainingDaysBefore),
+    remainingPaymentDate: dateOnly(remainingPaymentDate) || defaultPrepaymentRemainingDate(serviceDate, rule.remainingDaysBefore),
   };
 }
 

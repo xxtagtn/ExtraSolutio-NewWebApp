@@ -22,7 +22,6 @@ import TimeInput from '../components/UI/TimeInput.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
-import { externalCostsTotals } from '../utils/externalCosts.js';
 import { date, durationHours } from '../utils/formatters.js';
 import { buildBulkValidationCandidates, buildClientCopyCandidates } from '../utils/hourValidationBulk.js';
 import {
@@ -30,8 +29,8 @@ import {
   hoursValidationState,
   validationPersistenceFields,
 } from '../utils/hourValidationStatus.js';
-import { clientChargeHours, clientRealHours, decimalValue, staffWorkedHours } from '../utils/serviceFinance.js';
-import { nextAutomaticServiceStatus, nextTimeValidationServiceStatus, SERVICE_STATUS } from '../utils/serviceStatus.js';
+import { clientChargeHours, clientRealHours, staffWorkedHours } from '../utils/serviceFinance.js';
+import { SERVICE_STATUS } from '../utils/serviceStatus.js';
 import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
 import { assessTimeTolerance, resolvePlannedTimes } from '../utils/timeTolerance.js';
 import {
@@ -85,15 +84,6 @@ const IMPORT_MANUAL_MAPPING_FIELDS = new Set(['session', 'category', 'collaborat
 
 function num(value) {
   return Number(value || 0);
-}
-
-function parseRequiredRoles(value) {
-  if (!value) return [];
-  try {
-    return JSON.parse(value);
-  } catch {
-    return [];
-  }
 }
 
 function toMinutes(time) {
@@ -294,35 +284,6 @@ function reopenAssignmentPayload(assignment) {
   };
 }
 
-function eventTotals(event, assignments) {
-  const requiredRoles = parseRequiredRoles(event.requiredRoles);
-  const roleRateMap = new Map(requiredRoles.map((item) => [item.role, decimalValue(item.agreedRate) || 0]));
-  let totalRevenue = 0;
-  let totalCost = 0;
-  let realHours = 0;
-  let billableHours = 0;
-  for (const assignment of assignments) {
-    if (NON_BILLABLE_STATUSES.has(assignmentStatus(assignment.status))) continue;
-    const realClientHours = clientRealHoursFor(assignment);
-    const clientHours = clientHoursFor(assignment, event);
-    const staffHours = staffHoursFor(assignment, event);
-    totalRevenue += clientHours * (roleRateMap.get(assignment.role) || 0);
-    totalCost += staffHours * num(assignment.hourlyRate);
-    realHours += realClientHours;
-    billableHours += clientHours;
-  }
-  if (event.travelExpenseEnabled) totalRevenue += num(event.travelExpenseAmount);
-  const externalTotals = externalCostsTotals(event.externalCosts);
-  totalRevenue += externalTotals.chargeAmount;
-  totalCost += externalTotals.costAmount;
-  return {
-    totalRevenue: Number(totalRevenue.toFixed(2)),
-    totalCost: Number(totalCost.toFixed(2)),
-    realHours: Number(realHours.toFixed(2)),
-    billableHours: Number(billableHours.toFixed(2)),
-  };
-}
-
 export default function TimeValidation() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', []);
@@ -359,19 +320,18 @@ export default function TimeValidation() {
 
   useEffect(() => {
     if (loading || statusSyncing || !services.length) return;
-    const updates = services
-      .map((event) => ({ event, nextStatus: nextAutomaticServiceStatus(event) }))
-      .filter(({ event, nextStatus }) => nextStatus && nextStatus !== event.status);
+    const updates = services.filter((event) => event.statusMode !== 'manual');
     if (!updates.length) return;
 
     let cancelled = false;
     setStatusSyncing(true);
-    Promise.all(updates.map(({ event, nextStatus }) => api(`/services/${event.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ status: nextStatus }),
+    Promise.all(updates.map((event) => api(`/services/${event.id}/workflow/synchronize`, {
+      method: 'POST',
+      body: JSON.stringify({ recalculateTotals: false }),
     })))
-      .then(() => {
-        if (!cancelled) reload();
+      .then((synced) => {
+        const changed = synced.some((event, index) => event?.status !== updates[index]?.status);
+        if (!cancelled && changed) reload();
       })
       .catch((err) => {
         console.warn('Falha ao sincronizar estados dos eventos/serviços:', err);
@@ -484,7 +444,7 @@ export default function TimeValidation() {
       if (!id || seen.has(id)) continue;
       seen.set(id, {
         id,
-        label: row.event.client?.name || '-',
+        label: row.event.client?.name || row.event.clientName || '-',
       });
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
@@ -534,7 +494,7 @@ export default function TimeValidation() {
     () => services
       .map((event) => ({
         id: String(event.id),
-        label: `${event.name || '-'} · ${event.client?.name || '-'} · ${dateRangeLabelFromKeys([event.date, event.endDate])}`,
+        label: `${event.name || '-'} · ${event.client?.name || event.clientName || '-'} · ${dateRangeLabelFromKeys([event.date, event.endDate])}`,
       }))
       .sort((a, b) => a.label.localeCompare(b.label, 'pt')),
     [services],
@@ -1081,23 +1041,6 @@ export default function TimeValidation() {
       const body = validationBodyFor(row, merged, mode);
       await api(`/assignments/${row.id}`, { method: 'PUT', body: JSON.stringify(body) });
 
-      const nextAssignments = (row.event.assignments || []).map((assignment) => (
-        assignment.id === row.id ? { ...assignment, ...body } : assignment
-      ));
-      const totals = eventTotals(row.event, nextAssignments);
-      const nextStatus = nextTimeValidationServiceStatus({ ...row.event, assignments: nextAssignments });
-      try {
-        await api(`/services/${row.event.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            ...totals,
-            status: nextStatus,
-          }),
-        });
-      } catch (error) {
-        console.warn('Falha a atualizar totais do evento apos validar horas:', error);
-      }
-
       const persistedDraft = { ...merged, ...body, _persisted: true };
       setDrafts((prev) => ({ ...prev, [row.id]: persistedDraft }));
       const nextAssessment = rowAssessment(persistedDraft);
@@ -1201,19 +1144,6 @@ export default function TimeValidation() {
         return api(`/assignments/${row.id}`, { method: 'PUT', body: JSON.stringify(body) });
       }));
 
-      const nextAssignments = (item.event.assignments || []).map((assignment) => (
-        updates.has(assignment.id) ? { ...assignment, ...updates.get(assignment.id) } : assignment
-      ));
-      const totals = eventTotals(item.event, nextAssignments);
-      const nextStatus = nextTimeValidationServiceStatus({ ...item.event, assignments: nextAssignments });
-      await api(`/services/${item.event.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          ...totals,
-          status: nextStatus,
-        }),
-      });
-
       setDrafts((prev) => {
         const next = { ...prev };
         for (const { row, merged } of candidates.ready) {
@@ -1237,12 +1167,9 @@ export default function TimeValidation() {
         method: 'PUT',
         body: JSON.stringify(reopenAssignmentPayload(merged)),
       });
-      await api(`/services/${row.event.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          notes: removeValidatedMarker(row.event.notes) || null,
-          status: SERVICE_STATUS.toValidateStaff,
-        }),
+      await api(`/services/${row.event.id}/workflow/reopen`, {
+        method: 'POST',
+        body: JSON.stringify({ notes: removeValidatedMarker(row.event.notes) || null }),
       });
       setDrafts((prev) => ({
         ...prev,
@@ -1264,12 +1191,9 @@ export default function TimeValidation() {
       const nextNotes = currentNotes.includes(VALIDATED_EVENT_MARKER)
         ? currentNotes
         : [currentNotes, `${VALIDATED_EVENT_MARKER} ${new Date().toISOString()}`].filter(Boolean).join('\n');
-      await api(`/services/${item.event.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          notes: nextNotes,
-          status: SERVICE_STATUS.finalized,
-        }),
+      await api(`/services/${item.event.id}/workflow/finalize`, {
+        method: 'POST',
+        body: JSON.stringify({ notes: nextNotes }),
       });
       reload();
     } finally {
@@ -1292,12 +1216,9 @@ export default function TimeValidation() {
       })));
 
       const nextNotes = removeValidatedMarker(item.event.notes);
-      await api(`/services/${item.event.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          notes: nextNotes || null,
-          status: SERVICE_STATUS.toValidateStaff,
-        }),
+      await api(`/services/${item.event.id}/workflow/reopen`, {
+        method: 'POST',
+        body: JSON.stringify({ notes: nextNotes || null }),
       });
       setDrafts((prev) => {
         const next = { ...prev };
@@ -1479,7 +1400,7 @@ export default function TimeValidation() {
                   <div className="validation-event-main">
                     <div>
                     <strong>{item.event.name || '-'}</strong>
-                    <small>{item.event.client?.name || '-'} · {item.workDateLabel}</small>
+                    <small>{item.event.client?.name || item.event.clientName || '-'} · {item.workDateLabel}</small>
                   </div>
                     <Badge tone={item.ready ? 'success' : 'warning'}>{item.ready ? 'Pronto para fechar' : 'Em validação'}</Badge>
                   </div>
@@ -1559,7 +1480,7 @@ export default function TimeValidation() {
                         <h2>{selectedPanelEvent.name || '-'}</h2>
                         <Badge tone={selectedPanelTone}>{selectedPanelStatus}</Badge>
                       </div>
-                      <p>{selectedPanelEvent.client?.name || '-'} · {selectedPanelDateLabel}</p>
+                      <p>{selectedPanelEvent.client?.name || selectedPanelEvent.clientName || '-'} · {selectedPanelDateLabel}</p>
                     </div>
                     <button
                       className="secondary-button"
@@ -1703,7 +1624,7 @@ export default function TimeValidation() {
                             </td>
                             <td>
                               <strong>{row.event.name}</strong>
-                              <small>{row.event.client?.name || '-'} · {row.workDateLabel}</small>
+                              <small>{row.event.client?.name || row.event.clientName || '-'} · {row.workDateLabel}</small>
                             </td>
                             {showPlannedColumn ? (
                               <td>
@@ -1851,7 +1772,7 @@ export default function TimeValidation() {
               <article key={item.event.id} className="validation-history-item">
                 <div>
                   <strong>{item.event.name || '-'}</strong>
-                  <small>{item.event.client?.name || '-'} · {item.dateLabel}</small>
+                  <small>{item.event.client?.name || item.event.clientName || '-'} · {item.dateLabel}</small>
                 </div>
                 <div>
                   <span>Validado</span>

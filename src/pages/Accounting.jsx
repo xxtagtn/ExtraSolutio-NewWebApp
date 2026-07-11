@@ -532,9 +532,6 @@ export default function Accounting() {
   }, [activeArea, searchParams]);
 
   useEffect(() => {
-    const area = searchParams.get('area');
-    if (area !== 'clients') return;
-
     const eventId = searchParams.get('eventId');
     const invoiceId = searchParams.get('invoiceId');
     if (!eventId && !invoiceId) return;
@@ -619,12 +616,12 @@ export default function Accounting() {
   );
 
   const currentEventRows = useMemo(
-    () => eventRows.filter((event) => isSameMonth(event.date, selectedMonth)),
+    () => filterServicesByPeriod(eventRows, selectedMonth),
     [eventRows, selectedMonth],
   );
 
   const currentForecastEventRows = useMemo(
-    () => forecastEventRows.filter((event) => isSameMonth(event.date, selectedMonth)),
+    () => filterServicesByPeriod(forecastEventRows, selectedMonth),
     [forecastEventRows, selectedMonth],
   );
 
@@ -682,7 +679,7 @@ export default function Accounting() {
       periodDirectReceivableByClient.set(key, (periodDirectReceivableByClient.get(key) || 0) + num(event.financial.receivable));
     }
 
-    return clients.flatMap((client) => {
+    const registeredClientRows = clients.flatMap((client) => {
       const clientInvoices = invoices.filter((invoice) => Number(invoice.clientId) === Number(client.id));
       const periodInvoices = filterInvoicesByPeriod(clientInvoices, period);
       const unpaidInvoices = periodInvoices.filter((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled');
@@ -745,7 +742,58 @@ export default function Accounting() {
         })(),
       };
       return expandClientBillingRows(clientRow, { overdueDaysFromDate: dayDiffFromToday });
-    }).sort((a, b) => {
+    });
+
+    const unregisteredEventRows = periodEventRows
+      .filter((event) => !event.clientId && String(event.clientName || '').trim())
+      .map((event) => {
+        const displayName = String(event.clientName).trim();
+        const billingStatus = String(event.billingStatus || 'pending');
+        const revenue = num(event.financial?.revenue);
+        const receivable = num(event.financial?.receivable);
+        const pendingBilling = billingStatus === 'pending' ? revenue : 0;
+        const totalOpen = billingStatus === 'pending' ? revenue : receivable;
+        const dueDate = dueDateForService({ billingMethod: 'per_event' }, event);
+        const pseudoClient = {
+          id: `unregistered-${event.id}`,
+          name: displayName,
+          billingMethod: 'per_event',
+          paymentTerm: 'immediate',
+        };
+        const overdueDays = ['invoiced', 'partial70'].includes(billingStatus)
+          ? Math.max(0, dayDiffFromToday(dueDate))
+          : 0;
+        const group = {
+          key: `unregistered:per_event:${event.id}`,
+          client: pseudoClient,
+          method: 'per_event',
+          label: `${displayName} · ${event.name || 'Evento/Serviço'}`,
+          issueDate: dueDate,
+          dueDate,
+          events: [event],
+          total: pendingBilling,
+        };
+
+        return {
+          ...pseudoClient,
+          isUnregisteredClient: true,
+          rowId: `unregistered-event:${event.id}`,
+          invoices: [],
+          billingGroups: [group],
+          nonInvoicedServices: [event],
+          actionableInvoice: null,
+          actionableService: event,
+          invoicesCount: billingStatus === 'pending' ? 0 : 1,
+          invoiceDebt: billingStatus === 'invoiced' ? receivable : 0,
+          pendingBilling,
+          billedOpen: billingStatus === 'invoiced' ? receivable : 0,
+          totalOpen,
+          overdueDays,
+          nextDueDate: dueDate,
+        };
+      });
+
+    return [...registeredClientRows, ...unregisteredEventRows].sort((a, b) => {
       const dateDiff = new Date(a.nextDueDate || 0).getTime() - new Date(b.nextDueDate || 0).getTime();
       if (dateDiff) return dateDiff;
       return b.totalOpen - a.totalOpen;
@@ -1486,7 +1534,7 @@ export default function Accounting() {
                 <article key={event.id}>
                   <div>
                     <strong>{event.name}</strong>
-                    <small>{event.client?.name || '-'} · {event.date ? date.format(new Date(event.date)) : '-'}</small>
+                    <small>{event.client?.name || event.clientName || '-'} · {event.date ? date.format(new Date(event.date)) : '-'}</small>
                   </div>
                   <span>{money.format(event.financial.revenue)}</span>
                 </article>
@@ -1515,7 +1563,7 @@ export default function Accounting() {
                 <article key={event.id}>
                   <div>
                     <strong>{event.name}</strong>
-                    <small>{event.client?.name || '-'} · {event.date ? date.format(new Date(event.date)) : '-'}</small>
+                    <small>{event.client?.name || event.clientName || '-'} · {event.date ? date.format(new Date(event.date)) : '-'}</small>
                   </div>
                   <span>{money.format(event.financial.revenue)}</span>
                 </article>
@@ -1574,7 +1622,10 @@ export default function Accounting() {
                   <article key={client.rowId} className="finance-list-item finance-list-item--wide">
                     <div>
                       <strong>{client.name}</strong>
-                      <small>{client.invoicesCount} fatura(s) em aberto · {BILLING_METHOD_LABELS[client.billingMethod] || '-'}</small>
+                    <small>
+                      {client.isUnregisteredClient ? 'Cliente não registado · ' : ''}
+                      {client.invoicesCount} fatura(s) em aberto · {BILLING_METHOD_LABELS[client.billingMethod] || '-'}
+                    </small>
                     </div>
                     <span>{money.format(client.pendingBilling)} por faturar</span>
                     <strong>{money.format(client.totalOpen)}</strong>
@@ -1590,7 +1641,7 @@ export default function Accounting() {
                   <article key={event.id} className="finance-list-item finance-list-item--wide">
                     <div>
                       <strong>{event.name}</strong>
-                      <small>{event.client?.name || '-'} · {event.date ? date.format(new Date(event.date)) : '-'}</small>
+                    <small>{event.client?.name || event.clientName || '-'} · {event.date ? date.format(new Date(event.date)) : '-'}</small>
                     </div>
                     <span>{event.financial.marginPct.toFixed(1)}%</span>
                     <strong className={event.financial.margin < 0 ? 'money-negative' : 'money-positive'}>{money.format(event.financial.margin)}</strong>
@@ -2440,7 +2491,7 @@ export default function Accounting() {
                   <div className="accounting-head">
                     <div className="finance-margin-grid finance-margin-grid--new">
                       <div><small>Evento</small><strong>{row.name}</strong></div>
-                      <div><small>Cliente</small><strong>{row.client?.name || '-'}</strong></div>
+                      <div><small>Cliente</small><strong>{row.client?.name || row.clientName || '-'}</strong></div>
                       <div><small>Receita</small><strong>{money.format(row.financial.revenue)}</strong></div>
                       <div><small>Staff</small><strong>{money.format(row.financial.staff)}</strong></div>
                       <div><small>Despesas</small><strong>{money.format(row.financial.operational)}</strong></div>
@@ -2610,11 +2661,11 @@ export default function Accounting() {
                 onChange={(event) => setPaymentNotesDraft(event.target.value)}
               />
             </div>
-            <footer className="form-actions finance-payment-notes-actions">
+            <footer className="form-actions form-actions--save-cancel finance-payment-notes-actions">
+              <button className="secondary-button" type="button" onClick={closePaymentNotes} disabled={savingPaymentNotes}>Cancelar</button>
               <button className="command-button" type="button" onClick={savePaymentNotes} disabled={savingPaymentNotes}>
                 {savingPaymentNotes ? 'A guardar...' : 'Guardar'}
               </button>
-              <button className="secondary-button" type="button" onClick={closePaymentNotes} disabled={savingPaymentNotes}>Cancelar</button>
             </footer>
           </div>
         </Modal>

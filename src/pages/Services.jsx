@@ -47,6 +47,7 @@ import {
   nextAutomaticServiceStatus,
   operationalStatusOptions,
   SERVICE_STATUS,
+  serviceStatusForDisplay,
   statusLabel,
 } from '../utils/serviceStatus.js';
 import {
@@ -55,6 +56,7 @@ import {
   templatePayloadFromForm,
   travelCarsFromSource,
 } from '../utils/serviceTemplateForm.js';
+import { requiredStaffTotal } from '../utils/serviceRequirements.js';
 import { calculateTravelAmount } from '../utils/travelCalculator.js';
 
 const eventTypeOptions = [
@@ -136,6 +138,7 @@ function emptyForm() {
     endDate: '',
     isContinuous: false,
     clientId: '',
+    clientName: '',
     useDefaultLocation: true,
     location: '',
     guestsCount: '',
@@ -162,6 +165,7 @@ function emptyForm() {
     billingStatus: 'pending',
     signaledAmount: '',
     paidAmount: '',
+    signaledAt: '',
     remainingPaymentDate: '',
     totalRevenue: '',
     externalCosts: [],
@@ -433,6 +437,7 @@ function toForm(row) {
     endDate: row.endDate ? dateOnly(row.endDate) : '',
     isContinuous: Boolean(row.isContinuous),
     clientId: row.clientId ? String(row.clientId) : '',
+    clientName: row.clientName || '',
     useDefaultLocation: row.useDefaultLocation !== false,
     location: row.location || '',
     guestsCount: row.guestsCount ?? '',
@@ -458,9 +463,11 @@ function toForm(row) {
     travelManualAmount: savedTravelType === 'manual' ? formatMoneyInline(row.travelManualAmount || savedTravelAmount) : '',
     description: row.description || '',
     status: row.status || 'drafting',
+    statusMode: row.statusMode || 'automatic',
     billingStatus: row.billingStatus || 'pending',
     signaledAmount: row.signaledAmount === undefined || row.signaledAmount === null ? '' : formatMoneyInline(row.signaledAmount),
     paidAmount: row.paidAmount === undefined || row.paidAmount === null ? '' : formatMoneyInline(row.paidAmount),
+    signaledAt: row.signaledAt ? String(row.signaledAt).slice(0, 10) : '',
     remainingPaymentDate: row.remainingPaymentDate ? String(row.remainingPaymentDate).slice(0, 10) : '',
     totalRevenue: row.totalRevenue === undefined || row.totalRevenue === null ? '' : formatMoneyInline(row.totalRevenue),
     externalCosts: normalizeExternalCosts(row.externalCosts),
@@ -542,7 +549,7 @@ export default function Services() {
     const byArchive = listScope === 'archive' ? isArchivedService(row) : !isArchivedService(row);
     const byDate = fromDate ? dateOnly(eventRangeEnd(row)) >= fromDate : true;
     const byClient = clientFilter ? String(row.clientId) === clientFilter : true;
-    const byStatus = statusFilter ? nextAutomaticServiceStatus(row) === statusFilter : true;
+    const byStatus = statusFilter ? serviceStatusForDisplay(row) === statusFilter : true;
     return byArchive && byDate && byClient && byStatus;
   }), [data, listScope, fromDate, clientFilter, statusFilter]);
 
@@ -679,6 +686,9 @@ export default function Services() {
     serviceDate: form.date,
     billingStatus: form.billingStatus,
     client: selectedClient,
+    signaledAmount: form.signaledAmount,
+    paidAmount: form.paidAmount,
+    remainingPaymentDate: form.remainingPaymentDate,
   });
   const prepaidPaymentBlocked = shouldBlockPrepaidStaffAllocation(
     selectedClient,
@@ -758,19 +768,18 @@ export default function Services() {
 
   useEffect(() => {
     if (loading || statusSyncing || formOpen || !data.length) return;
-    const updates = data
-      .map((row) => ({ row, nextStatus: nextAutomaticServiceStatus(row) }))
-      .filter(({ row, nextStatus }) => nextStatus && nextStatus !== row.status);
+    const updates = data.filter((row) => row.statusMode !== 'manual');
     if (!updates.length) return;
 
     let cancelled = false;
     setStatusSyncing(true);
-    Promise.all(updates.map(({ row, nextStatus }) => api(`/services/${row.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ status: nextStatus }),
+    Promise.all(updates.map((row) => api(`/services/${row.id}/workflow/synchronize`, {
+      method: 'POST',
+      body: JSON.stringify({ recalculateTotals: false }),
     })))
-      .then(() => {
-        if (!cancelled) reload();
+      .then((synced) => {
+        const changed = synced.some((event, index) => event?.status !== updates[index]?.status);
+        if (!cancelled && changed) reload();
       })
       .catch((err) => {
         console.warn('Falha ao sincronizar estados dos eventos/serviços:', err);
@@ -834,7 +843,7 @@ export default function Services() {
     setTemplateError('');
     setTemplateName('');
     setSelectedTemplateId('');
-    setStatusManualOverride(false);
+    setStatusManualOverride(row.statusMode === 'manual');
     setSelectedTeamDay('');
     setActiveCollaboratorPickerIndex(null);
     setCollaboratorPickerPlacement(null);
@@ -1007,8 +1016,18 @@ export default function Services() {
 
   function updateClient(clientId) {
     const client = clients.find((item) => String(item.id) === String(clientId));
+    if (!clientId) {
+      setForm((prev) => ({
+        ...prev,
+        clientId: '',
+        clientName: prev.clientName || '',
+        minimumHoursSnapshot: 0,
+        useDefaultLocation: false,
+      }));
+      return;
+    }
     setForm((prev) => applyClientRulesToServiceForm(
-      { ...prev, clientId },
+      { ...prev, clientId, clientName: '' },
       client,
       { uniformOptions },
     ));
@@ -1212,11 +1231,13 @@ export default function Services() {
       const payload = {
         ...form,
         status: statusManualOverride ? form.status : nextAutomaticServiceStatus(form),
+        statusMode: statusManualOverride ? 'manual' : 'automatic',
         assignmentDrafts: assignmentDraftsFromRows(form.assignments),
         endDate: form.isContinuous && form.endDate ? form.endDate : null,
         location: effectiveLocation,
         uniform: form.uniform === 'Outros' ? form.uniformOther : form.uniform,
-        clientId: Number(form.clientId),
+        clientId: form.clientId ? Number(form.clientId) : null,
+        clientName: form.clientId ? null : (form.clientName.trim() || null),
         guestsCount: form.guestsCount === '' ? null : Number(form.guestsCount),
         requiredRoles: form.requiredRoles,
         realHours: financials.realHours,
@@ -1242,6 +1263,7 @@ export default function Services() {
           : form.billingStatus === 'partial70'
             ? prepaymentForPayload.paidAmount
             : 0,
+        signaledAt: form.billingStatus === 'partial70' ? (form.signaledAt || null) : null,
         remainingPaymentDate: form.billingStatus === 'partial70' ? prepaymentForPayload.remainingPaymentDate : null,
       };
       const saved = await api(`/services${editing ? `/${editing.id}` : ''}`, {
@@ -1352,17 +1374,24 @@ export default function Services() {
     setFormError('');
     try {
       const nextNotes = removeValidatedMarker(editing.notes) || null;
-      await api(`/services/${editing.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          status: SERVICE_STATUS.toValidateStaff,
-          notes: nextNotes,
-        }),
+      await api(`/services/${editing.id}/workflow/reopen`, {
+        method: 'POST',
+        body: JSON.stringify({ notes: nextNotes }),
       });
-      const restoredForm = { ...form, status: SERVICE_STATUS.toValidateStaff, notes: nextNotes || '' };
+      const restoredForm = {
+        ...form,
+        status: SERVICE_STATUS.toValidateStaff,
+        statusMode: 'automatic',
+        notes: nextNotes || '',
+      };
       setForm(restoredForm);
       setFormBaseline(restoredForm);
-      setEditing((prev) => (prev ? { ...prev, status: SERVICE_STATUS.toValidateStaff, notes: nextNotes } : prev));
+      setEditing((prev) => (prev ? {
+        ...prev,
+        status: SERVICE_STATUS.toValidateStaff,
+        statusMode: 'automatic',
+        notes: nextNotes,
+      } : prev));
       setListScope('active');
       reload();
     } catch (err) {
@@ -1401,6 +1430,11 @@ export default function Services() {
             <label>Valor restante
               <input value={euro(prepaymentSummary.remainingAmount)} readOnly />
             </label>
+            {form.billingStatus === 'partial70' || prepaymentSummary.signaledAmount > 0 ? (
+              <label>Data da sinalização
+                <input type="date" value={form.signaledAt} onChange={(event) => setForm({ ...form, signaledAt: event.target.value })} />
+              </label>
+            ) : null}
             <label>Alerta do restante pagamento
               <input value={prepaymentSummary.remainingPaymentDate || 'A definir após escolher a data'} readOnly />
             </label>
@@ -1469,10 +1503,7 @@ export default function Services() {
         {!loading && !rows.length ? <p className="muted">Nenhum evento/serviço encontrado.</p> : null}
         <div className="service-card-list">
           {rows.map((row) => {
-            const requiredRoles = safeArrayJson(row.requiredRoles);
-            const requestedTotal = row.isContinuous
-              ? (row.assignments || []).filter((item) => item.role && item.collaboratorId && item.assignmentDate).length
-              : requiredRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+            const requestedTotal = requiredStaffTotal(row);
             const confirmedTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'confirmed').length;
             const pendingTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'pending_confirmation').length;
             return (
@@ -1484,7 +1515,7 @@ export default function Services() {
                   </div>
                   <div className="service-card__field">
                     <small>Cliente</small>
-                    <strong>{row.client?.name || '-'}</strong>
+                    <strong>{row.client?.name || row.clientName || 'Sem cliente'}</strong>
                   </div>
                   <div className="service-card__field">
                     <small>Data</small>
@@ -1496,7 +1527,7 @@ export default function Services() {
                   <span className="service-status-count service-status-count--confirmed">Confirmados: {confirmedTotal}</span>
                   {pendingTotal > 0 ? <span className="service-status-count service-status-count--pending">A aguardar: {pendingTotal}</span> : null}
                   <span className="service-status-count">Valor: {euro(getRowForecast(row))}</span>
-                  <Badge tone={isArchivedService(row) ? 'success' : 'info'}>{statusLabel(row.status)}</Badge>
+                  <Badge tone={isArchivedService(row) ? 'success' : 'info'}>{statusLabel(serviceStatusForDisplay(row))}</Badge>
                   <ChevronRight size={16} />
                 </div>
               </button>
@@ -1632,12 +1663,21 @@ export default function Services() {
                 <section className="service-form-section">
                   <h3>Cliente e local</h3>
                   <div className="form-grid">
-                    <label>Cliente
-                      <select value={form.clientId} required onChange={(event) => updateClient(event.target.value)}>
+                    <label>Cliente registado (opcional)
+                      <select value={form.clientId} onChange={(event) => updateClient(event.target.value)}>
                         <option value="">Selecionar</option>
                         {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
                       </select>
                     </label>
+                    {!form.clientId ? (
+                      <label>Nome do cliente
+                        <input
+                          value={form.clientName}
+                          placeholder="Ex: Restaurante XPTO ou João Silva"
+                          onChange={(event) => setForm({ ...form, clientName: event.target.value })}
+                        />
+                      </label>
+                    ) : null}
                     <label className="check-inline service-check">
                       <input
                         type="checkbox"
@@ -1650,7 +1690,7 @@ export default function Services() {
                       />
                       <span>Utilizar local habitual</span>
                     </label>
-                    <div className="span-2 client-info-grid">
+                    {selectedClient ? <div className="span-2 client-info-grid">
                       <p><span>Morada habitual</span><strong>{selectedClient?.address || '-'}</strong></p>
                       <p><span>NIF</span><strong>{selectedClient?.nif || '-'}</strong></p>
                       <p><span>Contacto</span><strong>{selectedClient?.representativeName || selectedClient?.contactPerson || '-'}</strong></p>
@@ -1681,7 +1721,7 @@ export default function Services() {
                         <strong>{prepaymentRuleText(selectedClient)}</strong>
                         {selectedClient?.billingMethod === 'prepaid' ? <SourceBadge>regra de pré-pagamento</SourceBadge> : null}
                       </p>
-                    </div>
+                    </div> : <p className="span-2 muted">Sem cliente registado. O nome livre será usado apenas para identificar este evento.</p>}
                     <label className="span-2">Local do evento
                       <input value={form.useDefaultLocation ? (selectedClient?.address || form.location) : form.location} readOnly={form.useDefaultLocation} onChange={(event) => setForm({ ...form, location: event.target.value })} />
                     </label>
@@ -2173,8 +2213,8 @@ export default function Services() {
             ) : null}
 
             {formError ? <p className="notice">{formError}</p> : null}
-            <footer className="form-actions form-actions--sticky service-form-actions">
-              <button className="command-button" type="submit" disabled={saving || removing}>{saving ? 'A guardar...' : 'Guardar'}</button>
+            <footer className="form-actions form-actions--sticky form-actions--save-cancel service-form-actions">
+              <button className="secondary-button" type="button" onClick={() => closeForm()}>Cancelar</button>
               {editing ? (
                 <button className="secondary-button secondary-button--danger" type="button" onClick={removeEvent} disabled={saving || removing}>
                   <Trash2 size={16} />
@@ -2186,7 +2226,7 @@ export default function Services() {
                   Retirar do arquivo
                 </button>
               ) : null}
-              <button className="secondary-button" type="button" onClick={() => closeForm()}>Cancelar</button>
+              <button className="command-button" type="submit" disabled={saving || removing}>{saving ? 'A guardar...' : 'Guardar'}</button>
             </footer>
           </form>
         </Modal>
