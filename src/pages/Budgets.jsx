@@ -66,6 +66,12 @@ const serviceTypeOptions = [
   { value: 'volante', label: 'Volante' },
   { value: 'cocktail', label: 'Cocktail' },
   { value: 'coffee_break', label: 'Coffee Break' },
+  { value: 'welcome_drink', label: 'Welcome Drink' },
+  { value: 'cocktail_volante', label: 'Cocktail Volante' },
+  { value: 'jantar_gala', label: 'Jantar Gala / Servi\u00e7o Premium' },
+  { value: 'bar_simples', label: 'Bar Simples' },
+  { value: 'bar_cocktails', label: 'Bar de Cocktails' },
+  { value: 'bbq', label: 'Churrasco / BBQ' },
   { value: 'trinchar', label: 'Trinchar' },
 ];
 
@@ -121,8 +127,10 @@ const roleRates = {
   'Emp.Mesa': 12,
   'Copa Fina': 11,
   Barman: 14,
+  'Barman de Apoio': 13,
   'Chefe de Sala': 18,
   Cozinheiro: 16,
+  Churrasqueiro: 16,
   'Ajd.Cozinha': 12,
   Logista: 13,
 };
@@ -278,6 +286,22 @@ function cleanTravelCarsForPayload(cars = []) {
   }));
 }
 
+function copaQuantity(pax) {
+  if (pax <= 80) return 1;
+  if (pax <= 180) return 2;
+  if (pax <= 300) return 3;
+  if (pax <= 450) return 4;
+  return 4 + Math.ceil((pax - 450) / 120);
+}
+
+function logistaQuantity(pax) {
+  if (pax <= 50) return 1;
+  if (pax <= 100) return 2;
+  if (pax <= 150) return 3;
+  if (pax <= 200) return 4;
+  return 4 + Math.ceil((pax - 200) / 50);
+}
+
 function getSmartSuggestion(form) {
   const dayGuestCounts = (form.eventDays || []).map((day) => Number(day?.guestsCount || 0));
   const pax = Math.max(Number(form.guestsCount || 0), ...dayGuestCounts, 0);
@@ -286,25 +310,94 @@ function getSmartSuggestion(form) {
   const endTime = firstDay.endTime || form.endTime;
   if (!pax) return null;
 
-  const ratios = {
-    buffet: { 'Emp.Mesa': 25, 'Copa Fina': 55 },
-    empratado: { 'Emp.Mesa': 12, 'Copa Fina': 45 },
-    volante: { 'Emp.Mesa': 24, 'Copa Fina': 55 },
-    cocktail: { 'Emp.Mesa': 28, Barman: 45, 'Copa Fina': 60 },
-    coffee_break: { 'Emp.Mesa': 35, 'Copa Fina': 70 },
-    trinchar: { 'Emp.Mesa': 25, Cozinheiro: 80 },
-  };
-  const selected = ratios[form.serviceType] || ratios.buffet;
-  const categories = Object.entries(selected).map(([role, ratio]) => ({
+  const categories = [];
+  const addRatio = (role, ratio) => categories.push({
     ...emptyCategory(),
     role,
     qty: Math.max(1, Math.ceil(pax / ratio)),
     start: startTime,
     end: endTime,
     rate: roleRates[role] || 12,
-  }));
+  });
+  const addFixed = (role, qty) => categories.push({
+    ...emptyCategory(),
+    role,
+    qty,
+    start: startTime,
+    end: endTime,
+    rate: roleRates[role] || 12,
+  });
 
-  if ((form.eventLevel === 'institutional' || form.eventLevel === 'premium') && !categories.some((item) => item.role === 'Chefe de Sala')) {
+  const serviceType = form.serviceType || 'buffet';
+  switch (serviceType) {
+    case 'coffee_break':
+      addRatio('Emp.Mesa', 20);
+      addFixed('Copa Fina', copaQuantity(pax));
+      break;
+    case 'welcome_drink':
+      addRatio('Emp.Mesa', 20);
+      break;
+    case 'cocktail_volante':
+      addRatio('Emp.Mesa', 15);
+      break;
+    case 'empratado':
+      addRatio('Emp.Mesa', 12);
+      addFixed('Copa Fina', copaQuantity(pax));
+      break;
+    case 'jantar_gala':
+      addRatio('Emp.Mesa', 10);
+      break;
+    case 'bar_simples':
+      addRatio('Barman', 40);
+      break;
+    case 'bar_cocktails': {
+      const barmanCount = Math.max(1, Math.ceil(pax / 20));
+      addFixed('Barman', barmanCount);
+      if (barmanCount >= 3) addFixed('Barman de Apoio', 1);
+      break;
+    }
+    case 'bbq':
+      addFixed('Churrasqueiro', 1);
+      addFixed('Ajd.Cozinha', 1);
+      break;
+    case 'volante':
+      addRatio('Emp.Mesa', 24);
+      addFixed('Copa Fina', copaQuantity(pax));
+      break;
+    case 'trinchar':
+      addRatio('Emp.Mesa', 25);
+      addRatio('Cozinheiro', 80);
+      break;
+    case 'cocktail':
+      // Keep the existing Cocktail behaviour for existing budgets.
+      addRatio('Emp.Mesa', 28);
+      addRatio('Barman', 45);
+      addFixed('Copa Fina', copaQuantity(pax));
+      break;
+    case 'buffet':
+    default:
+      addRatio('Emp.Mesa', 20);
+      addFixed('Copa Fina', copaQuantity(pax));
+      break;
+  }
+
+  const noAutomaticLogista = new Set([
+    'coffee_break',
+    'welcome_drink',
+    'cocktail_volante',
+    'buffet',
+    'volante',
+    'bar_simples',
+    'bar_cocktails',
+  ]);
+  const logistaRequiredByService = ['empratado', 'jantar_gala', 'trinchar'].includes(serviceType);
+  const logistaRequiredByLevel = form.eventLevel === 'premium' && !noAutomaticLogista.has(serviceType);
+  if (logistaRequiredByService || logistaRequiredByLevel) {
+    addFixed('Logista', logistaQuantity(pax));
+  }
+
+  const staffBeforeChef = categories.reduce((total, item) => total + Number(item.qty || 0), 0);
+  if ((staffBeforeChef > 10 || form.eventLevel === 'institutional' || form.eventLevel === 'premium') && !categories.some((item) => item.role === 'Chefe de Sala')) {
     categories.push({ ...emptyCategory(), role: 'Chefe de Sala', qty: 1, start: startTime, end: endTime, rate: roleRates['Chefe de Sala'] });
   }
 

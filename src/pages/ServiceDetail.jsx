@@ -17,7 +17,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
@@ -26,7 +26,7 @@ import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { filterCollaboratorOptions } from '../utils/collaboratorSearch.js';
 import { serviceDetailTabFromQuery } from '../utils/deepLinks.js';
-import { date, money } from '../utils/formatters.js';
+import { date, durationHours, money } from '../utils/formatters.js';
 import {
   assignmentWorkDate,
   buildEditableTeamRows,
@@ -87,6 +87,45 @@ function collaboratorOptionLabel(collaborator) {
   return `${collaborator.shortName || collaborator.name || `Colaborador ${collaborator.id}`} | ${collaborator.nif || '-'}`;
 }
 
+function timeToMinutes(value) {
+  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return (hours * 60) + minutes;
+}
+
+function rowDurationHours(row, service) {
+  const start = timeToMinutes(row.plannedCheckIn || row.checkIn || service?.startTime);
+  const end = timeToMinutes(row.plannedCheckOut || row.checkOut || service?.endTime);
+  if (start === null || end === null) return 0;
+  const minutes = end >= start ? end - start : (24 * 60) - start + end;
+  return minutes / 60;
+}
+
+function rowInitials(row) {
+  const value = String(row?.collaborator?.shortName || row?.collaborator?.name || '').trim();
+  if (!value) return '?';
+  return value.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+}
+
+function rowDisplayName(row, collaborators) {
+  return row.collaborator?.shortName
+    || row.collaborator?.name
+    || collaborators.find((item) => String(item.id) === String(row.collaboratorId))?.shortName
+    || collaborators.find((item) => String(item.id) === String(row.collaboratorId))?.name
+    || 'Colaborador por atribuir';
+}
+
+function CollaboratorAvatar({ row }) {
+  return (
+    <span className="service-detail-person-avatar" aria-hidden="true">
+      {rowInitials(row)}
+    </span>
+  );
+}
+
 function InfoItem({ label, value }) {
   return (
     <div className="service-detail-info-item">
@@ -108,6 +147,7 @@ function ProgressStat({ label, value, detail, tone = 'neutral' }) {
 
 export default function ServiceDetail() {
   const { serviceId } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', []);
   const { data: collaborators } = useApi('/collaborators?light=1', []);
@@ -143,6 +183,18 @@ export default function ServiceDetail() {
     () => groupAssignmentsByRole(displayAssignments, service || {}, currentDay),
     [currentDay, displayAssignments, service],
   );
+  const teamTotals = useMemo(() => {
+    const rows = assignmentGroups.flatMap((group) => group.rows);
+    const assignedRows = rows.filter((row) => row.collaboratorId);
+    const billableRows = assignedRows.filter((row) => !['missed_justified', 'missed_unjustified', 'cancelled'].includes(String(row.status || '').toLowerCase()));
+    const hours = billableRows.reduce((sum, row) => sum + rowDurationHours(row, service), 0);
+    const amount = billableRows.reduce((sum, row) => sum + (rowDurationHours(row, service) * parseNumber(row.hourlyRate || row.collaborator?.hourlyRate)), 0);
+    return {
+      collaborators: assignedRows.length,
+      hours,
+      amount,
+    };
+  }, [assignmentGroups, service]);
   const externalCosts = useMemo(() => safeJsonArray(service?.externalCosts), [service]);
   const totalRevenue = parseNumber(service?.totalRevenue);
   const totalCost = parseNumber(service?.totalCost);
@@ -323,11 +375,6 @@ export default function ServiceDetail() {
     ]));
   }
 
-  function addDirectTeamRow() {
-    const role = assignmentGroups.length === 1 ? assignmentGroups[0].role : MANUAL_TEAM_ROLE;
-    addTeamRow(role);
-  }
-
   function removeTeamRow(rowKey) {
     setTeamRows((current) => current.filter((row) => row.rowKey !== rowKey));
   }
@@ -366,6 +413,25 @@ export default function ServiceDetail() {
     }
   }
 
+  async function deleteEvent() {
+    if (!service) return;
+    if (!window.confirm('Eliminar este Evento/Serviço? Esta ação não pode ser anulada.')) return;
+    try {
+      await api(`/services/${service.id}`, { method: 'DELETE' });
+      navigate('/services');
+    } catch (err) {
+      setTeamError(err?.message || 'Não foi possível eliminar o Evento/Serviço.');
+    }
+  }
+
+  async function saveCurrentTab() {
+    if (activeTab === 'costs') {
+      await saveClientPayment();
+      return;
+    }
+    await saveTeamRows();
+  }
+
   if (loading) {
     return <div className="page"><p className="muted">A carregar Evento/Serviço...</p></div>;
   }
@@ -396,6 +462,10 @@ export default function ServiceDetail() {
             Eventos/Serviços
           </Link>
           <div className="service-detail-actions">
+            <Link className="command-button" to={`/services?serviceId=${service.id}`}>
+              <Edit3 size={16} />
+              Editar dados
+            </Link>
             <Link className="secondary-button" to={`/time-validation?eventId=${service.id}`}>
               <Clock size={16} />
               Validação de Horas
@@ -404,10 +474,14 @@ export default function ServiceDetail() {
               <WalletCards size={16} />
               Financeiro
             </Link>
-            <Link className="command-button" to={`/services?serviceId=${service.id}`}>
-              <Edit3 size={16} />
-              Editar dados
-            </Link>
+            <button className="secondary-button secondary-button--danger" type="button" onClick={deleteEvent}>
+              <Trash2 size={16} />
+              Eliminar evento
+            </button>
+            <button className="command-button" type="button" onClick={saveCurrentTab} disabled={savingTeam || savingBilling}>
+              <Save size={16} />
+              Guardar alterações
+            </button>
           </div>
         </div>
 
@@ -486,27 +560,16 @@ export default function ServiceDetail() {
       ) : null}
 
       {activeTab === 'team' ? (
+        <>
         <Card
           title="Colaboradores"
           className="service-detail-card"
-          action={(
-            <div className="service-detail-team-actions">
-              <button className="secondary-button" type="button" onClick={addDirectTeamRow}>
-                <Plus size={16} />
-                Adicionar Colaborador
-              </button>
-              <button className="command-button" type="button" onClick={saveTeamRows} disabled={savingTeam}>
-                <Save size={16} />
-                {savingTeam ? 'A guardar...' : 'Guardar equipa'}
-              </button>
-            </div>
-          )}
         >
           {days.length > 1 ? (
             <div className="service-day-tabs service-detail-day-tabs">
               {days.map((day) => (
                 <button key={day} type="button" className={`service-tab ${currentDay === day ? 'service-tab--active' : ''}`} onClick={() => setSelectedDay(day)}>
-                  {formatDate(day)}
+                  {formatDate(day).slice(0, 5)}
                 </button>
               ))}
             </div>
@@ -516,17 +579,42 @@ export default function ServiceDetail() {
             {assignmentGroups.map((group) => (
               <section key={group.role} className="service-detail-role">
                 <header>
-                  <strong>{group.role}</strong>
+                  <div className="service-detail-role-title">
+                    <strong>{group.role}</strong>
+                    <span className="service-detail-role-count">{group.rows.length}</span>
+                  </div>
+                  <span className={`service-detail-role-sync-status${group.rows.length && group.rows.every((row) => row.clientSynced) ? ' service-detail-role-sync-status--complete' : ''}`}>
+                    <CheckCircle2 size={14} />
+                    Sincronizado {group.rows.filter((row) => row.clientSynced).length}/{group.rows.length}
+                  </span>
                   <div className="service-detail-role-actions">
                     <span>{group.rows.length} linha(s)</span>
                     <button className="secondary-button" type="button" onClick={() => addTeamRow(group.role)}>
                       <Plus size={15} />
-                      Adicionar linha
+                      Adicionar Colaborador
                     </button>
                   </div>
                 </header>
                 <div className="service-detail-team-table">
+                  <div className="service-detail-team-columns" aria-hidden="true">
+                    <span>Colaborador</span>
+                    <span>Data</span>
+                    <span>Entrada</span>
+                    <span>Saída</span>
+                    <span>Valor / hora</span>
+                    <span>Estado</span>
+                    <span>Sincronizado</span>
+                    <span>Condutor</span>
+                    <span>Adiantamentos</span>
+                    <span>Ações</span>
+                  </div>
                   {group.rows.map((assignment) => {
+                    const selectedCollaborator = (collaborators || []).find(
+                      (collaborator) => String(collaborator.id) === String(assignment.collaboratorId),
+                    ) || assignment.collaborator;
+                    const collaboratorName = rowDisplayName(assignment, activeCollaborators);
+                    const collaboratorNif = selectedCollaborator?.nif || '-';
+                    const rowHours = rowDurationHours(assignment, service);
                     const rowClasses = [
                       'service-detail-team-row',
                       assignment.isDraft ? 'service-detail-team-row--empty' : '',
@@ -542,10 +630,10 @@ export default function ServiceDetail() {
                               className={`service-collab-trigger ${assignment.clientSynced ? 'service-collab-trigger--synced' : ''}`}
                               onClick={(event) => toggleTeamCollaboratorPicker(event, assignment.rowKey)}
                             >
-                              {assignment.collaboratorId
-                                ? collaboratorOptionLabel(assignment.collaborator || activeCollaborators.find((collaborator) => String(collaborator.id) === String(assignment.collaboratorId)) || { id: assignment.collaboratorId, name: 'Colaborador' })
-                                : 'Por atribuir'}
+                              <CollaboratorAvatar row={assignment} />
+                              <span>{assignment.collaboratorId ? collaboratorName : 'Por atribuir'}</span>
                             </button>
+                            {assignment.collaboratorId ? <small className="service-detail-team-nif">NIF: {collaboratorNif}</small> : null}
                           {activeTeamCollaboratorPickerKey === assignment.rowKey ? (
                             <div
                               className="service-collab-menu"
@@ -626,6 +714,7 @@ export default function ServiceDetail() {
                       <label>
                         <span>Saída prevista</span>
                         <TimeInput value={assignment.plannedCheckOut || ''} placeholder="HH:MM" onChange={(value) => updateTeamRow(assignment.rowKey, { plannedCheckOut: value })} />
+                        <small className="service-detail-hours-value">{rowHours > 0 ? durationHours(rowHours) : '—'}</small>
                       </label>
                       <label>
                         <span>Valor/h</span>
@@ -655,6 +744,9 @@ export default function ServiceDetail() {
                         >
                           <CarFront size={15} />
                         </button>
+                        <Link className="secondary-button service-detail-advance-button" to={`/services?serviceId=${service.id}`} title="Abrir adiantamentos do colaborador">
+                          Adiantamentos
+                        </Link>
                         <button type="button" className="icon-button icon-button--danger" onClick={() => removeTeamRow(assignment.rowKey)} title="Remover linha" aria-label="Remover linha">
                           <Trash2 size={15} />
                         </button>
@@ -677,6 +769,24 @@ export default function ServiceDetail() {
             ) : null}
           </div>
         </Card>
+        <div className="service-detail-team-footer">
+          <div className="service-detail-team-total">
+            <Users size={25} />
+            <span>Total colaboradores<strong>{teamTotals.collaborators}</strong></span>
+          </div>
+          <div className="service-detail-team-total">
+            <Clock size={25} />
+            <span>Total horas<strong>{durationHours(teamTotals.hours)}</strong></span>
+          </div>
+          <div className="service-detail-team-total">
+            <Euro size={25} />
+            <span>Total a pagar<strong>{money.format(teamTotals.amount)}</strong></span>
+          </div>
+          <Link className="service-detail-cost-link" to={`/finance?area=staff&eventId=${service.id}`}>
+          Ver resumo de custos
+          </Link>
+        </div>
+        </>
       ) : null}
 
       {activeTab === 'validation' ? (

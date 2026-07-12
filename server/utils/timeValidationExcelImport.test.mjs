@@ -143,6 +143,207 @@ test('builds an import preview with reusable mappings and assignment match', () 
   assert.equal(preview.rows[0].clientCheckOut, '16:09');
 });
 
+test('matches a report session to the unique event by date and department', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  const preview = buildImportPreview(parsed.rows, {
+    collaborators: [
+      { id: 20, name: 'Miriam PeÃ§anha Oliveira', nif: '326077405' },
+    ],
+    services: [
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        eventType: 'Restaurante',
+        date: '2026-06-16',
+        endDate: '2026-06-21',
+        assignments: [
+          {
+            id: 30,
+            collaboratorId: 20,
+            assignmentDate: '2026-06-20',
+            role: 'Emp.Mesa',
+            plannedCheckIn: '11:30',
+            plannedCheckOut: '16:00',
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(preview.rows[0].eventId, 10);
+  assert.equal(preview.rows[0].assignmentId, 30);
+  assert.equal(preview.rows[0].status, 'warning');
+  assert.equal(preview.unresolvedMappings.session.length, 0);
+});
+
+test('does not match an event only because its date overlaps when the department differs', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  const preview = buildImportPreview(parsed.rows, {
+    collaborators: [
+      { id: 20, name: 'Miriam PeÃ§anha Oliveira', nif: '326077405' },
+    ],
+    services: [
+      {
+        id: 10,
+        name: 'Evento Hospitalidade',
+        eventType: 'Hospitalidade',
+        date: '2026-06-16',
+        endDate: '2026-06-21',
+        assignments: [],
+      },
+    ],
+  });
+
+  assert.equal(preview.rows[0].eventId, null);
+  assert.equal(preview.unresolvedMappings.session.length, 1);
+  assert.ok(preview.rows[0].errors.some((message) => message.includes('Evento/Servi')));
+});
+
+test('matches a differently named external session to the unique event by date and department', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  parsed.rows[0].sessionName = 'EVENTO IBERCUP 25/26 OS_1061';
+  const preview = buildImportPreview(parsed.rows, {
+    collaborators: [
+      { id: 20, name: 'Miriam PeÃ§anha Oliveira', nif: '326077405' },
+    ],
+    services: [
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        eventType: 'Restaurante',
+        date: '2026-06-16',
+        endDate: '2026-06-21',
+        assignments: [],
+      },
+    ],
+  });
+
+  assert.equal(preview.rows[0].eventId, 10);
+  assert.equal(preview.unresolvedMappings.session.length, 0);
+});
+
+test('uses collaborator, date and planned shift when the external session and department differ', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  parsed.rows[0].sessionName = 'BUFFET RESTAURANTE 28.06.26';
+  parsed.rows[0].department = 'Hospitalidade';
+  const preview = buildImportPreview(parsed.rows, {
+    collaborators: [
+      { id: 20, name: 'Miriam Pecanha Oliveira', nif: '326077405' },
+    ],
+    services: [
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        eventType: 'Restaurante',
+        date: '2026-06-16',
+        endDate: '2026-06-21',
+        assignments: [
+          {
+            id: 30,
+            collaboratorId: 20,
+            assignmentDate: '2026-06-20',
+            role: 'Emp.Mesa',
+            plannedCheckIn: '11:30',
+            plannedCheckOut: '16:00',
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(preview.rows[0].eventId, 10);
+  assert.equal(preview.rows[0].assignmentId, 30);
+  assert.equal(preview.rows[0].status, 'warning');
+  assert.equal(preview.unresolvedMappings.session.length, 0);
+});
+
+test('ignores a saved monthly session mapping outside the mapped event date range', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  const preview = buildImportPreview(parsed.rows, {
+    mappings: [
+      {
+        field: 'session',
+        externalValue: 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26',
+        internalValue: '9',
+      },
+    ],
+    collaborators: [
+      { id: 20, name: 'Miriam Pecanha Oliveira', nif: '326077405' },
+    ],
+    services: [
+      {
+        id: 9,
+        name: 'Restaurante Luz Chakall',
+        eventType: 'Restaurante',
+        date: '2026-06-01',
+        endDate: '2026-06-07',
+        assignments: [],
+      },
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        eventType: 'Restaurante',
+        date: '2026-06-16',
+        endDate: '2026-06-21',
+        assignments: [
+          {
+            id: 30,
+            collaboratorId: 20,
+            assignmentDate: '2026-06-20',
+            role: 'Emp.Mesa',
+            plannedCheckIn: '11:30',
+            plannedCheckOut: '16:00',
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(preview.rows[0].eventId, 10);
+  assert.equal(preview.rows[0].assignmentId, 30);
+  assert.equal(preview.rows[0].status, 'warning');
+});
+
+test('selects the compact-time shift closest to the imported planned time', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  parsed.rows[0].plannedCheckIn = '19:00';
+  const preview = buildImportPreview(parsed.rows, {
+    collaborators: [
+      { id: 20, name: 'Miriam PeÃ§anha Oliveira', nif: '326077405' },
+    ],
+    services: [
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        eventType: 'Restaurante',
+        date: '2026-06-16',
+        endDate: '2026-06-21',
+        assignments: [
+          {
+            id: 30,
+            collaboratorId: 20,
+            assignmentDate: '2026-06-20',
+            role: 'Emp.Mesa',
+            plannedCheckIn: '11:30',
+            plannedCheckOut: '16:00',
+          },
+          {
+            id: 31,
+            collaboratorId: 20,
+            assignmentDate: '2026-06-20',
+            role: 'Emp.Mesa',
+            plannedCheckIn: '19',
+            plannedCheckOut: '23',
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(preview.rows[0].assignmentId, 31);
+  assert.equal(preview.rows[0].status, 'warning');
+});
+
 test('reports unresolved mappings before import can be committed', () => {
   const parsed = parseTimeValidationWorkbook(fixtureBuffer());
   const preview = buildImportPreview(parsed.rows, {

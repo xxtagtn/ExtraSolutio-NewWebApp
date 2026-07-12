@@ -6,7 +6,7 @@ import { requirePermission } from '../security/permissions.js';
 import { asyncHandler } from '../utils/http.js';
 import { collaboratorLightSelect } from '../utils/listPayloads.js';
 import { buildPaginatedPayload, parsePaginationQuery } from '../utils/listQuery.js';
-import { deleteStoredPhoto, resolvePhotoForStorage, resolvePhotoThumbForStorage } from '../utils/photoStorage.js';
+import { deleteStoredPhoto, parsePhotoDataUri, resolvePhotoForStorage, resolvePhotoThumbForStorage } from '../utils/photoStorage.js';
 import { computeShortName } from '../../src/utils/collaboratorName.js';
 import { collaboratorRoleOptions } from '../../src/utils/collaboratorRoles.js';
 
@@ -217,6 +217,29 @@ collaboratorsRouter.get('/roles', asyncHandler(async (_req, res) => {
   const dynamic = rows.map((row) => row.role).filter(Boolean);
   const merged = [...new Set([...ALLOWED_ROLES, ...dynamic])].sort((a, b) => a.localeCompare(b));
   res.json(merged);
+}));
+
+collaboratorsRouter.get('/:id/photo', asyncHandler(async (req, res) => {
+  const id = parseId(req, res);
+  if (!id) return;
+  const row = await prisma.collaborator.findUnique({
+    where: { id },
+    select: { photo: true, photoThumb: true },
+  });
+  if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
+
+  const storedSource = row.photoThumb || row.photo;
+  if (!storedSource) return res.status(404).json({ message: 'Este colaborador não tem fotografia.' });
+
+  if (String(storedSource).startsWith('/uploads/')) {
+    res.set('Cache-Control', 'private, max-age=300');
+    return res.json({ source: storedSource });
+  }
+
+  const parsed = parsePhotoDataUri(storedSource);
+  if (!parsed) return res.status(404).json({ message: 'Fotografia indisponível.' });
+  res.set('Cache-Control', 'private, max-age=300');
+  return res.json({ source: `data:${parsed.mime};base64,${parsed.base64}` });
 }));
 
 collaboratorsRouter.get('/:id', asyncHandler(async (req, res) => {

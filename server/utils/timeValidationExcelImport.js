@@ -95,6 +95,19 @@ function parseDateKey(value) {
   return Number.isNaN(date.getTime()) ? '' : localDateKey(date);
 }
 
+function storedDateKey(value) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const text = normalizeText(value);
+  const isoMatch = text.match(/^(\d{4}-\d{1,2}-\d{1,2})/);
+  return isoMatch ? parseDateKey(isoMatch[1]) : parseDateKey(value);
+}
+
+function sameStoredDate(a, b) {
+  const left = storedDateKey(a);
+  const right = storedDateKey(b);
+  return Boolean(left && right && left === right);
+}
+
 function minutesToTime(minutes) {
   const normalized = ((Math.round(minutes) % 1440) + 1440) % 1440;
   const hours = Math.floor(normalized / 60);
@@ -246,9 +259,118 @@ function autoRole(value) {
 
 function eventDateMatches(event, eventDate) {
   if (!eventDate) return false;
-  const start = parseDateKey(event.date);
-  const end = parseDateKey(event.endDate || event.date);
+  const start = storedDateKey(event.date);
+  const end = storedDateKey(event.endDate || event.date);
   return start && end && eventDate >= start && eventDate <= end;
+}
+
+function normalizedTokens(value) {
+  return new Set(normalizeKey(value).split(' ').filter((token) => token.length >= 3));
+}
+
+function eventTextForMatching(event) {
+  return [
+    event?.name,
+    event?.eventType,
+    event?.clientName,
+    event?.client?.name,
+    event?.location,
+  ].filter(Boolean).join(' ');
+}
+
+function eventMatchesDepartment(event, department) {
+  const departmentKey = normalizeKey(department);
+  if (!departmentKey) return false;
+  return [event?.eventType, event?.department, event?.category, event?.name]
+    .filter(Boolean)
+    .some((value) => normalizeKey(value) === departmentKey || normalizeKey(value).includes(departmentKey));
+}
+
+function eventNameMatchScore(event, sessionName) {
+  const sourceTokens = normalizedTokens(sessionName);
+  const targetTokens = normalizedTokens(eventTextForMatching(event));
+  if (!sourceTokens.size || !targetTokens.size) return 0;
+  return [...sourceTokens].reduce((score, token) => score + (targetTokens.has(token) ? 1 : 0), 0);
+}
+
+function selectBestEvent(candidates, row) {
+  if (!candidates.length) return { event: null, method: '' };
+  const exactName = candidates.filter((event) => normalizeKey(event.name) === normalizeKey(row.sessionName));
+  if (exactName.length === 1) return { event: exactName[0], method: 'name' };
+
+  const hasDepartment = Boolean(normalizeKey(row.department));
+  const departmentCandidates = hasDepartment
+    ? candidates.filter((event) => eventMatchesDepartment(event, row.department))
+    : candidates;
+  if (hasDepartment && !departmentCandidates.length) {
+    const rankedByName = candidates
+      .map((event) => ({ event, score: eventNameMatchScore(event, row.sessionName) }))
+      .sort((a, b) => b.score - a.score);
+    if (rankedByName[0]?.score >= 2 && rankedByName[0].score > (rankedByName[1]?.score || 0)) {
+      return { event: rankedByName[0].event, method: 'date_name' };
+    }
+    return { event: null, method: '' };
+  }
+
+  const pool = departmentCandidates;
+  if (pool.length === 1) {
+    return {
+      event: pool[0],
+      method: departmentCandidates.length ? 'date_department' : 'date',
+    };
+  }
+
+  const ranked = pool
+    .map((event) => ({ event, score: eventNameMatchScore(event, row.sessionName) }))
+    .sort((a, b) => b.score - a.score);
+  if (ranked[0]?.score > 0 && ranked[0].score > (ranked[1]?.score || 0)) {
+    return { event: ranked[0].event, method: 'date_name' };
+  }
+  return { event: null, method: '' };
+}
+
+function findEvent(row, services, mappings, collaborator, role) {
+  const mappedEventId = mappingValue(mappings, 'session', row.sessionName);
+  if (mappedEventId) {
+    const mappedEvent = services.find((item) => String(item.id) === mappedEventId) || null;
+    // Uma etiqueta externa mensal pode abranger varios eventos semanais internos.
+    // Nunca reutilizar um mapeamento guardado fora do intervalo real do evento.
+    if (mappedEvent && eventDateMatches(mappedEvent, row.eventDate)) {
+      return {
+        event: mappedEvent,
+        method: 'mapping',
+      };
+    }
+  }
+  const candidates = services.filter((item) => eventDateMatches(item, row.eventDate));
+
+  if (collaborator) {
+    const assignmentMatches = candidates
+      .map((event) => {
+        const result = findAssignment(row, event, collaborator, role);
+        return result.assignment ? { event, assignment: result.assignment } : null;
+      })
+      .filter(Boolean);
+    if (assignmentMatches.length === 1) {
+      return { event: assignmentMatches[0].event, method: 'assignment' };
+    }
+    if (assignmentMatches.length > 1) {
+      const ranked = assignmentMatches
+        .map((match) => ({
+          ...match,
+          score: timeDistanceMinutes(
+            row.plannedCheckIn,
+            match.assignment.plannedCheckIn || match.event.startTime,
+          ),
+        }))
+        .sort((a, b) => a.score - b.score);
+      if (ranked[0].score < (ranked[1]?.score ?? 9999)) {
+        return { event: ranked[0].event, method: 'assignment' };
+      }
+    }
+  }
+
+  return selectBestEvent(candidates, row);
 }
 
 function findCollaborator(row, collaborators = [], mappings = new Map()) {
@@ -269,20 +391,28 @@ function findCollaborator(row, collaborators = [], mappings = new Map()) {
 }
 
 function timeDistanceMinutes(a, b) {
-  if (!a || !b) return 9999;
-  const [ah, am] = a.split(':').map(Number);
-  const [bh, bm] = b.split(':').map(Number);
+  const normalizedA = parseTime(a);
+  const normalizedB = parseTime(b);
+  if (!normalizedA || !normalizedB) return 9999;
+  const [ah, am] = normalizedA.split(':').map(Number);
+  const [bh, bm] = normalizedB.split(':').map(Number);
   if (![ah, am, bh, bm].every(Number.isFinite)) return 9999;
   return Math.abs(((ah * 60) + am) - ((bh * 60) + bm));
 }
 
 function findAssignment(row, event, collaborator, role) {
   if (!event || !collaborator) return { assignment: null, ambiguous: false };
-  const candidates = (event.assignments || []).filter((assignment) => (
+  const baseCandidates = (event.assignments || []).filter((assignment) => (
     String(assignment.collaboratorId) === String(collaborator.id)
-    && (!role || normalizeKey(assignment.role) === normalizeKey(role))
-    && (!row.eventDate || parseDateKey(assignment.assignmentDate || event.date) === row.eventDate)
+    && (!row.eventDate || sameStoredDate(assignment.assignmentDate || event.date, row.eventDate))
   ));
+  const exactRoleCandidates = role
+    ? baseCandidates.filter((assignment) => normalizeKey(assignment.role) === normalizeKey(role))
+    : baseCandidates;
+  const rolelessCandidates = role
+    ? baseCandidates.filter((assignment) => !assignment.role || normalizeKey(assignment.role) === 'sem funcao')
+    : baseCandidates;
+  const candidates = exactRoleCandidates.length ? exactRoleCandidates : rolelessCandidates;
   if (candidates.length === 1) return { assignment: candidates[0], ambiguous: false };
   if (!candidates.length) return { assignment: null, ambiguous: false };
   const ranked = candidates
@@ -340,15 +470,6 @@ export function buildImportPreview(rows = [], context = {}) {
   const previewRows = rows.map((row) => {
     const errors = [];
     const warnings = [];
-    const mappedEventId = mappingValue(mappings, 'session', row.sessionName);
-    const event = mappedEventId
-      ? services.find((item) => String(item.id) === String(mappedEventId))
-      : services.find((item) => eventDateMatches(item, row.eventDate) && normalizeKey(item.name) === normalizeKey(row.sessionName));
-    if (!event) {
-      errors.push('Evento/Serviço não reconhecido.');
-      addUnresolved(unresolvedMappings, 'session', row.sessionName);
-    }
-
     const mappedRole = mappingValue(mappings, 'category', row.category) || autoRole(row.category);
     if (!mappedRole) {
       errors.push('Função não reconhecida.');
@@ -359,6 +480,20 @@ export function buildImportPreview(rows = [], context = {}) {
     if (!collaborator) {
       errors.push('Colaborador não reconhecido.');
       addUnresolved(unresolvedMappings, 'collaborator', row.nif || row.collaboratorName, row.collaboratorName);
+    }
+
+    // O nome da sessão do cliente pode ser diferente do nome interno do evento.
+    // Um turno já planeado é a evidência mais segura para associar os dois registos.
+    const eventMatch = findEvent(row, services, mappings, collaborator, mappedRole);
+    const event = eventMatch.event;
+    if (event && eventMatch.method === 'assignment') {
+      warnings.push('Evento associado automaticamente pelo colaborador, data e turno.');
+    } else if (event && eventMatch.method !== 'name' && eventMatch.method !== 'mapping') {
+      warnings.push('Evento associado automaticamente pela data e pelo departamento.');
+    }
+    if (!event) {
+      errors.push('Evento/Serviço não reconhecido.');
+      addUnresolved(unresolvedMappings, 'session', row.sessionName);
     }
 
     const { assignment, ambiguous } = findAssignment(row, event, collaborator, mappedRole);

@@ -3404,6 +3404,332 @@ th {
   accent-color: #22c55e;
 }
 
+/* Event detail: compact operational table matching the desktop reference layout. */
+.service-detail-page {
+  gap: 16px;
+  padding-bottom: 20px;
+}
+
+.service-detail-hero {
+  border-color: rgba(71, 85, 105, 0.48);
+  background: linear-gradient(145deg, rgba(15, 23, 30, 0.98), rgba(8, 14, 18, 0.98));
+  padding: 18px;
+}
+
+.service-detail-title-row h1 {
+  font-size: clamp(1.55rem, 2vw, 2rem);
+  letter-spacing: -0.01em;
+}
+
+.service-detail-title-row p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.service-detail-progress-grid {
+  gap: 10px;
+}
+
+.service-detail-progress {
+  min-height: 74px;
+  align-content: center;
+  padding: 12px;
+}
+
+.service-detail-progress strong {
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.service-detail-tabs {
+  width: 100%;
+  gap: 0;
+  padding: 0;
+}
+
+.service-detail-tabs .service-tab {
+  min-height: 42px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 18px;
+}
+
+.service-detail-tabs .service-tab:hover,
+.service-detail-tabs .service-tab--active {
+  border-bottom-color: var(--accent);
+  background: rgba(20, 184, 166, 0.07);
+  color: var(--accent);
+}
+
+.service-detail-team-actions {
+  gap: 10px;
+}
+
+.service-detail-team-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.service-detail-team {
+  gap: 14px;
+}
+
+.service-detail-role {
+  gap: 0;
+  padding: 0;
+  overflow: visible;
+  background: #0d151a;
+  box-shadow: inset 3px 0 0 rgba(20, 184, 166, 0.68);
+}
+
+.service-detail-role > header {
+  margin: 0;
+  min-height: 48px;
+  border: 0;
+  border-bottom: 1px solid rgba(71, 85, 105, 0.44);
+  border-radius: 0;
+  background: rgba(30, 41, 50, 0.42);
+  padding: 9px 14px;
+}
+
+.service-detail-role-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.service-detail-role-title strong {
+  color: #38bdf8;
+  font-size: 1.02rem;
+}
+
+.service-detail-role-count {
+  display: inline-grid;
+  min-width: 23px;
+  min-height: 22px;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.16);
+  color: #7dd3fc;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.service-detail-team-table {
+  gap: 0;
+  overflow-x: auto;
+}
+
+.service-detail-team-columns,
+.service-detail-team-row {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.55fr) minmax(104px, 0.66fr) 92px 92px 98px minmax(142px, 0.92fr) 92px 92px 120px 42px;
+  align-items: center;
+  min-width: 1080px;
+  gap: 10px;
+}
+
+.service-detail-team-columns {
+  min-height: 38px;
+  border-bottom: 1px solid rgba(71, 85, 105, 0.35);
+  color: #94a3b8;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 14px;
+}
+
+.service-detail-team-row {
+  min-height: 59px;
+  border: 0;
+  border-bottom: 1px solid rgba(71, 85, 105, 0.34);
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 14px;
+}
+
+.service-detail-team-row:last-child {
+  border-bottom: 0;
+}
+
+.service-detail-team-row > label > span,
+.service-detail-date-lock > span,
+.service-detail-team-collaborator > .service-detail-field-label {
+  display: none;
+}
+
+.service-detail-team-row--empty {
+  background: rgba(148, 163, 184, 0.035);
+}
+
+.service-detail-team-row--confirmed {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(22, 101, 52, 0.08);
+  box-shadow: inset 3px 0 0 rgba(34, 197, 94, 0.58);
+}
+
+.service-detail-team-row--synced .service-collab-trigger {
+  border-color: rgba(34, 197, 94, 0.38);
+}
+
+.service-detail-team-collaborator,
+.service-detail-team-row label,
+.service-detail-date-lock {
+  align-content: center;
+}
+
+.service-detail-person-avatar {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(34, 211, 238, 0.14);
+  color: #67e8f9;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.service-collab-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-align: left;
+}
+
+.service-collab-trigger > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-detail-team-nif,
+.service-detail-hours-value {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.service-detail-team-nif {
+  display: block;
+  margin-top: 3px;
+}
+
+.service-detail-hours-value {
+  display: block;
+  margin-top: 3px;
+}
+
+.service-detail-team-row input,
+.service-detail-team-row select,
+.service-detail-team-collaborator .service-collab-trigger {
+  min-height: 34px;
+  border-radius: 6px;
+}
+
+.service-detail-team-flags {
+  display: contents !important;
+}
+
+.service-detail-team-flags label {
+  justify-content: center;
+  min-height: 32px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 0;
+}
+
+.service-detail-team-flags label span {
+  display: none;
+}
+
+.service-detail-team-flags > .service-driver-toggle {
+  min-width: 72px;
+  justify-content: center;
+  gap: 5px;
+}
+
+.service-detail-team-flags > .service-driver-toggle::after {
+  content: 'Não';
+  color: #fca5a5;
+  font-size: 0.74rem;
+}
+
+.service-detail-team-flags > .service-driver-toggle--active::after {
+  content: 'Sim';
+  color: #86efac;
+}
+
+.service-detail-advance-button {
+  min-height: 32px;
+  justify-content: center;
+  padding: 0 9px;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.service-detail-team-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(190px, auto);
+  align-items: center;
+  gap: 18px;
+  border: 1px solid rgba(71, 85, 105, 0.55);
+  border-radius: 8px;
+  background: rgba(17, 27, 34, 0.97);
+  box-shadow: 0 -8px 22px rgba(0, 0, 0, 0.22);
+  padding: 13px 16px;
+}
+
+.service-detail-team-total {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.service-detail-team-total svg {
+  flex: 0 0 auto;
+  color: #22d3ee;
+}
+
+.service-detail-team-total span {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.service-detail-team-total strong {
+  color: var(--text);
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.service-detail-cost-link {
+  justify-self: end;
+  color: #22d3ee;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .service-detail-empty-team {
   display: block;
 }
@@ -9998,6 +10324,7 @@ th {
 
   .service-detail-actions,
   .service-detail-actions a,
+  .service-detail-actions button,
   .service-detail-back,
   .service-detail-card-actions a {
     width: 100%;
@@ -10480,6 +10807,299 @@ th {
   }
 }
 
+/* Keep the operational validation workspace readable on laptops and compact windows. */
+@media (max-width: 1360px) and (min-width: 761px) {
+  .validation-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .validation-event-sidebar {
+    max-height: 310px;
+  }
+
+  .validation-sidebar-list {
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  }
+
+  .validation-sidebar-date-heading {
+    grid-column: 1 / -1;
+  }
+
+  .validation-filters {
+    grid-template-columns: minmax(170px, 1fr) minmax(210px, 1.15fr) minmax(280px, 1.3fr);
+  }
+
+  .validation-period-presets {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .validation-period-presets button {
+    flex: 1 1 0;
+  }
+
+  .validation-pdf-button {
+    min-width: 132px;
+  }
+}
+
+@media (max-width: 760px) {
+  .validation-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .validation-period-control,
+  .validation-period-presets,
+  .validation-pdf-button {
+    grid-column: auto;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 940px) {
+  .validation-main-panel .table-wrap {
+    overflow-x: auto;
+  }
+
+  .validation-main-panel .validation-table {
+    min-width: 900px;
+    table-layout: auto;
+  }
+}
+
+/* Container query fallback for browser zoom and layouts with a persistent sidebar. */
+.validation-page {
+  container: validation-page / inline-size;
+}
+
+@container validation-page (min-width: 761px) and (max-width: 1240px) {
+  .validation-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .validation-event-sidebar {
+    max-height: 310px;
+  }
+
+  .validation-sidebar-list {
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  }
+
+  .validation-sidebar-date-heading {
+    grid-column: 1 / -1;
+  }
+
+  .validation-filters {
+    grid-template-columns: minmax(170px, 1fr) minmax(210px, 1.15fr) minmax(280px, 1.3fr);
+  }
+
+  .validation-period-presets {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .validation-period-presets button {
+    flex: 1 1 0;
+  }
+}
+
+/* Keep the compact sidebar width when laptop breakpoints override the base shell. */
+@media (min-width: 901px) and (max-width: 1440px) {
+  .app-shell.app-shell--sidebar-collapsed {
+    grid-template-columns: 78px minmax(0, 1fr);
+  }
+
+  .sidebar.sidebar--collapsed {
+    padding: 18px 10px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .service-detail-team-columns,
+  .service-detail-team-row {
+    grid-template-columns: minmax(180px, 1.35fr) minmax(98px, 0.62fr) 86px 86px 88px minmax(132px, 0.9fr) 86px 86px 112px 40px;
+    min-width: 1000px;
+  }
+}
+
+@media (max-width: 900px) {
+  .service-detail-team-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .service-detail-team-toolbar .secondary-button {
+    width: 100%;
+  }
+
+  .service-detail-team-columns {
+    display: none;
+  }
+
+  .service-detail-team-table {
+    overflow-x: visible;
+  }
+
+  .service-detail-team-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .service-detail-team-row > label > span,
+  .service-detail-date-lock > span,
+  .service-detail-team-collaborator > .service-detail-field-label {
+    display: block;
+  }
+
+  .service-detail-team-row > .service-detail-team-collaborator,
+  .service-detail-team-row > .service-detail-team-flags > .service-detail-advance-button,
+  .service-detail-team-row > .service-detail-team-flags > .icon-button--danger {
+    grid-column: 1 / -1;
+  }
+
+  .service-detail-team-flags > .service-driver-toggle,
+  .service-detail-team-flags > label {
+    justify-self: start;
+  }
+
+  .service-detail-team-footer {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .service-detail-cost-link {
+    justify-self: start;
+  }
+}
+
+/* Keep every assignment control on the same baseline at desktop sizes. */
+@media (min-width: 901px) {
+  .service-detail-team-columns,
+  .service-detail-team-row {
+    grid-template-columns: minmax(220px, 1.7fr) minmax(142px, 0.8fr) 88px 88px 92px minmax(132px, 0.9fr) 42px 78px 110px 36px;
+    min-width: 1146px;
+    column-gap: 9px;
+  }
+}
+
+.service-detail-team-row > label,
+.service-detail-date-lock {
+  align-self: center;
+  box-sizing: border-box;
+}
+
+.service-detail-team-row input,
+.service-detail-team-row select,
+.service-detail-team-collaborator .service-collab-trigger,
+.service-detail-advance-button,
+.service-detail-team-flags > .icon-button--danger,
+.service-detail-team-flags > .service-driver-toggle {
+  box-sizing: border-box;
+  height: 34px;
+  min-height: 34px;
+  line-height: 1;
+}
+
+.service-detail-team-row input,
+.service-detail-team-row select {
+  margin: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.service-detail-team-collaborator .service-collab-picker {
+  min-height: 34px;
+}
+
+.service-detail-team-collaborator .service-collab-trigger {
+  justify-content: flex-start;
+  padding: 0 9px;
+}
+
+.service-detail-team-flags > label {
+  display: inline-grid;
+  width: 42px;
+  height: 34px;
+  min-height: 34px;
+  margin: 0;
+  place-items: center;
+  align-content: center;
+}
+
+.service-detail-team-flags > label input {
+  display: block;
+  width: 14px;
+  height: 14px;
+  min-height: 14px;
+  margin: 0;
+}
+
+.service-detail-team-flags > .service-driver-toggle {
+  display: inline-flex;
+  width: 78px;
+  min-width: 78px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 7px;
+}
+
+.service-detail-team-flags > .service-driver-toggle::after,
+.service-detail-team-flags > .service-driver-toggle--active::after {
+  display: inline;
+  position: static;
+  margin: 0;
+  line-height: 1;
+}
+
+.service-detail-advance-button {
+  width: 110px;
+  min-width: 110px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+.service-detail-team-flags > .icon-button--danger {
+  width: 36px;
+  min-width: 36px;
+  margin: 0;
+  padding: 0;
+}
+
+.service-detail-hours-value {
+  min-height: 12px;
+  line-height: 1;
+}
+
+@media (max-width: 900px) {
+  .service-detail-team-row {
+    min-width: 0;
+  }
+
+  .service-detail-team-row input,
+  .service-detail-team-row select,
+  .service-detail-team-collaborator .service-collab-trigger,
+  .service-detail-advance-button,
+  .service-detail-team-flags > .icon-button--danger,
+  .service-detail-team-flags > .service-driver-toggle {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .service-detail-team-flags > label {
+    width: 42px;
+  }
+
+  .service-detail-team-flags > .service-driver-toggle {
+    width: 78px;
+  }
+
+  .service-detail-team-flags > .icon-button--danger {
+    width: 42px;
+  }
+}
+
 @media (max-width: 640px) {
   .communication-tabs {
     gap: 6px;
@@ -10617,6 +11237,142 @@ th {
   }
 }
 
+/* Compact, stable assignment headers and collaborator identity in event details. */
+.service-detail-role > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.service-detail-role-sync-status {
+  display: inline-flex;
+  align-items: center;
+  justify-self: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 0.74rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.service-detail-role-sync-status svg {
+  color: #94a3b8;
+}
+
+.service-detail-role-sync-status--complete {
+  border-color: rgba(34, 197, 94, 0.34);
+  background: rgba(34, 197, 94, 0.08);
+  color: #86efac;
+}
+
+.service-detail-role-sync-status--complete svg {
+  color: #4ade80;
+}
+
+.service-detail-role-actions {
+  gap: 7px;
+  min-width: max-content;
+}
+
+.service-detail-role-actions > span {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.service-detail-role-actions .secondary-button {
+  min-height: 32px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.service-detail-team-columns > span {
+  white-space: nowrap;
+}
+
+.service-detail-person-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 0.72rem;
+}
+
+@media (min-width: 901px) {
+  .service-detail-team-columns,
+  .service-detail-team-row {
+    grid-template-columns: minmax(210px, 1.55fr) minmax(132px, 0.75fr) 84px 84px 88px minmax(126px, 0.86fr) 104px 78px 106px 52px;
+    min-width: 1120px;
+    column-gap: 9px;
+  }
+
+  .service-detail-team-row input,
+  .service-detail-team-row select,
+  .service-detail-team-collaborator .service-collab-trigger,
+  .service-detail-advance-button,
+  .service-detail-team-flags > .icon-button--danger,
+  .service-detail-team-flags > .service-driver-toggle {
+    height: 36px;
+    min-height: 36px;
+  }
+
+  .service-detail-team-flags > label {
+    height: 36px;
+    min-height: 36px;
+  }
+}
+
+@media (max-width: 900px) {
+  .service-detail-role > header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+
+  .service-detail-role-sync-status {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .service-detail-role-actions {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+}
+
+@media (max-width: 600px) {
+  .service-detail-role > header {
+    grid-template-columns: 1fr;
+  }
+
+  .service-detail-role-sync-status,
+  .service-detail-role-actions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+
+  .service-detail-role-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* Keep the input baseline stable when the exit-time duration is shown below it. */
+.service-detail-team-row > label,
+.service-detail-date-lock,
+.service-detail-team-collaborator,
+.service-detail-team-flags > * {
+  align-self: start;
+}
+
+.service-detail-team-row > label,
+.service-detail-date-lock {
+  padding-top: 0;
+}
+
 @media (max-width: 430px) {
   .communication-qr-summary {
     grid-template-columns: 1fr 1fr;
@@ -10629,5 +11385,622 @@ th {
 
   .communication-qr-table td::before {
     font-size: 0.68rem;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Unified application surface                                               */
+/*                                                                            */
+/* Eventos/Serviços is the reference surface for the application. These      */
+/* shared rules keep legacy page-specific blocks visually compatible with it  */
+/* without changing their markup or behaviour.                               */
+/* -------------------------------------------------------------------------- */
+:root {
+  --surface-page: #0b1013;
+  --surface-card: #11181c;
+  --surface-raised: #0f1519;
+  --surface-control: #0b1114;
+  --border-subtle: #26343a;
+  --border-strong: rgba(148, 163, 184, 0.28);
+  --control-height: 40px;
+  --control-radius: 8px;
+  --section-gap: 14px;
+  --focus-ring: 0 0 0 3px rgba(20, 184, 166, 0.2);
+}
+
+.page {
+  gap: var(--section-gap);
+  padding: 20px 24px 32px;
+}
+
+.page-title-row,
+.pending-header,
+.communication-head,
+.calendar-header,
+.client-detail-title,
+.admin-page > .page-header {
+  min-height: 44px;
+}
+
+.page-title-row h1,
+.pending-header h1,
+.communication-head h1,
+.calendar-header h1,
+.client-detail-title h1,
+.admin-page > .page-header h1 {
+  color: var(--text);
+  font-size: 1.45rem;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.page-title-row p,
+.pending-header p,
+.communication-head p,
+.calendar-header p,
+.client-detail-meta-row,
+.admin-page > .page-header p {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.card,
+.accounting-card,
+.budget-panel,
+.command-panel,
+.pending-section,
+.communication-preview,
+.communication-list,
+.communication-qr-panel,
+.calendar-shell,
+.calendar-subscription-card,
+.client-detail-hero,
+.collab-detail-card,
+.service-card,
+.billing-group-card,
+.validation-event-item,
+.validation-history-item {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--control-radius);
+  background: var(--surface-card);
+  box-shadow: none;
+}
+
+.card__header,
+.accounting-card > header,
+.budget-panel > header,
+.command-panel > header,
+.pending-section > header,
+.communication-preview > header,
+.communication-qr-panel > header {
+  min-height: 44px;
+}
+
+.card__header h2,
+.accounting-card h2,
+.budget-panel h3,
+.command-panel h2,
+.pending-section h2,
+.communication-preview h2,
+.communication-qr-panel h2 {
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 720;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+/* Buttons: one control height, radius, focus treatment and disabled state. */
+.command-button,
+.secondary-button,
+.button,
+.primary-button,
+.validation-stage-tab,
+.service-tab,
+.segmented-tabs button,
+.communication-tabs button,
+.calendar-view-switch button,
+.calendar-stepper button,
+.calendar-today-control,
+.client-detail-tabs button {
+  min-height: 38px;
+  border-radius: var(--control-radius);
+  font-size: 0.84rem;
+  line-height: 1.15;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+
+.command-button,
+.secondary-button,
+.button,
+.primary-button {
+  padding-inline: 12px;
+}
+
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: #041311;
+  cursor: pointer;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.primary-button:hover,
+.button--primary:hover,
+.command-button:hover {
+  background: #2dd4bf;
+}
+
+.command-button:focus-visible,
+.secondary-button:focus-visible,
+.button:focus-visible,
+.primary-button:focus-visible,
+.icon-button:focus-visible,
+.validation-stage-tab:focus-visible,
+.service-tab:focus-visible,
+.segmented-tabs button:focus-visible,
+.communication-tabs button:focus-visible,
+.calendar-view-switch button:focus-visible,
+.calendar-stepper button:focus-visible,
+.calendar-today-control:focus-visible,
+.client-detail-tabs button:focus-visible {
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
+.command-button:disabled,
+.secondary-button:disabled,
+.button:disabled,
+.primary-button:disabled,
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.icon-button {
+  border-radius: var(--control-radius);
+}
+
+/* Form controls: common surface and rhythm, while compact event rows keep      */
+/* their dedicated dimensions. */
+.page .form-control,
+.modal .form-control,
+.form-grid input,
+.form-grid select,
+.form-grid textarea,
+.profile-form input,
+.collab-main input,
+.collab-main select,
+.collab-main textarea,
+.budget-category-grid input,
+.budget-category-grid select,
+.budget-generated-text textarea,
+.finance-month-control input,
+.finance-month-control select,
+.finance-filter-grid input,
+.finance-filter-grid select,
+.finance-expense-form input,
+.finance-expense-form select,
+.validation-filters .form-control,
+.validation-period-control .form-control,
+.communication-search input,
+.communication-filters select,
+.communication-qr-toolbar select,
+.calendar-nav-pickers .form-control,
+.calendar-subscription-actions input {
+  min-height: var(--control-height);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--control-radius);
+  background: var(--surface-control);
+  color: var(--text);
+  padding-inline: 11px;
+}
+
+.page textarea,
+.modal textarea {
+  line-height: 1.45;
+}
+
+.page input::placeholder,
+.page textarea::placeholder,
+.modal input::placeholder,
+.modal textarea::placeholder {
+  color: #789099;
+  opacity: 1;
+}
+
+.page label,
+.modal label {
+  color: var(--muted);
+}
+
+/* Filter bars use the same framed surface as the Event detail toolbar. */
+.filters,
+.validation-filters,
+.communication-filters,
+.pending-filterbar,
+.finance-month-control,
+.finance-archive-filters,
+.calendar-controls,
+.calendar-nav-pickers {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--control-radius);
+  background: rgba(15, 21, 25, 0.78);
+  padding: 10px;
+}
+
+.filters,
+.validation-filters,
+.communication-filters {
+  margin-bottom: 0;
+}
+
+/* Tabs share the same compact segmented treatment everywhere. */
+.service-tabs,
+.service-detail-tabs,
+.segmented-tabs,
+.validation-stage-tabs,
+.communication-tabs,
+.client-detail-tabs {
+  gap: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+}
+
+.service-tabs,
+.service-detail-tabs,
+.segmented-tabs,
+.validation-stage-tabs,
+.communication-tabs {
+  padding: 0 0 8px;
+}
+
+.service-tab,
+.segmented-tabs button,
+.validation-stage-tab,
+.communication-tabs button {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-control);
+  color: var(--muted);
+  padding-inline: 12px;
+}
+
+.service-tab:hover,
+.service-tab--active,
+.segmented-tabs button:hover,
+.segmented-tabs button.is-active,
+.validation-stage-tab:hover,
+.validation-stage-tab.is-active,
+.communication-tabs button:hover,
+.communication-tabs button.active {
+  border-color: rgba(20, 184, 166, 0.55);
+  background: rgba(20, 184, 166, 0.12);
+  color: #99f6e4;
+}
+
+.client-detail-tabs {
+  padding: 0 4px 0;
+  background: transparent;
+}
+
+.client-detail-tabs button {
+  min-height: 42px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  padding-inline: 14px;
+}
+
+.client-detail-tabs button.is-active {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Finance tabs use the same full-width underline treatment as the event detail. */
+.finance-tabs {
+  display: flex;
+  width: 100%;
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.finance-tabs .service-tab {
+  min-height: 42px;
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+.finance-tabs .service-tab:hover,
+.finance-tabs .service-tab--active {
+  border-bottom-color: var(--accent);
+  background: rgba(20, 184, 166, 0.07);
+  color: var(--accent);
+}
+
+/* KPI/stat blocks use the same restrained event-detail surface. */
+.stat,
+.balance-kpi,
+.pending-kpi,
+.communication-summary-card,
+.finance-kpi-grid > div,
+.service-detail-progress,
+.command-kpi {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--control-radius);
+  background: var(--surface-raised);
+  box-shadow: none;
+}
+
+.stat,
+.balance-kpi,
+.pending-kpi,
+.communication-summary-card,
+.finance-kpi-grid > div {
+  padding: 14px;
+}
+
+.stat span,
+.stat small,
+.balance-kpi span,
+.balance-kpi small,
+.pending-kpi span,
+.communication-summary-card small {
+  color: var(--muted);
+}
+
+.stat strong,
+.balance-kpi strong,
+.pending-kpi strong,
+.communication-summary-card strong {
+  letter-spacing: 0;
+}
+
+/* Tables follow the same density and hover treatment. */
+.data-table,
+.finance-staff-payment-table,
+.balance-events-table,
+.client-rates-table,
+.communication-qr-table {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--control-radius);
+  overflow: hidden;
+}
+
+.data-table th,
+.finance-staff-payment-table th,
+.balance-events-table th,
+.client-rates-table__head,
+.communication-qr-table th {
+  background: rgba(15, 21, 25, 0.86);
+  color: #9fb1b7;
+  font-size: 0.68rem;
+  font-weight: 720;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.data-table td,
+.finance-staff-payment-table td,
+.balance-events-table td,
+.communication-qr-table td {
+  border-bottom-color: rgba(148, 163, 184, 0.14);
+}
+
+.data-table tbody tr:hover,
+.finance-staff-payment-table tbody tr:hover,
+.balance-events-table tbody tr:hover,
+.communication-qr-table tbody tr:hover {
+  background: rgba(20, 30, 34, 0.72);
+}
+
+.table-wrap,
+.finance-staff-payment-table,
+.balance-events-table,
+.communication-qr-table-wrap {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Shared section spacing. */
+.budget-layout,
+.finance-grid,
+.finance-grid--two,
+.service-detail-grid,
+.command-main-grid,
+.communication-workspace,
+.client-commercial-layout,
+.collab-detail-body {
+  gap: var(--section-gap);
+}
+
+.budget-panel,
+.accounting-card,
+.communication-preview,
+.communication-list,
+.client-form-panel,
+.client-rules-overview,
+.collab-detail-card {
+  padding: 16px;
+}
+
+.budget-panel > header,
+.client-form-panel > header,
+.client-rules-overview > header,
+.collab-detail-card > header {
+  margin-bottom: 12px;
+}
+
+@media (max-width: 1100px) {
+  .page {
+    padding-inline: 18px;
+  }
+
+  .command-main-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .command-main-grid > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .page {
+    gap: 12px;
+    padding: 16px 12px 26px;
+  }
+
+  .page-title-row,
+  .pending-header,
+  .communication-head,
+  .calendar-header,
+  .client-detail-title,
+  .admin-page > .page-header {
+    align-items: stretch;
+  }
+
+  .page-title-row > *,
+  .pending-header > *,
+  .communication-head > *,
+  .calendar-header > *,
+  .client-detail-title > *,
+  .admin-page > .page-header > * {
+    min-width: 0;
+  }
+
+  .page-title-row h1,
+  .pending-header h1,
+  .communication-head h1,
+  .calendar-header h1,
+  .client-detail-title h1,
+  .admin-page > .page-header h1 {
+    font-size: 1.25rem;
+  }
+
+  .filters,
+  .validation-filters,
+  .communication-filters,
+  .pending-filterbar,
+  .finance-month-control,
+  .finance-archive-filters,
+  .calendar-controls,
+  .calendar-nav-pickers {
+    padding: 8px;
+  }
+
+  .filters,
+  .validation-filters,
+  .communication-filters,
+  .finance-month-control,
+  .finance-archive-filters,
+  .calendar-nav-pickers {
+    grid-template-columns: 1fr;
+  }
+
+  .pending-filterbar {
+    justify-content: stretch;
+  }
+
+  .pending-filterbar label,
+  .pending-filterbar select,
+  .pending-filterbar .secondary-button {
+    width: 100%;
+  }
+
+  .stats-grid,
+  .finance-page .stats-grid,
+  .pending-kpis,
+  .communication-summary-grid,
+  .finance-kpi-grid,
+  .command-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .command-main-grid > :last-child {
+    grid-column: auto;
+  }
+
+  .card,
+  .budget-panel,
+  .accounting-card,
+  .communication-preview,
+  .communication-list,
+  .client-form-panel,
+  .client-rules-overview,
+  .collab-detail-card {
+    padding: 14px;
+  }
+
+  .card__header,
+  .accounting-card > header,
+  .budget-panel > header {
+    align-items: flex-start;
+  }
+
+  .card__header > *,
+  .accounting-card > header > *,
+  .budget-panel > header > * {
+    max-width: 100%;
+  }
+
+  .card__header .command-button,
+  .card__header .secondary-button {
+    width: 100%;
+  }
+
+  .table-wrap,
+  .finance-staff-payment-table,
+  .balance-events-table,
+  .communication-qr-table-wrap {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .page {
+    padding-inline: 10px;
+  }
+
+  .command-button,
+  .secondary-button,
+  .button,
+  .primary-button {
+    min-height: 40px;
+  }
+
+  .service-tabs,
+  .service-detail-tabs,
+  .segmented-tabs,
+  .validation-stage-tabs,
+  .communication-tabs,
+  .client-detail-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: thin;
+  }
+
+  .service-tab,
+  .segmented-tabs button,
+  .validation-stage-tab,
+  .communication-tabs button,
+  .client-detail-tabs button {
+    flex: 0 0 auto;
   }
 }
