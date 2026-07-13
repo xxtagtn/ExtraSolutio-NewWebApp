@@ -57,6 +57,7 @@ import {
   recentOperationalPeriod,
   reopenTargetStage,
   rowMatchesValidationStage,
+  rowsForValidationStage,
   TIME_VALIDATION_STAGE,
   validationDisplayStageCounts,
   validationEventWorkflowSummary,
@@ -458,9 +459,14 @@ export default function TimeValidation() {
     [periodRows, selectedClientId],
   );
 
+  const stageRows = useMemo(
+    () => rowsForValidationStage(clientRows, stage),
+    [clientRows, stage],
+  );
+
   const eventOptions = useMemo(() => {
     const seen = new Map();
-    for (const row of clientRows) {
+    for (const row of stageRows) {
       const id = String(row.event.id);
       if (!seen.has(id)) {
         seen.set(id, {
@@ -474,11 +480,11 @@ export default function TimeValidation() {
     return [...seen.values()]
       .map((item) => ({ id: item.id, label: `${item.name} · ${dateRangeLabelFromKeys(item.dates)}` }))
       .sort((a, b) => a.label.localeCompare(b.label, 'pt'));
-  }, [clientRows]);
+  }, [stageRows]);
 
   const collaboratorOptions = useMemo(() => {
     const seen = new Map();
-    for (const row of clientRows) {
+    for (const row of stageRows) {
       const id = String(row.assignment.collaboratorId);
       if (!seen.has(id)) {
         seen.set(id, {
@@ -488,7 +494,7 @@ export default function TimeValidation() {
       }
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
-  }, [clientRows]);
+  }, [stageRows]);
 
   const importEventOptions = useMemo(
     () => services
@@ -642,12 +648,11 @@ export default function TimeValidation() {
   }, [rows]);
 
   const eventCardRows = useMemo(
-    () => clientRows.filter((row) => {
-      if (!rowMatchesValidationStage(row.workflowStage, stage)) return false;
+    () => stageRows.filter((row) => {
       if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
       return true;
     }),
-    [clientRows, selectedCollaboratorId, stage, viewMode],
+    [selectedCollaboratorId, stageRows, viewMode],
   );
   const visibleEventIds = useMemo(() => new Set(eventCardRows.map((row) => String(row.event.id))), [eventCardRows]);
   const visiblePendingEvents = useMemo(

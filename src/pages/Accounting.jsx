@@ -36,6 +36,8 @@ import { externalCostsTotals } from '../utils/externalCosts.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { clientChargeHours, decimalValue, staffWorkedHours } from '../utils/serviceFinance.js';
+import { buildClientFinancialSummary } from '../utils/clientFinancialSummary.js';
+import { statusLabel as operationalStatusLabel } from '../utils/serviceStatus.js';
 import {
   normalizeStaffAdvances,
   staffAdvancesTotal,
@@ -466,6 +468,249 @@ function statusLabel(options, value) {
   return options.find((option) => option.value === value)?.label || value || '-';
 }
 
+function ClientFinancialEventTable({ row, onInvoiceStatusChange, onEventBillingStatusChange, updatingInvoiceId, updatingEventId }) {
+  const shownInvoiceIds = new Set();
+  const events = row?.events || [];
+  const linkedInvoiceIds = new Set(events.map((event) => event.invoice?.id).filter(Boolean));
+  const standaloneInvoices = (row?.invoices || []).filter((invoice) => !linkedInvoiceIds.has(invoice.id));
+
+  const statusSelect = (value, options, className, disabled, onChange) => (
+    <select
+      className={className}
+      value={value}
+      disabled={disabled}
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => {
+        event.stopPropagation();
+        onChange(event.target.value);
+      }}
+    >
+      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+  );
+
+  const renderEvent = (event) => {
+    const invoice = event.invoice;
+    const invoiceKey = invoice?.id ? String(invoice.id) : '';
+    const showInvoiceAction = Boolean(invoice && !shownInvoiceIds.has(invoiceKey));
+    if (showInvoiceAction) shownInvoiceIds.add(invoiceKey);
+
+    const invoiceStatus = invoice?.status || '';
+    const billingStatus = event.billingStatus || 'pending';
+    const dueDate = invoice?.dueDate || event.dueDate;
+    const eventStatus = operationalStatusLabel(event.status || event.operationalStatus || event.serviceStatus);
+
+    return (
+      <article key={`event-${event.id}`} className="finance-client-event-row">
+        <div className="finance-client-event-name">
+          <strong>{event.name || 'Evento/Serviço'}</strong>
+          <small>{event.eventType || event.location || '-'}</small>
+        </div>
+        <span>{event.date ? date.format(new Date(event.date)) : '-'}</span>
+        <strong>{money.format(event.displayValue)}</strong>
+        <span>
+          <Badge tone={invoice ? (invoiceIsPaid(invoice) ? 'success' : 'warning') : billingStatus === 'paid' ? 'success' : 'warning'}>
+            {invoice ? statusLabel(INVOICE_STATUS, invoiceStatus) : statusLabel(BILLING_STATUS, billingStatus)}
+          </Badge>
+        </span>
+        <span>{dueDate ? date.format(new Date(dueDate)) : '-'}</span>
+        <span className="finance-client-event-status">{eventStatus}</span>
+        <div className="finance-client-event-action">
+          {invoice && showInvoiceAction ? statusSelect(
+            invoiceStatus || 'issued',
+            INVOICE_STATUS,
+            `payment-state payment-state--${invoiceStatus === 'paid' ? 'paid' : invoiceStatus === 'issued' ? 'pending' : 'awaiting_data'} finance-client-status-select`,
+            updatingInvoiceId === invoice.id,
+            (nextStatus) => onInvoiceStatusChange(invoice, nextStatus),
+          ) : null}
+          {invoice && !showInvoiceAction ? <small className="muted">Mesma fatura</small> : null}
+          {!invoice ? statusSelect(
+            billingStatus,
+            BILLING_STATUS,
+            `payment-state payment-state--${billingStatus} finance-client-status-select`,
+            updatingEventId === event.id,
+            (nextStatus) => onEventBillingStatusChange(event.id, nextStatus),
+          ) : null}
+        </div>
+      </article>
+    );
+  };
+
+  return (
+    <div className="finance-client-event-table">
+      <div className="finance-client-event-head">
+        <span>Evento/Serviço</span>
+        <span>Data</span>
+        <span>Valor</span>
+        <span>Estado da faturação</span>
+        <span>Vencimento</span>
+        <span>Estado do evento</span>
+        <span>Ação</span>
+      </div>
+      {events.map(renderEvent)}
+      {standaloneInvoices.map((invoice) => (
+        <article key={`invoice-${invoice.id}`} className="finance-client-event-row finance-client-event-row--invoice">
+          <div className="finance-client-event-name">
+            <strong>{invoice.number || invoice.description || `Fatura #${invoice.id}`}</strong>
+            <small>Fatura sem evento associado no período</small>
+          </div>
+          <span>{invoice.issueDate ? date.format(new Date(invoice.issueDate)) : '-'}</span>
+          <strong>{money.format(invoice.total)}</strong>
+          <span><Badge tone={invoiceIsPaid(invoice) ? 'success' : 'warning'}>{statusLabel(INVOICE_STATUS, invoice.status)}</Badge></span>
+          <span>{invoice.dueDate ? date.format(new Date(invoice.dueDate)) : '-'}</span>
+          <span className="muted">-</span>
+          <div className="finance-client-event-action">
+            {statusSelect(
+              invoice.status || 'issued',
+              INVOICE_STATUS,
+              `payment-state payment-state--${invoice.status === 'paid' ? 'paid' : invoice.status === 'issued' ? 'pending' : 'awaiting_data'} finance-client-status-select`,
+              updatingInvoiceId === invoice.id,
+              (nextStatus) => onInvoiceStatusChange(invoice, nextStatus),
+            )}
+          </div>
+        </article>
+      ))}
+      {!events.length && !standaloneInvoices.length ? <p className="muted finance-client-empty">Sem eventos ou faturas no período selecionado.</p> : null}
+    </div>
+  );
+}
+
+function ClientFinancialWorkspace({
+  rows,
+  options,
+  selectedClientKey,
+  onClientChange,
+  expandedClientKey,
+  onToggleClient,
+  onInvoiceStatusChange,
+  onEventBillingStatusChange,
+  updatingInvoiceId,
+  updatingEventId,
+}) {
+  const visibleRows = selectedClientKey === 'all'
+    ? rows
+    : rows.filter((row) => row.key === selectedClientKey);
+  const selectedOption = options.find((option) => option.key === selectedClientKey);
+  const selectedRow = selectedClientKey === 'all'
+    ? null
+    : visibleRows[0] || {
+      key: selectedClientKey,
+      clientName: selectedOption?.label || 'Cliente',
+      eventCount: 0,
+      pendingBilling: 0,
+      billedOpen: 0,
+      received: 0,
+      total: 0,
+      events: [],
+      invoices: [],
+    };
+  const totals = visibleRows.reduce((summary, row) => ({
+    events: summary.events + row.eventCount,
+    pendingBilling: summary.pendingBilling + row.pendingBilling,
+    billedOpen: summary.billedOpen + row.billedOpen,
+    received: summary.received + row.received,
+    total: summary.total + row.total,
+  }), { events: 0, pendingBilling: 0, billedOpen: 0, received: 0, total: 0 });
+
+  return (
+    <section className="finance-client-workspace">
+      <div className="finance-client-workspace-heading">
+        <div>
+          <strong>Resumo por cliente</strong>
+          <small>{selectedClientKey === 'all' ? 'Todos os clientes do período selecionado' : 'Eventos e faturação do cliente selecionado'}</small>
+        </div>
+        <label className="finance-client-filter">
+          <span>Cliente</span>
+          <select value={selectedClientKey} onChange={(event) => onClientChange(event.target.value)}>
+            <option value="all">Todos os clientes</option>
+            {options.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="finance-client-summary-grid">
+        <div className="finance-client-summary-card"><span>Eventos/Serviços</span><strong>{totals.events}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--pending"><span>Por faturar</span><strong>{money.format(totals.pendingBilling)}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--open"><span>Faturado em aberto</span><strong>{money.format(totals.billedOpen)}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--received"><span>Recebido</span><strong>{money.format(totals.received)}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--total"><span>Total do período</span><strong>{money.format(totals.total)}</strong></div>
+      </div>
+
+      {selectedRow ? (
+        <section className="finance-client-selected-detail">
+          <header>
+            <div><strong>{selectedRow.clientName}</strong><small>{selectedRow.eventCount} evento(s)/serviço(s) incluído(s)</small></div>
+          </header>
+          <ClientFinancialEventTable
+            row={selectedRow}
+            onInvoiceStatusChange={onInvoiceStatusChange}
+            onEventBillingStatusChange={onEventBillingStatusChange}
+            updatingInvoiceId={updatingInvoiceId}
+            updatingEventId={updatingEventId}
+          />
+        </section>
+      ) : (
+        <div className="finance-client-financial-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Eventos/Serviços</th>
+                <th>Por faturar</th>
+                <th>Faturado em aberto</th>
+                <th>Recebido</th>
+                <th>Total do período</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.map((row) => {
+                const isExpanded = expandedClientKey === row.key;
+                return (
+                  <Fragment key={row.key}>
+                    <tr
+                      className="finance-client-summary-row"
+                      tabIndex={0}
+                      role="button"
+                      onClick={() => onToggleClient(row.key)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onToggleClient(row.key);
+                        }
+                      }}
+                    >
+                      <td data-label="Cliente"><span className="finance-client-summary-name">{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<strong>{row.clientName}</strong></span></td>
+                      <td data-label="Eventos/Serviços">{row.eventCount}</td>
+                      <td data-label="Por faturar">{money.format(row.pendingBilling)}</td>
+                      <td data-label="Faturado em aberto">{money.format(row.billedOpen)}</td>
+                      <td data-label="Recebido">{money.format(row.received)}</td>
+                      <td data-label="Total do período"><strong>{money.format(row.total)}</strong></td>
+                    </tr>
+                    {isExpanded ? (
+                      <tr className="finance-client-summary-detail-row">
+                        <td colSpan={6}>
+                          <ClientFinancialEventTable
+                            row={row}
+                            onInvoiceStatusChange={onInvoiceStatusChange}
+                            onEventBillingStatusChange={onEventBillingStatusChange}
+                            updatingInvoiceId={updatingInvoiceId}
+                            updatingEventId={updatingEventId}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+          {!visibleRows.length ? <p className="muted finance-client-empty">Sem clientes com movimentos no período selecionado.</p> : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function emptyExpense() {
   return {
     date: todayIso(),
@@ -496,6 +741,8 @@ export default function Accounting() {
     return AREA_TABS.some((tab) => tab.id === area) ? area : 'overview';
   });
   const [selectedMonth, setSelectedMonth] = useState(() => monthInputValue());
+  const [selectedFinanceClientKey, setSelectedFinanceClientKey] = useState('all');
+  const [expandedFinanceClientKey, setExpandedFinanceClientKey] = useState(null);
   const [archiveMonth, setArchiveMonth] = useState(() => `${new Date().getFullYear()}-00`);
   const [archiveClientId, setArchiveClientId] = useState('all');
   const [staffFilters, setStaffFilters] = useState({ eventId: 'all', collaboratorId: 'all', date: '' });
@@ -619,6 +866,36 @@ export default function Accounting() {
     () => filterServicesByPeriod(eventRows, selectedMonth),
     [eventRows, selectedMonth],
   );
+
+  const clientFinancialRows = useMemo(
+    () => buildClientFinancialSummary({ events: currentEventRows, invoices, clients, period: selectedMonth }),
+    [clients, currentEventRows, invoices, selectedMonth],
+  );
+
+  const clientFinancialOptions = useMemo(
+    () => {
+      const optionMap = new Map();
+      for (const client of clients) {
+        if (client?.status === 'inactive') continue;
+        optionMap.set(`client:${client.id}`, { key: `client:${client.id}`, label: client.name });
+      }
+      for (const row of clientFinancialRows) {
+        if (row.clientStatus === 'inactive') continue;
+        optionMap.set(row.key, { key: row.key, label: row.clientName });
+      }
+      return [...optionMap.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-PT', { sensitivity: 'base' }));
+    },
+    [clientFinancialRows, clients],
+  );
+
+  useEffect(() => {
+    if (selectedFinanceClientKey !== 'all' && !clientFinancialOptions.some((option) => option.key === selectedFinanceClientKey)) {
+      setSelectedFinanceClientKey('all');
+    }
+    if (expandedFinanceClientKey && !clientFinancialRows.some((row) => row.key === expandedFinanceClientKey)) {
+      setExpandedFinanceClientKey(null);
+    }
+  }, [clientFinancialOptions, clientFinancialRows, expandedFinanceClientKey, selectedFinanceClientKey]);
 
   const currentForecastEventRows = useMemo(
     () => filterServicesByPeriod(forecastEventRows, selectedMonth),
@@ -1701,6 +1978,23 @@ export default function Accounting() {
             </section>
           </div>
 
+          <ClientFinancialWorkspace
+            rows={clientFinancialRows}
+            options={clientFinancialOptions}
+            selectedClientKey={selectedFinanceClientKey}
+            onClientChange={(value) => {
+              setSelectedFinanceClientKey(value);
+              setExpandedFinanceClientKey(null);
+            }}
+            expandedClientKey={expandedFinanceClientKey}
+            onToggleClient={(key) => setExpandedFinanceClientKey((current) => (current === key ? null : key))}
+            onInvoiceStatusChange={updateInvoiceStatus}
+            onEventBillingStatusChange={(eventId, status) => updateEventBillingStatus([eventId], status, eventId)}
+            updatingInvoiceId={updatingInvoiceId}
+            updatingEventId={updatingEventId}
+          />
+
+          <div className="finance-client-legacy">
           <div className="finance-table-heading">
             <div>
               <strong>Pronto a faturar e receber</strong>
@@ -1854,6 +2148,7 @@ export default function Accounting() {
                 })}
               </tbody>
             </table>
+          </div>
           </div>
         </Card>
       ) : null}

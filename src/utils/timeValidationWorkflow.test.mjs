@@ -14,6 +14,7 @@ import {
   prunePersistedDrafts,
   recentOperationalPeriod,
   rowMatchesValidationStage,
+  rowsForValidationStage,
   validationDisplayStageCounts,
   validationEventWorkflowSummary,
   validationStageCounts,
@@ -124,6 +125,32 @@ test('shows ready rows inside the client pending validation tab', () => {
     ready: 0,
     finalized: 0,
   });
+});
+
+test('keeps secondary validation filters scoped to the selected stage', () => {
+  const staffRow = row({}, { id: 1 });
+  const clientRow = row({
+    checkIn: '09:00',
+    checkOut: '17:00',
+    validationStatus: STAFF_ACCEPTED_VALIDATION_STATUS,
+  }, { id: 2 });
+  const finalizedRow = row({}, { id: 3, eventValidated: true });
+
+  assert.deepEqual(
+    rowsForValidationStage([staffRow, clientRow, finalizedRow], TIME_VALIDATION_STAGE.staffPending)
+      .map((item) => item.id),
+    [1],
+  );
+  assert.deepEqual(
+    rowsForValidationStage([staffRow, clientRow, finalizedRow], TIME_VALIDATION_STAGE.clientPending)
+      .map((item) => item.id),
+    [2],
+  );
+  assert.deepEqual(
+    rowsForValidationStage([staffRow, clientRow, finalizedRow], TIME_VALIDATION_STAGE.finalized)
+      .map((item) => item.id),
+    [3],
+  );
 });
 
 test('reopens finalized events into the stage that needs review', () => {

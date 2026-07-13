@@ -90,6 +90,13 @@ export function rowMatchesValidationStage(rowStage, selectedStage) {
   return rowStage === selectedStage;
 }
 
+export function rowsForValidationStage(rows = [], selectedStage) {
+  return (rows || []).filter((row) => rowMatchesValidationStage(
+    row?.workflowStage || validationWorkflowStage(row),
+    selectedStage,
+  ));
+}
+
 export function validationDisplayStageCounts(rows = []) {
   const counts = validationStageCounts(rows);
   return {

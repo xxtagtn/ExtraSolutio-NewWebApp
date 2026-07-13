@@ -12,9 +12,9 @@
   "categories": ["business", "productivity"],
   "icons": [
     {
-      "src": "/logo.svg",
-      "sizes": "96x96",
-      "type": "image/svg+xml",
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     },
     {
@@ -29,25 +29,25 @@
       "name": "Dashboard",
       "short_name": "Dashboard",
       "url": "/dashboard",
-      "icons": [{ "src": "/logo.svg", "sizes": "96x96", "type": "image/svg+xml" }]
+      "icons": [{ "src": "/logo.png", "sizes": "512x512", "type": "image/png" }]
     },
     {
       "name": "Eventos/Serviços",
       "short_name": "Eventos",
       "url": "/services",
-      "icons": [{ "src": "/logo.svg", "sizes": "96x96", "type": "image/svg+xml" }]
+      "icons": [{ "src": "/logo.png", "sizes": "512x512", "type": "image/png" }]
     },
     {
       "name": "Validação de Horas",
       "short_name": "Horas",
       "url": "/time-validation",
-      "icons": [{ "src": "/logo.svg", "sizes": "96x96", "type": "image/svg+xml" }]
+      "icons": [{ "src": "/logo.png", "sizes": "512x512", "type": "image/png" }]
     },
     {
       "name": "Financeiro",
       "short_name": "Financeiro",
       "url": "/finance",
-      "icons": [{ "src": "/logo.svg", "sizes": "96x96", "type": "image/svg+xml" }]
+      "icons": [{ "src": "/logo.png", "sizes": "512x512", "type": "image/png" }]
     }
   ]
 }

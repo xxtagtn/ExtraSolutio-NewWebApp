@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { buildBalanceOverview } from './balanceMetrics.js';
+import { buildBalanceOverview, buildClientBalanceSeries } from './balanceMetrics.js';
 
 const services = [
   {
@@ -47,15 +47,18 @@ const services = [
 test('builds the balance overview for the selected month and year', () => {
   const overview = buildBalanceOverview({
     services,
+    today: new Date('2026-06-01T12:00:00'),
     period: { month: '6', year: '2026', clientId: 'all', status: 'all' },
   });
 
   assert.deepEqual(overview.kpis, {
     validatedRevenue: 1800,
     staffToPay: 680,
+    externalCosts: 0,
     realMargin: 1120,
     receivable: 600,
     finalizedEvents: 1,
+    overdueClients: 0,
   });
 
   assert.deepEqual(overview.eventRows.map((row) => row.id), [1, 2]);
@@ -71,6 +74,7 @@ test('builds the balance overview for the selected month and year', () => {
 test('filters the balance overview by client and operational status', () => {
   const overview = buildBalanceOverview({
     services,
+    today: new Date('2026-06-01T12:00:00'),
     period: { month: '6', year: '2026', clientId: '11', status: 'confirmed' },
   });
 
@@ -79,4 +83,45 @@ test('filters the balance overview by client and operational status', () => {
   assert.equal(overview.kpis.staffToPay, 260);
   assert.equal(overview.kpis.realMargin, 340);
   assert.equal(overview.kpis.receivable, 600);
+});
+
+test('separates staff and external partner costs in the real margin', () => {
+  const overview = buildBalanceOverview({
+    services: [{
+      id: 20,
+      name: 'Evento com parceiro',
+      date: '2026-06-20',
+      status: 'finalized',
+      totalRevenue: 1_000,
+      totalCost: 500,
+      externalCosts: [{ type: 'catering', costAmount: 200, marginPercent: 10 }],
+      client: { id: 30, name: 'Cliente A' },
+    }],
+    period: { month: '6', year: '2026', clientId: 'all', status: 'all' },
+  });
+
+  assert.equal(overview.eventRows[0].staff, 300);
+  assert.equal(overview.eventRows[0].external, 200);
+  assert.equal(overview.eventRows[0].margin, 500);
+  assert.equal(overview.kpis.externalCosts, 200);
+  assert.equal(overview.kpis.realMargin, 500);
+  assert.equal(overview.clientRows[0].marginPct, 50);
+});
+
+test('groups occasional clients by their manual name and exposes their monthly evolution', () => {
+  const overview = buildBalanceOverview({
+    services: [
+      { id: 31, name: 'Evento junho', date: '2026-06-10', status: 'finalized', clientName: 'João Silva', totalRevenue: 500, totalCost: 200 },
+      { id: 32, name: 'Evento julho', date: '2026-07-10', status: 'finalized', clientName: 'João Silva', totalRevenue: 700, totalCost: 250 },
+    ],
+    period: { month: '', year: '2026', clientId: 'all', status: 'all' },
+  });
+
+  assert.equal(overview.clientRows.length, 1);
+  assert.equal(overview.clientRows[0].clientName, 'João Silva');
+  assert.equal(overview.clientRows[0].eventCount, 2);
+
+  const series = buildClientBalanceSeries(overview.annualRows, overview.clientRows[0].key);
+  assert.equal(series[5].receita, 500);
+  assert.equal(series[6].receita, 700);
 });
