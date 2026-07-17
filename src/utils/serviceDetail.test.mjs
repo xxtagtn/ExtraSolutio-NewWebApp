@@ -6,7 +6,9 @@ import {
   editableTeamRowsToAssignmentDrafts,
   editableTeamRowsToAssignmentPayloads,
   groupAssignmentsByRole,
+  normalizeDailyRoleRequirements,
   resolveSelectedTeamDay,
+  roleRequirementsForDay,
   serviceAssignmentDays,
   serviceChecklist,
   serviceDetailMetrics,
@@ -116,6 +118,82 @@ test('buildEditableTeamRows creates missing rows from required roles', () => {
   assert.deepEqual(rows.map((row) => row.role), ['Emp.Mesa', 'Emp.Mesa', 'Emp.Mesa']);
   assert.deepEqual(rows.map((row) => row.plannedCheckIn), ['12:00', '12:00', '12:00']);
   assert.equal(rows.every((row) => row.isDraft), true);
+});
+
+test('legacy continuous role requirements are expanded to every event day', () => {
+  const event = {
+    isContinuous: true,
+    date: '2026-09-01',
+    endDate: '2026-09-03',
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 2, agreedRate: 10.5 }],
+  };
+  const roles = normalizeDailyRoleRequirements(event);
+
+  assert.equal(roles.length, 3);
+  assert.deepEqual(roles.map((item) => item.day), ['2026-09-01', '2026-09-02', '2026-09-03']);
+  assert.equal(roles.every((item) => item.role === 'Emp.Mesa' && item.qty === 2), true);
+  assert.equal(buildEditableTeamRows(event).length, 6);
+});
+
+test('continuous event role requirements stay independent per day', () => {
+  const event = {
+    isContinuous: true,
+    date: '2026-09-01',
+    endDate: '2026-09-03',
+    requiredRoles: [
+      { role: 'Emp.Mesa', qty: 4, day: '2026-09-01', order: 0 },
+      { role: 'Barman', qty: 2, day: '2026-09-01', order: 1 },
+      { role: 'Emp.Mesa', qty: 2, day: '2026-09-02', order: 0 },
+      { role: 'Chefe de Sala', qty: 1, day: '2026-09-03', order: 0 },
+    ],
+  };
+  const roles = normalizeDailyRoleRequirements(event);
+
+  assert.deepEqual(roleRequirementsForDay(event, '2026-09-01', roles).map((item) => [item.role, item.qty]), [
+    ['Emp.Mesa', 4],
+    ['Barman', 2],
+  ]);
+  assert.deepEqual(roleRequirementsForDay(event, '2026-09-02', roles).map((item) => [item.role, item.qty]), [['Emp.Mesa', 2]]);
+  assert.deepEqual(roleRequirementsForDay(event, '2026-09-03', roles).map((item) => [item.role, item.qty]), [['Chefe de Sala', 1]]);
+});
+
+test('legacy rows without a role are aligned with the selected day requirement', () => {
+  const rows = buildEditableTeamRows({
+    isContinuous: true,
+    date: '2026-09-01',
+    endDate: '2026-09-02',
+    requiredRoles: [
+      { role: 'Emp.Mesa', qty: 1, day: '2026-09-01' },
+      { role: 'Barman', qty: 1, day: '2026-09-02' },
+    ],
+    assignments: [{
+      id: 10,
+      collaboratorId: 4,
+      role: 'Sem função',
+      assignmentDate: '2026-09-02',
+      collaborator: { roles: ['Barman'] },
+    }],
+  });
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows.find((row) => row.id === 10).role, 'Barman');
+  assert.equal(rows.some((row) => row.role === 'Sem função'), false);
+});
+
+test('role groups follow the configured order for the selected day', () => {
+  const event = {
+    isContinuous: true,
+    requiredRoles: [
+      { role: 'Barman', qty: 1, day: '2026-09-01', order: 1 },
+      { role: 'Emp.Mesa', qty: 1, day: '2026-09-01', order: 0 },
+    ],
+  };
+  const groups = groupAssignmentsByRole([
+    { role: 'Barman', assignmentDate: '2026-09-01' },
+    { role: 'Emp.Mesa', assignmentDate: '2026-09-01' },
+  ], event, '2026-09-01');
+
+  assert.deepEqual(groups.map((group) => group.role), ['Emp.Mesa', 'Barman']);
 });
 
 test('createManualTeamRow adds a directly editable collaborator slot to the selected event day', () => {

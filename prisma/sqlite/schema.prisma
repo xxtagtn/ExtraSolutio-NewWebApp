@@ -262,6 +262,7 @@ model Event {
   minimumHoursSnapshot Decimal    @default(0)
   guestsCount  Int?
   requiredRoles String?
+  rateHistory  String?
   externalCosts String?
   uniform      String?
   meetingPoint String?

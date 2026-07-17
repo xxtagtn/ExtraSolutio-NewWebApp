@@ -5,27 +5,15 @@ import {
   decimalValue,
   staffWorkedHours,
 } from '../../src/utils/serviceFinance.js';
+import {
+  billableEventAssignments,
+  clientRateForAssignment,
+} from '../../src/utils/eventFinancialRules.js';
 import { staffCarAdvancesTotal } from '../../src/utils/staffAdvances.js';
-
-const NON_BILLABLE_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
+import { staffPaymentTotal } from '../../src/utils/staffPayment.js';
 
 function numberValue(value) {
   return decimalValue(value) || 0;
-}
-
-function jsonArray(value) {
-  if (Array.isArray(value)) return value;
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function isBillable(assignment = {}) {
-  return !NON_BILLABLE_STATUSES.has(String(assignment.status || '').trim().toLowerCase());
 }
 
 export function assignmentHasRecordedHours(assignment = {}) {
@@ -44,10 +32,7 @@ export function assignmentHasRecordedHours(assignment = {}) {
 }
 
 export function calculateEventTotals(event = {}, assignments = event.assignments || []) {
-  const billableAssignments = (assignments || []).filter(isBillable);
-  const roleRates = new Map(
-    jsonArray(event.requiredRoles).map((item) => [String(item?.role || ''), numberValue(item?.agreedRate)]),
-  );
+  const billableAssignments = billableEventAssignments(assignments);
   let assignmentRevenue = 0;
   let assignmentCost = 0;
   let realHours = 0;
@@ -61,9 +46,14 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
       event.minimumHoursSnapshot,
     );
     const staffHours = staffWorkedHours(assignment, event.startTime, event.endTime);
-    assignmentRevenue += clientHours * (roleRates.get(String(assignment.role || '')) || 0);
-    assignmentCost += (staffHours * numberValue(assignment.hourlyRate))
-      + staffCarAdvancesTotal(assignment.advancePayments);
+    const clientRate = clientRateForAssignment(assignment, event);
+    const baseStaffCost = staffHours * numberValue(assignment.hourlyRate);
+    assignmentRevenue += clientHours * clientRate;
+    assignmentCost += staffPaymentTotal(
+      baseStaffCost,
+      Boolean(assignment.collaborator?.includeVat),
+      assignment.paymentAdjustment,
+    ) + staffCarAdvancesTotal(assignment.advancePayments);
     realHours += clientRealHours(assignment);
     billableHours += clientHours;
   }
@@ -75,10 +65,11 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
 
   // Preserve a commercial total imported from a budget when hourly client/staff
   // rates are not available to rebuild that value safely.
-  const totalRevenue = billableAssignments.length > 0 && assignmentRevenue <= 0
+  const preserveStoredTotals = assignments.length === 0 || billableAssignments.length > 0;
+  const totalRevenue = preserveStoredTotals && assignmentRevenue <= 0
     ? Math.max(numberValue(event.totalRevenue), calculatedRevenue)
     : calculatedRevenue;
-  const totalCost = billableAssignments.length > 0 && assignmentCost <= 0
+  const totalCost = preserveStoredTotals && assignmentCost <= 0
     ? Math.max(numberValue(event.totalCost), calculatedCost)
     : calculatedCost;
 

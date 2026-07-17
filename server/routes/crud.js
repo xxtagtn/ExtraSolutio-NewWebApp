@@ -231,7 +231,22 @@ export function normalizeEvent(input) {
     guestsCount: asInt(input.guestsCount),
     requiredRoles: input.requiredRoles === undefined ? undefined : JSON.stringify(
       requiredRoles
-        .map((item) => ({ role: item?.role ? String(item.role).trim() : '', qty: Number(item?.qty || 0), agreedRate: parseRate(item?.agreedRate) }))
+        .map((item, index) => {
+          const role = item?.role ? String(item.role).trim() : '';
+          const day = String(item?.day || item?.date || '').trim().slice(0, 10);
+          const start = String(item?.start || '').trim();
+          const end = String(item?.end || '').trim();
+          const parsedOrder = Number(item?.order);
+          return compact({
+            role,
+            qty: Number(item?.qty || 0),
+            agreedRate: parseRate(item?.agreedRate),
+            ...(day ? { day } : {}),
+            ...(start ? { start } : {}),
+            ...(end ? { end } : {}),
+            order: Number.isFinite(parsedOrder) ? Math.max(0, Math.trunc(parsedOrder)) : index,
+          });
+        })
         .filter((item) => item.role && Number.isFinite(item.qty) && item.qty > 0),
     ),
     externalCosts: input.externalCosts === undefined ? undefined : JSON.stringify(normalizeExternalCosts(input.externalCosts)),

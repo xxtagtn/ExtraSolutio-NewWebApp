@@ -37,6 +37,7 @@ import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { clientChargeHours, decimalValue, staffWorkedHours } from '../utils/serviceFinance.js';
 import { buildClientFinancialSummary } from '../utils/clientFinancialSummary.js';
+import { calculateFinancialMargin, clientRateForAssignment } from '../utils/eventFinancialRules.js';
 import { statusLabel as operationalStatusLabel } from '../utils/serviceStatus.js';
 import {
   normalizeStaffAdvances,
@@ -269,22 +270,11 @@ function paymentTimingLabel(status) {
 
 function eventStaffCost(event) {
   const total = billableAssignments(event).reduce((sum, assignment) => sum + assignmentStaffCostTotal(assignment), 0);
-  return total || num(event.totalCost);
-}
-
-function eventRoleRates(event) {
-  try {
-    const roles = Array.isArray(event.requiredRoles)
-      ? event.requiredRoles
-      : JSON.parse(event.requiredRoles || '[]');
-    return new Map(roles.map((item) => [item.role, num(item.agreedRate)]));
-  } catch {
-    return new Map();
-  }
+  if (total > 0) return total;
+  return Math.max(0, num(event.totalCost) - externalCostsTotals(event.externalCosts).costAmount);
 }
 
 function eventRevenue(event) {
-  const roleRates = eventRoleRates(event);
   const assignmentRevenue = billableAssignments(event).reduce((sum, assignment) => {
     const hours = clientChargeHours(
       assignment,
@@ -292,7 +282,7 @@ function eventRevenue(event) {
       event.endTime,
       event.minimumHoursSnapshot,
     );
-    return sum + (hours * (roleRates.get(assignment.role) || 0));
+    return sum + (hours * clientRateForAssignment(assignment, event));
   }, 0);
   const travel = event.travelExpenseEnabled ? num(event.travelExpenseAmount) : 0;
   const externalTotals = externalCostsTotals(event.externalCosts);
@@ -306,11 +296,9 @@ function eventFinancialRow(event, invoices, expenses) {
   const revenue = eventRevenue(event);
   const staff = eventStaffCost(event);
   const externalTotals = externalCostsTotals(event.externalCosts);
-  const operational = num(event.travelExpenseAmount)
-    + externalTotals.costAmount
+  const operational = externalTotals.costAmount
     + linkedExpenses.reduce((sum, expense) => sum + num(expense.amount), 0);
-  const margin = revenue - staff - operational;
-  const marginPct = revenue > 0 ? (margin / revenue) * 100 : 0;
+  const { margin, marginPct } = calculateFinancialMargin(revenue, staff, operational);
   const paidByInvoice = eventInvoices.filter(invoiceIsPaid).reduce((sum, invoice) => sum + num(invoice.total), 0);
   const paidBySignal = num(event.paidAmount);
   const received = Math.max(paidByInvoice, event.billingStatus === 'paid' ? revenue : paidBySignal);

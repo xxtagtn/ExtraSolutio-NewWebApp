@@ -80,13 +80,18 @@ export function clientChargeHours(assignment, fallbackStart = '', fallbackEnd = 
   const clientReported = roundedBillableHours(assignment?.clientCheckIn, assignment?.clientCheckOut);
   if (clientReported > 0) return Math.max(clientReported, minimum);
 
-  const checked = roundedBillableHours(assignment?.checkIn || fallbackStart, assignment?.checkOut || fallbackEnd);
-  if (assignment?.timesTouched && checked > 0) return Math.max(checked, minimum);
+  const staffReported = roundedBillableHours(assignment?.checkIn, assignment?.checkOut);
+  if (staffReported > 0) return Math.max(staffReported, minimum);
 
   const explicit = decimalValue(assignment?.clientBillableHours) || 0;
   if (explicit > 0) return Math.max(explicit, minimum);
 
-  if (checked > 0) return Math.max(checked, minimum);
+  const planned = roundedBillableHours(assignment?.plannedCheckIn, assignment?.plannedCheckOut);
+  if (planned > 0) return Math.max(planned, minimum);
+
+  const eventPlanned = roundedBillableHours(fallbackStart, fallbackEnd);
+  if (eventPlanned > 0) return Math.max(eventPlanned, minimum);
+
   const worked = decimalValue(assignment?.hoursWorked) || 0;
   return worked > 0 ? Math.max(worked, minimum) : 0;
 }
@@ -95,16 +100,22 @@ export function staffWorkedHours(assignment, fallbackStart = '', fallbackEnd = '
   const checked = roundedBillableHours(assignment?.checkIn, assignment?.checkOut);
   if (checked > 0) return checked;
 
-  const validated = roundedBillableHours(assignment?.validatedCheckIn, assignment?.validatedCheckOut);
-  if (validated > 0) return validated;
-
   const explicit = decimalValue(assignment?.staffPayableHours) || 0;
   if (explicit > 0) return explicit;
 
   const worked = decimalValue(assignment?.hoursWorked) || 0;
   if (worked > 0) return worked;
 
-  return roundedBillableHours(assignment?.checkIn || fallbackStart, assignment?.checkOut || fallbackEnd);
+  const planned = roundedBillableHours(assignment?.plannedCheckIn, assignment?.plannedCheckOut);
+  if (planned > 0) return planned;
+
+  const hasClientHours = Boolean(
+    assignment?.clientCheckIn
+    || assignment?.clientCheckOut
+    || assignment?.validatedCheckIn
+    || assignment?.validatedCheckOut
+  );
+  return hasClientHours ? 0 : roundedBillableHours(fallbackStart, fallbackEnd);
 }
 
 export function collaboratorHourlyRate(collaborator) {

@@ -25,6 +25,19 @@ export function assignmentWorkDate(assignment = {}, event = {}) {
   return dateKey(assignment.assignmentDate || event.date);
 }
 
+function roleKey(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function isManualRole(value) {
+  const normalized = roleKey(value);
+  return !normalized || normalized === 'sem funcao' || normalized.startsWith('sem fun');
+}
+
 function localDateKey(value) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
 }
@@ -127,6 +140,94 @@ export function serviceAssignmentDays(event = {}) {
   return [...days].filter(Boolean).sort((a, b) => a.localeCompare(b));
 }
 
+function requirementDay(event = {}, requirement = {}) {
+  if (!event.isContinuous) return '';
+  return dateKey(requirement.day || requirement.date);
+}
+
+function requirementOrder(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : fallback;
+}
+
+/**
+ * Older continuous events stored one global list of roles. Treat that list as
+ * the starting plan for every event day. Explicit day entries take precedence.
+ */
+export function normalizeDailyRoleRequirements(event = {}) {
+  const source = safeJsonArray(event.requiredRoles)
+    .map((item, index) => ({
+      ...item,
+      role: String(item?.role || '').trim(),
+      qty: Math.max(0, Number(item?.qty || 0)),
+      agreedRate: item?.agreedRate ?? item?.rate ?? null,
+      day: requirementDay(event, item),
+      order: requirementOrder(item?.order, index),
+    }))
+    .filter((item) => item.role && item.qty > 0);
+
+  if (!event.isContinuous) {
+    const seen = new Set();
+    return source
+      .map((item) => ({ ...item, day: '' }))
+      .filter((item) => {
+        const key = roleKey(item.role);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((item, index) => ({ ...item, order: index }));
+  }
+
+  const eventDays = serviceAssignmentDays({ ...event, assignments: [] });
+  const explicit = source.filter((item) => item.day);
+  const legacy = source.filter((item) => !item.day);
+  const expanded = [...explicit];
+
+  for (const day of eventDays) {
+    for (const item of legacy) {
+      const exists = expanded.some((candidate) => (
+        candidate.day === day && roleKey(candidate.role) === roleKey(item.role)
+      ));
+      if (!exists) expanded.push({ ...item, day });
+    }
+  }
+
+  const seen = new Set();
+  const deduplicated = expanded
+    .filter((item) => {
+      const key = `${item.day}|${roleKey(item.role)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => (
+      a.day.localeCompare(b.day)
+      || a.order - b.order
+      || a.role.localeCompare(b.role, 'pt')
+    ));
+
+  return deduplicated.map((item) => ({
+    ...item,
+    order: deduplicated.filter((candidate) => (
+      candidate.day === item.day && (
+        candidate.order < item.order
+        || (candidate.order === item.order && candidate.role.localeCompare(item.role, 'pt') < 0)
+      )
+    )).length,
+  }));
+}
+
+export function roleRequirementsForDay(event = {}, selectedDay = '', normalizedRoles) {
+  const roles = Array.isArray(normalizedRoles)
+    ? normalizedRoles
+    : normalizeDailyRoleRequirements(event);
+  const day = event.isContinuous ? dateKey(selectedDay || event.date) : '';
+  return roles
+    .filter((item) => (event.isContinuous ? item.day === day : true))
+    .sort((a, b) => a.order - b.order || a.role.localeCompare(b.role, 'pt'));
+}
+
 export function resolveSelectedTeamDay({ isContinuous = false, days = [], selectedDay = '' } = {}) {
   if (!isContinuous || !days.length) return '';
   if (selectedDay && days.includes(selectedDay)) return selectedDay;
@@ -142,12 +243,21 @@ export function groupAssignmentsByRole(assignments = [], event = {}, selectedDat
     groups.get(role).push(assignment);
   }
 
+  const requirements = roleRequirementsForDay(event, selectedDate);
+  const roleOrder = new Map(requirements.map((item, index) => [roleKey(item.role), index]));
+
   return [...groups.entries()]
     .map(([role, rows]) => ({
       role,
       rows,
     }))
-    .sort((a, b) => a.role.localeCompare(b.role, 'pt'));
+    .sort((a, b) => {
+      const aOrder = roleOrder.get(roleKey(a.role));
+      const bOrder = roleOrder.get(roleKey(b.role));
+      if (aOrder != null || bOrder != null) return (aOrder ?? Number.MAX_SAFE_INTEGER) - (bOrder ?? Number.MAX_SAFE_INTEGER);
+      if (isManualRole(a.role) !== isManualRole(b.role)) return isManualRole(a.role) ? 1 : -1;
+      return a.role.localeCompare(b.role, 'pt');
+    });
 }
 
 function numberValue(value) {
@@ -162,7 +272,7 @@ function rowDateKeyForRequirement(event = {}, required = {}) {
 function rowDateMatchesRequirement(row = {}, event = {}, required = {}) {
   const expectedDate = rowDateKeyForRequirement(event, required);
   const rowDate = event.isContinuous ? dateKey(row.assignmentDate) : '';
-  return row.role === required.role && rowDate === expectedDate;
+  return roleKey(row.role) === roleKey(required.role) && rowDate === expectedDate;
 }
 
 function editableRowFromAssignment(assignment = {}) {
@@ -233,12 +343,31 @@ export function createManualTeamRow(event = {}, { role = MANUAL_TEAM_ROLE, selec
 }
 
 export function buildEditableTeamRows(event = {}) {
+  const requirements = normalizeDailyRoleRequirements(event);
   const rows = [
     ...(event.assignments || []).map(editableRowFromAssignment),
     ...normalizeAssignmentDrafts(event.assignmentDrafts).map(editableRowFromDraft),
   ];
 
-  for (const required of safeJsonArray(event.requiredRoles)) {
+  for (const row of rows) {
+    if (!isManualRole(row.role)) continue;
+    const dayRequirements = roleRequirementsForDay(event, row.assignmentDate || event.date, requirements);
+    const collaboratorRoles = safeJsonArray(row.collaborator?.roles)
+      .concat(row.collaborator?.category ? [row.collaborator.category] : [])
+      .map(roleKey);
+    const compatible = dayRequirements.filter((required) => collaboratorRoles.includes(roleKey(required.role)));
+    if (compatible.length === 1) row.role = compatible[0].role;
+    else if (dayRequirements.length === 1) row.role = dayRequirements[0].role;
+    else {
+      const requirementWithVacancy = dayRequirements.find((required) => (
+        rows.filter((candidate) => candidate !== row && rowDateMatchesRequirement(candidate, event, required)).length
+        < Number(required.qty || 0)
+      ));
+      if (requirementWithVacancy) row.role = requirementWithVacancy.role;
+    }
+  }
+
+  for (const required of requirements) {
     if (!required.role) continue;
     const target = Math.max(0, Number(required.qty || 0));
     const existing = rows.filter((row) => rowDateMatchesRequirement(row, event, required)).length;

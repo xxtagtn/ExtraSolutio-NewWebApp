@@ -4,6 +4,10 @@ function numberValue(value) {
   return decimalValue(value) || 0;
 }
 
+export function eventRevenueForDisplay(event = {}) {
+  return Number(numberValue(event.totalRevenue).toFixed(2));
+}
+
 export function resolveEventRevenue({
   calculatedTotalRevenue = 0,
   calculatedExpectedRevenue = 0,

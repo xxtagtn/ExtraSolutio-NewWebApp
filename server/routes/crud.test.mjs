@@ -63,6 +63,20 @@ test('normalizes event financial totals from budget conversion values', () => {
   assert.equal(payload.minimumHoursSnapshot, 5);
 });
 
+test('preserves independent per-day role requirements for continuous events', () => {
+  const payload = normalizeEvent({
+    requiredRoles: [
+      { role: 'Emp.Mesa', qty: 4, agreedRate: '10,50', day: '2026-09-01', start: '11:30', end: '18:00', order: 0 },
+      { role: 'Barman', qty: 2, agreedRate: '12,00', day: '2026-09-02', order: 1 },
+    ],
+  });
+
+  assert.deepEqual(JSON.parse(payload.requiredRoles), [
+    { role: 'Emp.Mesa', qty: 4, agreedRate: 10.5, day: '2026-09-01', start: '11:30', end: '18:00', order: 0 },
+    { role: 'Barman', qty: 2, agreedRate: 12, day: '2026-09-02', order: 1 },
+  ]);
+});
+
 test('normalizes the manual staff travel hourly rate', () => {
   const payload = normalizeEvent({
     travelStaffHourlyRate: '7,50€',

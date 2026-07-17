@@ -14,7 +14,12 @@ import {
   assignmentScheduleChanged,
   findOverlappingAssignment,
 } from '../utils/assignmentOverlap.js';
-import { resolveEventRevenue } from '../utils/eventRevenue.js';
+import { eventRevenueForDisplay, resolveEventRevenue } from '../utils/eventRevenue.js';
+import {
+  calculateFinancialMargin,
+  clientRateForAssignment,
+  eventFinancialWarnings,
+} from '../utils/eventFinancialRules.js';
 import { externalCostsTotals, normalizeExternalCosts } from '../utils/externalCosts.js';
 import { date, durationHours } from '../utils/formatters.js';
 import {
@@ -32,7 +37,11 @@ import {
   assignmentDraftsFromRows,
   normalizeAssignmentDrafts,
 } from '../utils/serviceAssignmentDrafts.js';
-import { resolveSelectedTeamDay } from '../utils/serviceDetail.js';
+import {
+  normalizeDailyRoleRequirements,
+  resolveSelectedTeamDay,
+  roleRequirementsForDay,
+} from '../utils/serviceDetail.js';
 import {
   assignmentStaffCost,
   assignmentStaffRate,
@@ -42,6 +51,7 @@ import {
   decimalValue,
 } from '../utils/serviceFinance.js';
 import { normalizeStaffAdvances, staffAdvancesTotal, staffCarAdvancesTotal } from '../utils/staffAdvances.js';
+import { staffPaymentTotal } from '../utils/staffPayment.js';
 import {
   isArchivedService,
   nextAutomaticServiceStatus,
@@ -226,10 +236,6 @@ function calcRoundedBillableHours(start, end) {
   let e = roundedEnd;
   if (e < s) e += 24 * 60;
   return Number(((e - s) / 60).toFixed(2));
-}
-
-function assignmentClientHours(assignment, fallbackStart, fallbackEnd, minimumHours = 0) {
-  return clientChargeHours(assignment, fallbackStart, fallbackEnd, minimumHours);
 }
 
 function isPastEvent(eventDate) {
@@ -490,26 +496,6 @@ function getRoleForecast(requiredRoles, expectedHours) {
   }, 0);
 }
 
-function getRowForecast(row) {
-  const requiredRoles = safeArrayJson(row.requiredRoles);
-  const roleRateMap = new Map(requiredRoles.map((item) => [item.role, parseMoney(item.agreedRate) || 0]));
-  const travel = Number(row.travelExpenseEnabled ? row.travelExpenseAmount || 0 : 0);
-  const externalCharge = externalCostsTotals(row.externalCosts).chargeAmount;
-  const assignments = (row.assignments || []).filter((item) => item.role && item.collaboratorId);
-  if (assignments.length) {
-    const billable = assignments.filter((item) => !nonBillableStatuses.has(normalizeAssignmentStatus(item.status)));
-    const total = billable.reduce((sum, item) => {
-      const hours = assignmentClientHours(item, row.startTime, row.endTime, row.minimumHoursSnapshot);
-      const rate = roleRateMap.get(item.role) || 0;
-      return sum + (hours * rate);
-    }, 0);
-    return Number((total + travel + externalCharge).toFixed(2));
-  }
-  const expectedHours = calcRoundedBillableHours(row.startTime, row.endTime) * inclusiveDayCount(row.date, eventRangeEnd(row));
-  const forecast = getRoleForecast(requiredRoles, expectedHours);
-  return Number((forecast + travel + externalCharge).toFixed(2));
-}
-
 export default function Services() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -603,6 +589,14 @@ export default function Services() {
     }
     return days;
   }, [form.isContinuous, form.date, form.endDate]);
+  const normalizedFormRoles = useMemo(
+    () => normalizeDailyRoleRequirements(form),
+    [form],
+  );
+  const selectedTeamRoles = useMemo(
+    () => roleRequirementsForDay(form, selectedTeamDay || teamDays[0] || form.date, normalizedFormRoles),
+    [form, normalizedFormRoles, selectedTeamDay, teamDays],
+  );
   const expectedDailyHours = calcRoundedBillableHours(form.startTime, form.endTime);
   const minimumHoursSnapshot = Number(form.minimumHoursSnapshot || 0);
   const expectedBillableHours = Number((Math.max(expectedDailyHours, minimumHoursSnapshot) * eventDays).toFixed(2));
@@ -631,7 +625,6 @@ export default function Services() {
   }, []);
 
   const financials = useMemo(() => {
-    const roleRateMap = new Map(form.requiredRoles.map((item) => [item.role, parseMoney(item.agreedRate) || 0]));
     const expectedRevenueByRoles = getRoleForecast(form.requiredRoles, expectedBillableHours);
     const externalTotals = externalCostsTotals(form.externalCosts);
     const assignments = (form.assignments || []).filter((assignment) => assignment.role && assignment.collaboratorId);
@@ -646,11 +639,17 @@ export default function Services() {
       const clientHours = formAssignmentClientHours(assignment);
       const staffHours = formAssignmentStaffHours(assignment);
       if (!assignment.role || (!clientHours && !staffHours)) continue;
-      const clientRate = roleRateMap.get(assignment.role) || 0;
+      const clientRate = clientRateForAssignment(assignment, { requiredRoles: form.requiredRoles });
       const collaboratorRate = assignmentStaffRate(assignment, collaboratorsById, clientRate);
+      const collaborator = collaboratorsById.get(String(assignment.collaboratorId));
+      const baseStaffCost = staffHours * collaboratorRate;
       expectedRevenue += clientHours * clientRate;
       totalRevenue += clientHours * clientRate;
-      totalCost += (staffHours * collaboratorRate) + staffCarAdvancesTotal(assignment.advancePayments);
+      totalCost += staffPaymentTotal(
+        baseStaffCost,
+        Boolean(collaborator?.includeVat),
+        assignment.paymentAdjustment,
+      ) + staffCarAdvancesTotal(assignment.advancePayments);
       realHours += realClientHours;
       billableHours += clientHours;
     }
@@ -669,18 +668,35 @@ export default function Services() {
       calculatedExpectedRevenue,
       storedTotalRevenue: form.totalRevenue,
     });
+    const staffCost = Number(totalCost.toFixed(2));
+    const expenses = Number(externalTotals.costAmount.toFixed(2));
+    const margin = calculateFinancialMargin(resolvedTotalRevenue, staffCost, expenses);
+    const warnings = eventFinancialWarnings(
+      {
+        requiredRoles: form.requiredRoles,
+        isContinuous: form.isContinuous,
+        date: form.date,
+        endDate: form.endDate,
+      },
+      assignments,
+      { revenue: resolvedTotalRevenue, staff: staffCost },
+    );
     return {
       expectedRevenue: resolvedExpectedRevenue,
       totalRevenue: resolvedTotalRevenue,
-      totalCost: Number((totalCost + externalTotals.costAmount).toFixed(2)),
+      totalCost: Number((staffCost + expenses).toFixed(2)),
+      staffCost,
+      expenses,
       externalCostAmount: externalTotals.costAmount,
       externalChargeAmount: externalTotals.chargeAmount,
       externalMarginAmount: externalTotals.marginAmount,
-      profit: Number((resolvedTotalRevenue - totalCost - externalTotals.costAmount).toFixed(2)),
+      profit: margin.margin,
+      marginPct: margin.marginPct,
+      warnings,
       realHours: Number(realHours.toFixed(2)),
       billableHours: Number(billableHours.toFixed(2)),
     };
-  }, [form.requiredRoles, form.assignments, form.externalCosts, expectedBillableHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, form.totalRevenue]);
+  }, [form.requiredRoles, form.assignments, form.externalCosts, form.isContinuous, form.date, form.endDate, expectedBillableHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, form.totalRevenue]);
   const prepaymentSummary = buildPrepaymentSummary({
     total: financials.totalRevenue || financials.expectedRevenue || 0,
     serviceDate: form.date,
@@ -822,11 +838,11 @@ export default function Services() {
   }
 
   const formWithStaffRates = useCallback((nextForm) => {
-    const roleRateMap = new Map(nextForm.requiredRoles.map((item) => [item.role, parseMoney(item.agreedRate) || 0]));
     return {
       ...nextForm,
       assignments: nextForm.assignments.map((assignment) => {
-        const rate = assignmentStaffRate(assignment, collaboratorsById, roleRateMap.get(assignment.role) || 0);
+        const clientRate = clientRateForAssignment(assignment, { requiredRoles: nextForm.requiredRoles });
+        const rate = assignmentStaffRate(assignment, collaboratorsById, clientRate);
         return rate > 0 ? { ...assignment, hourlyRate: formatMoneyInline(rate) } : assignment;
       }),
     };
@@ -1035,24 +1051,35 @@ export default function Services() {
 
   function updateRoleRequirement(role, patch) {
     const clientDefaultRate = clientRateForRole(selectedClient, role);
-    const current = form.requiredRoles.find((item) => item.role === role) || { role, qty: '', agreedRate: '' };
+    const targetDay = form.isContinuous ? (form.date || '') : '';
+    const targetIndex = form.requiredRoles.findIndex((item) => (
+      item.role === role
+      && (!form.isContinuous || !item.day || item.day === targetDay)
+    ));
+    const current = targetIndex >= 0
+      ? form.requiredRoles[targetIndex]
+      : { role, qty: '', agreedRate: '', ...(targetDay ? { day: targetDay } : {}) };
     const nextItem = {
       ...current,
       ...patch,
       agreedRate: patch.agreedRate !== undefined ? patch.agreedRate : (current.agreedRate || clientDefaultRate),
     };
     const qty = Number(nextItem.qty || 0);
-    const nextRoles = form.requiredRoles.filter((item) => item.role !== role);
+    const nextRoles = [...form.requiredRoles];
     if (qty > 0) {
-      nextRoles.push({ ...nextItem, qty });
-      nextRoles.sort((a, b) => a.role.localeCompare(b.role, 'pt'));
+      if (targetIndex >= 0) nextRoles[targetIndex] = { ...nextItem, qty };
+      else nextRoles.push({ ...nextItem, qty, order: nextRoles.filter((item) => !targetDay || item.day === targetDay).length });
       setForm({ ...form, requiredRoles: nextRoles });
       return;
     }
+    if (targetIndex >= 0) nextRoles.splice(targetIndex, 1);
     setForm({
       ...form,
       requiredRoles: nextRoles,
-      assignments: form.assignments.filter((item) => item.role !== role),
+      assignments: form.assignments.filter((item) => !(
+        item.role === role
+        && (!form.isContinuous || (item.assignmentDate || targetDay) === targetDay)
+      )),
     });
   }
 
@@ -1287,8 +1314,7 @@ export default function Services() {
         const clientReal = hasManualClientTimes ? formAssignmentClientRealHours(item) : 0;
         const clientHours = hasManualClientTimes ? formAssignmentClientHours(item) : 0;
         const payableStaffHours = hasManualStaffTimes ? staffHours : 0;
-        const roleConfig = form.requiredRoles.find((required) => required.role === item.role);
-        const clientRoleRate = parseMoney(roleConfig?.agreedRate) || 0;
+        const clientRoleRate = clientRateForAssignment(item, { requiredRoles: form.requiredRoles });
         const hourlyRate = assignmentStaffRate(item, collaboratorsById, clientRoleRate);
         const body = {
           eventId,
@@ -1526,7 +1552,7 @@ export default function Services() {
                   <span className="service-assigned"><Users size={14} /> Solicitados: {requestedTotal}</span>
                   <span className="service-status-count service-status-count--confirmed">Confirmados: {confirmedTotal}</span>
                   {pendingTotal > 0 ? <span className="service-status-count service-status-count--pending">A aguardar: {pendingTotal}</span> : null}
-                  <span className="service-status-count">Valor: {euro(getRowForecast(row))}</span>
+                  <span className="service-status-count">Valor: {euro(eventRevenueForDisplay(row))}</span>
                   <Badge tone={isArchivedService(row) ? 'success' : 'info'}>{statusLabel(serviceStatusForDisplay(row))}</Badge>
                   <ChevronRight size={16} />
                 </div>
@@ -1896,7 +1922,10 @@ export default function Services() {
                   <h3>Funcoes necessarias</h3>
                   <div className="service-role-requirements">
                     {availableRoles.map((role) => {
-                      const item = form.requiredRoles.find((entry) => entry.role === role) || { qty: '', agreedRate: '' };
+                      const item = form.requiredRoles.find((entry) => (
+                        entry.role === role
+                        && (!form.isContinuous || !entry.day || entry.day === form.date)
+                      )) || { qty: '', agreedRate: '' };
                       const inheritedRate = clientRuleRate(selectedClient, role);
                       return (
                         <div key={role} className="service-role-requirement-row">
@@ -1941,7 +1970,7 @@ export default function Services() {
                     </div>
                   ) : null}
                   <div className="service-assignments-panel">
-                    {form.requiredRoles.map((required) => {
+                    {selectedTeamRoles.map((required) => {
                       const roleAssignments = form.assignments
                         .map((item, index) => ({ ...item, index }))
                         .filter((item) => item.role === required.role)
@@ -2181,17 +2210,23 @@ export default function Services() {
                   <div className="service-finance-grid">
                     <div><span>Horas Reais</span><strong>{durationHours(financials.realHours)}</strong></div>
                     <div><span>Horas Faturáveis</span><strong>{durationHours(financials.billableHours)}</strong></div>
-                    <div><span>Valor previsto</span><strong>{euro(financials.expectedRevenue)}</strong></div>
-                    <div><span>Valor Total do Evento/Serviço</span><strong>{euro(financials.totalRevenue)}</strong></div>
+                    <div><span>Receita</span><strong>{euro(financials.totalRevenue)}</strong></div>
+                    <div><span>Staff</span><strong>{euro(financials.staffCost)}</strong></div>
+                    <div><span>Despesas</span><strong>{euro(financials.expenses)}</strong></div>
+                    <div><span>Margem</span><strong className={financials.profit < 0 ? 'money-negative' : 'money-positive'}>{euro(financials.profit)}</strong></div>
+                    <div><span>Margem %</span><strong className={financials.profit < 0 ? 'money-negative' : 'money-positive'}>{financials.marginPct.toFixed(1).replace('.', ',')}%</strong></div>
                     {financials.externalChargeAmount > 0 ? (
                       <>
                         <div><span>Parceiros cobrados ao cliente</span><strong>{euro(financials.externalChargeAmount)}</strong></div>
                         <div><span>Custo real parceiros</span><strong>{euro(financials.externalCostAmount)}</strong></div>
                       </>
                     ) : null}
-                    <div><span>Total a pagar aos colaboradores</span><strong>{euro(financials.totalCost)}</strong></div>
-                    <div><span>Lucro do Evento/Serviço</span><strong className={financials.profit < 0 ? 'money-negative' : 'money-positive'}>{euro(financials.profit)}</strong></div>
                   </div>
+                  {financials.warnings.length ? (
+                    <div className="service-financial-warnings" role="status">
+                      {financials.warnings.map((warning) => <p key={warning.code}>{warning.message}</p>)}
+                    </div>
+                  ) : null}
                   {financials.externalChargeAmount > 0 ? (
                     <div className="service-external-costs">
                       <h4>Custos Externos/Parceiros</h4>

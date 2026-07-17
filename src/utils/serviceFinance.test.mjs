@@ -85,15 +85,26 @@ test('uses client reported hours before stale explicit client hours', () => {
   );
 });
 
-test('keeps explicit client hours when no validated or client times exist', () => {
+test('uses Staff hours before a stale explicit client total', () => {
   assert.equal(
     clientChargeHours({
       checkIn: '15:00',
       checkOut: '05:00',
       clientBillableHours: 10,
     }),
-    10,
+    14,
   );
+});
+
+test('uses each assignment planned shift before the general event schedule', () => {
+  assert.equal(clientChargeHours({
+    plannedCheckIn: '19:00',
+    plannedCheckOut: '23:00',
+  }, '11:30', '16:00'), 4);
+});
+
+test('keeps explicit client hours when no Staff, Client or validated times exist', () => {
+  assert.equal(clientChargeHours({ clientBillableHours: 10 }, '11:30', '16:00'), 10);
 });
 
 test('keeps real client hours separate from the client minimum', () => {
@@ -158,4 +169,12 @@ test('keeps stored staff hours when no row times exist', () => {
     staffPayableHours: 5,
     hoursWorked: 4,
   }), 5);
+});
+
+test('does not use client validated hours to calculate Staff payment', () => {
+  assert.equal(staffWorkedHours({
+    validatedCheckIn: '09:00',
+    validatedCheckOut: '17:00',
+    staffPayableHours: 6,
+  }), 6);
 });

@@ -33,7 +33,9 @@ export default function Login() {
   return (
     <div className="login-page">
       <form className="login-panel" onSubmit={submit}>
-        <span className="brand__mark">ES</span>
+        <span className="brand__mark brand__mark--logo">
+          <img src="/logo.png" alt="ExtraSolutio" />
+        </span>
         <h1>ExtraSolutio</h1>
         <label>
           Email

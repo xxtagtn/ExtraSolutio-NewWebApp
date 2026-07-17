@@ -39,7 +39,11 @@ import {
   assignmentConflictNeedsCheck,
 } from '../utils/assignmentConflict.js';
 import { serviceListInclude } from '../utils/listPayloads.js';
-import { assignmentHasRecordedHours } from '../utils/eventTotals.js';
+import {
+  appendEventRateHistory,
+  initialEventRateHistory,
+  snapshotEventRoleRates,
+} from '../utils/eventRateSnapshot.js';
 import { asyncHandler } from '../utils/http.js';
 import {
   markEventValidated,
@@ -80,6 +84,7 @@ const communicationQr = requirePermission(PERMISSIONS.COMMUNICATION_MANAGE_QR_CO
 const financialEventFields = [
   'totalCost',
   'totalRevenue',
+  'rateHistory',
   'travelExpenseAmount',
   'travelStaffHourlyRate',
   'travelManualAmount',
@@ -259,14 +264,18 @@ function maskEventForRole(event, user) {
 
 async function normalizeServiceCreate(input) {
   const data = normalizeEvent(input);
-  if (!data.clientId) return data;
-  const client = await prisma.client.findUnique({
+  const client = data.clientId ? await prisma.client.findUnique({
     where: { id: data.clientId },
-    select: { minimumHours: true },
-  });
+    select: { minimumHours: true, roleRates: true },
+  }) : null;
+  const requiredRoles = snapshotEventRoleRates(data.requiredRoles, client?.roleRates);
   return {
     ...data,
     minimumHoursSnapshot: minimumHoursForEventUpdate(null, client?.minimumHours),
+    ...(data.requiredRoles !== undefined ? {
+      requiredRoles: JSON.stringify(requiredRoles),
+      rateHistory: initialEventRateHistory(requiredRoles),
+    } : {}),
   };
 }
 
@@ -276,14 +285,23 @@ async function normalizeServiceUpdate(input, existing) {
     data.status = existing.status;
   }
   const clientId = data.clientId !== undefined ? data.clientId : existing?.clientId;
-  if (!clientId) return { ...data, minimumHoursSnapshot: 0 };
-  const client = await prisma.client.findUnique({
+  const client = clientId ? await prisma.client.findUnique({
     where: { id: clientId },
-    select: { minimumHours: true },
-  });
+    select: { minimumHours: true, roleRates: true },
+  }) : null;
+  const clientChanged = Number(existing?.clientId || 0) !== Number(clientId || 0);
+  const requiredRoles = data.requiredRoles === undefined
+    ? undefined
+    : snapshotEventRoleRates(data.requiredRoles, client?.roleRates, existing?.requiredRoles, {
+      preserveExisting: !clientChanged,
+    });
   return {
     ...data,
     minimumHoursSnapshot: minimumHoursForEventUpdate(existing, client?.minimumHours),
+    ...(requiredRoles !== undefined ? {
+      requiredRoles: JSON.stringify(requiredRoles),
+      rateHistory: appendEventRateHistory(existing?.rateHistory, existing?.requiredRoles, requiredRoles),
+    } : {}),
   };
 }
 
@@ -437,7 +455,7 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   normalizeUpdate: normalizeServiceUpdate,
   loadExistingForUpdate: true,
   afterUpdate: async ({ id }) => {
-    await synchronizeEventWorkflow(prisma, id, { recalculateTotals: false });
+    await synchronizeEventWorkflow(prisma, id, { recalculateTotals: true });
   },
 }));
 
@@ -478,24 +496,24 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   afterCreate: async ({ row }) => {
     await ensureQrCodeForAssignmentId(row.id);
     await synchronizeEventAfterAssignmentMutation(row.eventId, {
-      recalculateTotals: assignmentHasRecordedHours(row),
+      recalculateTotals: true,
     });
   },
   afterUpdate: async ({ id, row, existing }) => {
     await ensureQrCodeForAssignmentId(id);
     await synchronizeEventAfterAssignmentMutation(row.eventId, {
-      recalculateTotals: assignmentHasRecordedHours(row) || assignmentHasRecordedHours(existing),
+      recalculateTotals: true,
     });
     if (Number(existing?.eventId) !== Number(row.eventId)) {
       await synchronizeEventAfterAssignmentMutation(existing?.eventId, {
-        recalculateTotals: assignmentHasRecordedHours(existing),
+        recalculateTotals: true,
       });
     }
   },
   loadExistingForDelete: true,
   afterDelete: async ({ existing }) => {
     await synchronizeEventAfterAssignmentMutation(existing?.eventId, {
-      recalculateTotals: assignmentHasRecordedHours(existing),
+      recalculateTotals: true,
     });
   },
 }));

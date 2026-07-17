@@ -68,7 +68,7 @@ async function withTransaction(prisma, callback) {
 async function loadEvent(client, id) {
   return client.event.findUnique({
     where: { id },
-    include: { assignments: true },
+    include: { assignments: { include: { collaborator: true } } },
   });
 }
 
@@ -116,8 +116,22 @@ export async function setManualEventStatus(prisma, eventId, status, {
 }
 
 export async function markEventValidated(prisma, eventId, notes) {
-  return setManualEventStatus(prisma, eventId, SERVICE_STATUS.finalized, {
-    notes: appendValidatedHoursMarker(notes),
+  const id = Number(eventId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+
+  return withTransaction(prisma, async (client) => {
+    const event = await loadEvent(client, id);
+    if (!event) return null;
+    return client.event.update({
+      where: { id },
+      data: {
+        ...calculateEventTotals(event, event.assignments),
+        status: SERVICE_STATUS.finalized,
+        statusMode: EVENT_WORKFLOW_MODE.manual,
+        notes: appendValidatedHoursMarker(notes),
+      },
+      include: { assignments: true },
+    });
   });
 }
 

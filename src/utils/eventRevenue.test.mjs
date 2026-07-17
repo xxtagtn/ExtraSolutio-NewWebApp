@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveEventRevenue } from './eventRevenue.js';
+import { eventRevenueForDisplay, resolveEventRevenue } from './eventRevenue.js';
+
+test('uses the persisted API total in event lists instead of recalculating stale assignment rows', () => {
+  assert.equal(eventRevenueForDisplay({
+    totalRevenue: '731.50',
+    assignments: [{ role: 'Sem função', hoursWorked: 4.5 }],
+  }), 731.5);
+});
 
 test('keeps calculated event revenue when current event data can calculate it', () => {
   assert.equal(resolveEventRevenue({

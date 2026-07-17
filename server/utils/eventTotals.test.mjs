@@ -79,3 +79,35 @@ test('distinguishes planned times from recorded Staff or Client hours', () => {
     checkIn: '10:05',
   }), true);
 });
+
+test('sums every day and split shift using the single historical event rate', () => {
+  const totals = calculateEventTotals({
+    startTime: '11:30',
+    endTime: '16:00',
+    requiredRoles: [{ role: 'Emp.Mesa', agreedRate: 9.5 }],
+  }, [
+    { role: 'Emp.Mesa', assignmentDate: '2026-06-22', plannedCheckIn: '11:30', plannedCheckOut: '16:00', status: 'confirmed', hourlyRate: 8 },
+    { role: 'Sem função', assignmentDate: '2026-06-23', checkIn: '11:32', checkOut: '15:51', status: 'confirmed', hourlyRate: 8 },
+    { role: 'Sem função', assignmentDate: '2026-06-27', clientCheckIn: '11:30', clientCheckOut: '16:10', status: 'confirmed', hourlyRate: 8 },
+    { role: 'Sem função', assignmentDate: '2026-06-27', clientCheckIn: '19:00', clientCheckOut: '23:04', status: 'confirmed', hourlyRate: 8 },
+  ]);
+
+  assert.equal(totals.totalRevenue, 166.25);
+  assert.equal(totals.billableHours, 17.5);
+  assert.equal(totals.totalCost, 72);
+});
+
+test('includes collaborator VAT and payment adjustments in Staff cost', () => {
+  const totals = calculateEventTotals({
+    requiredRoles: [{ role: 'Barman', agreedRate: 12 }],
+  }, [{
+    role: 'Barman',
+    plannedCheckIn: '10:00',
+    plannedCheckOut: '15:00',
+    hourlyRate: 8,
+    paymentAdjustment: 2,
+    collaborator: { includeVat: true },
+  }]);
+
+  assert.equal(totals.totalCost, 51.2);
+});

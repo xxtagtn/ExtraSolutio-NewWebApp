@@ -262,6 +262,7 @@ model Event {
   minimumHoursSnapshot Decimal   @default(0) @db.Decimal(8, 2)
   guestsCount  Int?
   requiredRoles String?          @db.LongText
+  rateHistory  String?           @db.LongText
   externalCosts String?          @db.LongText
   uniform      String?           @db.VarChar(80)
   meetingPoint String?           @db.Text

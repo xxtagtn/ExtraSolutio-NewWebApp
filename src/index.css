@@ -3580,6 +3580,94 @@ th {
   margin-bottom: 12px;
 }
 
+.service-detail-role-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(71, 85, 105, 0.38);
+}
+
+.service-detail-role-toolbar > div {
+  display: grid;
+  gap: 2px;
+}
+
+.service-detail-role-toolbar span,
+.service-detail-role-manager__heading span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.service-detail-role-toolbar .secondary-button--active {
+  border-color: rgba(20, 184, 166, 0.72);
+  background: rgba(20, 184, 166, 0.12);
+  color: var(--accent);
+}
+
+.service-detail-role-manager {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  border: 1px solid rgba(20, 184, 166, 0.28);
+  border-radius: 8px;
+  background: rgba(9, 18, 22, 0.88);
+  padding: 12px;
+}
+
+.service-detail-role-manager__heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.service-detail-role-manager__list {
+  display: grid;
+  gap: 7px;
+}
+
+.service-detail-role-manager__row,
+.service-detail-role-manager__add {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 82px auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.service-detail-role-manager__row {
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(71, 85, 105, 0.28);
+}
+
+.service-detail-role-manager__row label,
+.service-detail-role-manager__add label {
+  display: grid;
+  gap: 4px;
+}
+
+.service-detail-role-manager__row label > span,
+.service-detail-role-manager__add label > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.service-detail-role-manager__qty input {
+  text-align: center;
+}
+
+.service-detail-role-manager__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-height: var(--control-height, 38px);
+}
+
+.service-detail-role-manager__add {
+  padding-top: 2px;
+}
+
 .service-detail-team,
 .service-detail-role {
   display: grid;
@@ -4076,8 +4164,24 @@ th {
 
 .service-detail-finance-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
+}
+
+.service-financial-warnings {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.34);
+  border-radius: 8px;
+  background: rgba(120, 53, 15, 0.14);
+  color: #fcd34d;
+  font-size: 0.82rem;
+}
+
+.service-financial-warnings p {
+  margin: 0;
 }
 
 .service-detail-finance-grid > div {
@@ -11144,6 +11248,404 @@ th {
   .data-table td {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+}
+
+/* Mobile operations: compact cards, bottom-sheet pickers and fixed actions. */
+.service-detail-role-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  min-height: 36px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  padding: 0 2px;
+  text-align: left;
+}
+
+.service-detail-role-toggle:hover,
+.service-detail-role-toggle:focus-visible {
+  background: rgba(20, 184, 166, 0.08);
+}
+
+.service-detail-role-toggle__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.service-detail-role-toggle > svg {
+  flex: 0 0 auto;
+  color: #94a3b8;
+}
+
+.service-detail-role--collapsed > header {
+  border-bottom-color: transparent;
+}
+
+.service-detail-mobile-actions {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .service-detail-page {
+    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+    overflow-x: clip;
+  }
+
+  .service-detail-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .service-detail-actions > a:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .service-detail-actions > .command-button:last-child {
+    display: none;
+  }
+
+  .service-detail-team-table {
+    overflow: visible;
+  }
+
+  .service-detail-team-columns {
+    display: none;
+  }
+
+  .service-detail-team-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    min-height: 0;
+    gap: 10px;
+    margin: 10px;
+    padding: 12px;
+    border: 1px solid rgba(71, 85, 105, 0.42);
+    border-radius: 12px;
+    background: rgba(10, 16, 19, 0.8);
+  }
+
+  .service-detail-team-row:last-child {
+    border-bottom: 1px solid rgba(71, 85, 105, 0.42);
+  }
+
+  .service-detail-team-row > :nth-child(1),
+  .service-detail-team-row > :nth-child(2),
+  .service-detail-team-row > :nth-child(6),
+  .service-detail-team-row > :nth-child(7) {
+    grid-column: 1 / -1;
+  }
+
+  .service-detail-team-row > label,
+  .service-detail-date-lock,
+  .service-detail-team-collaborator {
+    min-width: 0;
+    align-self: stretch;
+  }
+
+  .service-detail-team-row > label > span,
+  .service-detail-date-lock > span,
+  .service-detail-team-collaborator > .service-detail-field-label {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--muted);
+    font-size: 0.68rem;
+    line-height: 1.2;
+  }
+
+  .service-detail-date-lock {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+  }
+
+  .service-detail-date-lock strong {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    color: var(--text);
+    font-size: 0.88rem;
+  }
+
+  .service-detail-team-row input,
+  .service-detail-team-row select,
+  .service-detail-team-collaborator .service-collab-trigger {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+  }
+
+  .service-detail-team-collaborator {
+    display: grid;
+    gap: 0;
+  }
+
+  .service-detail-team-nif {
+    margin-top: 5px;
+  }
+
+  .service-detail-team-flags {
+    display: flex !important;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+    padding-top: 2px;
+  }
+
+  .service-detail-team-flags > label,
+  .service-detail-team-flags > .service-driver-toggle,
+  .service-detail-team-flags > .icon-button--danger,
+  .service-detail-team-flags > .service-detail-advance-button {
+    min-height: 42px;
+  }
+
+  .service-detail-team-flags > label {
+    border: 1px solid rgba(34, 197, 94, 0.28);
+    border-radius: 8px;
+    background: rgba(34, 197, 94, 0.08);
+    padding: 0 10px;
+  }
+
+  .service-detail-team-flags > label span {
+    display: inline;
+  }
+
+  .service-detail-team-flags > .service-detail-advance-button {
+    flex: 1 1 120px;
+  }
+
+  .service-detail-role > header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 56px;
+    padding: 8px 10px;
+  }
+
+  .service-detail-role-title,
+  .service-detail-role-toggle {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .service-detail-role-sync-status {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: start;
+    min-height: 26px;
+    padding: 0 7px;
+    font-size: 0.68rem;
+  }
+
+  .service-detail-role-actions {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .service-detail-role-actions > span {
+    display: none;
+  }
+
+  .service-detail-role-actions .secondary-button {
+    min-height: 40px;
+    max-width: 42px;
+    overflow: hidden;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+
+  .service-detail-role-actions .secondary-button svg {
+    margin: 0;
+  }
+
+  .service-detail-role-actions .secondary-button {
+    font-size: 0;
+  }
+
+  .service-detail-team-footer {
+    position: static;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+    padding: 10px;
+  }
+
+  .service-detail-team-total {
+    justify-content: center;
+    gap: 5px;
+    text-align: center;
+  }
+
+  .service-detail-team-total svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .service-detail-team-total span {
+    font-size: 0.68rem;
+  }
+
+  .service-detail-team-total strong {
+    font-size: 0.96rem;
+  }
+
+  .service-detail-cost-link {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    border-top: 1px solid rgba(71, 85, 105, 0.34);
+    padding-top: 10px;
+    text-align: center;
+  }
+
+  .service-collab-menu {
+    left: 10px !important;
+    right: 10px !important;
+    top: auto !important;
+    bottom: calc(10px + env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-height: min(70dvh, 520px) !important;
+    border-radius: 16px 16px 12px 12px;
+    padding: 12px;
+    box-shadow: 0 -18px 56px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.28);
+  }
+
+  .service-collab-menu::before {
+    content: 'Selecionar colaborador';
+    display: block;
+    padding: 2px 2px 5px;
+    color: var(--text);
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  .service-collab-menu input {
+    min-height: 46px;
+  }
+
+  .service-collab-options {
+    max-height: 48dvh;
+  }
+
+  .service-collab-option {
+    min-height: 44px;
+    border-radius: 9px;
+    padding: 0 10px;
+  }
+
+  .service-assignment-row,
+  .service-assignment-row--dated {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    min-width: 0;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .service-assignment-collaborator,
+  .service-assignment-row .service-status-select,
+  .service-assignment-row .service-advance-toggle {
+    grid-column: 1 / -1;
+  }
+
+  .service-assignment-collaborator {
+    min-width: 0;
+  }
+
+  .service-assignment-row > input,
+  .service-assignment-row > select,
+  .service-assignment-row .service-collab-trigger,
+  .service-assignment-row .service-advance-toggle,
+  .service-assignment-row > .icon-button {
+    min-width: 0;
+    min-height: 42px;
+  }
+
+  .service-assignment-row .service-advance-toggle {
+    justify-content: space-between;
+  }
+
+  .service-role-block header {
+    align-items: stretch;
+  }
+
+  .service-role-block header > .secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .service-detail-mobile-actions {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 80;
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+    gap: 8px;
+    padding: 10px max(10px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    border-top: 1px solid rgba(71, 85, 105, 0.58);
+    background: color-mix(in srgb, var(--panel) 96%, #000 4%);
+    box-shadow: 0 -18px 36px rgba(0, 0, 0, 0.34);
+  }
+
+  .service-detail-mobile-actions > * {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 430px) {
+  .service-detail-team-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .service-detail-team-total {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .service-detail-team-total span {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .service-detail-role-actions .secondary-button {
+    max-width: 40px;
+  }
+
+  .service-detail-mobile-actions {
+    grid-template-columns: 1fr 1.35fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .service-detail-role-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .service-detail-role-toolbar .secondary-button {
+    width: 100%;
+  }
+
+  .service-detail-role-manager__row,
+  .service-detail-role-manager__add {
+    grid-template-columns: minmax(0, 1fr) 72px;
+  }
+
+  .service-detail-role-manager__actions,
+  .service-detail-role-manager__add .command-button {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 }
 

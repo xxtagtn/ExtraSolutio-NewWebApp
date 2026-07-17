@@ -2,6 +2,8 @@ import {
   ArrowLeft,
   CalendarClock,
   CarFront,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2,
   ClipboardList,
   Clock,
@@ -12,6 +14,7 @@ import {
   MapPin,
   Plus,
   Save,
+  Settings2,
   Trash2,
   Users,
   WalletCards,
@@ -25,7 +28,10 @@ import TimeInput from '../components/UI/TimeInput.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { filterCollaboratorOptions } from '../utils/collaboratorSearch.js';
+import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { serviceDetailTabFromQuery } from '../utils/deepLinks.js';
+import { calculateFinancialMargin, eventFinancialWarnings } from '../utils/eventFinancialRules.js';
+import { externalCostsTotals } from '../utils/externalCosts.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import {
   assignmentWorkDate,
@@ -36,7 +42,9 @@ import {
   editableTeamRowsToAssignmentPayloads,
   groupAssignmentsByRole,
   MANUAL_TEAM_ROLE,
+  normalizeDailyRoleRequirements,
   resolveSelectedTeamDay,
+  roleRequirementsForDay,
   safeJsonArray,
   serviceAssignmentDays,
   serviceChecklist,
@@ -81,6 +89,14 @@ function collaboratorHasRole(collaborator, role) {
   if (!role || role === MANUAL_TEAM_ROLE) return true;
   const roles = Array.isArray(collaborator?.roles) ? collaborator.roles : [];
   return roles.includes(role) || String(collaborator?.category || '') === String(role);
+}
+
+function normalizedRoleKey(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
 }
 
 function collaboratorOptionLabel(collaborator) {
@@ -153,6 +169,11 @@ export default function ServiceDetail() {
   const { data: collaborators } = useApi('/collaborators?light=1', []);
   const [activeTab, setActiveTab] = useState('summary');
   const [teamRows, setTeamRows] = useState([]);
+  const [teamRoles, setTeamRoles] = useState([]);
+  const [roleManagerOpen, setRoleManagerOpen] = useState(false);
+  const [collapsedRoles, setCollapsedRoles] = useState(() => new Set());
+  const [newRoleName, setNewRoleName] = useState('');
+  const [newRoleQty, setNewRoleQty] = useState('1');
   const [savingTeam, setSavingTeam] = useState(false);
   const [teamError, setTeamError] = useState('');
   const [billingDraft, setBillingDraft] = useState({
@@ -179,9 +200,17 @@ export default function ServiceDetail() {
   const [teamCollaboratorPickerPlacement, setTeamCollaboratorPickerPlacement] = useState(null);
   const teamCollaboratorSearchRef = useRef(null);
   const currentDay = selectedDay && days.includes(selectedDay) ? selectedDay : days[0] || '';
+  const teamService = useMemo(
+    () => ({ ...(service || {}), requiredRoles: teamRoles }),
+    [service, teamRoles],
+  );
+  const currentDayRoles = useMemo(
+    () => roleRequirementsForDay(teamService, currentDay, teamRoles),
+    [currentDay, teamRoles, teamService],
+  );
   const assignmentGroups = useMemo(
-    () => groupAssignmentsByRole(displayAssignments, service || {}, currentDay),
-    [currentDay, displayAssignments, service],
+    () => groupAssignmentsByRole(displayAssignments, teamService, currentDay),
+    [currentDay, displayAssignments, teamService],
   );
   const teamTotals = useMemo(() => {
     const rows = assignmentGroups.flatMap((group) => group.rows);
@@ -196,10 +225,19 @@ export default function ServiceDetail() {
     };
   }, [assignmentGroups, service]);
   const externalCosts = useMemo(() => safeJsonArray(service?.externalCosts), [service]);
+  const externalTotals = useMemo(() => externalCostsTotals(externalCosts), [externalCosts]);
   const totalRevenue = parseNumber(service?.totalRevenue);
   const totalCost = parseNumber(service?.totalCost);
-  const travelAmount = service?.travelExpenseEnabled ? parseNumber(service.travelExpenseAmount) : 0;
-  const profit = totalRevenue - totalCost;
+  const staffCost = Math.max(0, totalCost - externalTotals.costAmount);
+  const expenses = externalTotals.costAmount;
+  const financialMargin = calculateFinancialMargin(totalRevenue, staffCost, expenses);
+  const profit = financialMargin.margin;
+  const financialWarnings = eventFinancialWarnings(
+    service || {},
+    service?.assignments || [],
+    { revenue: totalRevenue, staff: staffCost },
+  );
+  const rateHistory = useMemo(() => safeJsonArray(service?.rateHistory), [service?.rateHistory]);
   const signalAmount = Math.min(totalRevenue, Math.max(0, parseNumber(billingDraft.signaledAmount)));
   const clientPaidAmount = billingDraft.billingStatus === 'paid'
     ? totalRevenue
@@ -225,8 +263,14 @@ export default function ServiceDetail() {
 
   useEffect(() => {
     if (!service) return;
-    setTeamRows(buildEditableTeamRows(service));
+    const normalizedRoles = normalizeDailyRoleRequirements(service);
+    setTeamRoles(normalizedRoles);
+    setTeamRows(buildEditableTeamRows({ ...service, requiredRoles: normalizedRoles }));
     setTeamError('');
+    setRoleManagerOpen(false);
+    setCollapsedRoles(new Set());
+    setNewRoleName('');
+    setNewRoleQty('1');
     setBillingDraft({
       billingStatus: service.billingStatus || 'pending',
       signaledAmount: service.signaledAmount ? String(service.signaledAmount).replace('.', ',') : '',
@@ -329,6 +373,15 @@ export default function ServiceDetail() {
     setTeamRows((current) => current.map((row) => (row.rowKey === rowKey ? { ...row, ...patch } : row)));
   }
 
+  function toggleRoleCollapsed(role) {
+    setCollapsedRoles((current) => {
+      const next = new Set(current);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+  }
+
   function updateTeamCollaborator(row, collaboratorId) {
     const collaborator = (collaborators || []).find((item) => String(item.id) === String(collaboratorId));
     updateTeamRow(row.rowKey, {
@@ -364,15 +417,169 @@ export default function ServiceDetail() {
     setActiveTeamCollaboratorPickerKey(rowKey);
   }
 
-  function addTeamRow(role = MANUAL_TEAM_ROLE) {
+  function rowMatchesCurrentRole(row, role) {
+    const sameRole = normalizedRoleKey(row.role) === normalizedRoleKey(role);
+    if (!sameRole) return false;
+    if (!service?.isContinuous) return true;
+    return assignmentWorkDate(row, service) === currentDay;
+  }
+
+  function appendRoleRows(role, count = 1) {
     setTeamRows((current) => ([
       ...current,
-      createManualTeamRow(service || {}, {
+      ...Array.from({ length: Math.max(0, count) }, (_, index) => createManualTeamRow(teamService, {
         role,
         selectedDay: currentDay,
-        rowKey: `manual-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      }),
+        rowKey: `manual-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
+      })),
     ]));
+  }
+
+  function addRoleRequirement(roleValue, quantity = 1) {
+    const role = String(roleValue || '').trim();
+    const qty = Math.max(1, Math.trunc(Number(quantity) || 1));
+    if (!role || normalizedRoleKey(role) === normalizedRoleKey(MANUAL_TEAM_ROLE)) {
+      setTeamError('Indica uma função válida.');
+      return false;
+    }
+    if (currentDayRoles.some((item) => normalizedRoleKey(item.role) === normalizedRoleKey(role))) {
+      setTeamError(`A função "${role}" já existe neste dia.`);
+      return false;
+    }
+    const inheritedRate = teamRoles.find((item) => normalizedRoleKey(item.role) === normalizedRoleKey(role))?.agreedRate ?? null;
+    const requirement = {
+      role,
+      qty,
+      agreedRate: inheritedRate,
+      ...(service?.isContinuous ? { day: currentDay } : {}),
+      order: currentDayRoles.length,
+    };
+    setTeamRoles((current) => [...current, requirement]);
+    appendRoleRows(role, qty);
+    setTeamError('');
+    return true;
+  }
+
+  function addNewDailyRole() {
+    if (!addRoleRequirement(newRoleName, newRoleQty)) return;
+    setNewRoleName('');
+    setNewRoleQty('1');
+  }
+
+  function renameDailyRole(currentRole, nextValue, inputElement) {
+    const nextRole = String(nextValue || '').trim();
+    if (!nextRole) {
+      setTeamError('O nome da função não pode ficar vazio.');
+      if (inputElement) inputElement.value = currentRole;
+      return;
+    }
+    if (normalizedRoleKey(nextRole) === normalizedRoleKey(currentRole)) return;
+    if (currentDayRoles.some((item) => normalizedRoleKey(item.role) === normalizedRoleKey(nextRole))) {
+      setTeamError(`A função "${nextRole}" já existe neste dia.`);
+      if (inputElement) inputElement.value = currentRole;
+      return;
+    }
+    setTeamRoles((current) => current.map((item) => (
+      roleRequirementsForDay(teamService, currentDay, [item]).length
+      && normalizedRoleKey(item.role) === normalizedRoleKey(currentRole)
+        ? { ...item, role: nextRole }
+        : item
+    )));
+    setTeamRows((current) => current.map((row) => (
+      rowMatchesCurrentRole(row, currentRole) ? { ...row, role: nextRole } : row
+    )));
+    setTeamError('');
+  }
+
+  function updateDailyRoleQuantity(role, nextValue, inputElement) {
+    const qty = Math.max(1, Math.trunc(Number(nextValue) || 0));
+    const currentRequirement = currentDayRoles.find((item) => normalizedRoleKey(item.role) === normalizedRoleKey(role));
+    if (!currentRequirement || !Number.isFinite(qty)) {
+      if (inputElement) inputElement.value = String(currentRequirement?.qty || 1);
+      return;
+    }
+    const roleRows = teamRows.filter((row) => rowMatchesCurrentRole(row, role));
+    const assignedRows = roleRows.filter((row) => row.collaboratorId);
+    if (qty < assignedRows.length && !window.confirm(
+      `A função "${role}" tem ${assignedRows.length} colaborador(es) atribuído(s). Reduzir para ${qty} irá remover atribuições. Pretende continuar?`,
+    )) {
+      if (inputElement) inputElement.value = String(currentRequirement.qty);
+      return;
+    }
+
+    setTeamRoles((current) => current.map((item) => (
+      roleRequirementsForDay(teamService, currentDay, [item]).length
+      && normalizedRoleKey(item.role) === normalizedRoleKey(role)
+        ? { ...item, qty }
+        : item
+    )));
+    if (qty > roleRows.length) {
+      appendRoleRows(role, qty - roleRows.length);
+    } else if (qty < roleRows.length) {
+      let toRemove = roleRows.length - qty;
+      const removableKeys = [];
+      for (const row of [...roleRows].sort((a, b) => Number(Boolean(a.collaboratorId)) - Number(Boolean(b.collaboratorId)))) {
+        if (toRemove <= 0) break;
+        removableKeys.push(row.rowKey);
+        toRemove -= 1;
+      }
+      setTeamRows((current) => current.filter((row) => !removableKeys.includes(row.rowKey)));
+    }
+    setTeamError('');
+  }
+
+  function removeDailyRole(role) {
+    const roleRows = teamRows.filter((row) => rowMatchesCurrentRole(row, role));
+    const assignedCount = roleRows.filter((row) => row.collaboratorId).length;
+    if (assignedCount > 0 && !window.confirm(
+      `A função "${role}" tem ${assignedCount} colaborador(es) atribuído(s). Eliminar a função irá remover essas atribuições. Pretende continuar?`,
+    )) return;
+    setTeamRoles((current) => current
+      .filter((item) => !(
+        roleRequirementsForDay(teamService, currentDay, [item]).length
+        && normalizedRoleKey(item.role) === normalizedRoleKey(role)
+      ))
+      .map((item) => ({ ...item })));
+    setTeamRows((current) => current.filter((row) => !rowMatchesCurrentRole(row, role)));
+    setTeamError('');
+  }
+
+  function moveDailyRole(role, direction) {
+    const ordered = [...currentDayRoles];
+    const index = ordered.findIndex((item) => normalizedRoleKey(item.role) === normalizedRoleKey(role));
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
+    [ordered[index], ordered[nextIndex]] = [ordered[nextIndex], ordered[index]];
+    const orderByRole = new Map(ordered.map((item, order) => [normalizedRoleKey(item.role), order]));
+    setTeamRoles((current) => current.map((item) => {
+      if (!roleRequirementsForDay(teamService, currentDay, [item]).length) return item;
+      return { ...item, order: orderByRole.get(normalizedRoleKey(item.role)) ?? item.order };
+    }));
+  }
+
+  function addTeamRow(role = MANUAL_TEAM_ROLE) {
+    if (normalizedRoleKey(role) === normalizedRoleKey(MANUAL_TEAM_ROLE)) {
+      setRoleManagerOpen(true);
+      setTeamError('Adiciona primeiro a função necessária para este dia.');
+      return;
+    }
+    const requirement = currentDayRoles.find((item) => normalizedRoleKey(item.role) === normalizedRoleKey(role));
+    if (!requirement) {
+      const shouldAdd = window.confirm(
+        `A função "${role}" não está definida nas funções necessárias deste evento. Pretende adicioná-la?`,
+      );
+      if (!shouldAdd) return;
+      addRoleRequirement(role, 1);
+      setRoleManagerOpen(true);
+      return;
+    }
+    setTeamRoles((current) => current.map((item) => (
+      roleRequirementsForDay(teamService, currentDay, [item]).length
+      && normalizedRoleKey(item.role) === normalizedRoleKey(role)
+        ? { ...item, qty: Number(item.qty || 0) + 1 }
+        : item
+    )));
+    appendRoleRows(role, 1);
   }
 
   function removeTeamRow(rowKey) {
@@ -381,6 +588,25 @@ export default function ServiceDetail() {
 
   async function saveTeamRows() {
     if (!service || savingTeam) return;
+    const roleKeysByDay = new Set();
+    for (const requirement of teamRoles) {
+      const role = String(requirement.role || '').trim();
+      if (!role || normalizedRoleKey(role) === normalizedRoleKey(MANUAL_TEAM_ROLE)) {
+        setTeamError('Corrige as funções vazias antes de guardar.');
+        return;
+      }
+      const key = `${service.isContinuous ? dateKey(requirement.day) : 'single'}|${normalizedRoleKey(role)}`;
+      if (roleKeysByDay.has(key)) {
+        setTeamError(`A função "${role}" está duplicada no mesmo dia.`);
+        return;
+      }
+      roleKeysByDay.add(key);
+    }
+    if (teamRows.some((row) => normalizedRoleKey(row.role) === normalizedRoleKey(MANUAL_TEAM_ROLE))) {
+      setTeamError('Existem linhas sem função. Define a função do respetivo dia antes de guardar.');
+      setRoleManagerOpen(true);
+      return;
+    }
     const assignmentPayloads = editableTeamRowsToAssignmentPayloads(teamRows, service);
     const assignmentDrafts = editableTeamRowsToAssignmentDrafts(teamRows);
     const keptIds = new Set(assignmentPayloads.filter((row) => row.id).map((row) => Number(row.id)));
@@ -403,7 +629,10 @@ export default function ServiceDetail() {
       }
       await api(`/services/${service.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ assignmentDrafts }),
+        body: JSON.stringify({
+          requiredRoles: teamRoles,
+          assignmentDrafts,
+        }),
       });
       await reload();
     } catch (err) {
@@ -574,14 +803,114 @@ export default function ServiceDetail() {
               ))}
             </div>
           ) : null}
+          <div className="service-detail-role-toolbar">
+            <div>
+              <strong>Funções deste dia</strong>
+              <span>{currentDayRoles.length} função(ões) · {currentDayRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0)} lugar(es)</span>
+            </div>
+            <button
+              className={`secondary-button${roleManagerOpen ? ' secondary-button--active' : ''}`}
+              type="button"
+              onClick={() => setRoleManagerOpen((current) => !current)}
+              aria-expanded={roleManagerOpen}
+            >
+              <Settings2 size={16} />
+              {roleManagerOpen ? 'Fechar gestão' : 'Gerir funções do dia'}
+            </button>
+          </div>
+          {roleManagerOpen ? (
+            <div className="service-detail-role-manager">
+              <div className="service-detail-role-manager__heading">
+                <div>
+                  <strong>Funções necessárias</strong>
+                  <span>{service.isContinuous ? `Configuração independente para ${formatDate(currentDay)}` : 'Configuração deste evento/serviço'}</span>
+                </div>
+              </div>
+              <div className="service-detail-role-manager__list">
+                {currentDayRoles.map((requirement, index) => (
+                  <div className="service-detail-role-manager__row" key={`${currentDay || 'single'}-${requirement.role}`}>
+                    <label>
+                      <span>Função</span>
+                      <input
+                        defaultValue={requirement.role}
+                        list="service-detail-role-options"
+                        onBlur={(event) => renameDailyRole(requirement.role, event.target.value, event.target)}
+                      />
+                    </label>
+                    <label className="service-detail-role-manager__qty">
+                      <span>N.º</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        defaultValue={requirement.qty}
+                        onBlur={(event) => updateDailyRoleQuantity(requirement.role, event.target.value, event.target)}
+                      />
+                    </label>
+                    <div className="service-detail-role-manager__actions">
+                      <button className="icon-button" type="button" title="Mover para cima" aria-label={`Mover ${requirement.role} para cima`} disabled={index === 0} onClick={() => moveDailyRole(requirement.role, -1)}>
+                        <ChevronUp size={16} />
+                      </button>
+                      <button className="icon-button" type="button" title="Mover para baixo" aria-label={`Mover ${requirement.role} para baixo`} disabled={index === currentDayRoles.length - 1} onClick={() => moveDailyRole(requirement.role, 1)}>
+                        <ChevronDown size={16} />
+                      </button>
+                      <button className="icon-button icon-button--danger" type="button" title="Eliminar função" aria-label={`Eliminar ${requirement.role}`} onClick={() => removeDailyRole(requirement.role)}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {!currentDayRoles.length ? <p className="muted">Ainda não existem funções definidas para este dia.</p> : null}
+              </div>
+              <div className="service-detail-role-manager__add">
+                <label>
+                  <span>Nova função</span>
+                  <input
+                    value={newRoleName}
+                    list="service-detail-role-options"
+                    placeholder="Selecionar ou escrever"
+                    onChange={(event) => setNewRoleName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return;
+                      event.preventDefault();
+                      addNewDailyRole();
+                    }}
+                  />
+                </label>
+                <label className="service-detail-role-manager__qty">
+                  <span>N.º</span>
+                  <input type="number" min="1" step="1" value={newRoleQty} onChange={(event) => setNewRoleQty(event.target.value)} />
+                </label>
+                <button className="command-button" type="button" onClick={addNewDailyRole}>
+                  <Plus size={16} /> Adicionar função
+                </button>
+              </div>
+              <datalist id="service-detail-role-options">
+                {collaboratorRoleOptions.map((role) => <option key={role} value={role} />)}
+              </datalist>
+            </div>
+          ) : null}
           {teamError ? <p className="notice">{teamError}</p> : null}
           <div className="service-detail-team">
-            {assignmentGroups.map((group) => (
-              <section key={group.role} className="service-detail-role">
+            {assignmentGroups.map((group) => {
+              const roleCollapsed = collapsedRoles.has(group.role);
+              return (
+              <section key={group.role} className={`service-detail-role${roleCollapsed ? ' service-detail-role--collapsed' : ''}`}>
                 <header>
                   <div className="service-detail-role-title">
-                    <strong>{group.role}</strong>
-                    <span className="service-detail-role-count">{group.rows.length}</span>
+                    <button
+                      type="button"
+                      className="service-detail-role-toggle"
+                      aria-expanded={!roleCollapsed}
+                      aria-label={`${roleCollapsed ? 'Expandir' : 'Recolher'} função ${group.role}`}
+                      onClick={() => toggleRoleCollapsed(group.role)}
+                    >
+                      <span className="service-detail-role-toggle__label">
+                        <strong>{group.role}</strong>
+                        <span className="service-detail-role-count">{group.rows.length}</span>
+                      </span>
+                      {roleCollapsed ? <ChevronDown size={17} /> : <ChevronUp size={17} />}
+                    </button>
                   </div>
                   <span className={`service-detail-role-sync-status${group.rows.length && group.rows.every((row) => row.clientSynced) ? ' service-detail-role-sync-status--complete' : ''}`}>
                     <CheckCircle2 size={14} />
@@ -589,13 +918,19 @@ export default function ServiceDetail() {
                   </span>
                   <div className="service-detail-role-actions">
                     <span>{group.rows.length} linha(s)</span>
-                    <button className="secondary-button" type="button" onClick={() => addTeamRow(group.role)}>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      aria-label="Adicionar colaborador"
+                      title="Adicionar colaborador"
+                      onClick={() => addTeamRow(group.role)}
+                    >
                       <Plus size={15} />
                       Adicionar Colaborador
                     </button>
                   </div>
                 </header>
-                <div className="service-detail-team-table">
+                {!roleCollapsed ? <div className="service-detail-team-table">
                   <div className="service-detail-team-columns" aria-hidden="true">
                     <span>Colaborador</span>
                     <span>Data</span>
@@ -754,16 +1089,17 @@ export default function ServiceDetail() {
                     </div>
                     );
                   })}
-                </div>
+                </div> : null}
               </section>
-            ))}
+              );
+            })}
             {!assignmentGroups.length ? (
               <div className="service-detail-empty-team">
                 <EmptyState
                   icon={Users}
                   title="Sem funções necessárias definidas"
                   description="Podes adicionar colaboradores diretamente nesta ficha ou definir funções necessárias se quiseres planear por cargo."
-                  action={<Link className="secondary-button" to={`/services?serviceId=${service.id}`}>Definir funções</Link>}
+                  action={<button className="command-button" type="button" onClick={() => setRoleManagerOpen(true)}><Plus size={16} /> Adicionar função</button>}
                 />
               </div>
             ) : null}
@@ -815,11 +1151,17 @@ export default function ServiceDetail() {
         <div className="service-detail-grid">
           <Card title="Resumo financeiro" className="service-detail-card">
             <div className="service-detail-finance-grid">
-              <div><span>Valor total</span><strong>{money.format(totalRevenue)}</strong></div>
-              <div><span>Custo total</span><strong>{money.format(totalCost)}</strong></div>
-              <div><span>Deslocação</span><strong>{money.format(travelAmount)}</strong></div>
+              <div><span>Receita</span><strong>{money.format(totalRevenue)}</strong></div>
+              <div><span>Staff</span><strong>{money.format(staffCost)}</strong></div>
+              <div><span>Despesas</span><strong>{money.format(expenses)}</strong></div>
               <div className={profit >= 0 ? 'service-detail-profit--positive' : 'service-detail-profit--negative'}><span>Margem</span><strong>{money.format(profit)}</strong></div>
+              <div className={profit >= 0 ? 'service-detail-profit--positive' : 'service-detail-profit--negative'}><span>Margem %</span><strong>{financialMargin.marginPct.toFixed(1).replace('.', ',')}%</strong></div>
             </div>
+            {financialWarnings.length ? (
+              <div className="service-financial-warnings" role="status">
+                {financialWarnings.map((warning) => <p key={warning.code}>{warning.message}</p>)}
+              </div>
+            ) : null}
           </Card>
           <Card title="Pagamento do cliente" className="service-detail-card service-detail-payment-card">
             <div className="service-detail-payment-summary">
@@ -925,10 +1267,34 @@ export default function ServiceDetail() {
                 <span>{statusLabel(service.status)}</span>
               </div>
             </div>
+            {rateHistory.map((entry, entryIndex) => (
+              <div key={`${entry.at || 'rate'}-${entryIndex}`}>
+                <Euro size={16} />
+                <div>
+                  <strong>{entry.type === 'snapshot' ? 'Valores/h registados no evento' : 'Valores/h do evento alterados'}</strong>
+                  <span>{formatDate(entry.at)}</span>
+                  {(entry.changes || []).map((change) => (
+                    <span key={`${change.role}-${change.from}-${change.to}`}>
+                      {change.role}: {money.format(parseNumber(change.from))} → {money.format(parseNumber(change.to))}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-          <p className="muted">Numa fase seguinte, este separador pode passar a guardar alterações detalhadas por utilizador, estado, horários e pagamentos.</p>
+          {!rateHistory.length ? <p className="muted">Sem alterações históricas de valores/h registadas.</p> : null}
         </Card>
       ) : null}
+
+      <div className="service-detail-mobile-actions" aria-label="Ações do Evento/Serviço">
+        <button className="secondary-button" type="button" onClick={() => navigate('/services')}>
+          Voltar
+        </button>
+        <button className="command-button" type="button" onClick={saveCurrentTab} disabled={savingTeam || savingBilling}>
+          <Save size={16} />
+          {savingTeam || savingBilling ? 'A guardar...' : 'Guardar alterações'}
+        </button>
+      </div>
 
     </div>
   );
