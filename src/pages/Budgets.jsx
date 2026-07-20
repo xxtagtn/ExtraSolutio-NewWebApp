@@ -39,7 +39,12 @@ import { normalizeBudgetFormState } from '../utils/budgetFormState.js';
 import { calculateBudgetTotals } from '../utils/budgetTotals.js';
 import { applyClientRulesToBudgetForm, clientPrepaymentRule, clientRuleRate } from '../utils/clientRules.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
-import { externalCostsTotals, normalizeExternalCosts } from '../utils/externalCosts.js';
+import {
+  DEFAULT_EXTERNAL_COST_VAT_TYPE,
+  EXTERNAL_COST_VAT_OPTIONS,
+  externalCostsTotals,
+  normalizeExternalCosts,
+} from '../utils/externalCosts.js';
 import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import { date, money } from '../utils/formatters.js';
 import { decimalValue } from '../utils/serviceFinance.js';
@@ -135,7 +140,7 @@ const roleRates = {
   Logista: 13,
 };
 
-const externalCostTypeOptions = ['Catering', 'Material', 'Aluguer', 'Transporte', 'Outro'];
+const externalCostTypeOptions = ['Catering', 'Bebidas', 'Material', 'Aluguer', 'Transporte', 'Outro'];
 
 function emptyCategory() {
   return { role: '', qty: 1, date: '', start: '', end: '', uniform: '', rate: 10 };
@@ -148,6 +153,7 @@ function emptyExternalCost() {
     description: '',
     costAmount: '',
     marginPercent: 0,
+    vatType: DEFAULT_EXTERNAL_COST_VAT_TYPE,
   };
 }
 
@@ -412,6 +418,15 @@ function clientName(form, client) {
   return form.companyName || client?.name || form.leadName || 'Cliente';
 }
 
+function commercialVatLines(totals) {
+  const breakdown = totals.vatBreakdown || {};
+  const lines = [];
+  if (Number(breakdown[13]?.tax || 0) > 0) lines.push(`IVA 13%: ${money.format(breakdown[13].tax)}`);
+  if (Number(breakdown[23]?.tax || 0) > 0) lines.push(`IVA 23%: ${money.format(breakdown[23].tax)}`);
+  if (Number(breakdown.exempt?.base || 0) > 0) lines.push(`Isento de IVA: ${money.format(breakdown.exempt.base)}`);
+  return lines.length ? lines : ['IVA: Isento'];
+}
+
 function buildCommercialText(kind, form, totals, client) {
   const destination = clientName(form, client);
   const eventDates = (form.eventDays || []).filter((d) => d.date).map((d) => d.date);
@@ -423,7 +438,7 @@ function buildCommercialText(kind, form, totals, client) {
     .map((item) => `${item.qty || 0} ${item.role} (${money.format(num(item.rate))}/h)`)
     .join(', ') || 'equipa a definir';
   const travel = totals.travelAmount > 0 ? `Deslocação: ${money.format(totals.travelAmount)}` : 'Sem deslocação adicional';
-  const vatIsExempt = form.vatMode === 'exempt' || Number(form.vatRate || 0) === 0;
+  const vatIsExempt = Number(totals.taxAmount || 0) === 0;
   const finalValueLabel = vatIsExempt
     ? `Valor final: ${money.format(totals.totalAmount)} (isento de IVA).`
     : `Valor final: ${money.format(totals.totalAmount)} IVA incluído.`;
@@ -445,8 +460,8 @@ function buildCommercialText(kind, form, totals, client) {
       'Condições: conforme briefing operacional',
       travel,
       ``,
-      `Subtotal: ${money.format(totals.baseAmount + totals.travelAmount + (totals.externalCostsAmount || 0))}`,
-      vatIsExempt ? 'IVA: Isento' : `IVA: ${money.format(totals.taxAmount)}`,
+      `Subtotal líquido: ${money.format(totals.subtotalAmount)}`,
+      ...commercialVatLines(totals),
       `Total: ${money.format(totals.totalAmount)}`,
     ].join('\n');
   }
@@ -1358,10 +1373,19 @@ export default function Budgets() {
                               <label>Fornecedor<input value={item.supplier || ''} onChange={(event) => updateExternalCost(idx, { supplier: event.target.value })} /></label>
                               <label>Custo parceiro<input type="number" min="0" step="any" value={item.costAmount || ''} onChange={(event) => updateExternalCost(idx, { costAmount: event.target.value })} /></label>
                               <label>Margem %<input type="number" min="0" step="any" value={item.marginPercent || ''} onChange={(event) => updateExternalCost(idx, { marginPercent: event.target.value })} /></label>
+                              <label>IVA
+                                <select
+                                  value={item.vatType || DEFAULT_EXTERNAL_COST_VAT_TYPE}
+                                  onChange={(event) => updateExternalCost(idx, { vatType: event.target.value })}
+                                >
+                                  {EXTERNAL_COST_VAT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                </select>
+                              </label>
                               <div className="budget-external-result">
                                 <span>Valor cliente</span>
                                 <strong>{money.format(calculated.chargeAmount || 0)}</strong>
                                 <small>Margem: {money.format(calculated.marginAmount || 0)}</small>
+                                <small>IVA: {money.format(calculated.taxAmount || 0)}</small>
                               </div>
                               <label className="span-2">Descrição<input value={item.description || ''} onChange={(event) => updateExternalCost(idx, { description: event.target.value })} /></label>
                             </div>
@@ -1375,7 +1399,7 @@ export default function Budgets() {
                 <section className="budget-panel budget-panel--travel">
                   <h3>Deslocação e Observações</h3>
                   <div className="form-grid">
-                    <label>IVA
+                    <label>IVA Serviços ExtraSolutio
                       <select
                         value={form.vatMode}
                         onChange={(event) => setForm({ ...form, vatMode: event.target.value, vatRate: event.target.value === 'exempt' ? 0 : 23 })}
@@ -1463,7 +1487,16 @@ export default function Budgets() {
                       <div><span>Custos Externos/Parceiros</span><strong>{money.format(totals.externalCostsAmount)}</strong></div>
                     ) : null}
                     <div><span>Valor Desconto</span><strong>- {money.format(totals.discountAmount)}</strong></div>
-                    <div><span>IVA</span><strong>{money.format(totals.taxAmount)}</strong></div>
+                    <div><span>Subtotal Líquido</span><strong>{money.format(totals.subtotalAmount)}</strong></div>
+                    {(totals.vatBreakdown?.[13]?.tax || 0) > 0 ? (
+                      <div><span>IVA 13%</span><strong>{money.format(totals.vatBreakdown[13].tax)}</strong></div>
+                    ) : null}
+                    {(totals.vatBreakdown?.[23]?.tax || 0) > 0 ? (
+                      <div><span>IVA 23%</span><strong>{money.format(totals.vatBreakdown[23].tax)}</strong></div>
+                    ) : null}
+                    {(totals.vatBreakdown?.exempt?.base || 0) > 0 ? (
+                      <div><span>Isento de IVA</span><strong>{money.format(totals.vatBreakdown.exempt.base)}</strong></div>
+                    ) : null}
                     {showDepositLine ? (
                       <div><span>Sinalização {selectedClientPrepayment.percent}%</span><strong>{money.format(totals.totalAmount * (selectedClientPrepayment.percent / 100))}</strong></div>
                     ) : null}

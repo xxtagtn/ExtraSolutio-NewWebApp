@@ -23,7 +23,7 @@ test('normalizes null budget form values before they reach controlled inputs', (
       { date: null, location: null, guestsCount: null, startTime: null, endTime: null },
     ],
     externalCosts: [
-      { type: null, supplier: null, description: null, costAmount: null, marginPercent: null },
+      { type: null, supplier: null, description: null, costAmount: null, marginPercent: null, vatType: null },
     ],
     travelCars: [
       { label: null, km: null, kmRate: null, durationHours: null, travelPeople: null, travelStaffHourlyRate: null },
@@ -64,6 +64,7 @@ test('normalizes null budget form values before they reach controlled inputs', (
     description: '',
     costAmount: '',
     marginPercent: '',
+    vatType: '',
   });
   assert.deepEqual(form.travelCars[0], {
     label: '',

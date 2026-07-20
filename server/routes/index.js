@@ -23,7 +23,7 @@ import { usersRouter } from './users.js';
 import { collaboratorsRouter } from './collaborators.js';
 import { notificationsRouter } from './notifications.js';
 import { timeValidationImportsRouter } from './timeValidationImports.js';
-import { whatsappRouter } from './whatsapp.js';
+import { whatsappRouter, whatsappWebhookRouter } from './whatsapp.js';
 import { calendarFeedPublicRouter, calendarFeedRouter } from './calendarFeed.js';
 import {
   ensureQrCodeForAssignmentId,
@@ -330,6 +330,8 @@ apiRouter.use('/calendar-feed', calendarFeedPublicRouter);
 apiRouter.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'extrasolutio-api' });
 });
+
+apiRouter.use('/whatsapp', whatsappWebhookRouter);
 
 apiRouter.use(requireAuth);
 

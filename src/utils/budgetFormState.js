@@ -40,7 +40,7 @@ const controlledScalarFields = [
 
 const categoryFields = ['role', 'qty', 'rate', 'date', 'start', 'end', 'uniform'];
 const eventDayFields = ['date', 'location', 'guestsCount', 'startTime', 'endTime'];
-const externalCostFields = ['type', 'supplier', 'description', 'costAmount', 'marginPercent'];
+const externalCostFields = ['type', 'supplier', 'description', 'costAmount', 'marginPercent', 'vatType'];
 const travelCarFields = ['label', 'km', 'kmRate', 'durationHours', 'travelPeople', 'travelStaffHourlyRate'];
 
 function controlledValue(value) {

@@ -105,5 +105,31 @@ test('adds external partner costs with margin to the budget total', () => {
   assert.equal(totals.externalCostsBaseAmount, 150);
   assert.equal(totals.externalCostsMarginAmount, 25);
   assert.equal(totals.subtotalAmount, 225);
-  assert.equal(totals.totalAmount, 225);
+  assert.equal(totals.taxAmount, 40.25);
+  assert.equal(totals.vatBreakdown[23].tax, 40.25);
+  assert.equal(totals.totalAmount, 265.25);
+});
+
+test('groups own services and external VAT by rate, including catering split', () => {
+  const totals = calculateBudgetTotals({
+    categories: [
+      { role: 'Emp.Mesa', qty: 1, rate: 10, start: '10:00', end: '20:00' },
+    ],
+    externalCosts: [
+      { type: 'Catering', costAmount: 100, marginPercent: 20, vatType: 'catering' },
+      { type: 'Bebidas', costAmount: 100, marginPercent: 0, vatType: 'standard_23' },
+      { type: 'Material', costAmount: 50, marginPercent: 0, vatType: 'exempt' },
+    ],
+    vatMode: 'normal_23',
+    vatRate: 23,
+    travelType: 'none',
+    discountRate: 0,
+  });
+
+  assert.equal(totals.subtotalAmount, 370);
+  assert.equal(totals.vatBreakdown.exempt.base, 50);
+  assert.equal(totals.vatBreakdown[13].tax, 13.26);
+  assert.equal(totals.vatBreakdown[23].tax, 50.14);
+  assert.equal(totals.taxAmount, 63.4);
+  assert.equal(totals.totalAmount, 433.4);
 });
