@@ -49,6 +49,7 @@ import {
   clientRealHours,
   collaboratorHourlyRate,
   decimalValue,
+  roundedBillableHours,
 } from '../utils/serviceFinance.js';
 import { normalizeStaffAdvances, staffAdvancesTotal, staffCarAdvancesTotal } from '../utils/staffAdvances.js';
 import { staffPaymentTotal } from '../utils/staffPayment.js';
@@ -209,33 +210,6 @@ function formatHours(value) {
 function todayInputValue() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
-
-function toMinutes(time) {
-  if (!time) return null;
-  const [h, m] = String(time).split(':').map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  return (h * 60) + m;
-}
-
-function roundTimeForBilling(time) {
-  const minutes = toMinutes(time);
-  if (minutes === null) return null;
-  const hour = Math.floor(minutes / 60);
-  const minute = minutes % 60;
-  if (minute <= 14) return hour * 60;
-  if (minute <= 44) return (hour * 60) + 30;
-  return (hour + 1) * 60;
-}
-
-function calcRoundedBillableHours(start, end) {
-  const roundedStart = roundTimeForBilling(start);
-  const roundedEnd = roundTimeForBilling(end);
-  if (roundedStart === null || roundedEnd === null) return 0;
-  let s = roundedStart;
-  let e = roundedEnd;
-  if (e < s) e += 24 * 60;
-  return Number(((e - s) / 60).toFixed(2));
 }
 
 function isPastEvent(eventDate) {
@@ -597,7 +571,7 @@ export default function Services() {
     () => roleRequirementsForDay(form, selectedTeamDay || teamDays[0] || form.date, normalizedFormRoles),
     [form, normalizedFormRoles, selectedTeamDay, teamDays],
   );
-  const expectedDailyHours = calcRoundedBillableHours(form.startTime, form.endTime);
+  const expectedDailyHours = roundedBillableHours(form.startTime, form.endTime);
   const minimumHoursSnapshot = Number(form.minimumHoursSnapshot || 0);
   const expectedBillableHours = Number((Math.max(expectedDailyHours, minimumHoursSnapshot) * eventDays).toFixed(2));
   const travelExpenseAmount = calculateTravelAmount(form);
@@ -611,13 +585,13 @@ export default function Services() {
   }, [form.endTime, form.startTime, minimumHoursSnapshot]);
 
   const formAssignmentPlannedHours = useCallback((assignment) => {
-    return calcRoundedBillableHours(assignment.plannedCheckIn || form.startTime, assignment.plannedCheckOut || form.endTime);
+    return roundedBillableHours(assignment.plannedCheckIn || form.startTime, assignment.plannedCheckOut || form.endTime);
   }, [form.endTime, form.startTime]);
 
   const formAssignmentStaffHours = useCallback((assignment) => {
-    const validated = calcRoundedBillableHours(assignment.validatedCheckIn, assignment.validatedCheckOut);
+    const validated = roundedBillableHours(assignment.validatedCheckIn, assignment.validatedCheckOut);
     if (validated > 0) return validated;
-    const checked = calcRoundedBillableHours(assignment.checkIn, assignment.checkOut);
+    const checked = roundedBillableHours(assignment.checkIn, assignment.checkOut);
     if (checked > 0) return checked;
     const explicit = Number(assignment.staffPayableHours || 0);
     if (explicit > 0) return explicit;
@@ -1108,10 +1082,10 @@ export default function Services() {
       const timesTouched = patch.checkIn !== undefined || patch.checkOut !== undefined;
       const updated = { ...merged };
       if (plannedTimesTouched) {
-        updated.plannedHours = calcRoundedBillableHours(merged.plannedCheckIn, merged.plannedCheckOut);
+        updated.plannedHours = roundedBillableHours(merged.plannedCheckIn, merged.plannedCheckOut);
       }
       if (timesTouched) {
-        const workedHours = calcRoundedBillableHours(merged.checkIn, merged.checkOut);
+        const workedHours = roundedBillableHours(merged.checkIn, merged.checkOut);
         updated.timesTouched = true;
         updated.hoursWorked = workedHours;
         updated.staffPayableHours = workedHours;

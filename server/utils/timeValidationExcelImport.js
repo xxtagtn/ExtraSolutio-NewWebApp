@@ -34,6 +34,8 @@ const ROLE_ALIASES = new Map([
   ['trinchar', 'Trinchar'],
 ]);
 
+export const EVENT_NAME_MAPPING_PREFIX = 'event-name:';
+
 function stripAccents(value) {
   return String(value || '')
     .normalize('NFD')
@@ -332,7 +334,18 @@ function selectBestEvent(candidates, row) {
 function findEvent(row, services, mappings, collaborator, role) {
   const mappedEventId = mappingValue(mappings, 'session', row.sessionName);
   if (mappedEventId) {
-    const mappedEvent = services.find((item) => String(item.id) === mappedEventId) || null;
+    const mappedEventName = mappedEventId.startsWith(EVENT_NAME_MAPPING_PREFIX)
+      ? mappedEventId.slice(EVENT_NAME_MAPPING_PREFIX.length)
+      : '';
+    const mappedCandidates = mappedEventName
+      ? services.filter((item) => (
+        eventDateMatches(item, row.eventDate)
+        && normalizeKey(item.name) === normalizeKey(mappedEventName)
+      ))
+      : [];
+    const mappedEvent = mappedEventName
+      ? selectBestEvent(mappedCandidates, { ...row, sessionName: mappedEventName }).event
+      : services.find((item) => String(item.id) === mappedEventId) || null;
     // Uma etiqueta externa mensal pode abranger varios eventos semanais internos.
     // Nunca reutilizar um mapeamento guardado fora do intervalo real do evento.
     if (mappedEvent && eventDateMatches(mappedEvent, row.eventDate)) {
@@ -456,8 +469,9 @@ function calculatedPayload(row, assignment, event) {
     event?.endTime,
     event?.minimumHoursSnapshot,
   );
+  const hasClientTimes = Boolean(row.clientCheckIn && row.clientCheckOut);
   return {
-    clientRealHours: Number((row.clientHours || clientReal).toFixed(2)),
+    clientRealHours: Number((hasClientTimes ? clientReal : (row.clientHours || clientReal)).toFixed(2)),
     clientBillableHours: Number(clientBillable.toFixed(2)),
   };
 }
@@ -470,21 +484,27 @@ export function buildImportPreview(rows = [], context = {}) {
   const previewRows = rows.map((row) => {
     const errors = [];
     const warnings = [];
+    const mappingFields = [];
     const mappedRole = mappingValue(mappings, 'category', row.category) || autoRole(row.category);
     if (!mappedRole) {
       errors.push('Função não reconhecida.');
+      mappingFields.push('category');
       addUnresolved(unresolvedMappings, 'category', row.category);
     }
 
     const collaborator = findCollaborator(row, collaborators, mappings);
     if (!collaborator) {
       errors.push('Colaborador não reconhecido.');
+      mappingFields.push('collaborator');
       addUnresolved(unresolvedMappings, 'collaborator', row.nif || row.collaboratorName, row.collaboratorName);
     }
 
+    const mappedDepartment = mappingValue(mappings, 'department', row.department) || row.department;
+    const mappedRow = mappedDepartment === row.department ? row : { ...row, department: mappedDepartment };
+
     // O nome da sessão do cliente pode ser diferente do nome interno do evento.
     // Um turno já planeado é a evidência mais segura para associar os dois registos.
-    const eventMatch = findEvent(row, services, mappings, collaborator, mappedRole);
+    const eventMatch = findEvent(mappedRow, services, mappings, collaborator, mappedRole);
     const event = eventMatch.event;
     if (event && eventMatch.method === 'assignment') {
       warnings.push('Evento associado automaticamente pelo colaborador, data e turno.');
@@ -493,26 +513,39 @@ export function buildImportPreview(rows = [], context = {}) {
     }
     if (!event) {
       errors.push('Evento/Serviço não reconhecido.');
+      mappingFields.push('session');
       addUnresolved(unresolvedMappings, 'session', row.sessionName);
+      if (row.department) addUnresolved(unresolvedMappings, 'department', row.department);
     }
 
-    const { assignment, ambiguous } = findAssignment(row, event, collaborator, mappedRole);
+    const { assignment, ambiguous } = findAssignment(mappedRow, event, collaborator, mappedRole);
+    let hasOperationalBlocker = false;
     if (ambiguous) {
       errors.push('Turno ambíguo para este colaborador.');
+      hasOperationalBlocker = true;
     } else if (!assignment && event && collaborator) {
       errors.push('Turno não encontrado no evento.');
+      hasOperationalBlocker = true;
     }
 
     if (!row.clientCheckIn || !row.clientCheckOut) {
       errors.push('Horário Cliente incompleto.');
+      hasOperationalBlocker = true;
     }
 
     const payload = assignment && event ? calculatedPayload(row, assignment, event) : {};
     const status = errors.length ? 'invalid' : warnings.length ? 'warning' : 'valid';
+    const resolutionType = !errors.length
+      ? 'recognized'
+      : mappingFields.length && !hasOperationalBlocker
+        ? 'needs_mapping'
+        : 'invalid';
 
     return {
       ...row,
       status,
+      resolutionType,
+      mappingFields,
       errors,
       warnings,
       eventId: event?.id || null,
@@ -534,18 +567,21 @@ export function buildImportPreview(rows = [], context = {}) {
       validRows: previewRows.filter((row) => row.status === 'valid' || row.status === 'warning').length,
       invalidRows: previewRows.filter((row) => row.status === 'invalid').length,
       warningRows: previewRows.filter((row) => row.status === 'warning').length,
+      recognizedRows: previewRows.filter((row) => row.resolutionType === 'recognized').length,
+      mappingRows: previewRows.filter((row) => row.resolutionType === 'needs_mapping').length,
+      blockedRows: previewRows.filter((row) => row.resolutionType === 'invalid').length,
     },
     unresolvedMappings,
     rows: previewRows,
   };
 }
 
-export function normalizeImportMappings(mappings = [], source = 'time_validation_excel') {
+export function normalizeImportMappings(mappings = [], source = 'time_validation_excel', defaultScopeKey = 'global') {
   return mappings
     .filter((mapping) => mapping?.field && mapping?.externalValue && mapping?.internalValue !== undefined)
     .map((mapping) => ({
       source,
-      scopeKey: mapping.scopeKey || 'global',
+      scopeKey: mapping.scopeKey || defaultScopeKey,
       field: String(mapping.field),
       externalValue: normalizeText(mapping.externalValue),
       internalValue: String(mapping.internalValue),

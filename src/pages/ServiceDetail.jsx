@@ -19,7 +19,7 @@ import {
   Users,
   WalletCards,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
@@ -43,6 +43,7 @@ import {
   groupAssignmentsByRole,
   MANUAL_TEAM_ROLE,
   normalizeDailyRoleRequirements,
+  removeEditableTeamRow,
   resolveSelectedTeamDay,
   roleRequirementsForDay,
   safeJsonArray,
@@ -53,6 +54,8 @@ import {
 import {
   statusLabel,
 } from '../utils/serviceStatus.js';
+import { staffAdvancesTotal, staffCarAdvancesTotal } from '../utils/staffAdvances.js';
+import { roundedBillableHours } from '../utils/serviceFinance.js';
 
 const tabs = [
   { id: 'summary', label: 'Resumo', icon: ClipboardList },
@@ -65,6 +68,22 @@ const tabs = [
 function parseNumber(value) {
   const parsed = Number(String(value ?? 0).replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function advanceRows(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function todayInputValue() {
+  const current = new Date();
+  return `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
 }
 
 function formatDate(value) {
@@ -103,21 +122,11 @@ function collaboratorOptionLabel(collaborator) {
   return `${collaborator.shortName || collaborator.name || `Colaborador ${collaborator.id}`} | ${collaborator.nif || '-'}`;
 }
 
-function timeToMinutes(value) {
-  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (hours > 23 || minutes > 59) return null;
-  return (hours * 60) + minutes;
-}
-
 function rowDurationHours(row, service) {
-  const start = timeToMinutes(row.plannedCheckIn || row.checkIn || service?.startTime);
-  const end = timeToMinutes(row.plannedCheckOut || row.checkOut || service?.endTime);
-  if (start === null || end === null) return 0;
-  const minutes = end >= start ? end - start : (24 * 60) - start + end;
-  return minutes / 60;
+  return roundedBillableHours(
+    row.plannedCheckIn || row.checkIn || service?.startTime,
+    row.plannedCheckOut || row.checkOut || service?.endTime,
+  );
 }
 
 function rowInitials(row) {
@@ -176,6 +185,7 @@ export default function ServiceDetail() {
   const [newRoleQty, setNewRoleQty] = useState('1');
   const [savingTeam, setSavingTeam] = useState(false);
   const [teamError, setTeamError] = useState('');
+  const [activeAdvanceRowKey, setActiveAdvanceRowKey] = useState(null);
   const [billingDraft, setBillingDraft] = useState({
     billingStatus: 'pending',
     signaledAmount: '',
@@ -280,6 +290,7 @@ export default function ServiceDetail() {
     setBillingError('');
     setActiveTeamCollaboratorPickerKey(null);
     setTeamCollaboratorPickerPlacement(null);
+    setActiveAdvanceRowKey(null);
   }, [service]);
 
   function updateBillingDraft(patch) {
@@ -371,6 +382,40 @@ export default function ServiceDetail() {
 
   function updateTeamRow(rowKey, patch) {
     setTeamRows((current) => current.map((row) => (row.rowKey === rowKey ? { ...row, ...patch } : row)));
+  }
+
+  function updateTeamAdvances(rowKey, updater) {
+    setTeamRows((current) => current.map((row) => (
+      row.rowKey === rowKey
+        ? { ...row, advancePayments: updater(advanceRows(row.advancePayments)) }
+        : row
+    )));
+    setTeamError('');
+  }
+
+  function addTeamAdvance(rowKey) {
+    updateTeamAdvances(rowKey, (current) => ([
+      ...current,
+      {
+        id: `advance-${Date.now()}-${current.length + 1}`,
+        date: todayInputValue(),
+        amount: '',
+        note: '',
+        car: false,
+      },
+    ]));
+  }
+
+  function updateTeamAdvance(rowKey, advanceId, patch) {
+    updateTeamAdvances(rowKey, (current) => current.map((advance) => (
+      String(advance.id) === String(advanceId) ? { ...advance, ...patch } : advance
+    )));
+  }
+
+  function removeTeamAdvance(rowKey, advanceId) {
+    updateTeamAdvances(rowKey, (current) => current.filter(
+      (advance) => String(advance.id) !== String(advanceId),
+    ));
   }
 
   function toggleRoleCollapsed(role) {
@@ -583,7 +628,10 @@ export default function ServiceDetail() {
   }
 
   function removeTeamRow(rowKey) {
-    setTeamRows((current) => current.filter((row) => row.rowKey !== rowKey));
+    const next = removeEditableTeamRow(teamRows, teamRoles, teamService, rowKey);
+    setTeamRows(next.rows);
+    setTeamRoles(next.requirements);
+    setTeamError('');
   }
 
   async function saveTeamRows() {
@@ -950,13 +998,19 @@ export default function ServiceDetail() {
                     const collaboratorName = rowDisplayName(assignment, activeCollaborators);
                     const collaboratorNif = selectedCollaborator?.nif || '-';
                     const rowHours = rowDurationHours(assignment, service);
+                    const advances = advanceRows(assignment.advancePayments);
+                    const salaryAdvanceTotal = staffAdvancesTotal(advances);
+                    const carAdvanceTotal = staffCarAdvancesTotal(advances);
+                    const advancesOpen = activeAdvanceRowKey === assignment.rowKey;
+                    const rowKey = assignment.rowKey || `${assignment.id}-${assignmentWorkDate(assignment, service)}`;
                     const rowClasses = [
                       'service-detail-team-row',
                       assignment.isDraft ? 'service-detail-team-row--empty' : '',
                       assignment.status === 'confirmed' ? 'service-detail-team-row--confirmed' : '',
                     ].filter(Boolean).join(' ');
                     return (
-                      <div key={assignment.rowKey || `${assignment.id}-${assignmentWorkDate(assignment, service)}`} className={rowClasses}>
+                      <Fragment key={rowKey}>
+                      <div className={rowClasses}>
                         <div className="service-detail-team-collaborator">
                           <span className="service-detail-field-label">Colaborador</span>
                           <div className="service-collab-picker">
@@ -1079,14 +1133,76 @@ export default function ServiceDetail() {
                         >
                           <CarFront size={15} />
                         </button>
-                        <Link className="secondary-button service-detail-advance-button" to={`/services?serviceId=${service.id}`} title="Abrir adiantamentos do colaborador">
+                        <button
+                          type="button"
+                          className={`secondary-button service-detail-advance-button${advancesOpen ? ' service-detail-advance-button--active' : ''}`}
+                          title={advancesOpen ? 'Fechar adiantamentos do colaborador' : 'Abrir adiantamentos do colaborador'}
+                          aria-expanded={advancesOpen}
+                          onClick={() => setActiveAdvanceRowKey(advancesOpen ? null : assignment.rowKey)}
+                        >
                           Adiantamentos
-                        </Link>
+                        </button>
                         <button type="button" className="icon-button icon-button--danger" onClick={() => removeTeamRow(assignment.rowKey)} title="Remover linha" aria-label="Remover linha">
                           <Trash2 size={15} />
                         </button>
                       </div>
-                    </div>
+                      </div>
+                      {advancesOpen ? (
+                        <div className="service-advance-panel service-detail-advance-panel">
+                          <header>
+                            <strong>Adiantamentos de {collaboratorName}</strong>
+                            <span>Descontar: {money.format(salaryAdvanceTotal)}</span>
+                            <span>Carro: {money.format(carAdvanceTotal)}</span>
+                            <button type="button" className="secondary-button" onClick={() => addTeamAdvance(assignment.rowKey)}>
+                              <Plus size={15} /> Adicionar adiantamento
+                            </button>
+                          </header>
+                          {advances.map((advance) => (
+                            <div key={advance.id} className="service-advance-row">
+                              <input
+                                type="date"
+                                aria-label="Data do adiantamento"
+                                value={advance.date || ''}
+                                onChange={(event) => updateTeamAdvance(assignment.rowKey, advance.id, { date: event.target.value })}
+                              />
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                aria-label="Valor do adiantamento"
+                                placeholder="Valor"
+                                value={advance.amount ?? ''}
+                                onChange={(event) => updateTeamAdvance(assignment.rowKey, advance.id, { amount: event.target.value })}
+                              />
+                              <input
+                                type="text"
+                                aria-label="Motivo ou observação do adiantamento"
+                                placeholder="Motivo/observação"
+                                value={advance.note || ''}
+                                onChange={(event) => updateTeamAdvance(assignment.rowKey, advance.id, { note: event.target.value })}
+                              />
+                              <label className="service-advance-car-check">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(advance.car)}
+                                  onChange={(event) => updateTeamAdvance(assignment.rowKey, advance.id, { car: event.target.checked })}
+                                />
+                                <span>Carro</span>
+                              </label>
+                              <button
+                                type="button"
+                                className="icon-button icon-button--danger"
+                                onClick={() => removeTeamAdvance(assignment.rowKey, advance.id)}
+                                title="Remover adiantamento"
+                                aria-label="Remover adiantamento"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          ))}
+                          {!advances.length ? <p className="muted">Sem adiantamentos registados.</p> : null}
+                        </div>
+                      ) : null}
+                      </Fragment>
                     );
                   })}
                 </div> : null}

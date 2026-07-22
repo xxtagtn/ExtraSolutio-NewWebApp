@@ -28,6 +28,27 @@ test('recalculates validated event revenue, staff cost and rounded hours central
   });
 });
 
+test('uses independently rounded client and staff clocks across midnight', () => {
+  const totals = calculateEventTotals({
+    requiredRoles: [{ role: 'Barman', agreedRate: 10 }],
+  }, [{
+    role: 'Barman',
+    status: 'confirmed',
+    checkIn: '19:08',
+    checkOut: '00:46',
+    clientCheckIn: '19:08',
+    clientCheckOut: '00:46',
+    hourlyRate: 8,
+  }]);
+
+  assert.deepEqual(totals, {
+    totalRevenue: 60,
+    totalCost: 48,
+    realHours: 6,
+    billableHours: 6,
+  });
+});
+
 test('preserves totals imported from a budget when rates cannot rebuild them', () => {
   const totals = calculateEventTotals({
     totalRevenue: 500,

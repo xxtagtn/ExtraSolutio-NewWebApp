@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import * as XLSX from 'xlsx';
 import {
   buildImportPreview,
+  EVENT_NAME_MAPPING_PREFIX,
+  normalizeImportMappings,
   parseTimeValidationWorkbook,
 } from './timeValidationExcelImport.js';
 
@@ -136,11 +138,61 @@ test('builds an import preview with reusable mappings and assignment match', () 
     validRows: 1,
     invalidRows: 0,
     warningRows: 0,
+    recognizedRows: 1,
+    mappingRows: 0,
+    blockedRows: 0,
   });
   assert.equal(preview.rows[0].status, 'valid');
   assert.equal(preview.rows[0].assignmentId, 30);
   assert.equal(preview.rows[0].clientCheckIn, '11:30');
   assert.equal(preview.rows[0].clientCheckOut, '16:09');
+});
+
+test('recalculates imported client hours from clocks instead of trusting the spreadsheet total', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  parsed.rows[0] = {
+    ...parsed.rows[0],
+    clientCheckIn: '17:43',
+    clientCheckOut: '23:16',
+    clientHours: 99,
+  };
+  const preview = buildImportPreview(parsed.rows, {
+    mappings: [
+      {
+        field: 'session',
+        externalValue: 'RESTAURANTE ATIVIDADES DIÃRIAS JUNHO 26',
+        internalValue: '10',
+      },
+      {
+        field: 'category',
+        externalValue: 'EMPREGADO DE MESA',
+        internalValue: 'Emp.Mesa',
+      },
+    ],
+    collaborators: [
+      { id: 20, name: 'Miriam PeÃ§anha Oliveira', nif: '326077405' },
+    ],
+    services: [
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        date: '2026-06-16',
+        endDate: '2026-06-21',
+        requiredRoles: JSON.stringify([{ role: 'Emp.Mesa', agreedRate: 10.5 }]),
+        assignments: [{
+          id: 30,
+          collaboratorId: 20,
+          assignmentDate: '2026-06-20',
+          role: 'Emp.Mesa',
+          plannedCheckIn: '11:30',
+          plannedCheckOut: '16:00',
+        }],
+      },
+    ],
+  });
+
+  assert.equal(preview.rows[0].clientRealHours, 6);
+  assert.equal(preview.rows[0].clientBillableHours, 6);
 });
 
 test('matches a report session to the unique event by date and department', () => {
@@ -358,7 +410,7 @@ test('reports unresolved mappings before import can be committed', () => {
   assert.equal(preview.summary.validRows, 0);
   assert.equal(preview.summary.invalidRows, 1);
   assert.equal(preview.unresolvedMappings.session[0].externalValue, 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26');
-  assert.equal(preview.unresolvedMappings.department.length, 0);
+  assert.equal(preview.unresolvedMappings.department[0].externalValue, 'Restaurante');
   assert.ok(preview.rows[0].errors.includes('Evento/Serviço não reconhecido.'));
 });
 
@@ -440,4 +492,57 @@ test('uses manual collaborator mapping when the imported nif does not match the 
 
   assert.equal(preview.rows[0].collaboratorId, 20);
   assert.equal(preview.rows[0].assignmentId, 30);
+});
+
+test('reuses a client event alias by event name on a later event period', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  const preview = buildImportPreview(parsed.rows, {
+    mappings: [{
+      field: 'session',
+      externalValue: 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26',
+      internalValue: `${EVENT_NAME_MAPPING_PREFIX}Restaurante Luz Chakall`,
+    }],
+    collaborators: [{ id: 20, name: 'Miriam Peçanha Oliveira', nif: '326077405' }],
+    services: [{
+      id: 42,
+      name: 'Restaurante Luz Chakall',
+      date: '2026-06-20',
+      assignments: [{
+        id: 73,
+        collaboratorId: 20,
+        assignmentDate: '2026-06-20',
+        role: 'Emp.Mesa',
+        plannedCheckIn: '11:30',
+        plannedCheckOut: '16:00',
+      }],
+    }],
+  });
+
+  assert.equal(preview.rows[0].eventId, 42);
+  assert.equal(preview.rows[0].assignmentId, 73);
+  assert.equal(preview.rows[0].resolutionType, 'recognized');
+});
+
+test('separates rows that need mapping from operationally invalid rows', () => {
+  const parsed = parseTimeValidationWorkbook(fixtureBuffer());
+  const needsMapping = buildImportPreview(parsed.rows, { services: [], collaborators: [] });
+  assert.equal(needsMapping.summary.mappingRows, 1);
+  assert.equal(needsMapping.summary.blockedRows, 0);
+  assert.equal(needsMapping.rows[0].resolutionType, 'needs_mapping');
+
+  const incompleteRows = parsed.rows.map((row) => ({ ...row, clientCheckOut: '' }));
+  const invalid = buildImportPreview(incompleteRows, { services: [], collaborators: [] });
+  assert.equal(invalid.summary.mappingRows, 0);
+  assert.equal(invalid.summary.blockedRows, 1);
+  assert.equal(invalid.rows[0].resolutionType, 'invalid');
+});
+
+test('normalizes new mappings into the active client profile', () => {
+  const [mapping] = normalizeImportMappings([{
+    field: 'category',
+    externalValue: 'EMPREGADO DE MESA',
+    internalValue: 'Emp.Mesa',
+  }], 'time_validation_excel', 'client:7');
+
+  assert.equal(mapping.scopeKey, 'client:7');
 });

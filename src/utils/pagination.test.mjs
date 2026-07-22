@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { paginateItems } from './pagination.js';
+import { paginateItems, reconcileServerPage } from './pagination.js';
 
 test('paginates items and reports the visible range', () => {
   const result = paginateItems(
@@ -49,4 +49,12 @@ test('limits the numbered navigation around the current page', () => {
   );
 
   assert.deepEqual(result.pageNumbers, [8, 9, 10, 11, 12]);
+});
+
+test('does not revert a new page request while the previous server response is still visible', () => {
+  assert.equal(reconcileServerPage(2, 1, 3), 2);
+});
+
+test('clamps the requested page after its matching server response reports fewer pages', () => {
+  assert.equal(reconcileServerPage(3, 3, 2), 2);
 });

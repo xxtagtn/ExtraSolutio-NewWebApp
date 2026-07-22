@@ -7,11 +7,14 @@ import { synchronizeEventWorkflow } from '../services/eventWorkflow.js';
 import {
   assignmentUpdateFromPreviewRow,
   buildImportPreview,
+  EVENT_NAME_MAPPING_PREFIX,
   normalizeImportMappings,
   parseTimeValidationWorkbook,
 } from '../utils/timeValidationExcelImport.js';
 
 const SOURCE = 'time_validation_excel';
+const GLOBAL_SCOPE = 'global';
+const CLIENT_SCOPE_PREFIX = 'client:';
 
 export const timeValidationImportsRouter = Router();
 
@@ -27,7 +30,7 @@ function base64ToBuffer(fileData = '') {
 }
 
 async function importContext() {
-  const [services, collaborators, mappings] = await Promise.all([
+  const [services, collaborators, mappings, clients] = await Promise.all([
     prisma.event.findMany({
       include: {
         client: true,
@@ -41,12 +44,77 @@ async function importContext() {
       where: { source: SOURCE },
       orderBy: [{ field: 'asc' }, { externalValue: 'asc' }],
     }),
+    prisma.client.findMany({
+      select: { id: true, name: true, status: true },
+      orderBy: { name: 'asc' },
+    }),
   ]);
-  return { services, collaborators, mappings };
+  return { services, collaborators, mappings, clients };
 }
 
-async function saveMappings(mappings = []) {
-  const normalized = normalizeImportMappings(mappings, SOURCE);
+function profileScopeKey(clientId) {
+  const parsed = Number(clientId);
+  return Number.isInteger(parsed) && parsed > 0 ? `${CLIENT_SCOPE_PREFIX}${parsed}` : GLOBAL_SCOPE;
+}
+
+function mappingsForProfile(mappings = [], clientId = null) {
+  const scopeKey = profileScopeKey(clientId);
+  const globalMappings = mappings.filter((mapping) => mapping.scopeKey === GLOBAL_SCOPE);
+  if (scopeKey === GLOBAL_SCOPE) return globalMappings;
+  const clientMappings = mappings.filter((mapping) => mapping.scopeKey === scopeKey);
+  return [...globalMappings, ...clientMappings];
+}
+
+function servicesForProfile(services = [], clientId = null) {
+  const parsed = Number(clientId);
+  if (!Number.isInteger(parsed) || parsed <= 0) return services;
+  return services.filter((event) => Number(event.clientId || event.client?.id) === parsed);
+}
+
+function detectedClientId(preview, services = []) {
+  const eventClients = new Map(services.map((event) => [Number(event.id), Number(event.clientId || event.client?.id)]));
+  const ids = new Set((preview?.rows || [])
+    .map((row) => eventClients.get(Number(row.eventId)))
+    .filter((id) => Number.isInteger(id) && id > 0));
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
+function profileDetails(clientId, context, autoDetected = false) {
+  const parsed = Number(clientId);
+  const client = context.clients.find((item) => item.id === parsed) || null;
+  const scopeKey = profileScopeKey(parsed);
+  return {
+    clientId: client?.id || null,
+    clientName: client?.name || '',
+    scopeKey,
+    autoDetected,
+    savedMappings: context.mappings.filter((mapping) => mapping.scopeKey === scopeKey).length,
+  };
+}
+
+async function reusableMappings(mappings = [], scopeKey = GLOBAL_SCOPE) {
+  const normalized = normalizeImportMappings(mappings, SOURCE, scopeKey);
+  const eventIds = normalized
+    .filter((mapping) => mapping.field === 'session' && /^\d+$/.test(mapping.internalValue))
+    .map((mapping) => Number(mapping.internalValue));
+  const events = eventIds.length
+    ? await prisma.event.findMany({
+      where: { id: { in: [...new Set(eventIds)] } },
+      select: { id: true, name: true },
+    })
+    : [];
+  const eventsById = new Map(events.map((event) => [event.id, event]));
+  return normalized.map((mapping) => {
+    if (mapping.field !== 'session' || !/^\d+$/.test(mapping.internalValue)) return mapping;
+    const event = eventsById.get(Number(mapping.internalValue));
+    return event?.name
+      ? { ...mapping, internalValue: `${EVENT_NAME_MAPPING_PREFIX}${event.name}` }
+      : mapping;
+  });
+}
+
+async function saveMappings(mappings = [], clientId = null) {
+  const normalized = await reusableMappings(mappings, profileScopeKey(clientId));
   await Promise.all(normalized.map((mapping) => prisma.importMapping.upsert({
     where: {
       source_scopeKey_field_externalValue: {
@@ -72,10 +140,27 @@ timeValidationImportsRouter.post('/preview', asyncHandler(async (req, res) => {
   const buffer = base64ToBuffer(req.body?.fileData);
   const parsed = parseTimeValidationWorkbook(buffer);
   const context = await importContext();
-  const preview = buildImportPreview(parsed.rows, {
+  const requestedClientId = Number(req.body?.profileClientId) || null;
+  const buildForClient = (clientId) => buildImportPreview(parsed.rows, {
     ...context,
-    mappings: [...context.mappings, ...(req.body?.mappings || [])],
+    services: servicesForProfile(context.services, clientId),
+    mappings: [
+      ...mappingsForProfile(context.mappings, clientId),
+      ...(req.body?.mappings || []),
+    ],
   });
+  let appliedClientId = requestedClientId;
+  let preview = buildForClient(appliedClientId);
+  let autoDetected = false;
+
+  if (!appliedClientId) {
+    const inferredClientId = detectedClientId(preview, context.services);
+    if (inferredClientId) {
+      appliedClientId = inferredClientId;
+      autoDetected = true;
+      preview = buildForClient(appliedClientId);
+    }
+  }
 
   res.json({
     source: SOURCE,
@@ -83,6 +168,7 @@ timeValidationImportsRouter.post('/preview', asyncHandler(async (req, res) => {
     sheetName: parsed.sheetName,
     headerRowNumber: parsed.headerRowNumber,
     columns: parsed.columns,
+    profile: profileDetails(appliedClientId, context, autoDetected),
     ...preview,
   });
 }));
@@ -96,7 +182,7 @@ timeValidationImportsRouter.post('/commit', asyncHandler(async (req, res) => {
     && row.clientCheckOut
   ));
 
-  await saveMappings(req.body?.mappings || []);
+  await saveMappings(req.body?.mappings || [], req.body?.profileClientId);
 
   const eventIds = [];
   for (const row of importableRows) {

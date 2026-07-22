@@ -1,22 +1,9 @@
-import { decimalValue } from './serviceFinance.js';
+import { decimalValue, roundedBillableHours } from './serviceFinance.js';
 import { calculateTravelAmount } from './travelCalculator.js';
 import { externalCostsTotals } from './externalCosts.js';
 
-function parseTime(value) {
-  const [h, m] = String(value || '').split(':').map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
-  return (h * 60 + m) / 60;
-}
-
 function calcHours(start, end) {
-  const s = parseTime(start);
-  const e = parseTime(end);
-  const hasStart = String(start || '').includes(':');
-  const hasEnd = String(end || '').includes(':');
-  if (!hasStart || !hasEnd) return 0;
-  if (e === s) return 0;
-  if (e > s) return e - s;
-  return (24 - s) + e;
+  return roundedBillableHours(start, end);
 }
 
 function numberValue(value) {

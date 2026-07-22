@@ -29,7 +29,12 @@ import {
   hoursValidationState,
   validationPersistenceFields,
 } from '../utils/hourValidationStatus.js';
-import { clientChargeHours, clientRealHours, staffWorkedHours } from '../utils/serviceFinance.js';
+import {
+  clientChargeHours,
+  clientRealHours,
+  roundedBillableHours,
+  staffWorkedHours,
+} from '../utils/serviceFinance.js';
 import { SERVICE_STATUS } from '../utils/serviceStatus.js';
 import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
 import { assessTimeTolerance, resolvePlannedTimes } from '../utils/timeTolerance.js';
@@ -54,7 +59,6 @@ import {
   preserveStageAfterManualRowSave,
   previousMonthPeriod,
   prunePersistedDrafts,
-  recentOperationalPeriod,
   reopenTargetStage,
   rowMatchesValidationStage,
   rowsForValidationStage,
@@ -81,37 +85,10 @@ const IMPORT_MAPPING_LABELS = {
   assignment: 'Turno',
 };
 
-const IMPORT_MANUAL_MAPPING_FIELDS = new Set(['session', 'category', 'collaborator']);
+const IMPORT_MANUAL_MAPPING_FIELDS = new Set(['session', 'category', 'department', 'collaborator']);
 
 function num(value) {
   return Number(value || 0);
-}
-
-function toMinutes(time) {
-  if (!time) return null;
-  const [h, m] = String(time).split(':').map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  return (h * 60) + m;
-}
-
-function roundTimeForBilling(time) {
-  const minutes = toMinutes(time);
-  if (minutes === null) return null;
-  const hour = Math.floor(minutes / 60);
-  const minute = minutes % 60;
-  if (minute <= 14) return hour * 60;
-  if (minute <= 44) return (hour * 60) + 30;
-  return (hour + 1) * 60;
-}
-
-function calcRoundedBillableHours(start, end) {
-  const roundedStart = roundTimeForBilling(start);
-  const roundedEnd = roundTimeForBilling(end);
-  if (roundedStart === null || roundedEnd === null) return 0;
-  let s = roundedStart;
-  let e = roundedEnd;
-  if (e < s) e += 24 * 60;
-  return Number(((e - s) / 60).toFixed(2));
 }
 
 function assignmentStatus(status) {
@@ -200,11 +177,11 @@ function staffHoursFor(assignment, event) {
 }
 
 function staffColumnHours(assignment) {
-  return calcRoundedBillableHours(assignment.checkIn, assignment.checkOut);
+  return roundedBillableHours(assignment.checkIn, assignment.checkOut);
 }
 
 function clientColumnHours(assignment) {
-  return calcRoundedBillableHours(assignment.clientCheckIn, assignment.clientCheckOut);
+  return roundedBillableHours(assignment.clientCheckIn, assignment.clientCheckOut);
 }
 
 function rowAssessment(assignment) {
@@ -294,8 +271,8 @@ export default function TimeValidation() {
   const [selectedEventId, setSelectedEventId] = useState('all');
   const [selectedWorkDateKey, setSelectedWorkDateKey] = useState('all');
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('all');
-  const [periodStart, setPeriodStart] = useState(() => recentOperationalPeriod(new Date(), 30).start);
-  const [periodEnd, setPeriodEnd] = useState(() => recentOperationalPeriod(new Date(), 30).end);
+  const [periodStart, setPeriodStart] = useState(() => currentMonthPeriod().start);
+  const [periodEnd, setPeriodEnd] = useState(() => currentMonthPeriod().end);
   const [savingId, setSavingId] = useState(null);
   const [validatingEventId, setValidatingEventId] = useState(null);
   const [bulkValidatingEventId, setBulkValidatingEventId] = useState(null);
@@ -307,6 +284,7 @@ export default function TimeValidation() {
   const [importFileData, setImportFileData] = useState('');
   const [importPreview, setImportPreview] = useState(null);
   const [importMappings, setImportMappings] = useState([]);
+  const [importProfileClientId, setImportProfileClientId] = useState('');
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState('');
   const [importDragActive, setImportDragActive] = useState(false);
@@ -521,6 +499,38 @@ export default function TimeValidation() {
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
   }, [services]);
 
+  const importProfileOptions = useMemo(() => {
+    const seen = new Map();
+    for (const service of services) {
+      const client = service.client;
+      const id = String(service.clientId || client?.id || '');
+      if (!id || seen.has(id)) continue;
+      seen.set(id, { id, label: client?.name || service.clientName || `Cliente ${id}` });
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
+  }, [services]);
+
+  const importScopedEventOptions = useMemo(() => {
+    if (!importProfileClientId) return importEventOptions;
+    const allowedIds = new Set(services
+      .filter((event) => String(event.clientId || event.client?.id || '') === importProfileClientId)
+      .map((event) => String(event.id)));
+    return importEventOptions.filter((event) => allowedIds.has(event.id));
+  }, [importEventOptions, importProfileClientId, services]);
+
+  const importDepartmentOptions = useMemo(() => {
+    const values = new Set();
+    const scopedServices = importProfileClientId
+      ? services.filter((event) => String(event.clientId || event.client?.id || '') === importProfileClientId)
+      : services;
+    for (const event of scopedServices) {
+      [event.department, event.eventType, event.category, event.name]
+        .filter(Boolean)
+        .forEach((value) => values.add(String(value).trim()));
+    }
+    return [...values].sort((a, b) => a.localeCompare(b, 'pt'));
+  }, [importProfileClientId, services]);
+
   const eventProgress = useMemo(() => {
     const map = new Map();
     for (const row of clientRows) {
@@ -562,7 +572,13 @@ export default function TimeValidation() {
   }, [clientRows]);
 
   const pendingEvents = useMemo(() => eventProgress.filter((item) => !item.markedValidated), [eventProgress]);
-  const validatedEvents = useMemo(() => eventProgress.filter((item) => item.markedValidated), [eventProgress]);
+  const validatedEvents = useMemo(
+    () => eventProgress.filter((item) => (
+      item.markedValidated
+      && (selectedEventId === 'all' || String(item.event.id) === selectedEventId)
+    )),
+    [eventProgress, selectedEventId],
+  );
   const finalizedRowsByEvent = useMemo(() => {
     const map = new Map();
     for (const row of clientRows) {
@@ -650,9 +666,10 @@ export default function TimeValidation() {
   const eventCardRows = useMemo(
     () => stageRows.filter((row) => {
       if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
+      if (viewMode === 'event' && selectedEventId !== 'all' && String(row.event.id) !== selectedEventId) return false;
       return true;
     }),
-    [selectedCollaboratorId, stageRows, viewMode],
+    [selectedCollaboratorId, selectedEventId, stageRows, viewMode],
   );
   const visibleEventIds = useMemo(() => new Set(eventCardRows.map((row) => String(row.event.id))), [eventCardRows]);
   const visiblePendingEvents = useMemo(
@@ -755,7 +772,7 @@ export default function TimeValidation() {
       const current = { ...row.assignment, ...(prev[row.id] || {}) };
       const next = { ...current, ...patch, _persisted: false };
       if (patch.validatedCheckIn !== undefined || patch.validatedCheckOut !== undefined) {
-        const rounded = calcRoundedBillableHours(next.validatedCheckIn, next.validatedCheckOut);
+        const rounded = roundedBillableHours(next.validatedCheckIn, next.validatedCheckOut);
         if (rounded > 0) {
           next.clientBillableHours = rounded;
           next.staffPayableHours = rounded;
@@ -804,6 +821,7 @@ export default function TimeValidation() {
     setImportFileData('');
     setImportPreview(null);
     setImportMappings([]);
+    setImportProfileClientId('');
     setImportError('');
     setImportBusy(false);
     setImportDragActive(false);
@@ -812,6 +830,12 @@ export default function TimeValidation() {
   function closeImportModal() {
     setImportModalOpen(false);
     resetImportState();
+  }
+
+  function openImportModal() {
+    const clientId = String(selectedPanelEvent?.clientId || selectedPanelEvent?.client?.id || '');
+    setImportProfileClientId(clientId);
+    setImportModalOpen(true);
   }
 
   function mappingValue(field, externalValue) {
@@ -830,7 +854,12 @@ export default function TimeValidation() {
     });
   }
 
-  async function previewImport(file = importFile, fileData = importFileData) {
+  async function previewImport(
+    file = importFile,
+    fileData = importFileData,
+    profileClientId = importProfileClientId,
+    mappings = importMappings,
+  ) {
     if (!file || !fileData) {
       setImportError('Seleciona primeiro o ficheiro Excel enviado pelo cliente.');
       return;
@@ -843,7 +872,8 @@ export default function TimeValidation() {
         body: JSON.stringify({
           fileName: file.name,
           fileData,
-          mappings: importMappings.filter((mapping) => mapping.internalValue),
+          profileClientId: profileClientId || null,
+          mappings: mappings.filter((mapping) => mapping.internalValue),
         }),
       });
       setImportPreview(preview);
@@ -851,6 +881,15 @@ export default function TimeValidation() {
       setImportError(err?.message || 'Não foi possível analisar o ficheiro Excel.');
     } finally {
       setImportBusy(false);
+    }
+  }
+
+  async function changeImportProfile(clientId) {
+    setImportProfileClientId(clientId);
+    setImportMappings([]);
+    setImportPreview(null);
+    if (importFile && importFileData) {
+      await previewImport(importFile, importFileData, clientId, []);
     }
   }
 
@@ -902,6 +941,7 @@ export default function TimeValidation() {
         method: 'POST',
         body: JSON.stringify({
           rows: importPreview.rows,
+          profileClientId: importProfileClientId || importPreview.profile?.clientId || null,
           mappings: importMappings.filter((mapping) => mapping.internalValue),
         }),
       });
@@ -1523,7 +1563,7 @@ export default function TimeValidation() {
                   </div>
 
                   <div className="validation-main-toolbar">
-                    <button className="secondary-button" type="button" onClick={() => setImportModalOpen(true)}>
+                    <button className="secondary-button" type="button" onClick={openImportModal}>
                       <Upload size={16} />
                       Importar Excel Cliente
                     </button>
@@ -1867,6 +1907,39 @@ export default function TimeValidation() {
       {importModalOpen ? (
         <Modal title="Importar Excel Cliente" onClose={closeImportModal} size="wide">
           <div className="validation-import-modal">
+            <div className="validation-import-profile">
+              <div>
+                <strong>Perfil de importação</strong>
+                <span>
+                  As correspondências confirmadas ficam associadas ao cliente e serão reutilizadas nos próximos ficheiros.
+                </span>
+              </div>
+              <label>
+                <span>Cliente</span>
+                <select
+                  className="form-control"
+                  value={importProfileClientId}
+                  onChange={(event) => changeImportProfile(event.target.value)}
+                  disabled={importBusy}
+                >
+                  <option value="">Detetar automaticamente</option>
+                  {importProfileOptions.map((client) => (
+                    <option key={client.id} value={client.id}>{client.label}</option>
+                  ))}
+                </select>
+              </label>
+              {importPreview?.profile?.clientName ? (
+                <Badge tone="success">
+                  {importPreview.profile.clientName}
+                  {importPreview.profile.savedMappings
+                    ? ` · ${importPreview.profile.savedMappings} correspondência(s) reutilizada(s)`
+                    : ' · novo perfil'}
+                </Badge>
+              ) : (
+                <Badge tone="neutral">Sem perfil aplicado</Badge>
+              )}
+            </div>
+
             <div
               className={`validation-import-upload${importDragActive ? ' validation-import-upload--active' : ''}`}
               onDragOver={onImportDragOver}
@@ -1895,22 +1968,32 @@ export default function TimeValidation() {
                     <strong>{importPreview.summary.totalRows}</strong>
                   </div>
                   <div>
-                    <span>Importáveis</span>
-                    <strong>{importPreview.summary.validRows}</strong>
+                    <span>Reconhecidas</span>
+                    <strong>{importPreview.summary.recognizedRows ?? importPreview.summary.validRows}</strong>
                   </div>
                   <div>
-                    <span>Com avisos</span>
-                    <strong>{importPreview.summary.warningRows}</strong>
+                    <span>Precisam de correspondência</span>
+                    <strong>{importPreview.summary.mappingRows ?? 0}</strong>
                   </div>
                   <div>
-                    <span>Inválidas</span>
-                    <strong>{importPreview.summary.invalidRows}</strong>
+                    <span>Não importáveis</span>
+                    <strong>{importPreview.summary.blockedRows ?? importPreview.summary.invalidRows}</strong>
                   </div>
                 </div>
 
-                {importPreview.summary.invalidRows ? (
+                {importPreview.summary.mappingRows ? (
+                  <div className="validation-import-guidance validation-import-guidance--mapping">
+                    <strong>Existem linhas que podem ser corrigidas nesta janela.</strong>
+                    <span>
+                      Define as correspondências abaixo e seleciona Revalidar. Depois de confirmares a importação,
+                      estas regras ficam guardadas no perfil do cliente.
+                    </span>
+                  </div>
+                ) : null}
+
+                {(importPreview.summary.blockedRows ?? importPreview.summary.invalidRows) ? (
                   <div className="validation-import-guidance">
-                    <strong>Linhas inválidas não serão gravadas.</strong>
+                    <strong>As linhas não importáveis não serão gravadas.</strong>
                     <span>
                       Se o colaborador ainda não existe, cria-o primeiro em Colaboradores e associa-o ao Evento/Serviço.
                       Se o turno não for encontrado, confirma se o colaborador está no evento, na função e na data correta.
@@ -1935,7 +2018,7 @@ export default function TimeValidation() {
                             onChange={(event) => updateImportMapping(entry.field, entry.externalValue, event.target.value)}
                           >
                             <option value="">Selecionar Evento/Serviço</option>
-                            {importEventOptions.map((item) => (
+                            {importScopedEventOptions.map((item) => (
                               <option key={item.id} value={item.id}>{item.label}</option>
                             ))}
                           </select>
@@ -1948,6 +2031,17 @@ export default function TimeValidation() {
                             <option value="">Selecionar função</option>
                             {collaboratorRoleOptions.map((role) => (
                               <option key={role} value={role}>{role}</option>
+                            ))}
+                          </select>
+                        ) : entry.field === 'department' ? (
+                          <select
+                            className="form-control"
+                            value={mappingValue(entry.field, entry.externalValue)}
+                            onChange={(event) => updateImportMapping(entry.field, entry.externalValue, event.target.value)}
+                          >
+                            <option value="">Selecionar correspondência interna</option>
+                            {importDepartmentOptions.map((department) => (
+                              <option key={department} value={department}>{department}</option>
                             ))}
                           </select>
                         ) : entry.field === 'collaborator' ? (
@@ -1985,11 +2079,18 @@ export default function TimeValidation() {
                     </thead>
                     <tbody>
                       {importPreview.rows.map((row) => (
-                        <tr key={row.rowNumber} className={`validation-import-row validation-import-row--${row.status}`}>
+                        <tr
+                          key={row.rowNumber}
+                          className={`validation-import-row validation-import-row--${row.resolutionType === 'needs_mapping' ? 'mapping' : row.status}`}
+                        >
                           <td>{row.rowNumber}</td>
                           <td>
-                            <Badge tone={row.status === 'invalid' ? 'danger' : row.status === 'warning' ? 'warning' : 'success'}>
-                              {row.status === 'invalid' ? 'Inválido' : row.status === 'warning' ? 'Aviso' : 'Válido'}
+                            <Badge tone={row.resolutionType === 'invalid' ? 'danger' : row.resolutionType === 'needs_mapping' || row.status === 'warning' ? 'warning' : 'success'}>
+                              {row.resolutionType === 'invalid'
+                                ? 'Não importável'
+                                : row.resolutionType === 'needs_mapping'
+                                  ? 'Por associar'
+                                  : row.status === 'warning' ? 'Aviso' : 'Reconhecida'}
                             </Badge>
                           </td>
                           <td>

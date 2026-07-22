@@ -31,7 +31,7 @@ test('separates salary advances from car payments', () => {
   assert.equal(staffCarAdvancesTotal(advances), 6);
 });
 
-test('subtracts only salary advances from staff payment without going below zero', () => {
-  assert.equal(staffPaymentRemaining(80, [{ amount: 12.5 }, { amount: '7,50' }, { amount: 10, car: true }]), 60);
-  assert.equal(staffPaymentRemaining(10, [{ amount: 20 }, { amount: 15, car: true }]), 0);
+test('subtracts salary advances and adds car payments to the amount still payable', () => {
+  assert.equal(staffPaymentRemaining(80, [{ amount: 12.5 }, { amount: '7,50' }, { amount: 10, car: true }]), 70);
+  assert.equal(staffPaymentRemaining(10, [{ amount: 20 }, { amount: 15, car: true }]), 15);
 });

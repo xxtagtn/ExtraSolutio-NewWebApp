@@ -8,6 +8,7 @@ import { prepaymentRemainingReminderDate } from '../../utils/prepaymentPolicy.js
 import { staffPaymentTiming } from '../../utils/staffPayment.js';
 import Header from './Header.jsx';
 import Sidebar from './Sidebar.jsx';
+import BackToTop from '../UI/BackToTop.jsx';
 
 function isToday(value) {
   if (!value) return false;
@@ -296,6 +297,7 @@ export default function Layout() {
             </ul>
           </div>
         ) : null}
+        <BackToTop raised={showReminder} />
       </main>
     </div>
   );

@@ -32,3 +32,10 @@ export function paginateItems(items = [], requestedPage = 1, requestedPageSize =
     pageNumbers: visiblePageNumbers(totalPages, currentPage),
   };
 }
+
+export function reconcileServerPage(requestedPage, payloadPage, totalPages) {
+  const requested = Math.max(1, Number(requestedPage) || 1);
+  const payload = Math.max(1, Number(payloadPage) || 1);
+  if (payload !== requested) return requested;
+  return Math.min(Math.max(1, Number(totalPages) || 1), payload);
+}

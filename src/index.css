@@ -6516,7 +6516,7 @@ th {
 }
 
 .finance-staff-payment-table {
-  min-width: 1480px;
+  min-width: 1460px;
   table-layout: fixed;
 }
 
@@ -6534,14 +6534,14 @@ th {
 
 .finance-staff-payment-table th:nth-child(2),
 .finance-staff-payment-table td:nth-child(2) {
-  width: 170px;
-  min-width: 170px;
+  width: 160px;
+  min-width: 160px;
 }
 
 .finance-staff-payment-table th:nth-child(3),
 .finance-staff-payment-table td:nth-child(3) {
-  width: 190px;
-  min-width: 190px;
+  width: 175px;
+  min-width: 175px;
 }
 
 .finance-staff-payment-table th:nth-child(4),
@@ -6551,49 +6551,44 @@ th {
 
 .finance-staff-payment-table th:nth-child(5),
 .finance-staff-payment-table td:nth-child(5) {
-  width: 72px;
+  width: 115px;
 }
 
 .finance-staff-payment-table th:nth-child(6),
 .finance-staff-payment-table td:nth-child(6) {
-  width: 74px;
+  width: 68px;
 }
 
 .finance-staff-payment-table th:nth-child(7),
 .finance-staff-payment-table td:nth-child(7) {
-  width: 118px;
+  width: 70px;
 }
 
 .finance-staff-payment-table th:nth-child(8),
-.finance-staff-payment-table td:nth-child(8),
-.finance-staff-payment-table th:nth-child(9),
-.finance-staff-payment-table td:nth-child(9) {
-  width: 84px;
+.finance-staff-payment-table td:nth-child(8) {
+  width: 112px;
 }
 
+.finance-staff-payment-table th:nth-child(9),
+.finance-staff-payment-table td:nth-child(9),
 .finance-staff-payment-table th:nth-child(10),
 .finance-staff-payment-table td:nth-child(10) {
-  width: 106px;
+  width: 78px;
 }
 
 .finance-staff-payment-table th:nth-child(11),
 .finance-staff-payment-table td:nth-child(11) {
-  width: 132px;
+  width: 100px;
 }
 
 .finance-staff-payment-table th:nth-child(12),
 .finance-staff-payment-table td:nth-child(12) {
-  width: 128px;
+  width: 154px;
 }
 
 .finance-staff-payment-table th:nth-child(13),
 .finance-staff-payment-table td:nth-child(13) {
-  width: 148px;
-}
-
-.finance-staff-payment-table th:nth-child(14),
-.finance-staff-payment-table td:nth-child(14) {
-  width: 124px;
+  width: 174px;
 }
 
 .finance-staff-payment-table th:nth-child(4),
@@ -6620,6 +6615,7 @@ th {
 
 .finance-staff-payment-table td:nth-child(5),
 .finance-staff-payment-table td:nth-child(6),
+.finance-staff-payment-table td:nth-child(7),
 .finance-staff-payment-table td:nth-child(8),
 .finance-staff-payment-table td:nth-child(9),
 .finance-staff-payment-table td:nth-child(10) {
@@ -6660,11 +6656,30 @@ th {
 }
 
 .finance-staff-payment-state {
-  width: auto;
-  min-width: 112px;
+  width: 100%;
+  min-width: 0;
   min-height: 30px;
   padding: 0 6px;
   font-size: 0.78rem;
+}
+
+.finance-staff-payment-control {
+  display: grid;
+  gap: 5px;
+  min-width: 138px;
+}
+
+.finance-staff-payment-date {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding-inline: 6px;
+  font-size: 0.74rem;
+}
+
+.finance-client-schedule {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .finance-payment-window {
@@ -6693,8 +6708,9 @@ th {
   font-size: 0.78rem;
 }
 
-.finance-row-payment--overdue td {
-  background: rgba(127, 29, 29, 0.08);
+.finance-row-payment--attention td {
+  background: rgba(127, 29, 29, 0.14);
+  border-bottom-color: rgba(248, 113, 113, 0.22);
 }
 
 .finance-note-button {
@@ -7980,6 +7996,55 @@ th {
   gap: 16px;
 }
 
+.service-detail-advance-button--active {
+  border-color: rgba(45, 212, 191, 0.5);
+  background: rgba(20, 184, 166, 0.12);
+  color: #99f6e4;
+}
+
+.service-detail-advance-panel {
+  margin: 8px 14px 12px;
+  background: rgba(9, 18, 23, 0.82);
+}
+
+.service-detail-advance-panel header .secondary-button {
+  margin-left: auto;
+}
+
+@media (max-width: 700px) {
+  .service-detail-advance-panel {
+    margin: 8px 0 12px;
+  }
+
+  .service-detail-advance-panel header .secondary-button {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+.validation-import-profile {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, 0.72fr) auto;
+  align-items: end;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(20, 184, 166, 0.3);
+  border-radius: 8px;
+  background: rgba(20, 184, 166, 0.07);
+}
+
+.validation-import-profile > div,
+.validation-import-profile label {
+  display: grid;
+  gap: 6px;
+}
+
+.validation-import-profile span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
 .validation-import-upload {
   display: flex;
   align-items: end;
@@ -8054,6 +8119,11 @@ th {
   line-height: 1.45;
 }
 
+.validation-import-guidance--mapping {
+  border-color: rgba(245, 158, 11, 0.38);
+  background: rgba(245, 158, 11, 0.08);
+}
+
 .validation-import-commit-note {
   margin: -4px 0 0;
   color: var(--muted);
@@ -8103,8 +8173,33 @@ th {
   background: rgba(245, 158, 11, 0.07);
 }
 
+.validation-import-row--mapping {
+  background: rgba(245, 158, 11, 0.1);
+}
+
 .validation-import-row--valid {
   background: rgba(34, 197, 94, 0.05);
+}
+
+@media (max-width: 900px) {
+  .validation-import-profile {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .validation-import-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .validation-import-mappings label {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .validation-import-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 .form-error {
@@ -8189,6 +8284,81 @@ th {
 .toast__close:hover {
   background: rgba(148, 163, 184, 0.1);
   color: var(--text);
+}
+
+.back-to-top {
+  position: fixed;
+  right: max(24px, env(safe-area-inset-right));
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 75;
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid rgba(20, 184, 166, 0.48);
+  border-radius: 10px;
+  background: rgba(13, 28, 31, 0.96);
+  color: #7dd3fc;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(10px);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    visibility 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.back-to-top--visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.back-to-top:hover,
+.back-to-top:focus-visible {
+  border-color: var(--accent);
+  background: rgba(20, 184, 166, 0.18);
+  color: #ccfbf1;
+}
+
+.back-to-top:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.72);
+  outline-offset: 3px;
+}
+
+.back-to-top--raised {
+  bottom: calc(116px + env(safe-area-inset-bottom));
+}
+
+body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
+  bottom: calc(116px + env(safe-area-inset-bottom));
+}
+
+@media (max-width: 900px) {
+  .back-to-top {
+    right: max(16px, env(safe-area-inset-right));
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+  }
+
+  body:has(.service-detail-mobile-actions) .back-to-top {
+    bottom: calc(92px + env(safe-area-inset-bottom));
+  }
+
+  body:has(.service-detail-mobile-actions):has(.toast-stack .toast) .back-to-top,
+  body:has(.service-detail-mobile-actions) .back-to-top--raised {
+    bottom: calc(176px + env(safe-area-inset-bottom));
+  }
 }
 
 .billing-page {
@@ -11115,16 +11285,15 @@ th {
   .finance-staff-payment-table td:nth-child(2)::before { content: "Colaborador"; }
   .finance-staff-payment-table td:nth-child(3)::before { content: "Evento"; }
   .finance-staff-payment-table td:nth-child(4)::before { content: "Data"; }
-  .finance-staff-payment-table td:nth-child(5)::before { content: "Horas"; }
-  .finance-staff-payment-table td:nth-child(6)::before { content: "Valor/h"; }
-  .finance-staff-payment-table td:nth-child(7)::before { content: "Ajustes"; }
-  .finance-staff-payment-table td:nth-child(8)::before { content: "Adiant."; }
-  .finance-staff-payment-table td:nth-child(9)::before { content: "Carro"; }
-  .finance-staff-payment-table td:nth-child(10)::before { content: "A pagar"; }
-  .finance-staff-payment-table td:nth-child(11)::before { content: "Vencimento"; }
-  .finance-staff-payment-table td:nth-child(12)::before { content: "Estado"; }
-  .finance-staff-payment-table td:nth-child(13)::before { content: "Data pagamento"; }
-  .finance-staff-payment-table td:nth-child(14)::before { content: "Ação"; }
+  .finance-staff-payment-table td:nth-child(5)::before { content: "Horário Cliente"; }
+  .finance-staff-payment-table td:nth-child(6)::before { content: "Horas"; }
+  .finance-staff-payment-table td:nth-child(7)::before { content: "Valor/h"; }
+  .finance-staff-payment-table td:nth-child(8)::before { content: "Ajustes"; }
+  .finance-staff-payment-table td:nth-child(9)::before { content: "Adiant."; }
+  .finance-staff-payment-table td:nth-child(10)::before { content: "Carro"; }
+  .finance-staff-payment-table td:nth-child(11)::before { content: "A pagar"; }
+  .finance-staff-payment-table td:nth-child(12)::before { content: "Estado / pagamento"; }
+  .finance-staff-payment-table td:nth-child(13)::before { content: "Ação"; }
 
   .finance-staff-payment-table td:nth-child(2),
   .finance-staff-payment-table td:nth-child(3) {

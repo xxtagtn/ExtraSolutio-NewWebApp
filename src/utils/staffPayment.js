@@ -28,6 +28,17 @@ export function assignmentWorkDateValue(assignment = {}) {
   return assignment.assignmentDate || assignment.eventDate || assignment.event?.date || '';
 }
 
+function paymentTimeLabel(value) {
+  const normalized = String(value || '').trim();
+  return /^\d{2}:\d{2}/.test(normalized) ? normalized.slice(0, 5) : normalized;
+}
+
+export function validatedClientScheduleLabel(assignment = {}) {
+  const start = paymentTimeLabel(assignment.validatedCheckIn || assignment.clientCheckIn);
+  const end = paymentTimeLabel(assignment.validatedCheckOut || assignment.clientCheckOut);
+  return start && end ? `${start} - ${end}` : '-';
+}
+
 export function nextStaffPaymentMonth(paymentMonth) {
   const [year, month] = String(paymentMonth || '').split('-').map(Number);
   if (!Number.isFinite(year) || !Number.isFinite(month)) return '';
@@ -76,4 +87,9 @@ export function staffPaymentTiming(assignment = {}, today = new Date()) {
     start,
     end,
   };
+}
+
+export function staffPaymentRequiresAttention(assignment = {}, today = new Date()) {
+  const status = staffPaymentTiming(assignment, today).status;
+  return status === 'open' || status === 'overdue';
 }

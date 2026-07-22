@@ -59,5 +59,6 @@ export function staffCarAdvancesTotal(value) {
 
 export function staffPaymentRemaining(total, advances) {
   const gross = decimalValue(total) || 0;
-  return Number(Math.max(0, gross - staffAdvancesTotal(advances)).toFixed(2));
+  const salaryRemaining = Math.max(0, gross - staffAdvancesTotal(advances));
+  return Number((salaryRemaining + staffCarAdvancesTotal(advances)).toFixed(2));
 }

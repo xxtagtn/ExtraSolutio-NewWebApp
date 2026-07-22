@@ -22,7 +22,7 @@ import { shouldHandleDeepLink } from '../utils/deepLinks.js';
 import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import { money } from '../utils/formatters.js';
 import { createImageThumbnailDataUrl, readFileAsDataUrl } from '../utils/imageThumbnails.js';
-import { paginateItems } from '../utils/pagination.js';
+import { paginateItems, reconcileServerPage } from '../utils/pagination.js';
 
 const PHOTO_VIEWER_BASE_WIDTH = 420;
 const PHOTO_VIEWER_MAX_ZOOM = 2;
@@ -378,10 +378,11 @@ export default function Collaborators() {
   }, [nameFilter, pageSize, roleFilter, statusFilter]);
 
   useEffect(() => {
-    if (currentPage !== pagination.currentPage) {
-      setCurrentPage(pagination.currentPage);
-    }
-  }, [currentPage, pagination.currentPage]);
+    const nextPage = hasServerPagination
+      ? reconcileServerPage(currentPage, collaboratorPayload?.page, pagination.totalPages)
+      : pagination.currentPage;
+    if (nextPage !== currentPage) setCurrentPage(nextPage);
+  }, [collaboratorPayload, currentPage, hasServerPagination, pagination.currentPage, pagination.totalPages]);
 
   const mergedRoleOptions = useMemo(
     () => [...new Set([...(catalogRoles || []), ...collaboratorRoleOptions])].sort((a, b) => a.localeCompare(b, 'pt')),

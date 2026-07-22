@@ -7,8 +7,51 @@ import {
   clientRealHours,
   collaboratorHourlyRate,
   decimalValue,
+  roundedBillableHours,
+  roundedClockTime,
+  staffPaymentHours,
   staffWorkedHours,
 } from './serviceFinance.js';
+
+test('rounds each clock value to the ExtraSolutio half-hour rule', () => {
+  const cases = [
+    ['22:45', '23:00'],
+    ['22:58', '23:00'],
+    ['23:00', '23:00'],
+    ['23:14', '23:00'],
+    ['23:15', '23:30'],
+    ['23:29', '23:30'],
+    ['23:44', '23:30'],
+    ['23:45', '00:00'],
+  ];
+
+  for (const [recorded, expected] of cases) {
+    assert.equal(roundedClockTime(recorded), expected, recorded);
+  }
+});
+
+test('rounds entry and exit before calculating service duration', () => {
+  assert.equal(roundedBillableHours('17:43', '23:16'), 6);
+  assert.equal(roundedBillableHours('18:12', '23:44'), 5.5);
+});
+
+test('applies the same rule to shifts that cross midnight', () => {
+  assert.equal(roundedBillableHours('19:08', '00:46'), 6);
+});
+
+test('does not recover stale hours when a complete rounded pair results in zero', () => {
+  const assignment = {
+    clientCheckIn: '23:45',
+    clientCheckOut: '00:14',
+    clientRealHours: 8,
+    clientBillableHours: 8,
+    staffPayableHours: 8,
+  };
+
+  assert.equal(clientRealHours(assignment), 0);
+  assert.equal(clientChargeHours(assignment), 0);
+  assert.equal(staffPaymentHours(assignment), 0);
+});
 
 test('uses collaborator hourly rate when assignment rate is empty', () => {
   const collaborators = new Map([['7', { id: 7, hourlyRate: '8,50€' }]]);
@@ -171,10 +214,26 @@ test('keeps stored staff hours when no row times exist', () => {
   }), 5);
 });
 
-test('does not use client validated hours to calculate Staff payment', () => {
-  assert.equal(staffWorkedHours({
+test('uses validated client hours to calculate Staff payment', () => {
+  assert.equal(staffPaymentHours({
     validatedCheckIn: '09:00',
     validatedCheckOut: '17:00',
+    staffPayableHours: 6,
+  }), 8);
+});
+
+test('uses client reported hours before different Staff hours for payment', () => {
+  assert.equal(staffPaymentHours({
+    checkIn: '09:00',
+    checkOut: '15:00',
+    clientCheckIn: '09:00',
+    clientCheckOut: '17:00',
+    staffPayableHours: 6,
+  }), 8);
+});
+
+test('keeps Staff hours as fallback for legacy payments without client hours', () => {
+  assert.equal(staffPaymentHours({
     staffPayableHours: 6,
   }), 6);
 });

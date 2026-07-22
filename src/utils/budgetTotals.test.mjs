@@ -17,6 +17,21 @@ test('calculates budget total from role quantity, client rate and explicit role 
   assert.equal(totals.totalAmount, 105);
 });
 
+test('rounds budget role schedules before calculating their amount', () => {
+  const totals = calculateBudgetTotals({
+    categories: [
+      { role: 'Emp.Mesa', qty: 2, rate: 10, start: '17:43', end: '23:16' },
+    ],
+    eventDays: [],
+    vatMode: 'exempt',
+    travelType: 'none',
+    discountRate: 0,
+  });
+
+  assert.equal(totals.baseAmount, 120);
+  assert.equal(totals.totalAmount, 120);
+});
+
 test('inherits day hours when a role has no individual schedule', () => {
   const totals = calculateBudgetTotals({
     categories: [

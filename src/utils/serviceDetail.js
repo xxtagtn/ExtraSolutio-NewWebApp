@@ -379,6 +379,24 @@ export function buildEditableTeamRows(event = {}) {
   return rows;
 }
 
+export function removeEditableTeamRow(rows = [], requirements = [], event = {}, rowKey = '') {
+  const row = rows.find((item) => item.rowKey === rowKey);
+  if (!row) return { rows, requirements };
+
+  let requirementUpdated = false;
+  const nextRequirements = requirements.flatMap((required) => {
+    if (requirementUpdated || !rowDateMatchesRequirement(row, event, required)) return [required];
+    requirementUpdated = true;
+    const nextQuantity = Math.max(0, Number(required.qty || 0) - 1);
+    return nextQuantity > 0 ? [{ ...required, qty: nextQuantity }] : [];
+  });
+
+  return {
+    rows: rows.filter((item) => item.rowKey !== rowKey),
+    requirements: nextRequirements,
+  };
+}
+
 export function editableTeamRowsToAssignmentPayloads(rows = [], event = {}) {
   return rows
     .filter((row) => row.role && row.collaboratorId)
@@ -395,6 +413,7 @@ export function editableTeamRowsToAssignmentPayloads(rows = [], event = {}) {
         clientSynced: Boolean(row.clientSynced),
         isDriver: Boolean(row.isDriver),
       };
+      if (row.advancePayments !== undefined) payload.advancePayments = row.advancePayments;
       if (row.id) payload.id = row.id;
       return payload;
     });

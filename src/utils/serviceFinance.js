@@ -30,10 +30,12 @@ export function decimalValue(value) {
 }
 
 function toMinutes(time) {
-  if (!time) return null;
-  const [h, m] = String(time).split(':').map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  return (h * 60) + m;
+  const match = String(time || '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return (hours * 60) + minutes;
 }
 
 function roundTimeForBilling(time) {
@@ -44,6 +46,19 @@ function roundTimeForBilling(time) {
   if (minute <= 14) return hour * 60;
   if (minute <= 44) return (hour * 60) + 30;
   return (hour + 1) * 60;
+}
+
+function hasCompleteTimePair(start, end) {
+  return toMinutes(start) !== null && toMinutes(end) !== null;
+}
+
+export function roundedClockTime(time) {
+  const rounded = roundTimeForBilling(time);
+  if (rounded === null) return '';
+  const normalized = rounded % (24 * 60);
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
 export function roundedBillableHours(start, end) {
@@ -58,16 +73,16 @@ export function roundedBillableHours(start, end) {
 
 export function clientRealHours(assignment) {
   const validated = roundedBillableHours(assignment?.validatedCheckIn, assignment?.validatedCheckOut);
-  if (validated > 0) return validated;
+  if (hasCompleteTimePair(assignment?.validatedCheckIn, assignment?.validatedCheckOut)) return validated;
 
   const clientReported = roundedBillableHours(assignment?.clientCheckIn, assignment?.clientCheckOut);
-  if (clientReported > 0) return clientReported;
+  if (hasCompleteTimePair(assignment?.clientCheckIn, assignment?.clientCheckOut)) return clientReported;
 
   const explicit = decimalValue(assignment?.clientRealHours) || 0;
   if (explicit > 0) return explicit;
 
   const checked = roundedBillableHours(assignment?.checkIn, assignment?.checkOut);
-  if (checked > 0) return checked;
+  if (hasCompleteTimePair(assignment?.checkIn, assignment?.checkOut)) return checked;
 
   return 0;
 }
@@ -75,22 +90,22 @@ export function clientRealHours(assignment) {
 export function clientChargeHours(assignment, fallbackStart = '', fallbackEnd = '', minimumHours = 0) {
   const minimum = Math.max(0, decimalValue(minimumHours) || 0);
   const validated = roundedBillableHours(assignment?.validatedCheckIn, assignment?.validatedCheckOut);
-  if (validated > 0) return Math.max(validated, minimum);
+  if (hasCompleteTimePair(assignment?.validatedCheckIn, assignment?.validatedCheckOut)) return Math.max(validated, minimum);
 
   const clientReported = roundedBillableHours(assignment?.clientCheckIn, assignment?.clientCheckOut);
-  if (clientReported > 0) return Math.max(clientReported, minimum);
+  if (hasCompleteTimePair(assignment?.clientCheckIn, assignment?.clientCheckOut)) return Math.max(clientReported, minimum);
 
   const staffReported = roundedBillableHours(assignment?.checkIn, assignment?.checkOut);
-  if (staffReported > 0) return Math.max(staffReported, minimum);
+  if (hasCompleteTimePair(assignment?.checkIn, assignment?.checkOut)) return Math.max(staffReported, minimum);
 
   const explicit = decimalValue(assignment?.clientBillableHours) || 0;
   if (explicit > 0) return Math.max(explicit, minimum);
 
   const planned = roundedBillableHours(assignment?.plannedCheckIn, assignment?.plannedCheckOut);
-  if (planned > 0) return Math.max(planned, minimum);
+  if (hasCompleteTimePair(assignment?.plannedCheckIn, assignment?.plannedCheckOut)) return Math.max(planned, minimum);
 
   const eventPlanned = roundedBillableHours(fallbackStart, fallbackEnd);
-  if (eventPlanned > 0) return Math.max(eventPlanned, minimum);
+  if (hasCompleteTimePair(fallbackStart, fallbackEnd)) return Math.max(eventPlanned, minimum);
 
   const worked = decimalValue(assignment?.hoursWorked) || 0;
   return worked > 0 ? Math.max(worked, minimum) : 0;
@@ -98,7 +113,7 @@ export function clientChargeHours(assignment, fallbackStart = '', fallbackEnd = 
 
 export function staffWorkedHours(assignment, fallbackStart = '', fallbackEnd = '') {
   const checked = roundedBillableHours(assignment?.checkIn, assignment?.checkOut);
-  if (checked > 0) return checked;
+  if (hasCompleteTimePair(assignment?.checkIn, assignment?.checkOut)) return checked;
 
   const explicit = decimalValue(assignment?.staffPayableHours) || 0;
   if (explicit > 0) return explicit;
@@ -107,7 +122,7 @@ export function staffWorkedHours(assignment, fallbackStart = '', fallbackEnd = '
   if (worked > 0) return worked;
 
   const planned = roundedBillableHours(assignment?.plannedCheckIn, assignment?.plannedCheckOut);
-  if (planned > 0) return planned;
+  if (hasCompleteTimePair(assignment?.plannedCheckIn, assignment?.plannedCheckOut)) return planned;
 
   const hasClientHours = Boolean(
     assignment?.clientCheckIn
@@ -116,6 +131,24 @@ export function staffWorkedHours(assignment, fallbackStart = '', fallbackEnd = '
     || assignment?.validatedCheckOut
   );
   return hasClientHours ? 0 : roundedBillableHours(fallbackStart, fallbackEnd);
+}
+
+export function staffPaymentHours(assignment, fallbackStart = '', fallbackEnd = '') {
+  const clientHours = clientRealHours(assignment);
+  const hasValidatedPair = hasCompleteTimePair(
+    assignment?.validatedCheckIn,
+    assignment?.validatedCheckOut,
+  );
+  const hasClientPair = hasCompleteTimePair(
+    assignment?.clientCheckIn,
+    assignment?.clientCheckOut,
+  );
+  const hasPersistedClientHours = (decimalValue(assignment?.clientRealHours) || 0) > 0;
+  if (hasValidatedPair || hasClientPair || hasPersistedClientHours) return clientHours;
+
+  // Compatibility for legacy records that reached Financeiro before client
+  // schedules were stored separately.
+  return staffWorkedHours(assignment, fallbackStart, fallbackEnd);
 }
 
 export function collaboratorHourlyRate(collaborator) {

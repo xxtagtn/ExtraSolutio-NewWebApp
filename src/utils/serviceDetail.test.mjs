@@ -7,6 +7,7 @@ import {
   editableTeamRowsToAssignmentPayloads,
   groupAssignmentsByRole,
   normalizeDailyRoleRequirements,
+  removeEditableTeamRow,
   resolveSelectedTeamDay,
   roleRequirementsForDay,
   serviceAssignmentDays,
@@ -118,6 +119,41 @@ test('buildEditableTeamRows creates missing rows from required roles', () => {
   assert.deepEqual(rows.map((row) => row.role), ['Emp.Mesa', 'Emp.Mesa', 'Emp.Mesa']);
   assert.deepEqual(rows.map((row) => row.plannedCheckIn), ['12:00', '12:00', '12:00']);
   assert.equal(rows.every((row) => row.isDraft), true);
+});
+
+test('removing a team row also reduces the saved role requirement', () => {
+  const event = {
+    date: '2027-05-11',
+    requiredRoles: [{ role: 'Barman', qty: 3 }],
+  };
+  const rows = buildEditableTeamRows(event);
+  const result = removeEditableTeamRow(rows, event.requiredRoles, event, rows[2].rowKey);
+
+  assert.equal(result.rows.length, 2);
+  assert.equal(result.requirements[0].qty, 2);
+  assert.equal(buildEditableTeamRows({ ...event, requiredRoles: result.requirements }).length, 2);
+});
+
+test('removing a continuous-event row only changes that day requirement', () => {
+  const event = {
+    isContinuous: true,
+    date: '2026-09-01',
+    endDate: '2026-09-02',
+    requiredRoles: [
+      { role: 'Emp.Mesa', qty: 2, day: '2026-09-01' },
+      { role: 'Emp.Mesa', qty: 2, day: '2026-09-02' },
+    ],
+  };
+  const rows = buildEditableTeamRows(event);
+  const rowToRemove = rows.find((row) => row.assignmentDate === '2026-09-02');
+  const result = removeEditableTeamRow(rows, event.requiredRoles, event, rowToRemove.rowKey);
+
+  assert.deepEqual(result.requirements.map((item) => [item.day, item.qty]), [
+    ['2026-09-01', 2],
+    ['2026-09-02', 1],
+  ]);
+  assert.equal(result.rows.filter((row) => row.assignmentDate === '2026-09-01').length, 2);
+  assert.equal(result.rows.filter((row) => row.assignmentDate === '2026-09-02').length, 1);
 });
 
 test('legacy continuous role requirements are expanded to every event day', () => {
@@ -274,6 +310,27 @@ test('editable team rows split assigned rows from empty saved drafts', () => {
   assert.equal(drafts.length, 1);
   assert.equal(drafts[0].role, 'Emp.Mesa');
   assert.equal(drafts[0].collaboratorId, undefined);
+});
+
+test('editable team rows preserve staff advances in the assignment payload', () => {
+  const advancePayments = [{
+    id: 'advance-1',
+    date: '2026-07-22',
+    amount: '25,50',
+    note: 'Deslocação',
+    car: false,
+  }];
+  const [payload] = editableTeamRowsToAssignmentPayloads([{
+    id: 91,
+    role: 'Barman',
+    collaboratorId: '12',
+    assignmentDate: '2026-07-22',
+    status: 'confirmed',
+    advancePayments,
+  }], { id: 8 });
+
+  assert.equal(payload.id, 91);
+  assert.deepEqual(payload.advancePayments, advancePayments);
 });
 
 test('keeps the selected continuous event day when it is still available', () => {

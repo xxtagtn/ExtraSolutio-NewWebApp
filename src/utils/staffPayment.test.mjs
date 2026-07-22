@@ -3,8 +3,10 @@ import { test } from 'node:test';
 import {
   assignmentWorkDateValue,
   defaultStaffPaymentMonth,
+  staffPaymentRequiresAttention,
   staffPaymentTiming,
   staffPaymentTotal,
+  validatedClientScheduleLabel,
 } from './staffPayment.js';
 
 test('adds a positive decimal adjustment to the staff payment', () => {
@@ -58,4 +60,25 @@ test('allows a staff payment to be deferred to a later month', () => {
   assert.equal(timing.paymentMonth, '2026-08');
   assert.equal(timing.status, 'not_open');
   assert.equal(timing.deferred, true);
+});
+
+test('shows the validated client schedule and supports legacy client hours', () => {
+  assert.equal(validatedClientScheduleLabel({
+    validatedCheckIn: '11:30:00',
+    validatedCheckOut: '16:05:00',
+    clientCheckIn: '11:00',
+    clientCheckOut: '16:00',
+  }), '11:30 - 16:05');
+  assert.equal(validatedClientScheduleLabel({ clientCheckIn: '18:00', clientCheckOut: '23:30' }), '18:00 - 23:30');
+  assert.equal(validatedClientScheduleLabel({ clientCheckIn: '18:00' }), '-');
+});
+
+test('highlights unpaid staff payments from day 8 until they are paid', () => {
+  const assignment = { event: { date: '2026-06-21' }, paymentStatus: 'unpaid' };
+
+  assert.equal(staffPaymentRequiresAttention(assignment, new Date('2026-07-07')), false);
+  assert.equal(staffPaymentRequiresAttention(assignment, new Date('2026-07-08')), true);
+  assert.equal(staffPaymentRequiresAttention(assignment, new Date('2026-07-14')), true);
+  assert.equal(staffPaymentRequiresAttention(assignment, new Date('2026-07-15')), true);
+  assert.equal(staffPaymentRequiresAttention({ ...assignment, paymentStatus: 'paid' }, new Date('2026-07-15')), false);
 });
