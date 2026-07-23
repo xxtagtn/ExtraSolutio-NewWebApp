@@ -1,5 +1,10 @@
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { decimalValue } from './serviceFinance.js';
+import {
+  activeEventAssignments,
+  activeEventRequiredRoles,
+  isEventDayCancelled,
+} from './eventCancelledDays.js';
 
 const NON_BILLABLE_ASSIGNMENT = new Set(['cancelled', 'missed_justified', 'missed_unjustified']);
 const CLOSED_SERVICE_STATUS = new Set(['cancelled']);
@@ -71,16 +76,18 @@ function isDateInsideService(service, date) {
   const start = startOfDay(service?.date);
   const end = startOfDay(serviceEndDate(service));
   if (!target || !start || !end) return false;
-  return target >= start && target <= end;
+  return target >= start
+    && target <= end
+    && !isEventDayCancelled(service, dateKey(target));
 }
 
 function requestedTotal(service) {
-  return safeArray(service?.requiredRoles)
+  return activeEventRequiredRoles(service, safeArray(service?.requiredRoles))
     .reduce((sum, item) => sum + Math.max(0, Number(item?.qty || item?.count || 0)), 0);
 }
 
 function billableAssignments(service) {
-  return (service?.assignments || [])
+  return activeEventAssignments(service, service?.assignments || [])
     .filter((assignment) => !NON_BILLABLE_ASSIGNMENT.has(normalized(assignment?.status)));
 }
 

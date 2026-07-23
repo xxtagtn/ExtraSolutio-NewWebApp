@@ -280,6 +280,7 @@ model Event {
   travelManualAmount Decimal      @default(0)
   travelCars   String?
   assignmentDrafts String?
+  cancelledDays String?
   billingStatus String            @default("pending")
   billingPaymentDate DateTime?
   signaledAt    DateTime?
@@ -290,6 +291,8 @@ model Event {
   statusMode   String            @default("automatic")
   totalCost    Decimal           @default(0)
   totalRevenue Decimal           @default(0)
+  vatRateSnapshot Decimal        @default(0)
+  taxAmount    Decimal           @default(0)
   notes        String?
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt

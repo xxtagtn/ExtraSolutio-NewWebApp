@@ -1,4 +1,5 @@
 import { URL } from 'node:url';
+import { isEventDayCancelled } from '../../src/utils/eventCancelledDays.js';
 
 const DEFAULT_PRODUCT_ID = '-//ExtraSolutio//Calendario//PT';
 const DEFAULT_TIMEZONE = 'Europe/Lisbon';
@@ -259,6 +260,7 @@ function buildServiceEvents(services, stamp, timezone) {
     if (!service?.id || !service?.date) continue;
     const endDate = service.isContinuous && service.endDate ? service.endDate : service.date;
     for (const day of datesBetween(service.date, endDate)) {
+      if (isEventDayCancelled(service, day)) continue;
       rows.push(...vevent({
         uid: `service-${service.id}-${compactDate(day)}@extrasolutio`,
         stamp,

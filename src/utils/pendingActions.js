@@ -3,6 +3,11 @@ import { decimalValue } from './serviceFinance.js';
 import { staffPaymentTiming } from './staffPayment.js';
 import { dueDateForBillingGroup } from './clientBilling.js';
 import { prepaymentRemainingReminderDate } from './prepaymentPolicy.js';
+import {
+  activeEventAssignments,
+  activeEventDayKeys,
+  activeEventRequiredRoles,
+} from './eventCancelledDays.js';
 
 const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const CLOSED_SERVICE_STATUSES = new Set(['cancelled']);
@@ -188,18 +193,18 @@ function billingPeriodLabel(method, issueDate) {
 }
 
 function requiredTotal(event) {
-  return safeArray(event?.requiredRoles)
+  return activeEventRequiredRoles(event, safeArray(event?.requiredRoles))
     .reduce((sum, item) => sum + Math.max(0, Number(item?.qty || 0)), 0);
 }
 
 function confirmedTotal(event) {
-  return (event?.assignments || [])
+  return activeEventAssignments(event, event?.assignments || [])
     .filter((assignment) => normalized(assignment?.status) === 'confirmed')
     .length;
 }
 
 function billableAssignments(event) {
-  return (event?.assignments || [])
+  return activeEventAssignments(event, event?.assignments || [])
     .filter((assignment) => !NON_BILLABLE_ASSIGNMENT.has(normalized(assignment?.status)));
 }
 
@@ -280,7 +285,8 @@ function addHoursValidationActions(actions, services, today) {
     const allValidated = assignments.every((assignment) => normalized(assignment?.validationStatus) === 'validated');
     if (allValidated || isFinanceReadyEvent(event)) continue;
 
-    const days = daysUntil(event.endDate || event.date, today);
+    const lastActiveDay = activeEventDayKeys(event).at(-1) || event.endDate || event.date;
+    const days = daysUntil(lastActiveDay, today);
     const status = normalized(event.status);
     if (days !== null && days > 1 && !status.startsWith('to_validate')) continue;
 
@@ -291,7 +297,7 @@ function addHoursValidationActions(actions, services, today) {
       description: `${event.name || 'Evento/Serviço'} tem ${assignments.filter((assignment) => normalized(assignment?.validationStatus) !== 'validated').length} colaborador(es) por validar.`,
       priority: days !== null && days < 0 ? 'high' : 'medium',
       tone: 'warning',
-      dueDate: event.endDate || event.date,
+      dueDate: lastActiveDay,
       to: `/time-validation?eventId=${event.id}`,
       origin: clientName(event),
       meta: [clientName(event)],

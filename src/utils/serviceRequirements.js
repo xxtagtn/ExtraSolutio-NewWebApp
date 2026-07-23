@@ -1,3 +1,8 @@
+import {
+  activeEventAssignments,
+  activeEventRequiredRoles,
+} from './eventCancelledDays.js';
+
 function safeJsonArray(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -19,13 +24,16 @@ function numericQuantity(value) {
  * saved rows and empty drafts are the source of the total number of slots.
  */
 export function requiredStaffTotal(event = {}) {
-  const requiredRolesTotal = safeJsonArray(event.requiredRoles)
+  const requiredRolesTotal = activeEventRequiredRoles(event)
     .reduce((sum, role) => sum + numericQuantity(role?.qty), 0);
 
   if (!event.isContinuous) return requiredRolesTotal;
 
-  const assignmentRows = Array.isArray(event.assignments) ? event.assignments : [];
-  const draftRows = safeJsonArray(event.assignmentDrafts);
+  const assignmentRows = activeEventAssignments(
+    event,
+    Array.isArray(event.assignments) ? event.assignments : [],
+  );
+  const draftRows = activeEventAssignments(event, safeJsonArray(event.assignmentDrafts));
   const plannedRows = [...assignmentRows, ...draftRows].filter((row) => Boolean(row?.role));
 
   return Math.max(requiredRolesTotal, plannedRows.length);

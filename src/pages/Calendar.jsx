@@ -12,6 +12,7 @@ import {
   calendarWeekDates,
   serviceOccursOnDate,
 } from '../utils/calendarDates.js';
+import { isEventDayCancelled } from '../utils/eventCancelledDays.js';
 import { statusLabel } from '../utils/serviceStatus.js';
 
 const MONTHS_PT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -167,7 +168,7 @@ function calendarItemsForDate(date, services, budgetFollowUps) {
   const items = [];
 
   for (const service of services) {
-    if (serviceOccursOnDate(service, date)) {
+    if (serviceOccursOnDate(service, date) && !isEventDayCancelled(service, key)) {
       items.push({ ...service, _reminder: false, _calendarKey: `service-${service.id}-${key}` });
     }
     if (

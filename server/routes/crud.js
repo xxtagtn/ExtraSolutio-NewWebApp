@@ -1,4 +1,8 @@
 ﻿import { Router } from 'express';
+import {
+  BUDGET_COMPOSITION_ERROR,
+  isBudgetCompositionValid,
+} from '../../src/utils/budgetComposition.js';
 import { normalizeExternalCosts } from '../../src/utils/externalCosts.js';
 import { normalizeAssignmentDrafts } from '../../src/utils/serviceAssignmentDrafts.js';
 import { normalizeTravelCars } from '../../src/utils/travelCalculator.js';
@@ -213,6 +217,8 @@ export function normalizeEvent(input) {
     ]),
     totalCost: parseDecimal(input.totalCost),
     totalRevenue: parseDecimal(input.totalRevenue),
+    vatRateSnapshot: parseDecimal(input.vatRateSnapshot),
+    taxAmount: parseDecimal(input.taxAmount),
     travelExpenseAmount: parseDecimal(input.travelExpenseAmount),
     travelPeople: asInt(input.travelPeople),
     km: parseDecimal(input.km),
@@ -422,6 +428,19 @@ export function normalizeTransaction(input) {
 }
 
 export function normalizeBudget(input) {
+  if (
+    input.categories !== undefined
+    && input.externalCosts !== undefined
+    && !isBudgetCompositionValid({
+      categories: input.categories,
+      externalCosts: input.externalCosts,
+    })
+  ) {
+    const error = new Error(BUDGET_COMPOSITION_ERROR);
+    error.statusCode = 422;
+    error.expose = true;
+    throw error;
+  }
   const amount = input.totalAmount !== undefined ? Number(input.totalAmount) : Number(input.amount ?? 0);
   return compact({
     ...pick(input, [

@@ -84,7 +84,12 @@ export async function ensureQrCodeForAssignment(assignmentOrId) {
       include: { event: true, collaborator: true, qrCheckCode: true },
     });
 
-  if (!assignment?.id || !assignment.collaboratorId || !assignment.eventId) return null;
+  if (
+    !assignment?.id
+    || !assignment.collaboratorId
+    || !assignment.eventId
+    || String(assignment.status || '').toLowerCase() === 'cancelled'
+  ) return null;
 
   const event = assignment.event || await prisma.event.findUnique({ where: { id: assignment.eventId } });
   if (!event) return null;
@@ -177,6 +182,9 @@ async function loadQrCodeByToken(token) {
 }
 
 function validatePublicQr(qrCode) {
+  if (String(qrCode?.assignment?.status || '').toLowerCase() === 'cancelled') {
+    throw publicError(410, 'Este dia do evento foi cancelado.', 'QR_DAY_CANCELLED');
+  }
   try {
     validateQrUsage({
       event: qrCode.event || qrCode.assignment?.event,
@@ -279,7 +287,10 @@ qrCodesRouter.get('/events/:eventId', asyncHandler(async (req, res) => {
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
 
   const assignments = event.assignments
-    .filter((assignment) => assignment.collaboratorId)
+    .filter((assignment) => (
+      assignment.collaboratorId
+      && String(assignment.status || '').toLowerCase() !== 'cancelled'
+    ))
     .sort((a, b) => (
       String(a.assignmentDate || '').localeCompare(String(b.assignmentDate || ''))
       || String(a.role || '').localeCompare(String(b.role || ''), 'pt')
@@ -318,6 +329,9 @@ qrCodesRouter.get('/assignments/:assignmentId', asyncHandler(async (req, res) =>
     include: { event: { include: { client: true } }, collaborator: true, qrCheckCode: true },
   });
   if (!assignment) return res.status(404).json({ message: 'Colaborador do evento não encontrado.' });
+  if (String(assignment.status || '').toLowerCase() === 'cancelled') {
+    return res.status(410).json({ message: 'Este dia do evento foi cancelado.' });
+  }
   const qrCode = await ensureQrCodeForAssignment(assignment);
   res.json(qrRowPayload(req, assignment, qrCode));
 }));

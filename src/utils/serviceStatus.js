@@ -1,5 +1,6 @@
 import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
 import { requiredStaffTotal } from './serviceRequirements.js';
+import { activeEventDayKeys } from './eventCancelledDays.js';
 
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const RETIRED_FINAL_STATUSES = new Set(['completed', 'invoiced', 'paid']);
@@ -46,7 +47,8 @@ function parseDateOnly(value) {
 }
 
 function eventEndDate(event) {
-  return event?.isContinuous && event?.endDate ? event.endDate : event?.date;
+  if (!event?.isContinuous) return event?.date;
+  return activeEventDayKeys(event).at(-1) || event?.endDate || event?.date;
 }
 
 function assignmentStatus(value) {

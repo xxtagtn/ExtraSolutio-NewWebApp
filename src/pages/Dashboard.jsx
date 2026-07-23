@@ -538,7 +538,7 @@ export default function Dashboard() {
               </div>
               <aside>
                 <div><span>Receita</span><strong>{money.format(activeClient?.revenue || 0)}</strong></div>
-                <div><span>Custos</span><strong>{money.format((activeClient?.staff || 0) + (activeClient?.external || 0))}</strong></div>
+                <div><span>Custos</span><strong>{money.format((activeClient?.staff || 0) + (activeClient?.external || 0) + (activeClient?.tax || 0))}</strong></div>
                 <div><span>Margem média</span><strong>{formatPercent(activeClient?.marginPct || 0)}</strong></div>
               </aside>
             </div>

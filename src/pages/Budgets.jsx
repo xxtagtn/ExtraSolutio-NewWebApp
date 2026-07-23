@@ -19,12 +19,17 @@ import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import SourceBadge from '../components/UI/SourceBadge.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
+import ExternalCostsEditor from '../components/Finance/ExternalCostsEditor.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import {
   buildBudgetConversionDraft,
   buildEventPayloadFromBudgetConversion,
 } from '../utils/budgetConversion.js';
+import {
+  BUDGET_COMPOSITION_ERROR,
+  isBudgetCompositionValid,
+} from '../utils/budgetComposition.js';
 import {
   budgetWorkDays,
   normalizeBudgetCategoryDates,
@@ -40,8 +45,7 @@ import { calculateBudgetTotals } from '../utils/budgetTotals.js';
 import { applyClientRulesToBudgetForm, clientPrepaymentRule, clientRuleRate } from '../utils/clientRules.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import {
-  DEFAULT_EXTERNAL_COST_VAT_TYPE,
-  EXTERNAL_COST_VAT_OPTIONS,
+  createEmptyExternalCost,
   externalCostsTotals,
   normalizeExternalCosts,
 } from '../utils/externalCosts.js';
@@ -140,21 +144,8 @@ const roleRates = {
   Logista: 13,
 };
 
-const externalCostTypeOptions = ['Catering', 'Bebidas', 'Material', 'Aluguer', 'Transporte', 'Outro'];
-
 function emptyCategory() {
   return { role: '', qty: 1, date: '', start: '', end: '', uniform: '', rate: 10 };
-}
-
-function emptyExternalCost() {
-  return {
-    type: '',
-    supplier: '',
-    description: '',
-    costAmount: '',
-    marginPercent: 0,
-    vatType: DEFAULT_EXTERNAL_COST_VAT_TYPE,
-  };
 }
 
 function emptyTravelCar(index = 0) {
@@ -208,7 +199,7 @@ function emptyForm(reference = '') {
     regularClient: false,
     locationScope: 'lisbon',
     eventDays: [emptyEventDay()],
-    categories: [emptyCategory()],
+    categories: [],
     vatRate: 23,
     vatMode: 'normal_23',
     discountRate: 0,
@@ -615,7 +606,7 @@ export default function Budgets() {
       travelCars: travelCarsFromSource(row),
       travelManualAmount: normalizedTravelType === 'manual' ? (row.travelAmount ?? '') : '',
       regularClient: Boolean(row.regularClient),
-      categories: row.categoriesParsed.length ? row.categoriesParsed : [emptyCategory()],
+      categories: row.categoriesParsed,
       externalCostsEnabled: row.externalCostsParsed.length > 0,
       externalCosts: row.externalCostsParsed,
       eventDays: safeJson(row.paymentPlan, []).length
@@ -703,30 +694,15 @@ export default function Budgets() {
 
   function removeCategory(idx) {
     const next = form.categories.filter((_, i) => i !== idx);
-    setForm({ ...form, categories: next.length ? next : [emptyCategory()] });
+    setForm({ ...form, categories: next });
   }
 
   function toggleExternalCosts(enabled) {
     setForm({
       ...form,
       externalCostsEnabled: enabled,
-      externalCosts: enabled && !form.externalCosts.length ? [emptyExternalCost()] : form.externalCosts,
+      externalCosts: enabled && !form.externalCosts.length ? [createEmptyExternalCost()] : form.externalCosts,
     });
-  }
-
-  function updateExternalCost(idx, patch) {
-    const next = [...(form.externalCosts || [])];
-    next[idx] = { ...next[idx], ...patch };
-    setForm({ ...form, externalCosts: next });
-  }
-
-  function addExternalCost() {
-    setForm({ ...form, externalCosts: [...(form.externalCosts || []), emptyExternalCost()] });
-  }
-
-  function removeExternalCost(idx) {
-    const next = (form.externalCosts || []).filter((_, i) => i !== idx);
-    setForm({ ...form, externalCosts: next.length ? next : [emptyExternalCost()] });
   }
 
   function setTravelType(value) {
@@ -854,6 +830,12 @@ export default function Budgets() {
       const cleanExternalCosts = form.externalCostsEnabled
         ? normalizeExternalCosts(form.externalCosts)
         : [];
+      if (!isBudgetCompositionValid({
+        categories: cleanCategories,
+        externalCosts: cleanExternalCosts,
+      })) {
+        throw new Error(BUDGET_COMPOSITION_ERROR);
+      }
       const travelCars = form.travelType === 'kilometers' ? cleanTravelCarsForPayload(form.travelCars) : [];
       const firstTravelCar = travelCars[0] || {};
       const firstDay = (form.eventDays || []).find((day) => day.date) || {};
@@ -1280,6 +1262,12 @@ export default function Budgets() {
                       Adicionar função
                     </button>
                   </div>
+                  {!form.categories.length ? (
+                    <div className="budget-empty-staff">
+                      <strong>Sem funções de Staff</strong>
+                      <span>Podes criar este orçamento apenas com custos externos/parceiros.</span>
+                    </div>
+                  ) : null}
                   {form.categories.map((cat, idx) => (
                     <div className="budget-category" key={idx}>
                       <header>
@@ -1348,51 +1336,11 @@ export default function Budgets() {
                     ) : null}
                   </div>
                   {form.externalCostsEnabled ? (
-                    <>
-                      <div className="budget-category-actions">
-                        <button className="secondary-button" type="button" onClick={addExternalCost}>
-                          <Plus size={15} />
-                          Adicionar custo externo
-                        </button>
-                      </div>
-                      {(form.externalCosts || []).map((item, idx) => {
-                        const calculated = normalizeExternalCosts([item])[0] || {};
-                        return (
-                          <div className="budget-category" key={item.id || idx}>
-                            <header>
-                              <strong>Custo externo {idx + 1}</strong>
-                              <button type="button" className="icon-button icon-button--danger" onClick={() => removeExternalCost(idx)}><Trash2 size={15} /></button>
-                            </header>
-                            <div className="budget-category-grid budget-external-grid">
-                              <label>Tipo
-                                <select value={item.type || ''} onChange={(event) => updateExternalCost(idx, { type: event.target.value })}>
-                                  <option value="">Selecionar</option>
-                                  {externalCostTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                                </select>
-                              </label>
-                              <label>Fornecedor<input value={item.supplier || ''} onChange={(event) => updateExternalCost(idx, { supplier: event.target.value })} /></label>
-                              <label>Custo parceiro<input type="number" min="0" step="any" value={item.costAmount || ''} onChange={(event) => updateExternalCost(idx, { costAmount: event.target.value })} /></label>
-                              <label>Margem %<input type="number" min="0" step="any" value={item.marginPercent || ''} onChange={(event) => updateExternalCost(idx, { marginPercent: event.target.value })} /></label>
-                              <label>IVA
-                                <select
-                                  value={item.vatType || DEFAULT_EXTERNAL_COST_VAT_TYPE}
-                                  onChange={(event) => updateExternalCost(idx, { vatType: event.target.value })}
-                                >
-                                  {EXTERNAL_COST_VAT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                                </select>
-                              </label>
-                              <div className="budget-external-result">
-                                <span>Valor cliente</span>
-                                <strong>{money.format(calculated.chargeAmount || 0)}</strong>
-                                <small>Margem: {money.format(calculated.marginAmount || 0)}</small>
-                                <small>IVA: {money.format(calculated.taxAmount || 0)}</small>
-                              </div>
-                              <label className="span-2">Descrição<input value={item.description || ''} onChange={(event) => updateExternalCost(idx, { description: event.target.value })} /></label>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </>
+                    <ExternalCostsEditor
+                      value={form.externalCosts}
+                      onChange={(externalCosts) => setForm((current) => ({ ...current, externalCosts }))}
+                      keepAtLeastOne
+                    />
                   ) : null}
                 </section>
 

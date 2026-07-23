@@ -6,6 +6,13 @@ import { birthdayNotification } from '../../utils/birthdays.js';
 import { isFinanceReadyEvent } from '../../utils/financeReadiness.js';
 import { prepaymentRemainingReminderDate } from '../../utils/prepaymentPolicy.js';
 import { staffPaymentTiming } from '../../utils/staffPayment.js';
+import {
+  activeEventAssignments,
+  activeEventDayKeys,
+  activeEventRequiredRoles,
+  assignmentEventDay,
+  eventDayKey,
+} from '../../utils/eventCancelledDays.js';
 import Header from './Header.jsx';
 import Sidebar from './Sidebar.jsx';
 import BackToTop from '../UI/BackToTop.jsx';
@@ -166,33 +173,44 @@ export default function Layout() {
     for (const service of services || []) {
       if (!service?.date) continue;
       const startTime = service.startTime || '00:00';
-      const startDt = new Date(`${String(service.date).slice(0, 10)}T${startTime}:00`);
-      if (Number.isNaN(startDt.getTime())) continue;
-      if (startDt < now || startDt > nowPlus48h) continue;
-      const requiredRoles = safeArrayJson(service.requiredRoles);
-      const requested = service.isContinuous
-        ? (service.assignments || []).filter((item) => item.role && item.collaboratorId && item.assignmentDate).length
-        : requiredRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0);
-      const confirmed = (service.assignments || []).filter((item) => String(item.status || '').toLowerCase() === 'confirmed').length;
-      if (requested > 0 && confirmed >= requested) continue;
-      items.push({
-        id: `team-incomplete-${service.id}`,
-        kind: 'team_incomplete',
-        title: service.name || `Evento #${service.id}`,
-        subtitle: `Equipa incompleta (${confirmed}/${requested || 0})`,
-        dueDate: startOfDay(startDt),
-      });
+      const activeAssignments = activeEventAssignments(service);
+      const activeRoles = activeEventRequiredRoles(service, safeArrayJson(service.requiredRoles));
+
+      for (const serviceDay of activeEventDayKeys(service)) {
+        const startDt = new Date(`${serviceDay}T${startTime}:00`);
+        if (Number.isNaN(startDt.getTime()) || startDt < now || startDt > nowPlus48h) continue;
+        const dayAssignments = activeAssignments.filter(
+          (item) => assignmentEventDay(item, service) === serviceDay,
+        );
+        const dayRoles = activeRoles.filter((item) => (
+          !service.isContinuous || eventDayKey(item?.day || item?.date) === serviceDay
+        ));
+        const requested = dayRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+        const confirmed = dayAssignments.filter(
+          (item) => String(item.status || '').toLowerCase() === 'confirmed',
+        ).length;
+        if (requested > 0 && confirmed >= requested) continue;
+        items.push({
+          id: `team-incomplete-${service.id}-${serviceDay}`,
+          kind: 'team_incomplete',
+          title: service.name || `Evento #${service.id}`,
+          subtitle: `Equipa incompleta em ${serviceDay} (${confirmed}/${requested || 0})`,
+          dueDate: startOfDay(startDt),
+        });
+      }
     }
 
     const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
     for (const service of services || []) {
       if (!service?.date) continue;
-      const endBase = service.isContinuous && service.endDate ? service.endDate : service.date;
+      const endBase = activeEventDayKeys(service).at(-1);
+      if (!endBase) continue;
       const endDay = startOfDay(new Date(endBase));
       if (Number.isNaN(endDay.getTime())) continue;
       if (endDay.getTime() !== yesterdayStart.getTime()) continue;
       const status = String(service.status || '').toLowerCase();
-      const pendingValidation = (service.assignments || []).some((item) => String(item.validationStatus || '').toLowerCase() !== 'validated');
+      const pendingValidation = activeEventAssignments(service)
+        .some((item) => String(item.validationStatus || '').toLowerCase() !== 'validated');
       if (!['to_validate_staff', 'to_validate_client'].includes(status) && !pendingValidation) continue;
       items.push({
         id: `validate-nextday-${service.id}-${String(endBase).slice(0, 10)}`,

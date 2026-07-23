@@ -60,15 +60,23 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
 
   const travelRevenue = event.travelExpenseEnabled ? numberValue(event.travelExpenseAmount) : 0;
   const externalTotals = externalCostsTotals(event.externalCosts);
-  const calculatedRevenue = assignmentRevenue + travelRevenue + externalTotals.chargeAmount;
+  const ownServicesRevenue = assignmentRevenue + travelRevenue;
+  const calculatedNetRevenue = ownServicesRevenue + externalTotals.chargeAmount;
+  const calculatedTax = (ownServicesRevenue * (numberValue(event.vatRateSnapshot) / 100))
+    + externalTotals.taxAmount;
+  const calculatedGrossRevenue = calculatedNetRevenue + calculatedTax;
   const calculatedCost = assignmentCost + externalTotals.costAmount;
 
   // Preserve a commercial total imported from a budget when hourly client/staff
   // rates are not available to rebuild that value safely.
   const preserveStoredTotals = assignments.length === 0 || billableAssignments.length > 0;
-  const totalRevenue = preserveStoredTotals && assignmentRevenue <= 0
-    ? Math.max(numberValue(event.totalRevenue), calculatedRevenue)
-    : calculatedRevenue;
+  const preserveCommercialSnapshot = preserveStoredTotals && assignmentRevenue <= 0;
+  const taxAmount = preserveCommercialSnapshot
+    ? Math.max(numberValue(event.taxAmount), calculatedTax)
+    : calculatedTax;
+  const totalRevenue = preserveCommercialSnapshot
+    ? Math.max(numberValue(event.totalRevenue), calculatedNetRevenue + taxAmount)
+    : calculatedGrossRevenue;
   const totalCost = preserveStoredTotals && assignmentCost <= 0
     ? Math.max(numberValue(event.totalCost), calculatedCost)
     : calculatedCost;
@@ -76,6 +84,7 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
   return {
     totalRevenue: Number(totalRevenue.toFixed(2)),
     totalCost: Number(totalCost.toFixed(2)),
+    taxAmount: Number(taxAmount.toFixed(2)),
     realHours: Number(realHours.toFixed(2)),
     billableHours: Number(billableHours.toFixed(2)),
   };

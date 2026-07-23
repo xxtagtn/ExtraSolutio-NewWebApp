@@ -21,8 +21,9 @@ test('recalculates validated event revenue, staff cost and rounded hours central
   }]);
 
   assert.deepEqual(totals, {
-    totalRevenue: 192.5,
+    totalRevenue: 220.1,
     totalCost: 146,
+    taxAmount: 27.6,
     realHours: 4.5,
     billableHours: 5,
   });
@@ -44,6 +45,7 @@ test('uses independently rounded client and staff clocks across midnight', () =>
   assert.deepEqual(totals, {
     totalRevenue: 60,
     totalCost: 48,
+    taxAmount: 0,
     realHours: 6,
     billableHours: 6,
   });
@@ -82,8 +84,31 @@ test('excludes cancelled and absent collaborators from event totals', () => {
   }]);
 
   assert.deepEqual(totals, {
-    totalRevenue: 80,
+    totalRevenue: 92.65,
     totalCost: 50,
+    taxAmount: 12.65,
+    realHours: 0,
+    billableHours: 0,
+  });
+});
+
+test('keeps VAT outside operational cost while preserving gross revenue', () => {
+  const totals = calculateEventTotals({
+    totalRevenue: 1166.04,
+    totalCost: 790,
+    taxAmount: 218.04,
+    externalCosts: [{
+      type: 'Catering',
+      costAmount: 790,
+      marginPercent: 20,
+      vatType: 'standard_23',
+    }],
+  }, []);
+
+  assert.deepEqual(totals, {
+    totalRevenue: 1166.04,
+    totalCost: 790,
+    taxAmount: 218.04,
     realHours: 0,
     billableHours: 0,
   });

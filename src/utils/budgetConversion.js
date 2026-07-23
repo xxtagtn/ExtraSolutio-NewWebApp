@@ -1,6 +1,6 @@
 import { decimalValue } from './serviceFinance.js';
 import { calculateTravelAmount, normalizeTravelCars } from './travelCalculator.js';
-import { normalizeExternalCosts } from './externalCosts.js';
+import { externalCostsTotals, normalizeExternalCosts } from './externalCosts.js';
 
 function safeArray(value) {
   if (!value) return [];
@@ -128,6 +128,8 @@ export function buildBudgetConversionDraft(row = {}) {
     travelManualAmount: travelType === 'manual' ? travelAmount : (row.travelManualAmount ?? ''),
     externalCosts,
     totalRevenue: numberValue(row.totalAmount || row.amount),
+    vatRateSnapshot: numberValue(row.vatRate),
+    taxAmount: numberValue(row.taxAmount) || externalCostsTotals(externalCosts).taxAmount,
   };
 }
 
@@ -175,6 +177,8 @@ export function buildEventPayloadFromBudgetConversion(draft = {}, clientId) {
     travelManualAmount: draft.travelType === 'manual' ? numberValue(draft.travelManualAmount) : 0,
     externalCosts: normalizeExternalCosts(draft.externalCosts),
     totalRevenue: numberValue(draft.totalRevenue),
+    vatRateSnapshot: numberValue(draft.vatRateSnapshot),
+    taxAmount: numberValue(draft.taxAmount),
     notes: draft.budgetReference ? `[BUDGET_REF:${draft.budgetReference}]` : '',
   };
 }

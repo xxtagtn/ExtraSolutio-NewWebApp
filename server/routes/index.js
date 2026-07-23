@@ -46,11 +46,17 @@ import {
 } from '../utils/eventRateSnapshot.js';
 import { asyncHandler } from '../utils/http.js';
 import {
+  cancelEventDay,
   markEventValidated,
+  reactivateEventDay,
   reopenEventValidation,
   setManualEventStatus,
   synchronizeEventWorkflow,
 } from '../services/eventWorkflow.js';
+import {
+  eventDayKey,
+  isEventDayCancelled,
+} from '../../src/utils/eventCancelledDays.js';
 
 export const apiRouter = Router();
 const CLOSED_EVENT_STATUSES = ['finalized', 'completed', 'invoiced', 'paid'];
@@ -84,6 +90,8 @@ const communicationQr = requirePermission(PERMISSIONS.COMMUNICATION_MANAGE_QR_CO
 const financialEventFields = [
   'totalCost',
   'totalRevenue',
+  'vatRateSnapshot',
+  'taxAmount',
   'rateHistory',
   'travelExpenseAmount',
   'travelStaffHourlyRate',
@@ -307,16 +315,39 @@ async function normalizeServiceUpdate(input, existing) {
 
 async function normalizeAssignmentCreate(input) {
   const data = normalizeAssignment(input);
+  await assertAssignmentDayIsActive(data);
   await assertNoAssignmentConflict(prisma, data);
   return data;
 }
 
 async function normalizeAssignmentUpdate(input, existing) {
   const data = normalizeAssignment(input);
+  await assertAssignmentDayIsActive({ ...existing, ...data });
   if (assignmentConflictNeedsCheck(data, existing)) {
     await assertNoAssignmentConflict(prisma, data, existing);
   }
   return data;
+}
+
+async function assertAssignmentDayIsActive(assignment = {}) {
+  const eventId = Number(assignment.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0) return;
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: {
+      date: true,
+      endDate: true,
+      isContinuous: true,
+      cancelledDays: true,
+    },
+  });
+  if (!event) return;
+  const day = eventDayKey(assignment.assignmentDate || event.date);
+  if (!isEventDayCancelled(event, day)) return;
+  const error = new Error('Este dia do evento está cancelado. Reativa o dia antes de atribuir colaboradores.');
+  error.statusCode = 409;
+  error.expose = true;
+  throw error;
 }
 
 async function synchronizeEventAfterAssignmentMutation(eventId, { recalculateTotals = false } = {}) {
@@ -440,6 +471,22 @@ apiRouter.post('/services/:id/workflow/reopen', workflowWrite, asyncHandler(asyn
   const id = workflowEventId(req, res);
   if (!id) return;
   const event = await reopenEventValidation(prisma, id, req.body?.notes);
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/days/:date/cancel', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await cancelEventDay(prisma, id, req.params.date);
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/days/:date/reactivate', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await reactivateEventDay(prisma, id, req.params.date);
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   return res.json(maskEventForRole(event, req.user));
 }));

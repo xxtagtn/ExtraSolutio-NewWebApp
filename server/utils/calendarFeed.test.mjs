@@ -84,6 +84,30 @@ test('buildCalendarFeed omits sensitive collaborator and financial fields from d
   assert.doesNotMatch(ics, /987\.65/);
 });
 
+test('buildCalendarFeed omits cancelled occurrences from continuous events', () => {
+  const ics = buildCalendarFeed({
+    generatedAt: new Date('2026-07-10T10:00:00.000Z'),
+    services: [
+      {
+        id: 14,
+        name: 'Evento contínuo',
+        date: '2026-07-20T00:00:00.000Z',
+        endDate: '2026-07-22T00:00:00.000Z',
+        isContinuous: true,
+        cancelledDays: JSON.stringify([{ date: '2026-07-21' }]),
+        startTime: '09:00',
+        endTime: '18:00',
+      },
+    ],
+    budgets: [],
+    collaborators: [],
+  });
+
+  assert.match(ics, /UID:service-14-20260720@extrasolutio\r\n/);
+  assert.doesNotMatch(ics, /UID:service-14-20260721@extrasolutio\r\n/);
+  assert.match(ics, /UID:service-14-20260722@extrasolutio\r\n/);
+});
+
 test('buildCalendarFeedUrls prefers a configured public URL for Outlook subscriptions', () => {
   const urls = buildCalendarFeedUrls({
     token: 'a'.repeat(64),

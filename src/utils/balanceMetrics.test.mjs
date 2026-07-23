@@ -55,6 +55,7 @@ test('builds the balance overview for the selected month and year', () => {
     validatedRevenue: 1800,
     staffToPay: 680,
     externalCosts: 0,
+    taxCosts: 0,
     realMargin: 1120,
     receivable: 600,
     finalizedEvents: 1,
@@ -94,7 +95,7 @@ test('separates staff and external partner costs in the real margin', () => {
       status: 'finalized',
       totalRevenue: 1_000,
       totalCost: 500,
-      externalCosts: [{ type: 'catering', costAmount: 200, marginPercent: 10 }],
+      externalCosts: [{ type: 'catering', costAmount: 200, marginPercent: 10, vatType: 'exempt' }],
       client: { id: 30, name: 'Cliente A' },
     }],
     period: { month: '6', year: '2026', clientId: 'all', status: 'all' },
@@ -106,6 +107,36 @@ test('separates staff and external partner costs in the real margin', () => {
   assert.equal(overview.kpis.externalCosts, 200);
   assert.equal(overview.kpis.realMargin, 500);
   assert.equal(overview.clientRows[0].marginPct, 50);
+});
+
+test('treats event VAT as an expense instead of profit', () => {
+  const overview = buildBalanceOverview({
+    services: [{
+      id: 21,
+      name: 'Particular - Rita Antunes',
+      date: '2026-07-30',
+      status: 'finalized',
+      totalRevenue: 1166.04,
+      totalCost: 790,
+      taxAmount: 218.04,
+      externalCosts: [{
+        type: 'Catering',
+        costAmount: 790,
+        marginPercent: 20,
+        vatType: 'standard_23',
+      }],
+      clientName: 'Rita Antunes',
+    }],
+    period: { month: '7', year: '2026', clientId: 'all', status: 'all' },
+  });
+
+  assert.equal(overview.eventRows[0].external, 790);
+  assert.equal(overview.eventRows[0].tax, 218.04);
+  assert.equal(overview.eventRows[0].totalCost, 1008.04);
+  assert.equal(overview.eventRows[0].margin, 158);
+  assert.equal(overview.eventRows[0].marginPct, 13.6);
+  assert.equal(overview.kpis.taxCosts, 218.04);
+  assert.equal(overview.kpis.realMargin, 158);
 });
 
 test('groups occasional clients by their manual name and exposes their monthly evolution', () => {

@@ -340,7 +340,11 @@ export default function TimeValidation() {
 
   const allRows = useMemo(
     () => services.flatMap((event) => (event.assignments || [])
-      .filter((assignment) => assignment.collaboratorId && assignment.role)
+      .filter((assignment) => (
+        assignment.collaboratorId
+        && assignment.role
+        && String(assignment.status || '').toLowerCase() !== 'cancelled'
+      ))
       .map((assignment) => {
         const draft = drafts[assignment.id] || {};
         const merged = { ...assignment, ...draft };
@@ -1253,7 +1257,11 @@ export default function TimeValidation() {
     setValidatingEventId(item.event.id);
     try {
       const assignmentsToReopen = (item.event.assignments || [])
-        .filter((assignment) => assignment.collaboratorId && assignment.role);
+        .filter((assignment) => (
+          assignment.collaboratorId
+          && assignment.role
+          && String(assignment.status || '').toLowerCase() !== 'cancelled'
+        ));
 
       await Promise.all(assignmentsToReopen.map((assignment) => api(`/assignments/${assignment.id}`, {
         method: 'PUT',

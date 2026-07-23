@@ -33,6 +33,7 @@ import {
   splitClientBillingRows,
 } from '../utils/clientBilling.js';
 import { externalCostsTotals } from '../utils/externalCosts.js';
+import { eventTaxAmount } from '../utils/eventTax.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { clientChargeHours, decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
@@ -273,7 +274,7 @@ function eventRevenue(event) {
   }, 0);
   const travel = event.travelExpenseEnabled ? num(event.travelExpenseAmount) : 0;
   const externalTotals = externalCostsTotals(event.externalCosts);
-  const calculated = assignmentRevenue + travel + externalTotals.chargeAmount;
+  const calculated = assignmentRevenue + travel + externalTotals.chargeAmount + eventTaxAmount(event);
   return calculated > 0 ? calculated : num(event.totalRevenue);
 }
 
@@ -283,8 +284,10 @@ function eventFinancialRow(event, invoices, expenses) {
   const revenue = eventRevenue(event);
   const staff = eventStaffCost(event);
   const externalTotals = externalCostsTotals(event.externalCosts);
+  const tax = eventTaxAmount(event);
   const operational = externalTotals.costAmount
-    + linkedExpenses.reduce((sum, expense) => sum + num(expense.amount), 0);
+    + linkedExpenses.reduce((sum, expense) => sum + num(expense.amount), 0)
+    + tax;
   const { margin, marginPct } = calculateFinancialMargin(revenue, staff, operational);
   const paidByInvoice = eventInvoices.filter(invoiceIsPaid).reduce((sum, invoice) => sum + num(invoice.total), 0);
   const paidBySignal = num(event.paidAmount);
@@ -296,6 +299,7 @@ function eventFinancialRow(event, invoices, expenses) {
       revenue,
       staff,
       operational,
+      tax,
       margin,
       marginPct,
       received,

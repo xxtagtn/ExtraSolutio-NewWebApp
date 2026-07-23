@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
+import ExternalCostsEditor from '../components/Finance/ExternalCostsEditor.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import SourceBadge from '../components/UI/SourceBadge.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
@@ -179,6 +180,8 @@ function emptyForm() {
     signaledAt: '',
     remainingPaymentDate: '',
     totalRevenue: '',
+    vatRateSnapshot: 0,
+    taxAmount: 0,
     externalCosts: [],
     realHours: 0,
     billableHours: 0,
@@ -450,6 +453,8 @@ function toForm(row) {
     signaledAt: row.signaledAt ? String(row.signaledAt).slice(0, 10) : '',
     remainingPaymentDate: row.remainingPaymentDate ? String(row.remainingPaymentDate).slice(0, 10) : '',
     totalRevenue: row.totalRevenue === undefined || row.totalRevenue === null ? '' : formatMoneyInline(row.totalRevenue),
+    vatRateSnapshot: Number(row.vatRateSnapshot || 0),
+    taxAmount: Number(row.taxAmount || 0),
     externalCosts: normalizeExternalCosts(row.externalCosts),
     realHours: Number(row.realHours || 0),
     billableHours: Number(row.billableHours || 0),
@@ -630,8 +635,16 @@ export default function Services() {
     const hasAssignments = assignments.length > 0;
     const revenueWithoutTravel = hasAssignments ? totalRevenue : expectedRevenueByRoles;
     const expectedWithoutTravel = hasAssignments ? expectedRevenue : expectedRevenueByRoles;
-    const calculatedExpectedRevenue = expectedWithoutTravel + travelExpenseAmount + externalTotals.chargeAmount;
-    const calculatedTotalRevenue = revenueWithoutTravel + travelExpenseAmount + externalTotals.chargeAmount;
+    const expectedOwnRevenue = expectedWithoutTravel + travelExpenseAmount;
+    const calculatedOwnRevenue = revenueWithoutTravel + travelExpenseAmount;
+    const vatRate = Number(form.vatRateSnapshot || 0);
+    const calculatedExpectedTax = (expectedOwnRevenue * (vatRate / 100)) + externalTotals.taxAmount;
+    const calculatedTax = (calculatedOwnRevenue * (vatRate / 100)) + externalTotals.taxAmount;
+    const storedTax = Number(form.taxAmount || 0);
+    const resolvedTax = calculatedTax > 0 ? calculatedTax : Math.max(0, storedTax);
+    const resolvedExpectedTax = calculatedExpectedTax > 0 ? calculatedExpectedTax : Math.max(0, storedTax);
+    const calculatedExpectedRevenue = expectedOwnRevenue + externalTotals.chargeAmount + resolvedExpectedTax;
+    const calculatedTotalRevenue = calculatedOwnRevenue + externalTotals.chargeAmount + resolvedTax;
     const resolvedTotalRevenue = resolveEventRevenue({
       calculatedTotalRevenue,
       calculatedExpectedRevenue,
@@ -643,8 +656,10 @@ export default function Services() {
       storedTotalRevenue: form.totalRevenue,
     });
     const staffCost = Number(totalCost.toFixed(2));
-    const expenses = Number(externalTotals.costAmount.toFixed(2));
-    const margin = calculateFinancialMargin(resolvedTotalRevenue, staffCost, expenses);
+    const operationalExpenses = Number(externalTotals.costAmount.toFixed(2));
+    const nonStaffExpenses = Number((operationalExpenses + resolvedTax).toFixed(2));
+    const expenses = Number((staffCost + nonStaffExpenses).toFixed(2));
+    const margin = calculateFinancialMargin(resolvedTotalRevenue, staffCost, nonStaffExpenses);
     const warnings = eventFinancialWarnings(
       {
         requiredRoles: form.requiredRoles,
@@ -658,9 +673,11 @@ export default function Services() {
     return {
       expectedRevenue: resolvedExpectedRevenue,
       totalRevenue: resolvedTotalRevenue,
-      totalCost: Number((staffCost + expenses).toFixed(2)),
+      totalCost: Number((staffCost + operationalExpenses).toFixed(2)),
+      taxAmount: Number(resolvedTax.toFixed(2)),
       staffCost,
       expenses,
+      operationalExpenses,
       externalCostAmount: externalTotals.costAmount,
       externalChargeAmount: externalTotals.chargeAmount,
       externalMarginAmount: externalTotals.marginAmount,
@@ -670,7 +687,7 @@ export default function Services() {
       realHours: Number(realHours.toFixed(2)),
       billableHours: Number(billableHours.toFixed(2)),
     };
-  }, [form.requiredRoles, form.assignments, form.externalCosts, form.isContinuous, form.date, form.endDate, expectedBillableHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, form.totalRevenue]);
+  }, [form.requiredRoles, form.assignments, form.externalCosts, form.isContinuous, form.date, form.endDate, expectedBillableHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, form.totalRevenue, form.taxAmount, form.vatRateSnapshot]);
   const prepaymentSummary = buildPrepaymentSummary({
     total: financials.totalRevenue || financials.expectedRevenue || 0,
     serviceDate: form.date,
@@ -1246,6 +1263,8 @@ export default function Services() {
         minimumHoursSnapshot,
         totalRevenue: financials.totalRevenue,
         totalCost: financials.totalCost,
+        vatRateSnapshot: Number(form.vatRateSnapshot || 0),
+        taxAmount: financials.taxAmount,
         externalCosts: normalizeExternalCosts(form.externalCosts),
         travelExpenseEnabled: travelExpenseAmount > 0,
         travelExpenseAmount: travelExpenseAmount || 0,
@@ -2184,39 +2203,34 @@ export default function Services() {
                   <div className="service-finance-grid">
                     <div><span>Horas Reais</span><strong>{durationHours(financials.realHours)}</strong></div>
                     <div><span>Horas Faturáveis</span><strong>{durationHours(financials.billableHours)}</strong></div>
-                    <div><span>Receita</span><strong>{euro(financials.totalRevenue)}</strong></div>
                     <div><span>Staff</span><strong>{euro(financials.staffCost)}</strong></div>
-                    <div><span>Despesas</span><strong>{euro(financials.expenses)}</strong></div>
-                    <div><span>Margem</span><strong className={financials.profit < 0 ? 'money-negative' : 'money-positive'}>{euro(financials.profit)}</strong></div>
+                    <div><span>Custo Real Parceiros</span><strong>{euro(financials.externalCostAmount)}</strong></div>
                     <div><span>Margem %</span><strong className={financials.profit < 0 ? 'money-negative' : 'money-positive'}>{financials.marginPct.toFixed(1).replace('.', ',')}%</strong></div>
-                    {financials.externalChargeAmount > 0 ? (
-                      <>
-                        <div><span>Parceiros cobrados ao cliente</span><strong>{euro(financials.externalChargeAmount)}</strong></div>
-                        <div><span>Custo real parceiros</span><strong>{euro(financials.externalCostAmount)}</strong></div>
-                      </>
-                    ) : null}
+                    <div><span>Margem €</span><strong className={financials.profit < 0 ? 'money-negative' : 'money-positive'}>{euro(financials.profit)}</strong></div>
+                    <div><span>Parceiros cobrados ao cliente</span><strong>{euro(financials.externalChargeAmount)}</strong></div>
+                    <div><span>Receita</span><strong>{euro(financials.totalRevenue)}</strong></div>
+                    <div><span>Despesas</span><strong>{euro(financials.expenses)}</strong></div>
                   </div>
                   {financials.warnings.length ? (
                     <div className="service-financial-warnings" role="status">
                       {financials.warnings.map((warning) => <p key={warning.code}>{warning.message}</p>)}
                     </div>
                   ) : null}
-                  {financials.externalChargeAmount > 0 ? (
-                    <div className="service-external-costs">
-                      <h4>Custos Externos/Parceiros</h4>
-                      {normalizeExternalCosts(form.externalCosts).map((item) => (
-                        <div className="service-external-row" key={item.id}>
-                          <div>
-                            <strong>{item.type || 'Custo externo'}</strong>
-                            <small>{[item.supplier, item.description].filter(Boolean).join(' · ') || '-'}</small>
-                          </div>
-                          <span>Custo: {euro(item.costAmount)}</span>
-                          <span>Margem: {item.marginPercent.toFixed(2).replace('.', ',')}%</span>
-                          <strong>{euro(item.chargeAmount)}</strong>
-                        </div>
-                      ))}
+                  <div className="service-external-costs service-external-costs--editor">
+                    <div className="service-external-costs__header">
+                      <div>
+                        <h4>Custos Externos/Parceiros</h4>
+                        <p className="muted">Consulta, adiciona ou altera os parceiros associados a este evento.</p>
+                      </div>
+                      {financials.externalChargeAmount > 0 ? (
+                        <strong>{euro(financials.externalChargeAmount)}</strong>
+                      ) : null}
                     </div>
-                  ) : null}
+                    <ExternalCostsEditor
+                      value={form.externalCosts}
+                      onChange={(externalCosts) => setForm((current) => ({ ...current, externalCosts }))}
+                    />
+                  </div>
                 </section>
               </div>
             ) : null}

@@ -1,4 +1,9 @@
 import { decimalValue } from './serviceFinance.js';
+import {
+  activeEventAssignments,
+  activeEventDayKeys,
+  activeEventRequiredRoles,
+} from './eventCancelledDays.js';
 
 export const NON_BILLABLE_EVENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 
@@ -90,10 +95,12 @@ function inclusiveDayCount(startValue, endValue) {
 }
 
 export function eventFinancialWarnings(event = {}, assignments = event.assignments || [], totals = {}) {
-  const billable = billableEventAssignments(assignments).filter((assignment) => assignment.collaboratorId || assignment.role);
+  const billable = billableEventAssignments(activeEventAssignments(event, assignments))
+    .filter((assignment) => assignment.collaboratorId || assignment.role);
   const warnings = [];
   const missingRateRows = billable.filter((assignment) => clientRateForAssignment(assignment, event) <= 0);
-  const missingRoleRates = requiredRoleEntries(event).filter((item) => item.agreedRate <= 0);
+  const missingRoleRates = requiredRoleEntries(activeEventRequiredRoles(event))
+    .filter((item) => item.agreedRate <= 0);
   const revenue = decimalValue(totals.revenue ?? totals.totalRevenue ?? event.totalRevenue) || 0;
   const staff = decimalValue(totals.staff ?? totals.totalCost ?? event.totalCost) || 0;
 
@@ -113,7 +120,9 @@ export function eventFinancialWarnings(event = {}, assignments = event.assignmen
     });
   }
 
-  const eventDays = event.isContinuous ? inclusiveDayCount(event.date, event.endDate || event.date) : 1;
+  const eventDays = event.isContinuous
+    ? activeEventDayKeys(event).length
+    : inclusiveDayCount(event.date, event.endDate || event.date);
   if (eventDays > 1 && billable.length) {
     const coveredDays = new Set(billable.map((assignment) => dateOnly(assignment.assignmentDate || event.date)).filter(Boolean));
     if (coveredDays.size < eventDays) {
@@ -126,4 +135,3 @@ export function eventFinancialWarnings(event = {}, assignments = event.assignmen
 
   return warnings;
 }
-

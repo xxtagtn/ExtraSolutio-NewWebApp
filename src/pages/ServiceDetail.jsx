@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Ban,
   CalendarClock,
   CarFront,
   ChevronDown,
@@ -18,6 +19,7 @@ import {
   Trash2,
   Users,
   WalletCards,
+  RotateCcw,
 } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -32,6 +34,8 @@ import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { serviceDetailTabFromQuery } from '../utils/deepLinks.js';
 import { calculateFinancialMargin, eventFinancialWarnings } from '../utils/eventFinancialRules.js';
 import { externalCostsTotals } from '../utils/externalCosts.js';
+import { isEventDayCancelled } from '../utils/eventCancelledDays.js';
+import { eventTaxAmount, expensesIncludingEventTax } from '../utils/eventTax.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import {
   assignmentWorkDate,
@@ -102,6 +106,12 @@ function formatDateRange(service) {
 
 function fieldValue(value) {
   return value || '-';
+}
+
+function dayActionErrorMessage(error, fallback) {
+  const message = String(error?.message || '').trim();
+  if (!message || message.includes('não pertence a este evento')) return fallback;
+  return message;
 }
 
 function collaboratorHasRole(collaborator, role) {
@@ -186,6 +196,8 @@ export default function ServiceDetail() {
   const [savingTeam, setSavingTeam] = useState(false);
   const [teamError, setTeamError] = useState('');
   const [activeAdvanceRowKey, setActiveAdvanceRowKey] = useState(null);
+  const [dayActionBusy, setDayActionBusy] = useState(false);
+  const [dayActionError, setDayActionError] = useState('');
   const [billingDraft, setBillingDraft] = useState({
     billingStatus: 'pending',
     signaledAmount: '',
@@ -210,6 +222,10 @@ export default function ServiceDetail() {
   const [teamCollaboratorPickerPlacement, setTeamCollaboratorPickerPlacement] = useState(null);
   const teamCollaboratorSearchRef = useRef(null);
   const currentDay = selectedDay && days.includes(selectedDay) ? selectedDay : days[0] || '';
+  const currentDayCancelled = useMemo(
+    () => isEventDayCancelled(service || {}, currentDay),
+    [currentDay, service],
+  );
   const teamService = useMemo(
     () => ({ ...(service || {}), requiredRoles: teamRoles }),
     [service, teamRoles],
@@ -239,8 +255,10 @@ export default function ServiceDetail() {
   const totalRevenue = parseNumber(service?.totalRevenue);
   const totalCost = parseNumber(service?.totalCost);
   const staffCost = Math.max(0, totalCost - externalTotals.costAmount);
-  const expenses = externalTotals.costAmount;
-  const financialMargin = calculateFinancialMargin(totalRevenue, staffCost, expenses);
+  const taxAmount = eventTaxAmount(service);
+  const nonStaffExpenses = expensesIncludingEventTax(service, externalTotals.costAmount);
+  const expenses = staffCost + nonStaffExpenses;
+  const financialMargin = calculateFinancialMargin(totalRevenue, staffCost, nonStaffExpenses);
   const profit = financialMargin.margin;
   const financialWarnings = eventFinancialWarnings(
     service || {},
@@ -345,6 +363,11 @@ export default function ServiceDetail() {
   }, [days, selectedDay, service?.isContinuous]);
 
   useEffect(() => {
+    setDayActionError('');
+    setRoleManagerOpen(false);
+  }, [currentDay]);
+
+  useEffect(() => {
     if (activeTeamCollaboratorPickerKey === null) return undefined;
 
     function closePickerFromOutside(event) {
@@ -391,6 +414,7 @@ export default function ServiceDetail() {
         : row
     )));
     setTeamError('');
+    setDayActionError('');
   }
 
   function addTeamAdvance(rowKey) {
@@ -636,6 +660,10 @@ export default function ServiceDetail() {
 
   async function saveTeamRows() {
     if (!service || savingTeam) return;
+    if (currentDayCancelled) {
+      setTeamError('Reativa este dia antes de alterar a equipa.');
+      return;
+    }
     const roleKeysByDay = new Set();
     for (const requirement of teamRoles) {
       const role = String(requirement.role || '').trim();
@@ -655,9 +683,18 @@ export default function ServiceDetail() {
       setRoleManagerOpen(true);
       return;
     }
-    const assignmentPayloads = editableTeamRowsToAssignmentPayloads(teamRows, service);
+    const allAssignmentPayloads = editableTeamRowsToAssignmentPayloads(teamRows, service);
+    const assignmentPayloads = allAssignmentPayloads.filter(
+      (row) => !isEventDayCancelled(service, assignmentWorkDate(row, service)),
+    );
     const assignmentDrafts = editableTeamRowsToAssignmentDrafts(teamRows);
-    const keptIds = new Set(assignmentPayloads.filter((row) => row.id).map((row) => Number(row.id)));
+    const cancelledAssignmentIds = (service.assignments || [])
+      .filter((assignment) => isEventDayCancelled(service, assignmentWorkDate(assignment, service)))
+      .map((assignment) => Number(assignment.id));
+    const keptIds = new Set([
+      ...assignmentPayloads.filter((row) => row.id).map((row) => Number(row.id)),
+      ...cancelledAssignmentIds,
+    ]);
     const removedIds = (service.assignments || [])
       .map((assignment) => Number(assignment.id))
       .filter((id) => !keptIds.has(id));
@@ -687,6 +724,70 @@ export default function ServiceDetail() {
       setTeamError(err?.message || 'Não foi possível guardar os colaboradores.');
     } finally {
       setSavingTeam(false);
+    }
+  }
+
+  async function cancelCurrentDay() {
+    if (!service?.isContinuous || !currentDay || currentDayCancelled || dayActionBusy) return;
+    const dayAssignments = (service.assignments || []).filter(
+      (assignment) => assignmentWorkDate(assignment, service) === currentDay
+        && String(assignment.status || '').toLowerCase() !== 'cancelled',
+    );
+    const hasHours = dayAssignments.some((assignment) => (
+      assignment.plannedCheckIn
+      || assignment.plannedCheckOut
+      || assignment.checkIn
+      || assignment.checkOut
+      || assignment.staffCheckIn
+      || assignment.staffCheckOut
+      || assignment.clientCheckIn
+      || assignment.clientCheckOut
+      || assignment.validatedCheckIn
+      || assignment.validatedCheckOut
+    ));
+    const warnings = [];
+    if (dayAssignments.some((assignment) => assignment.collaboratorId)) {
+      warnings.push(`Este dia possui ${dayAssignments.filter((assignment) => assignment.collaboratorId).length} colaborador(es) atribuído(s).`);
+    }
+    if (hasHours) {
+      warnings.push('Este dia já possui horários registados. Esses registos deixarão de ser considerados para validações, pagamentos e faturação.');
+    }
+    const confirmed = window.confirm([
+      `Pretende cancelar apenas o dia ${formatDate(currentDay)} deste evento contínuo?`,
+      'Esta ação não irá cancelar os restantes dias.',
+      ...warnings,
+    ].join('\n\n'));
+    if (!confirmed) return;
+
+    setDayActionBusy(true);
+    setDayActionError('');
+    setTeamError('');
+    try {
+      await api(`/services/${service.id}/days/${currentDay}/cancel`, { method: 'POST' });
+      setRoleManagerOpen(false);
+      setActiveAdvanceRowKey(null);
+      await reload();
+    } catch (err) {
+      setDayActionError(dayActionErrorMessage(err, 'Não foi possível cancelar este dia.'));
+    } finally {
+      setDayActionBusy(false);
+    }
+  }
+
+  async function reactivateCurrentDay() {
+    if (!service?.isContinuous || !currentDay || !currentDayCancelled || dayActionBusy) return;
+    if (!window.confirm(`Pretende reativar o dia ${formatDate(currentDay)}?`)) return;
+
+    setDayActionBusy(true);
+    setDayActionError('');
+    setTeamError('');
+    try {
+      await api(`/services/${service.id}/days/${currentDay}/reactivate`, { method: 'POST' });
+      await reload();
+    } catch (err) {
+      setDayActionError(dayActionErrorMessage(err, 'Não foi possível reativar este dia.'));
+    } finally {
+      setDayActionBusy(false);
     }
   }
 
@@ -755,7 +856,12 @@ export default function ServiceDetail() {
               <Trash2 size={16} />
               Eliminar evento
             </button>
-            <button className="command-button" type="button" onClick={saveCurrentTab} disabled={savingTeam || savingBilling}>
+            <button
+              className="command-button"
+              type="button"
+              onClick={saveCurrentTab}
+              disabled={savingTeam || savingBilling || (activeTab === 'team' && currentDayCancelled)}
+            >
               <Save size={16} />
               Guardar alterações
             </button>
@@ -845,16 +951,51 @@ export default function ServiceDetail() {
           {days.length > 1 ? (
             <div className="service-day-tabs service-detail-day-tabs">
               {days.map((day) => (
-                <button key={day} type="button" className={`service-tab ${currentDay === day ? 'service-tab--active' : ''}`} onClick={() => setSelectedDay(day)}>
-                  {formatDate(day).slice(0, 5)}
+                <button
+                  key={day}
+                  type="button"
+                  className={[
+                    'service-tab',
+                    currentDay === day ? 'service-tab--active' : '',
+                    isEventDayCancelled(service, day) ? 'service-tab--cancelled' : '',
+                  ].filter(Boolean).join(' ')}
+                  title={isEventDayCancelled(service, day) ? `${formatDate(day)} - Cancelado` : formatDate(day)}
+                  onClick={() => setSelectedDay(day)}
+                >
+                  {isEventDayCancelled(service, day) ? <Ban size={13} aria-hidden="true" /> : null}
+                  <span>{formatDate(day).slice(0, 5)}</span>
                 </button>
               ))}
             </div>
           ) : null}
+          {dayActionError ? <p className="notice">{dayActionError}</p> : null}
+          {currentDayCancelled ? (
+            <div className="service-detail-cancelled-day service-detail-cancelled-day--notice">
+              <span className="service-detail-cancelled-day__icon"><Ban size={22} /></span>
+              <div>
+                <h3>Dia cancelado</h3>
+                <p>Este dia não será considerado para equipa, validações, financeiro ou faturação.</p>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={dayActionBusy}
+                onClick={reactivateCurrentDay}
+              >
+                <RotateCcw size={16} />
+                {dayActionBusy ? 'A processar...' : 'Reativar dia'}
+              </button>
+            </div>
+          ) : null}
+          {!currentDayCancelled ? <>
           <div className="service-detail-role-toolbar">
             <div>
-              <strong>Funções deste dia</strong>
-              <span>{currentDayRoles.length} função(ões) · {currentDayRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0)} lugar(es)</span>
+              <strong>{currentDayCancelled ? 'Dia cancelado' : 'Funções deste dia'}</strong>
+              <span>
+                {currentDayCancelled
+                  ? `${formatDate(currentDay)} · Excluído do planeamento`
+                  : `${currentDayRoles.length} função(ões) · ${currentDayRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0)} lugar(es)`}
+              </span>
             </div>
             <button
               className={`secondary-button${roleManagerOpen ? ' secondary-button--active' : ''}`}
@@ -863,18 +1004,18 @@ export default function ServiceDetail() {
               aria-expanded={roleManagerOpen}
             >
               <Settings2 size={16} />
-              {roleManagerOpen ? 'Fechar gestão' : 'Gerir funções do dia'}
+              {roleManagerOpen ? 'Fechar gestão' : 'Gerir o dia'}
             </button>
           </div>
           {roleManagerOpen ? (
             <div className="service-detail-role-manager">
               <div className="service-detail-role-manager__heading">
                 <div>
-                  <strong>Funções necessárias</strong>
+                  <strong>Gestão do dia</strong>
                   <span>{service.isContinuous ? `Configuração independente para ${formatDate(currentDay)}` : 'Configuração deste evento/serviço'}</span>
                 </div>
               </div>
-              <div className="service-detail-role-manager__list">
+              {!currentDayCancelled ? <div className="service-detail-role-manager__list">
                 {currentDayRoles.map((requirement, index) => (
                   <div className="service-detail-role-manager__row" key={`${currentDay || 'single'}-${requirement.role}`}>
                     <label>
@@ -909,8 +1050,8 @@ export default function ServiceDetail() {
                   </div>
                 ))}
                 {!currentDayRoles.length ? <p className="muted">Ainda não existem funções definidas para este dia.</p> : null}
-              </div>
-              <div className="service-detail-role-manager__add">
+              </div> : null}
+              {!currentDayCancelled ? <div className="service-detail-role-manager__add">
                 <label>
                   <span>Nova função</span>
                   <input
@@ -932,14 +1073,39 @@ export default function ServiceDetail() {
                 <button className="command-button" type="button" onClick={addNewDailyRole}>
                   <Plus size={16} /> Adicionar função
                 </button>
-              </div>
+              </div> : null}
+              {service.isContinuous && currentDay ? (
+                <div className={`service-detail-day-manager${currentDayCancelled ? ' service-detail-day-manager--cancelled' : ''}`}>
+                  <div className="service-detail-day-status">
+                    {currentDayCancelled ? <Ban size={17} /> : <CalendarClock size={17} />}
+                    <div>
+                      <strong>{currentDayCancelled ? 'Dia cancelado' : 'Cancelar apenas este dia'}</strong>
+                      <span>
+                        {currentDayCancelled
+                          ? 'Este dia está excluído da equipa, validação, financeiro e relatórios.'
+                          : 'Os restantes dias do evento contínuo não serão alterados.'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    className={currentDayCancelled ? 'secondary-button' : 'secondary-button secondary-button--danger'}
+                    type="button"
+                    disabled={dayActionBusy}
+                    onClick={currentDayCancelled ? reactivateCurrentDay : cancelCurrentDay}
+                  >
+                    {currentDayCancelled ? <RotateCcw size={16} /> : <Ban size={16} />}
+                    {dayActionBusy ? 'A processar...' : currentDayCancelled ? 'Reativar dia' : 'Cancelar dia'}
+                  </button>
+                </div>
+              ) : null}
               <datalist id="service-detail-role-options">
                 {collaboratorRoleOptions.map((role) => <option key={role} value={role} />)}
               </datalist>
             </div>
           ) : null}
+          </> : null}
           {teamError ? <p className="notice">{teamError}</p> : null}
-          <div className="service-detail-team">
+          {currentDayCancelled ? null : <div className="service-detail-team">
             {assignmentGroups.map((group) => {
               const roleCollapsed = collapsedRoles.has(group.role);
               return (
@@ -1219,9 +1385,9 @@ export default function ServiceDetail() {
                 />
               </div>
             ) : null}
-          </div>
+          </div>}
         </Card>
-        <div className="service-detail-team-footer">
+        {!currentDayCancelled ? <div className="service-detail-team-footer">
           <div className="service-detail-team-total">
             <Users size={25} />
             <span>Total colaboradores<strong>{teamTotals.collaborators}</strong></span>
@@ -1237,7 +1403,7 @@ export default function ServiceDetail() {
           <Link className="service-detail-cost-link" to={`/finance?area=staff&eventId=${service.id}`}>
           Ver resumo de custos
           </Link>
-        </div>
+        </div> : null}
         </>
       ) : null}
 
@@ -1267,11 +1433,15 @@ export default function ServiceDetail() {
         <div className="service-detail-grid">
           <Card title="Resumo financeiro" className="service-detail-card">
             <div className="service-detail-finance-grid">
-              <div><span>Receita</span><strong>{money.format(totalRevenue)}</strong></div>
+              <div><span>Horas Reais</span><strong>{durationHours(parseNumber(service?.realHours))}</strong></div>
+              <div><span>Horas Faturáveis</span><strong>{durationHours(parseNumber(service?.billableHours))}</strong></div>
               <div><span>Staff</span><strong>{money.format(staffCost)}</strong></div>
-              <div><span>Despesas</span><strong>{money.format(expenses)}</strong></div>
-              <div className={profit >= 0 ? 'service-detail-profit--positive' : 'service-detail-profit--negative'}><span>Margem</span><strong>{money.format(profit)}</strong></div>
+              <div><span>Custo Real Parceiros</span><strong>{money.format(externalTotals.costAmount)}</strong></div>
               <div className={profit >= 0 ? 'service-detail-profit--positive' : 'service-detail-profit--negative'}><span>Margem %</span><strong>{financialMargin.marginPct.toFixed(1).replace('.', ',')}%</strong></div>
+              <div className={profit >= 0 ? 'service-detail-profit--positive' : 'service-detail-profit--negative'}><span>Margem €</span><strong>{money.format(profit)}</strong></div>
+              <div><span>Parceiros cobrados ao cliente</span><strong>{money.format(externalTotals.chargeAmount)}</strong></div>
+              <div><span>Receita</span><strong>{money.format(totalRevenue)}</strong></div>
+              <div><span>Despesas</span><strong>{money.format(expenses)}</strong><small>Inclui IVA: {money.format(taxAmount)}</small></div>
             </div>
             {financialWarnings.length ? (
               <div className="service-financial-warnings" role="status">

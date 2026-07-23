@@ -40,6 +40,7 @@ for (const event of events) {
   const data = {};
   if (changed(event.totalRevenue, totals.totalRevenue)) data.totalRevenue = totals.totalRevenue;
   if (changed(event.totalCost, totals.totalCost)) data.totalCost = totals.totalCost;
+  if (changed(event.taxAmount, totals.taxAmount)) data.taxAmount = totals.taxAmount;
   if (changed(event.realHours, totals.realHours)) data.realHours = totals.realHours;
   if (changed(event.billableHours, totals.billableHours)) data.billableHours = totals.billableHours;
   if (!event.rateHistory) {

@@ -8,6 +8,26 @@ export const EXTERNAL_COST_VAT_OPTIONS = [
 
 export const DEFAULT_EXTERNAL_COST_VAT_TYPE = 'standard_23';
 
+export const EXTERNAL_COST_TYPE_OPTIONS = [
+  'Catering',
+  'Bebidas',
+  'Material',
+  'Aluguer',
+  'Transporte',
+  'Outro',
+];
+
+export function createEmptyExternalCost() {
+  return {
+    type: '',
+    supplier: '',
+    description: '',
+    costAmount: '',
+    marginPercent: 0,
+    vatType: DEFAULT_EXTERNAL_COST_VAT_TYPE,
+  };
+}
+
 function asText(value) {
   return String(value || '').trim();
 }

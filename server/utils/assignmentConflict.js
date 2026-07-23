@@ -26,6 +26,7 @@ export async function assertNoAssignmentConflict(prisma, data, existing = null) 
   const assignments = await prisma.eventAssignment.findMany({
     where: {
       collaboratorId: Number(assignment.collaboratorId),
+      status: { not: 'cancelled' },
       ...(assignment.id ? { id: { not: Number(assignment.id) } } : {}),
     },
     include: {

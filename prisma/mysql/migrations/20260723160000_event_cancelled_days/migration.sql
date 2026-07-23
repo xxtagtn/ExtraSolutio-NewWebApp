@@ -1,0 +1,1 @@
+ALTER TABLE `Event` ADD COLUMN `cancelledDays` LONGTEXT NULL;

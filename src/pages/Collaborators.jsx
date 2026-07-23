@@ -23,6 +23,7 @@ import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import { money } from '../utils/formatters.js';
 import { createImageThumbnailDataUrl, readFileAsDataUrl } from '../utils/imageThumbnails.js';
 import { paginateItems, reconcileServerPage } from '../utils/pagination.js';
+import { isAssignmentOnCancelledDay } from '../utils/eventCancelledDays.js';
 
 const PHOTO_VIEWER_BASE_WIDTH = 420;
 const PHOTO_VIEWER_MAX_ZOOM = 2;
@@ -393,6 +394,7 @@ export default function Collaborators() {
     const map = new Map();
     for (const service of (services || [])) {
       for (const assignment of (service.assignments || [])) {
+        if (isAssignmentOnCancelledDay(assignment, service)) continue;
         const key = Number(assignment.collaboratorId);
         if (!Number.isInteger(key)) continue;
         const current = map.get(key) || { confirmed: 0, refused: 0, missedJustified: 0, missedUnjustified: 0 };

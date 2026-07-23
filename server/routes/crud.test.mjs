@@ -247,3 +247,24 @@ test('normalizes assignment deferred payment month', () => {
   assert.equal(normalizeAssignment({ paymentDeferredMonth: '2026-08' }).paymentDeferredMonth, '2026-08');
   assert.equal(normalizeAssignment({ paymentDeferredMonth: '' }).paymentDeferredMonth, null);
 });
+
+test('accepts a budget without staff when it contains an external partner cost', () => {
+  const payload = normalizeBudget({
+    categories: [],
+    externalCosts: [{ type: 'Material', costAmount: 790, marginPercent: 20 }],
+    totalAmount: 1166.04,
+  });
+
+  assert.equal(payload.categories, '[]');
+  assert.equal(JSON.parse(payload.externalCosts)[0].costAmount, 790);
+  assert.equal(payload.totalAmount, 1166.04);
+});
+
+test('rejects a budget without staff or a valid external partner cost', () => {
+  assert.throws(
+    () => normalizeBudget({ categories: [], externalCosts: [] }),
+    (error) => error.statusCode === 422
+      && error.expose === true
+      && /função de Staff|custo externo/i.test(error.message),
+  );
+});

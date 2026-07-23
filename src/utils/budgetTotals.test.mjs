@@ -125,6 +125,32 @@ test('adds external partner costs with margin to the budget total', () => {
   assert.equal(totals.totalAmount, 265.25);
 });
 
+test('calculates a budget composed only of an external partner cost', () => {
+  const totals = calculateBudgetTotals({
+    categories: [],
+    externalCosts: [
+      {
+        type: 'Material',
+        supplier: 'Fun Ride',
+        costAmount: 790,
+        marginPercent: 20,
+        vatType: 'standard_23',
+      },
+    ],
+    eventDays: [],
+    vatMode: 'normal_23',
+    travelType: 'none',
+    discountRate: 0,
+  });
+
+  assert.equal(totals.baseAmount, 0);
+  assert.equal(totals.externalCostsBaseAmount, 790);
+  assert.equal(totals.externalCostsMarginAmount, 158);
+  assert.equal(totals.subtotalAmount, 948);
+  assert.equal(totals.taxAmount, 218.04);
+  assert.equal(totals.totalAmount, 1166.04);
+});
+
 test('groups own services and external VAT by rate, including catering split', () => {
   const totals = calculateBudgetTotals({
     categories: [

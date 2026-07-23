@@ -156,7 +156,8 @@ test('preserves external partner costs when converting a budget into an event', 
     reference: 'ORC-0301',
     companyName: 'BLACK',
     eventDate: '2026-07-12',
-    totalAmount: 225,
+    totalAmount: 147.6,
+    taxAmount: 27.6,
     externalCosts: JSON.stringify([
       {
         type: 'Catering',
@@ -164,6 +165,7 @@ test('preserves external partner costs when converting a budget into an event', 
         description: 'Menu volante',
         costAmount: '100,00',
         marginPercent: '20',
+        vatType: 'standard_23',
       },
     ]),
   });
@@ -171,10 +173,12 @@ test('preserves external partner costs when converting a budget into an event', 
   assert.equal(draft.externalCosts.length, 1);
   assert.equal(draft.externalCosts[0].chargeAmount, 120);
   assert.equal(draft.externalCosts[0].marginAmount, 20);
+  assert.equal(draft.taxAmount, 27.6);
 
   const payload = buildEventPayloadFromBudgetConversion(draft, 7);
 
   assert.equal(payload.externalCosts.length, 1);
   assert.equal(payload.externalCosts[0].supplier, 'Parceiro A');
   assert.equal(payload.externalCosts[0].chargeAmount, 120);
+  assert.equal(payload.taxAmount, 27.6);
 });

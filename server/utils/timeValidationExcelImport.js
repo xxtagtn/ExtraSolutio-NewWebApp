@@ -417,6 +417,7 @@ function findAssignment(row, event, collaborator, role) {
   if (!event || !collaborator) return { assignment: null, ambiguous: false };
   const baseCandidates = (event.assignments || []).filter((assignment) => (
     String(assignment.collaboratorId) === String(collaborator.id)
+    && String(assignment.status || '').toLowerCase() !== 'cancelled'
     && (!row.eventDate || sameStoredDate(assignment.assignmentDate || event.date, row.eventDate))
   ));
   const exactRoleCandidates = role

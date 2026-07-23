@@ -1,6 +1,30 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { externalCostVatBreakdown, normalizeExternalCosts } from './externalCosts.js';
+import {
+  EXTERNAL_COST_TYPE_OPTIONS,
+  createEmptyExternalCost,
+  externalCostVatBreakdown,
+  normalizeExternalCosts,
+} from './externalCosts.js';
+
+test('provides the same external partner options to budgets and events', () => {
+  assert.deepEqual(EXTERNAL_COST_TYPE_OPTIONS, [
+    'Catering',
+    'Bebidas',
+    'Material',
+    'Aluguer',
+    'Transporte',
+    'Outro',
+  ]);
+  assert.deepEqual(createEmptyExternalCost(), {
+    type: '',
+    supplier: '',
+    description: '',
+    costAmount: '',
+    marginPercent: 0,
+    vatType: 'standard_23',
+  });
+});
 
 test('preserves high precision margin percentages for external partner costs', () => {
   const [cost] = normalizeExternalCosts([

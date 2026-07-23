@@ -1,4 +1,5 @@
 import { externalCostsTotals } from './externalCosts.js';
+import { eventTaxAmount } from './eventTax.js';
 
 const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const finalizedStatuses = new Set(['finalized', 'completed', 'invoiced', 'paid']);
@@ -155,7 +156,8 @@ function rowFromEvent(event, invoices) {
   const revenue = eventRevenue(event);
   const external = eventExternalCost(event);
   const staff = eventStaffCost(event, external);
-  const margin = revenue - staff - external;
+  const tax = eventTaxAmount(event);
+  const margin = revenue - staff - external - tax;
   const marginPct = revenue > 0 ? Math.round((margin / revenue) * 1000) / 10 : 0;
   const receivable = eventReceivable(event, revenue);
   return {
@@ -170,7 +172,8 @@ function rowFromEvent(event, invoices) {
     revenue,
     staff,
     external,
-    totalCost: Number((staff + external).toFixed(2)),
+    tax,
+    totalCost: Number((staff + external + tax).toFixed(2)),
     margin: Number(margin.toFixed(2)),
     marginPct,
     receivable,
@@ -208,13 +211,15 @@ function buildMonthlySeries(rows) {
     const receita = sum(monthRows, 'revenue');
     const staff = sum(monthRows, 'staff');
     const externos = sum(monthRows, 'external');
-    const custos = Number((staff + externos).toFixed(2));
+    const impostos = sum(monthRows, 'tax');
+    const custos = Number((staff + externos + impostos).toFixed(2));
     const margem = Number((receita - custos).toFixed(2));
     return {
       month,
       receita,
       staff,
       externos,
+      impostos,
       custos,
       margem,
       margemPct: receita > 0 ? Number(((margem / receita) * 100).toFixed(1)) : 0,
@@ -240,6 +245,7 @@ function buildClientRows(rows, today) {
       revenue: 0,
       staff: 0,
       external: 0,
+      tax: 0,
       margin: 0,
       receivable: 0,
       nextDueDate: null,
@@ -250,6 +256,7 @@ function buildClientRows(rows, today) {
     current.revenue += row.revenue;
     current.staff += row.staff;
     current.external += row.external;
+    current.tax += row.tax;
     current.margin += row.margin;
     current.receivable += row.receivable;
     current.eventIds.push(row.id);
@@ -268,6 +275,7 @@ function buildClientRows(rows, today) {
         revenue: Number(row.revenue.toFixed(2)),
         staff: Number(row.staff.toFixed(2)),
         external: Number(row.external.toFixed(2)),
+        tax: Number(row.tax.toFixed(2)),
         margin: Number(row.margin.toFixed(2)),
         receivable: Number(row.receivable.toFixed(2)),
         marginPct: row.revenue > 0 ? Number(((row.margin / row.revenue) * 100).toFixed(1)) : 0,
@@ -298,7 +306,8 @@ export function buildBalanceOverview({ services = [], invoices = [], period = {}
   const validatedRevenue = sum(currentRows, 'revenue');
   const staffToPay = sum(currentRows, 'staff');
   const externalCosts = sum(currentRows, 'external');
-  const realMargin = Number((validatedRevenue - staffToPay - externalCosts).toFixed(2));
+  const taxCosts = sum(currentRows, 'tax');
+  const realMargin = Number((validatedRevenue - staffToPay - externalCosts - taxCosts).toFixed(2));
 
   return {
     eventRows: currentRows,
@@ -310,6 +319,7 @@ export function buildBalanceOverview({ services = [], invoices = [], period = {}
       validatedRevenue,
       staffToPay,
       externalCosts,
+      taxCosts,
       realMargin,
       receivable: sum(currentRows, 'receivable'),
       finalizedEvents: currentRows.filter((row) => row.status === 'finalized').length,
