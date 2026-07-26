@@ -27,3 +27,25 @@ export function importResultMessage(result) {
   if (skipped) return `${imported} registo(s) importado(s). ${skipped} registo(s) ignorado(s).`;
   return `${imported} registo(s) importado(s).`;
 }
+
+export function mergeImportedAssignmentDrafts(drafts = {}, assignments = []) {
+  if (!assignments?.length) return drafts;
+
+  const next = { ...drafts };
+  for (const assignment of assignments) {
+    if (!assignment?.id) continue;
+    next[assignment.id] = {
+      ...(drafts[assignment.id] || {}),
+      clientCheckIn: assignment.clientCheckIn || '',
+      clientCheckOut: assignment.clientCheckOut || '',
+      clientRealHours: assignment.clientRealHours,
+      clientBillableHours: assignment.clientBillableHours,
+      staffPayableHours: assignment.staffPayableHours,
+      validatedCheckIn: assignment.validatedCheckIn || '',
+      validatedCheckOut: assignment.validatedCheckOut || '',
+      validationStatus: assignment.validationStatus,
+      _persisted: true,
+    };
+  }
+  return next;
+}

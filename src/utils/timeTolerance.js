@@ -1,3 +1,8 @@
+import {
+  roundedBillableHours,
+  roundedClockTime,
+} from './serviceFinance.js';
+
 function timeMinutes(value) {
   const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
   if (!match) return null;
@@ -30,6 +35,35 @@ function differenceDetail(entryDiffMinutes, exitDiffMinutes) {
   return parts.join(' · ');
 }
 
+function durationLabel(hours) {
+  const totalMinutes = Math.round(Number(hours || 0) * 60);
+  const wholeHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${wholeHours}:${String(minutes).padStart(2, '0')}h`;
+}
+
+function roundingImpact(times = {}) {
+  const staffCheckIn = roundedClockTime(times.checkIn);
+  const staffCheckOut = roundedClockTime(times.checkOut);
+  const clientCheckIn = roundedClockTime(times.clientCheckIn);
+  const clientCheckOut = roundedClockTime(times.clientCheckOut);
+  if (!staffCheckIn || !staffCheckOut || !clientCheckIn || !clientCheckOut) return null;
+
+  const staffHours = roundedBillableHours(times.checkIn, times.checkOut);
+  const clientHours = roundedBillableHours(times.clientCheckIn, times.clientCheckOut);
+  const roundedTimesMatch = staffCheckIn === clientCheckIn && staffCheckOut === clientCheckOut;
+  const roundedHoursMatch = Math.abs(staffHours - clientHours) < 0.001;
+
+  return {
+    hasImpact: !roundedTimesMatch || !roundedHoursMatch,
+    impactMinutes: Math.round(Math.abs(staffHours - clientHours) * 60),
+    detail: [
+      `Staff arredondado: ${staffCheckIn}-${staffCheckOut} (${durationLabel(staffHours)})`,
+      `Cliente arredondado: ${clientCheckIn}-${clientCheckOut} (${durationLabel(clientHours)})`,
+    ].join(' · '),
+  };
+}
+
 export function resolvePlannedTimes(assignment = {}, event = {}) {
   return {
     plannedCheckIn: assignment.plannedCheckIn || event.startTime || '',
@@ -54,11 +88,28 @@ export function assessTimeTolerance(times = {}) {
   }
 
   const diffMinutes = Math.max(entryDiffMinutes, exitDiffMinutes);
+  const level = assessmentLevel(diffMinutes);
+  const detail = differenceDetail(entryDiffMinutes, exitDiffMinutes);
+  const roundedImpact = !level.isDifference ? roundingImpact(times) : null;
+  if (roundedImpact?.hasImpact) {
+    return {
+      tone: 'orange',
+      label: 'Impacto do arredondamento',
+      diffMinutes,
+      entryDiffMinutes,
+      exitDiffMinutes,
+      roundingImpactMinutes: roundedImpact.impactMinutes,
+      detail: `${detail} · ${roundedImpact.detail}`,
+      isDifference: true,
+      needsAttention: true,
+    };
+  }
+
   return {
-    ...assessmentLevel(diffMinutes),
+    ...level,
     diffMinutes,
     entryDiffMinutes,
     exitDiffMinutes,
-    detail: differenceDetail(entryDiffMinutes, exitDiffMinutes),
+    detail,
   };
 }

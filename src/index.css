@@ -195,6 +195,20 @@
   min-height: 58px;
 }
 
+.finance-client-event-row--clickable {
+  cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.finance-client-event-row--clickable:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.finance-client-event-row--clickable:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 62%, transparent);
+  outline: none;
+}
+
 .finance-client-event-row:last-child {
   border-bottom: 0;
 }
@@ -212,6 +226,31 @@
 .finance-client-event-name small {
   color: var(--muted);
   margin-top: 3px;
+}
+
+.finance-client-event-meta {
+  align-items: center;
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+}
+
+.finance-client-event-meta > span {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.finance-client-event-operational {
+  color: color-mix(in srgb, var(--text) 78%, var(--muted) 22%) !important;
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .finance-client-event-status {
@@ -232,6 +271,142 @@
 .finance-client-empty {
   margin: 0;
   padding: 22px 14px;
+}
+
+.finance-event-summary {
+  display: grid;
+  gap: 18px;
+  padding: 4px 2px 2px;
+}
+
+.finance-event-summary__heading {
+  align-items: start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding-bottom: 16px;
+}
+
+.finance-event-summary__heading h3 {
+  margin: 3px 0 7px;
+}
+
+.finance-event-summary__heading > strong {
+  color: var(--accent);
+  font-size: 1.2rem;
+  white-space: nowrap;
+}
+
+.finance-event-summary__eyebrow,
+.finance-event-summary__grid span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.finance-event-summary__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.finance-event-summary__grid > div {
+  background: color-mix(in srgb, var(--panel) 75%, black 25%);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.finance-event-summary__grid strong {
+  overflow-wrap: anywhere;
+}
+
+.finance-event-schedules {
+  background: color-mix(in srgb, var(--panel) 75%, black 25%);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  display: grid;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.finance-event-schedules__heading {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.finance-event-schedules__heading h4 {
+  margin: 3px 0 0;
+}
+
+.finance-event-schedules__list {
+  display: grid;
+  padding: 0 14px;
+}
+
+.finance-event-schedule-row {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 0.9fr) auto;
+  min-height: 46px;
+  padding: 8px 0;
+}
+
+.finance-event-schedule-row:last-child {
+  border-bottom: 0;
+}
+
+.finance-event-schedule-row span {
+  font-variant-numeric: tabular-nums;
+}
+
+.finance-event-schedule-row small {
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.finance-event-schedules__empty {
+  margin: 0;
+  padding: 4px 14px 10px;
+}
+
+.finance-event-schedules__totals {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel) 86%, white 4%);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  justify-content: flex-end;
+  padding: 11px 14px;
+}
+
+.finance-event-schedules__totals span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.finance-event-schedules__totals strong {
+  color: var(--text);
+  margin-left: 5px;
+}
+
+.finance-event-summary__actions {
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 15px;
 }
 
 @media (max-width: 1100px) {
@@ -323,6 +498,47 @@
     gap: 8px;
     grid-template-columns: 1fr 1fr;
     padding: 13px;
+  }
+
+  .finance-event-summary__heading {
+    flex-direction: column;
+  }
+
+  .finance-event-summary__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .finance-event-schedules__heading {
+    align-items: flex-start;
+  }
+
+  .finance-event-schedule-row {
+    gap: 4px 10px;
+    grid-template-columns: 1fr auto;
+  }
+
+  .finance-event-schedule-row span {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .finance-event-schedule-row small {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .finance-event-schedules__totals {
+    align-items: stretch;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .finance-event-summary__actions {
+    flex-direction: column-reverse;
+  }
+
+  .finance-event-summary__actions button {
+    width: 100%;
   }
 
   .finance-client-event-row > * {
@@ -7516,7 +7732,7 @@ th {
 
 .validation-workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 32%) minmax(0, 1fr);
+  grid-template-columns: minmax(270px, 29%) minmax(0, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -7633,6 +7849,41 @@ th {
 
 .validation-main-title-line h2 {
   font-size: 1.25rem;
+}
+
+.validation-import-trigger {
+  min-height: 42px;
+  padding: 0 14px 0 8px;
+  border-color: rgba(45, 212, 191, 0.58);
+  background: rgba(20, 184, 166, 0.12);
+  color: #ccfbf1;
+  font-weight: 750;
+  box-shadow: inset 3px 0 0 rgba(45, 212, 191, 0.88);
+}
+
+.validation-import-trigger__icon {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(45, 212, 191, 0.34);
+  border-radius: 7px;
+  background: rgba(20, 184, 166, 0.16);
+  color: #5eead4;
+}
+
+.validation-import-trigger:hover {
+  border-color: rgba(94, 234, 212, 0.82);
+  background: rgba(20, 184, 166, 0.2);
+  box-shadow:
+    inset 3px 0 0 #5eead4,
+    0 0 0 1px rgba(45, 212, 191, 0.08);
+}
+
+.validation-import-trigger:focus-visible {
+  outline: 2px solid rgba(94, 234, 212, 0.82);
+  outline-offset: 2px;
 }
 
 .validation-kpi-grid {
@@ -7897,6 +8148,66 @@ th {
   padding: 10px 8px;
 }
 
+/* Keep the two identifying columns readable before distributing space to the time fields. */
+.validation-table th.validation-collaborator-cell,
+.validation-table td.validation-collaborator-cell {
+  width: clamp(170px, 19%, 235px);
+  min-width: 170px;
+}
+
+.validation-table th.validation-event-cell,
+.validation-table td.validation-event-cell {
+  width: clamp(190px, 21%, 270px);
+  min-width: 190px;
+}
+
+/* Keep the client time stack compact: its content is vertical, so it does not need a wide column. */
+.validation-table th.validation-client-cell,
+.validation-table td.validation-client-cell {
+  width: 118px;
+  min-width: 118px;
+  max-width: 118px;
+}
+
+.validation-table th.validation-staff-cell,
+.validation-table td.validation-staff-cell {
+  width: 118px;
+  min-width: 118px;
+  max-width: 118px;
+}
+
+.validation-table td.validation-collaborator-cell,
+.validation-table td.validation-event-cell {
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.validation-table td.validation-collaborator-cell strong,
+.validation-table td.validation-event-cell strong {
+  min-width: 0;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.validation-table td.validation-collaborator-cell small,
+.validation-table td.validation-event-cell small {
+  max-width: 100%;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.validation-table td.validation-collaborator-cell .validation-collaborator-heading {
+  width: 100%;
+  min-width: 0;
+}
+
+.validation-table td.validation-collaborator-cell .validation-collaborator-heading strong {
+  flex: 1 1 auto;
+}
+
 .validation-table th:last-child,
 .validation-table td:last-child {
   width: 138px;
@@ -7907,6 +8218,47 @@ th {
 .validation-table td:nth-last-child(2) {
   width: clamp(150px, 16vw, 220px);
   min-width: 150px;
+}
+
+.validation-table th.validation-difference-cell,
+.validation-table td.validation-difference-cell,
+.validation-history-table th.validation-difference-cell,
+.validation-history-table td.validation-difference-cell {
+  width: 170px;
+  min-width: 170px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.validation-table td.validation-difference-cell > .badge,
+.validation-table td.validation-difference-cell > .validation-difference-trigger,
+.validation-history-table td.validation-difference-cell > .badge,
+.validation-history-table td.validation-difference-cell > .validation-difference-trigger {
+  margin-inline: auto;
+}
+
+.validation-difference-cell > .badge,
+.validation-difference-cell .validation-difference-trigger .badge {
+  width: 150px;
+  max-width: 100%;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  justify-content: center;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.15;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.validation-difference-cell > .badge > span,
+.validation-difference-cell .validation-difference-trigger .badge > span {
+  min-width: 0;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .validation-date-group th {
@@ -7976,6 +8328,185 @@ th {
 
 .validation-row--critical {
   background: rgba(127, 29, 29, 0.2);
+}
+
+.validation-difference-trigger {
+  display: inline-flex;
+  appearance: none;
+  width: max-content;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  vertical-align: middle;
+}
+
+.validation-difference-trigger .badge {
+  width: 150px;
+  max-width: 100%;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  justify-content: center;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.15;
+}
+
+.validation-difference-trigger .badge > span {
+  min-width: 0;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.validation-difference-trigger--interactive {
+  cursor: help;
+}
+
+.validation-difference-trigger--interactive:hover .badge {
+  filter: brightness(1.12);
+}
+
+.validation-difference-trigger--interactive:focus-visible {
+  outline: 2px solid rgba(45, 212, 191, 0.82);
+  outline-offset: 3px;
+}
+
+.validation-difference-tooltip {
+  position: fixed;
+  z-index: 1600;
+  width: min(340px, calc(100vw - 24px));
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: #0a1216;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48);
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.validation-difference-tooltip::before {
+  position: absolute;
+  left: var(--tooltip-arrow-left, 50%);
+  width: 10px;
+  height: 10px;
+  border: inherit;
+  background: #0a1216;
+  content: '';
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.validation-difference-tooltip[data-placement='bottom']::before {
+  top: -6px;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.validation-difference-tooltip[data-placement='top']::before {
+  bottom: -6px;
+  border-top: 0;
+  border-left: 0;
+}
+
+.validation-difference-tooltip--orange {
+  border-color: rgba(249, 115, 22, 0.42);
+}
+
+.validation-difference-tooltip--danger {
+  border-color: rgba(239, 68, 68, 0.42);
+}
+
+.validation-difference-tooltip__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.validation-difference-tooltip--orange .validation-difference-tooltip__title {
+  color: #fdba74;
+}
+
+.validation-difference-tooltip--danger .validation-difference-tooltip__title {
+  color: #fca5a5;
+}
+
+.validation-difference-tooltip__list {
+  display: grid;
+  gap: 7px;
+  margin: 11px 0 0;
+}
+
+.validation-difference-tooltip__list > div,
+.validation-difference-tooltip__schedule,
+.validation-difference-tooltip__total {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+}
+
+.validation-difference-tooltip__list dt,
+.validation-difference-tooltip__schedule span,
+.validation-difference-tooltip__total span {
+  color: var(--muted);
+}
+
+.validation-difference-tooltip__list dd {
+  max-width: 190px;
+  margin: 0;
+  color: var(--text);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.validation-difference-tooltip__schedule {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.validation-difference-tooltip__schedule > div {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.validation-difference-tooltip__schedule strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.validation-difference-tooltip__total {
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.validation-difference-tooltip__total strong {
+  color: #fdba74;
+}
+
+.validation-difference-tooltip__note {
+  grid-template-columns: 1fr !important;
+  gap: 3px !important;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.validation-difference-tooltip__note dd {
+  max-width: none;
+  text-align: left;
 }
 
 .validation-time-pair {
@@ -11350,9 +11881,30 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     border: 0;
   }
 
+  .validation-table .validation-row td.validation-difference-cell,
+  .validation-history-table td.validation-difference-cell {
+    width: 100%;
+    min-width: 0;
+    text-align: center;
+  }
+
+  .validation-difference-cell > .badge,
+  .validation-difference-cell > .validation-difference-trigger,
+  .validation-difference-cell .validation-difference-trigger .badge {
+    max-width: 100%;
+  }
+
   .validation-collaborator-heading {
     min-width: 0;
     align-items: flex-start;
+  }
+
+  .validation-table th.validation-collaborator-cell,
+  .validation-table td.validation-collaborator-cell,
+  .validation-table th.validation-event-cell,
+  .validation-table td.validation-event-cell {
+    width: 100%;
+    min-width: 0;
   }
 
   .validation-time-stack {

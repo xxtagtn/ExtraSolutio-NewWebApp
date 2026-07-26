@@ -36,6 +36,56 @@ test('shows the real entry and exit differences between staff and client', () =>
   assert.equal(result.isDifference, false);
 });
 
+test('flags a rounding impact when real times are within tolerance but totals differ', () => {
+  const result = assessTimeTolerance({
+    checkIn: '16:35',
+    checkOut: '22:45',
+    clientCheckIn: '16:33',
+    clientCheckOut: '22:43',
+  });
+
+  assert.equal(result.tone, 'orange');
+  assert.equal(result.label, 'Impacto do arredondamento');
+  assert.equal(result.entryDiffMinutes, 2);
+  assert.equal(result.exitDiffMinutes, 2);
+  assert.equal(result.diffMinutes, 2);
+  assert.equal(result.roundingImpactMinutes, 30);
+  assert.equal(result.isDifference, true);
+  assert.equal(result.needsAttention, true);
+  assert.match(result.detail, /Staff arredondado: 16:30-23:00 \(6:30h\)/);
+  assert.match(result.detail, /Cliente arredondado: 16:30-22:30 \(6:00h\)/);
+});
+
+test('flags a rounding impact when rounded times differ even if duration is unchanged', () => {
+  const result = assessTimeTolerance({
+    checkIn: '10:14',
+    checkOut: '16:14',
+    clientCheckIn: '10:15',
+    clientCheckOut: '16:15',
+  });
+
+  assert.equal(result.tone, 'orange');
+  assert.equal(result.label, 'Impacto do arredondamento');
+  assert.equal(result.diffMinutes, 1);
+  assert.equal(result.roundingImpactMinutes, 0);
+  assert.equal(result.isDifference, true);
+  assert.match(result.detail, /Staff arredondado: 10:00-16:00 \(6:00h\)/);
+  assert.match(result.detail, /Cliente arredondado: 10:30-16:30 \(6:00h\)/);
+});
+
+test('keeps the current tolerance level when the real difference exceeds tolerance', () => {
+  const result = assessTimeTolerance({
+    checkIn: '16:35',
+    checkOut: '22:45',
+    clientCheckIn: '16:10',
+    clientCheckOut: '22:20',
+  });
+
+  assert.equal(result.tone, 'warning');
+  assert.equal(result.diffMinutes, 25);
+  assert.equal(result.isDifference, true);
+});
+
 test('ignores planned times when staff and client times are equal', () => {
   const result = assessTimeTolerance({
     plannedCheckIn: '11:30',

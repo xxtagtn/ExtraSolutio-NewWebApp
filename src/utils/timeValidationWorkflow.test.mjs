@@ -370,9 +370,23 @@ test('auto-saves an incomplete client correction after leaving the client fields
 test('removes persisted drafts after fresh API data arrives', () => {
   assert.deepEqual(prunePersistedDrafts({
     1: { checkIn: '09:00', _persisted: true },
-    2: { checkIn: '10:00', _persisted: false },
+    2: { clientCheckIn: '10:00', _persisted: true },
+    3: { checkIn: '11:00', _persisted: false },
+  }, new Map([
+    [1, { checkIn: '09:00' }],
+    [2, { clientCheckIn: '' }],
+    [3, { checkIn: '11:00' }],
+  ])), {
+    2: { clientCheckIn: '10:00', _persisted: true },
+    3: { checkIn: '11:00', _persisted: false },
+  });
+});
+
+test('keeps a persisted draft while the matching assignment is not loaded', () => {
+  assert.deepEqual(prunePersistedDrafts({
+    2: { clientCheckIn: '10:00', _persisted: true },
   }), {
-    2: { checkIn: '10:00', _persisted: false },
+    2: { clientCheckIn: '10:00', _persisted: true },
   });
 });
 

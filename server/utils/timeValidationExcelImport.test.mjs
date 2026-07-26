@@ -59,6 +59,48 @@ function fixtureBuffer() {
   ]);
 }
 
+function multiSheetFixtureBuffer() {
+  const workbook = XLSX.utils.book_new();
+  const headers = [
+    '',
+    'Nome da Sessão',
+    'Nome do Colaborador',
+    'NIF',
+    'Departamento',
+    'Categoria',
+    'Data do Evento',
+    'Hora de Entrada',
+    'Hora de Saída',
+    'Horas Cumpridas',
+  ];
+  const june = XLSX.utils.aoa_to_sheet([
+    [], [], [], [], [], headers,
+    ['', 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26', 'Miriam Peçanha de Oliveira', '326077405', 'Restaurante', 'EMPREGADO DE MESA', new Date('2026-06-20T00:00:00'), new Date('2026-06-20T11:30:00'), new Date('2026-06-20T16:00:00'), '04:30:00'],
+  ]);
+  const july = XLSX.utils.aoa_to_sheet([
+    [], [], [], [], [], headers,
+    ['', 'RESTAURANTE ATIVIDADES DIÁRIAS JULHO', 'Miriam Peçanha de Oliveira', '326077405', 'Restaurante', 'EMPREGADO DE MESA', new Date('2026-07-21T00:00:00'), new Date('2026-07-21T10:00:00'), new Date('2026-07-21T16:00:00'), '06:00:00'],
+  ]);
+  // Some Excel exports retain formatting far below the real data range.
+  july['!ref'] = 'A1:P1045211';
+  XLSX.utils.book_append_sheet(workbook, june, 'junho');
+  XLSX.utils.book_append_sheet(workbook, july, 'julho');
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+}
+
+test('selects the sheet matching the uploaded file name and ignores inflated formatting ranges', () => {
+  const parsed = parseTimeValidationWorkbook(multiSheetFixtureBuffer(), {
+    fileName: 'Relatorio Horas _ ES de 1 a 21 de Julho.xlsx',
+  });
+
+  assert.equal(parsed.sheetName, 'julho');
+  assert.deepEqual(parsed.availableSheets, ['junho', 'julho']);
+  assert.equal(parsed.rows.length, 1);
+  assert.equal(parsed.rows[0].eventDate, '2026-07-21');
+  assert.equal(parsed.rows[0].clientCheckIn, '10:00');
+  assert.equal(parsed.rows[0].clientCheckOut, '16:00');
+});
+
 test('parses client access report with displaced header row', () => {
   const parsed = parseTimeValidationWorkbook(fixtureBuffer());
 

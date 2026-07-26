@@ -204,24 +204,47 @@ function parsedRowFrom(values, fields, rowNumber) {
   };
 }
 
-export function parseTimeValidationWorkbook(buffer) {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) {
-    const error = new Error('O Excel não contém folhas para importar.');
-    error.statusCode = 422;
-    throw error;
+function populatedSheetRange(sheet) {
+  const cellAddresses = Object.keys(sheet).filter((address) => !address.startsWith('!'));
+  if (!cellAddresses.length) return XLSX.utils.decode_range('A1:A1');
+
+  let minRow = Number.POSITIVE_INFINITY;
+  let minColumn = Number.POSITIVE_INFINITY;
+  let maxRow = 0;
+  let maxColumn = 0;
+
+  for (const address of cellAddresses) {
+    const cell = XLSX.utils.decode_cell(address);
+    minRow = Math.min(minRow, cell.r);
+    minColumn = Math.min(minColumn, cell.c);
+    maxRow = Math.max(maxRow, cell.r);
+    maxColumn = Math.max(maxColumn, cell.c);
   }
-  const sheet = workbook.Sheets[sheetName];
-  const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
-  const firstSheetRowNumber = range.s.r + 1;
+
+  return {
+    s: { r: minRow, c: minColumn },
+    e: { r: maxRow, c: maxColumn },
+  };
+}
+
+function parseSheetCandidate(sheetName, sheet) {
+  const range = populatedSheetRange(sheet);
   const rows = XLSX.utils.sheet_to_json(sheet, {
+    range,
     header: 1,
     raw: true,
     blankrows: true,
     defval: '',
   });
-  const header = detectHeaderRow(rows);
+
+  let header;
+  try {
+    header = detectHeaderRow(rows);
+  } catch {
+    return null;
+  }
+
+  const firstSheetRowNumber = range.s.r + 1;
   const parsedRows = rows
     .slice(header.index + 1)
     .map((row, offset) => parsedRowFrom(row, header.fields, firstSheetRowNumber + header.index + offset + 1))
@@ -229,9 +252,51 @@ export function parseTimeValidationWorkbook(buffer) {
 
   return {
     sheetName,
+    header,
     headerRowNumber: firstSheetRowNumber + header.index,
     columns: Object.fromEntries(Object.entries(header.fields).map(([field, index]) => [field, String(rows[header.index][index] || '')])),
     rows: parsedRows,
+  };
+}
+
+function sheetCandidateScore(candidate, fileName, sheetIndex) {
+  const normalizedFileName = normalizeKey(fileName);
+  const normalizedSheetName = normalizeKey(candidate.sheetName);
+  const fileNameMatch = normalizedSheetName && normalizedFileName.includes(normalizedSheetName) ? 100000 : 0;
+  return fileNameMatch + (candidate.header.score * 100) + Math.min(candidate.rows.length, 999) - (sheetIndex / 1000);
+}
+
+export function parseTimeValidationWorkbook(buffer, { fileName = '' } = {}) {
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  if (!workbook.SheetNames.length) {
+    const error = new Error('O Excel não contém folhas para importar.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const candidates = workbook.SheetNames
+    .map((sheetName, sheetIndex) => {
+      const candidate = parseSheetCandidate(sheetName, workbook.Sheets[sheetName]);
+      return candidate ? { ...candidate, sheetIndex } : null;
+    })
+    .filter(Boolean);
+
+  if (!candidates.length) {
+    const error = new Error('Não foi possível identificar os cabeçalhos do Excel.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const selected = candidates
+    .slice()
+    .sort((left, right) => sheetCandidateScore(right, fileName, right.sheetIndex) - sheetCandidateScore(left, fileName, left.sheetIndex))[0];
+
+  return {
+    sheetName: selected.sheetName,
+    headerRowNumber: selected.headerRowNumber,
+    columns: selected.columns,
+    rows: selected.rows,
+    availableSheets: candidates.map((candidate) => candidate.sheetName),
   };
 }
 

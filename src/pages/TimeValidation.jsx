@@ -13,7 +13,8 @@ import {
   Siren,
   Upload,
 } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
@@ -43,6 +44,7 @@ import {
   importConfirmationMessage,
   importResultMessage,
   isExcelImportFile,
+  mergeImportedAssignmentDrafts,
 } from '../utils/timeValidationImportUi.js';
 import {
   dateKeysFrom,
@@ -233,6 +235,249 @@ function DifferenceIcon({ tone }) {
   return <AlertTriangle size={14} />;
 }
 
+function clockDeltaMinutes(staffTime, clientTime) {
+  const toMinutes = (value) => {
+    const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    return (Number(match[1]) * 60) + Number(match[2]);
+  };
+  const staffMinutes = toMinutes(staffTime);
+  const clientMinutes = toMinutes(clientTime);
+  if (staffMinutes === null || clientMinutes === null) return null;
+  let delta = clientMinutes - staffMinutes;
+  if (delta > 720) delta -= 1440;
+  if (delta < -720) delta += 1440;
+  return delta;
+}
+
+function minuteDeltaLabel(value, signed = true) {
+  if (!Number.isFinite(value)) return '-';
+  const prefix = signed && value > 0 ? '+' : '';
+  return `${prefix}${value} min`;
+}
+
+function validationDifferencePresentation(row) {
+  const roundingImpact = row.toneLabel === 'Impacto do arredondamento';
+  const criticalDifference = row.isDifference && !roundingImpact;
+  if (roundingImpact) {
+    return {
+      tone: 'orange',
+      label: 'Impacto do arredondamento',
+      interactive: true,
+      type: 'rounding',
+    };
+  }
+  if (criticalDifference) {
+    return {
+      tone: 'danger',
+      label: 'Divergência crítica',
+      interactive: true,
+      type: 'critical',
+    };
+  }
+  return {
+    tone: row.tone,
+    label: row.toneLabel,
+    interactive: false,
+    type: 'status',
+  };
+}
+
+function ValidationDifferenceBadge({ row }) {
+  const presentation = validationDifferencePresentation(row);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({
+    top: 0,
+    left: 0,
+    arrowLeft: 0,
+    placement: 'bottom',
+    ready: false,
+  });
+  const triggerRef = useRef(null);
+  const tooltipRef = useRef(null);
+  const closeTimerRef = useRef(null);
+  const tooltipId = useId();
+
+  const cancelScheduledClose = () => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const scheduleClose = () => {
+    cancelScheduledClose();
+    closeTimerRef.current = window.setTimeout(() => setOpen(false), 100);
+  };
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeFromOutside = (event) => {
+      if (triggerRef.current?.contains(event.target) || tooltipRef.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    const closeFromKeyboard = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', closeFromOutside);
+    document.addEventListener('keydown', closeFromKeyboard);
+    return () => {
+      document.removeEventListener('pointerdown', closeFromOutside);
+      document.removeEventListener('keydown', closeFromKeyboard);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current || !tooltipRef.current) return undefined;
+    const updatePosition = () => {
+      const triggerRect = triggerRef.current.getBoundingClientRect();
+      const tooltipRect = tooltipRef.current.getBoundingClientRect();
+      const viewportPadding = 12;
+      const gap = 8;
+      const roomBelow = window.innerHeight - triggerRect.bottom;
+      const placement = roomBelow >= tooltipRect.height + gap + viewportPadding ? 'bottom' : 'top';
+      const desiredTop = placement === 'bottom'
+        ? triggerRect.bottom + gap
+        : triggerRect.top - tooltipRect.height - gap;
+      const desiredLeft = triggerRect.left + (triggerRect.width / 2) - (tooltipRect.width / 2);
+      const left = Math.max(
+        viewportPadding,
+        Math.min(desiredLeft, window.innerWidth - tooltipRect.width - viewportPadding),
+      );
+      setPosition({
+        top: Math.max(viewportPadding, Math.min(desiredTop, window.innerHeight - tooltipRect.height - viewportPadding)),
+        left,
+        arrowLeft: Math.max(14, Math.min(
+          triggerRect.left + (triggerRect.width / 2) - left,
+          tooltipRect.width - 14,
+        )),
+        placement,
+        ready: true,
+      });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open]);
+
+  const entryDelta = clockDeltaMinutes(row.assignment.checkIn, row.assignment.clientCheckIn);
+  const exitDelta = clockDeltaMinutes(row.assignment.checkOut, row.assignment.clientCheckOut);
+  const staffHours = staffColumnHours(row.assignment);
+  const clientHours = clientColumnHours(row.assignment);
+  const totalImpactMinutes = Math.round((clientHours - staffHours) * 60);
+  const note = String(row.assignment.validationNotes || '').trim();
+  const badgeLabel = presentation.type === 'status'
+    && presentation.tone === 'success'
+    && row.differenceDetail
+    ? `${presentation.label} · ${row.differenceDetail}`
+    : presentation.label;
+
+  const badge = (
+    <Badge tone={presentation.tone}>
+      <DifferenceIcon tone={presentation.tone} />
+      <span>{badgeLabel}</span>
+    </Badge>
+  );
+
+  if (!presentation.interactive) return badge;
+
+  const trigger = (
+    <button
+      ref={triggerRef}
+      className="validation-difference-trigger validation-difference-trigger--interactive"
+      type="button"
+      aria-expanded={open}
+      aria-describedby={open ? tooltipId : undefined}
+      onClick={() => setOpen((current) => !current)}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'mouse') return;
+        cancelScheduledClose();
+        setOpen(true);
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === 'mouse') scheduleClose();
+      }}
+    >
+      {badge}
+    </button>
+  );
+
+  return (
+    <>
+      {trigger}
+      {open ? createPortal(
+        <div
+          ref={tooltipRef}
+          id={tooltipId}
+          className={`validation-difference-tooltip validation-difference-tooltip--${presentation.tone}`}
+          role="tooltip"
+          data-placement={position.placement}
+          style={{
+            top: position.top,
+            left: position.left,
+            '--tooltip-arrow-left': `${position.arrowLeft}px`,
+            visibility: position.ready ? 'visible' : 'hidden',
+          }}
+          onMouseEnter={cancelScheduledClose}
+          onMouseLeave={scheduleClose}
+        >
+          <div className="validation-difference-tooltip__title">
+            <DifferenceIcon tone={presentation.tone} />
+            <strong>{presentation.label}</strong>
+          </div>
+
+          {presentation.type === 'rounding' ? (
+            <>
+              <dl className="validation-difference-tooltip__list">
+                <div><dt>Entrada</dt><dd>{minuteDeltaLabel(entryDelta)}</dd></div>
+                <div><dt>Saída</dt><dd>{minuteDeltaLabel(exitDelta)}</dd></div>
+                <div><dt>Horas Staff</dt><dd>{durationHours(staffHours)}</dd></div>
+                <div><dt>Horas Cliente</dt><dd>{durationHours(clientHours)}</dd></div>
+              </dl>
+              <div className="validation-difference-tooltip__total">
+                <span>Impacto total</span>
+                <strong>{minuteDeltaLabel(totalImpactMinutes)}</strong>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="validation-difference-tooltip__schedule">
+                <div>
+                  <span>Staff</span>
+                  <strong>{timePairLabel(row.assignment.checkIn, row.assignment.checkOut)}</strong>
+                </div>
+                <div>
+                  <span>Cliente</span>
+                  <strong>{timePairLabel(row.assignment.clientCheckIn, row.assignment.clientCheckOut)}</strong>
+                </div>
+              </div>
+              <dl className="validation-difference-tooltip__list">
+                <div><dt>Diferença na entrada</dt><dd>{minuteDeltaLabel(entryDelta)}</dd></div>
+                <div><dt>Diferença na saída</dt><dd>{minuteDeltaLabel(exitDelta)}</dd></div>
+                <div><dt>Maior diferença</dt><dd>{minuteDeltaLabel(row.diffMinutes, false)}</dd></div>
+                <div><dt>Motivo</dt><dd>Diferença superior à tolerância definida</dd></div>
+                {note ? <div className="validation-difference-tooltip__note"><dt>Observações</dt><dd>{note}</dd></div> : null}
+              </dl>
+            </>
+          )}
+        </div>,
+        document.body,
+      ) : null}
+    </>
+  );
+}
+
 function rowTone(assignment) {
   return rowAssessment(assignment).tone;
 }
@@ -333,7 +578,10 @@ export default function TimeValidation() {
 
   useEffect(() => {
     setDrafts((current) => {
-      const next = prunePersistedDrafts(current);
+      const assignmentsById = new Map(services.flatMap((event) => (
+        event.assignments || []
+      )).map((assignment) => [Number(assignment.id), assignment]));
+      const next = prunePersistedDrafts(current, assignmentsById);
       return Object.keys(next).length === Object.keys(current).length ? current : next;
     });
   }, [services]);
@@ -367,6 +615,9 @@ export default function TimeValidation() {
           tone: assessment.tone,
           toneLabel: assessment.label,
           diffMinutes: assessment.diffMinutes,
+          entryDiffMinutes: assessment.entryDiffMinutes,
+          exitDiffMinutes: assessment.exitDiffMinutes,
+          roundingImpactMinutes: assessment.roundingImpactMinutes,
           differenceDetail: assessment.detail,
           plannedCheckIn: planned.plannedCheckIn,
           plannedCheckOut: planned.plannedCheckOut,
@@ -773,10 +1024,11 @@ export default function TimeValidation() {
 
   function updateDraft(row, patch) {
     setDrafts((prev) => {
-      const current = { ...row.assignment, ...(prev[row.id] || {}) };
-      const next = { ...current, ...patch, _persisted: false };
+      const currentDraft = prev[row.id] || {};
+      const current = { ...row.assignment, ...currentDraft, ...patch };
+      const next = { ...currentDraft, ...patch, _persisted: false };
       if (patch.validatedCheckIn !== undefined || patch.validatedCheckOut !== undefined) {
-        const rounded = roundedBillableHours(next.validatedCheckIn, next.validatedCheckOut);
+        const rounded = roundedBillableHours(current.validatedCheckIn, current.validatedCheckOut);
         if (rounded > 0) {
           next.clientBillableHours = rounded;
           next.staffPayableHours = rounded;
@@ -949,6 +1201,8 @@ export default function TimeValidation() {
           mappings: importMappings.filter((mapping) => mapping.internalValue),
         }),
       });
+      setDrafts((current) => mergeImportedAssignmentDrafts(current, result.assignments));
+      setStage(TIME_VALIDATION_STAGE.clientPending);
       window.alert(importResultMessage(result));
       closeImportModal();
       reload();
@@ -1571,9 +1825,11 @@ export default function TimeValidation() {
                   </div>
 
                   <div className="validation-main-toolbar">
-                    <button className="secondary-button" type="button" onClick={openImportModal}>
-                      <Upload size={16} />
-                      Importar Excel Cliente
+                    <button className="secondary-button validation-import-trigger" type="button" onClick={openImportModal}>
+                      <span className="validation-import-trigger__icon" aria-hidden="true">
+                        <Upload size={16} />
+                      </span>
+                      <span>Importar Excel Cliente</span>
                     </button>
                     {stage === TIME_VALIDATION_STAGE.clientPending ? (
                       <button
@@ -1635,12 +1891,12 @@ export default function TimeValidation() {
               <table className="validation-table">
                 <thead>
                   <tr>
-                    <th>Colaborador</th>
-                    <th>Evento</th>
+                    <th className="validation-collaborator-cell">Colaborador</th>
+                    <th className="validation-event-cell">Evento</th>
                     {showPlannedColumn ? <th>Previsto</th> : null}
-                    <th>Staff</th>
-                    {showClientColumn ? <th>Cliente</th> : null}
-                    {showDifferenceColumn ? <th>Diferença</th> : null}
+                    <th className="validation-staff-cell">Staff</th>
+                    {showClientColumn ? <th className="validation-client-cell">Cliente</th> : null}
+                    {showDifferenceColumn ? <th className="validation-difference-cell">Diferença</th> : null}
                     <th>Notas</th>
                     <th />
                   </tr>
@@ -1665,7 +1921,7 @@ export default function TimeValidation() {
                           );
                         return (
                           <tr key={row.id} className={`validation-row validation-row--${row.validationState.isValidated ? 'success' : row.tone}`}>
-                            <td>
+                            <td className="validation-collaborator-cell">
                               <div className="validation-collaborator-heading">
                                 <strong>{row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-'}</strong>
                                 <Badge tone={row.validationState.tone}>
@@ -1675,7 +1931,7 @@ export default function TimeValidation() {
                               </div>
                               <small>{row.assignment.role || '-'}</small>
                             </td>
-                            <td>
+                            <td className="validation-event-cell">
                               <strong>{row.event.name}</strong>
                               <small>{row.event.client?.name || row.event.clientName || '-'} · {row.workDateLabel}</small>
                             </td>
@@ -1694,7 +1950,7 @@ export default function TimeValidation() {
                                 </div>
                               </td>
                             ) : null}
-                            <td>
+                            <td className="validation-staff-cell">
                               <div className="validation-time-stack">
                                 <TimeInput
                                   aria-label="Entrada Staff"
@@ -1721,7 +1977,7 @@ export default function TimeValidation() {
                               </div>
                             </td>
                             {showClientColumn ? (
-                              <td>
+                              <td className="validation-client-cell">
                                 <div className="validation-time-stack">
                                   <TimeInput
                                     aria-label="Entrada Cliente"
@@ -1761,14 +2017,8 @@ export default function TimeValidation() {
                               </td>
                             ) : null}
                             {showDifferenceColumn ? (
-                              <td>
-                                <Badge tone={row.tone}>
-                                  <DifferenceIcon tone={row.tone} />
-                                  <span>
-                                    {row.toneLabel}
-                                    {row.differenceDetail ? ` · ${row.differenceDetail}` : ''}
-                                  </span>
-                                </Badge>
+                              <td className="validation-difference-cell">
+                                <ValidationDifferenceBadge row={row} />
                               </td>
                             ) : null}
                             <td>
@@ -1865,7 +2115,7 @@ export default function TimeValidation() {
                             <th>Previsto</th>
                             <th>Staff</th>
                             <th>Cliente</th>
-                            <th>Diferença</th>
+                            <th className="validation-difference-cell">Diferença</th>
                             <th>Notas</th>
                           </tr>
                         </thead>
@@ -1887,14 +2137,8 @@ export default function TimeValidation() {
                                 <strong>{timePairLabel(row.assignment.clientCheckIn, row.assignment.clientCheckOut)}</strong>
                                 <small>{durationHours(clientColumnHours(row.assignment))}</small>
                               </td>
-                              <td>
-                                <Badge tone={row.tone}>
-                                  <DifferenceIcon tone={row.tone} />
-                                  <span>
-                                    {row.toneLabel}
-                                    {row.differenceDetail ? ` · ${row.differenceDetail}` : ''}
-                                  </span>
-                                </Badge>
+                              <td className="validation-difference-cell">
+                                <ValidationDifferenceBadge row={row} />
                               </td>
                               <td>{row.assignment.validationNotes || '-'}</td>
                             </tr>

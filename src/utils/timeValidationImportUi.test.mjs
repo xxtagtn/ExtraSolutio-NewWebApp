@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   canConfirmTimeValidationImport,
+  mergeImportedAssignmentDrafts,
   importConfirmationMessage,
   importResultMessage,
   isExcelImportFile,
@@ -39,4 +40,38 @@ test('accepts only Excel files for time validation import', () => {
   assert.equal(isExcelImportFile({ name: 'Relatorio.xlsm' }), true);
   assert.equal(isExcelImportFile({ name: 'Relatorio.csv' }), false);
   assert.equal(isExcelImportFile({ name: 'Relatorio.pdf' }), false);
+});
+
+test('keeps imported assignment values visible until refreshed API data matches', () => {
+  const drafts = {
+    10: { clientCheckIn: '', clientCheckOut: '', validationNotes: 'rascunho antigo' },
+    11: { validationNotes: 'manter' },
+  };
+
+  assert.deepEqual(mergeImportedAssignmentDrafts(drafts, [{
+    id: 10,
+    clientCheckIn: '10:18',
+    clientCheckOut: '16:17',
+    clientRealHours: 5.98,
+    clientBillableHours: 6,
+    staffPayableHours: 6,
+    validatedCheckIn: null,
+    validatedCheckOut: null,
+    validationStatus: 'staff_accepted',
+  }]), {
+    10: {
+      clientCheckIn: '10:18',
+      clientCheckOut: '16:17',
+      clientRealHours: 5.98,
+      clientBillableHours: 6,
+      staffPayableHours: 6,
+      validatedCheckIn: '',
+      validatedCheckOut: '',
+      validationNotes: 'rascunho antigo',
+      validationStatus: 'staff_accepted',
+      _persisted: true,
+    },
+    11: { validationNotes: 'manter' },
+  });
+  assert.equal(mergeImportedAssignmentDrafts(drafts, []), drafts);
 });

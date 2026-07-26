@@ -148,10 +148,34 @@ export function clientTimeCorrection(assignment = {}, patch = {}, movingWithinCl
   };
 }
 
-export function prunePersistedDrafts(drafts = {}) {
-  return Object.fromEntries(
-    Object.entries(drafts).filter(([, draft]) => !draft?._persisted),
-  );
+const PERSISTED_DRAFT_FIELDS = [
+  'checkIn',
+  'checkOut',
+  'clientCheckIn',
+  'clientCheckOut',
+  'validatedCheckIn',
+  'validatedCheckOut',
+  'clientRealHours',
+  'clientBillableHours',
+  'staffPayableHours',
+  'validationStatus',
+  'validationNotes',
+];
+
+function persistedDraftMatchesAssignment(draft = {}, assignment = {}) {
+  return PERSISTED_DRAFT_FIELDS.every((field) => {
+    if (!Object.hasOwn(draft, field)) return true;
+    return String(draft[field] ?? '') === String(assignment[field] ?? '');
+  });
+}
+
+export function prunePersistedDrafts(drafts = {}, assignmentsById = new Map()) {
+  return Object.fromEntries(Object.entries(drafts).filter(([assignmentId, draft]) => {
+    if (!draft?._persisted) return true;
+    const assignment = assignmentsById.get(Number(assignmentId))
+      || assignmentsById.get(String(assignmentId));
+    return !assignment || !persistedDraftMatchesAssignment(draft, assignment);
+  }));
 }
 
 export function recentOperationalPeriod(value = new Date(), days = 7) {

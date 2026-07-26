@@ -12,7 +12,7 @@ import {
   Hourglass,
 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
@@ -34,6 +34,7 @@ import {
 } from '../utils/clientBilling.js';
 import { externalCostsTotals } from '../utils/externalCosts.js';
 import { eventTaxAmount } from '../utils/eventTax.js';
+import { buildFinanceEventDescriptors } from '../utils/financeEventIdentity.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { clientChargeHours, decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
@@ -448,8 +449,11 @@ function statusLabel(options, value) {
 }
 
 function ClientFinancialEventTable({ row, onInvoiceStatusChange, onEventBillingStatusChange, updatingInvoiceId, updatingEventId }) {
+  const navigate = useNavigate();
+  const [selectedEvent, setSelectedEvent] = useState(null);
   const shownInvoiceIds = new Set();
   const events = row?.events || [];
+  const eventDescriptors = buildFinanceEventDescriptors(events);
   const linkedInvoiceIds = new Set(events.map((event) => event.invoice?.id).filter(Boolean));
   const standaloneInvoices = (row?.invoices || []).filter((invoice) => !linkedInvoiceIds.has(invoice.id));
 
@@ -478,12 +482,51 @@ function ClientFinancialEventTable({ row, onInvoiceStatusChange, onEventBillingS
     const billingStatus = event.billingStatus || 'pending';
     const dueDate = invoice?.dueDate || event.dueDate;
     const eventStatus = operationalStatusLabel(event.status || event.operationalStatus || event.serviceStatus);
+    const descriptor = eventDescriptors.get(String(event.id)) || {};
+    const operationalSummary = descriptor.operationalSummary || {};
+    const eventDateLabel = event.date ? date.format(new Date(event.date)) : '';
+    const detailParts = [
+      eventDateLabel,
+      descriptor.location,
+    ].filter(Boolean);
+    const operationalParts = [
+      operationalSummary.scheduleCount > 0
+        ? `${operationalSummary.scheduleCount} ${operationalSummary.scheduleCount === 1 ? 'horário' : 'horários'}`
+        : '',
+      operationalSummary.collaboratorCount > 0
+        ? `${operationalSummary.collaboratorCount} ${operationalSummary.collaboratorCount === 1 ? 'colaborador' : 'colaboradores'}`
+        : '',
+      operationalSummary.billableHours > 0
+        ? `${durationHours(operationalSummary.billableHours)} faturadas`
+        : '',
+    ].filter(Boolean);
+
+    const openEventSummary = () => setSelectedEvent(event);
+    const handleEventKeyDown = (keyboardEvent) => {
+      if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') return;
+      keyboardEvent.preventDefault();
+      openEventSummary();
+    };
 
     return (
-      <article key={`event-${event.id}`} className="finance-client-event-row">
+      <article
+        key={`event-${event.id}`}
+        className="finance-client-event-row finance-client-event-row--clickable"
+        role="button"
+        tabIndex="0"
+        aria-label={`Ver resumo de ${event.name || 'Evento/Serviço'}`}
+        onClick={openEventSummary}
+        onKeyDown={handleEventKeyDown}
+      >
         <div className="finance-client-event-name">
           <strong>{event.name || 'Evento/Serviço'}</strong>
-          <small>{event.eventType || event.location || '-'}</small>
+          <small className="finance-client-event-meta">
+            {descriptor.sequenceLabel ? <span>{descriptor.sequenceLabel}</span> : null}
+            {detailParts.join(' · ') || '-'}
+          </small>
+          {operationalParts.length ? (
+            <small className="finance-client-event-operational">{operationalParts.join(' · ')}</small>
+          ) : null}
         </div>
         <span>{event.date ? date.format(new Date(event.date)) : '-'}</span>
         <strong>{money.format(event.displayValue)}</strong>
@@ -513,6 +556,16 @@ function ClientFinancialEventTable({ row, onInvoiceStatusChange, onEventBillingS
         </div>
       </article>
     );
+  };
+
+  const selectedDescriptor = selectedEvent
+    ? eventDescriptors.get(String(selectedEvent.id)) || {}
+    : {};
+  const selectedOperationalSummary = selectedDescriptor.operationalSummary || {
+    scheduleCount: 0,
+    collaboratorCount: 0,
+    billableHours: 0,
+    scheduleGroups: [],
   };
 
   return (
@@ -550,6 +603,81 @@ function ClientFinancialEventTable({ row, onInvoiceStatusChange, onEventBillingS
         </article>
       ))}
       {!events.length && !standaloneInvoices.length ? <p className="muted finance-client-empty">Sem eventos ou faturas no período selecionado.</p> : null}
+      {selectedEvent ? (
+        <Modal title="Resumo do Evento/Serviço" onClose={() => setSelectedEvent(null)}>
+          <div className="finance-event-summary">
+            <div className="finance-event-summary__heading">
+              <div>
+                <span className="finance-event-summary__eyebrow">Evento/Serviço</span>
+                <h3>{selectedEvent.name || 'Evento/Serviço'}</h3>
+                {selectedDescriptor.sequenceLabel ? (
+                  <Badge tone="info">{selectedDescriptor.sequenceLabel}</Badge>
+                ) : null}
+              </div>
+              <strong>{money.format(selectedEvent.displayValue)}</strong>
+            </div>
+
+            <div className="finance-event-summary__grid">
+              <div><span>Cliente</span><strong>{selectedEvent.client?.name || selectedEvent.clientName || row?.client?.name || '-'}</strong></div>
+              <div><span>Data</span><strong>{selectedEvent.date ? date.format(new Date(selectedEvent.date)) : '-'}</strong></div>
+              <div><span>Local</span><strong>{selectedDescriptor.location || '-'}</strong></div>
+              <div><span>Horários</span><strong>
+                {selectedOperationalSummary.scheduleCount > 0
+                  ? `${selectedOperationalSummary.scheduleCount} ${selectedOperationalSummary.scheduleCount === 1 ? 'horário' : 'horários'}`
+                  : '-'}
+              </strong></div>
+              <div><span>Colaboradores</span><strong>{selectedOperationalSummary.collaboratorCount || '-'}</strong></div>
+              <div><span>Horas faturadas</span><strong>
+                {selectedOperationalSummary.billableHours > 0
+                  ? durationHours(selectedOperationalSummary.billableHours)
+                  : '-'}
+              </strong></div>
+              <div><span>Estado do evento</span><strong>{operationalStatusLabel(selectedEvent.status || selectedEvent.operationalStatus || selectedEvent.serviceStatus)}</strong></div>
+              <div><span>Faturação</span><strong>{statusLabel(BILLING_STATUS, selectedEvent.billingStatus || 'pending')}</strong></div>
+            </div>
+
+            <section className="finance-event-schedules">
+              <div className="finance-event-schedules__heading">
+                <div>
+                  <span className="finance-event-summary__eyebrow">Resumo dos horários</span>
+                  <h4>Grupos utilizados na faturação</h4>
+                </div>
+                <Badge tone="info">
+                  {selectedOperationalSummary.scheduleCount} {selectedOperationalSummary.scheduleCount === 1 ? 'horário' : 'horários'}
+                </Badge>
+              </div>
+
+              {selectedOperationalSummary.scheduleGroups.length ? (
+                <div className="finance-event-schedules__list">
+                  {selectedOperationalSummary.scheduleGroups.map((group) => (
+                    <div key={group.key} className="finance-event-schedule-row">
+                      <strong>
+                        {group.collaboratorCount} {group.collaboratorCount === 1 ? 'colaborador' : 'colaboradores'}
+                      </strong>
+                      <span>{group.label}</span>
+                      <small>{durationHours(group.billableHours)} faturadas</small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted finance-event-schedules__empty">Sem horários validados para apresentar.</p>
+              )}
+
+              <footer className="finance-event-schedules__totals">
+                <span>Total colaboradores <strong>{selectedOperationalSummary.collaboratorCount}</strong></span>
+                <span>Total horas faturadas <strong>{durationHours(selectedOperationalSummary.billableHours)}</strong></span>
+              </footer>
+            </section>
+
+            <footer className="finance-event-summary__actions">
+              <button className="secondary-button" type="button" onClick={() => setSelectedEvent(null)}>Fechar</button>
+              <button className="command-button" type="button" onClick={() => navigate(`/services/${selectedEvent.id}`)}>
+                Abrir Evento/Serviço
+              </button>
+            </footer>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
