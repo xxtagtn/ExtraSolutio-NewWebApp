@@ -211,6 +211,48 @@ test('splits fully paid service rows into archive rows', () => {
   assert.deepEqual(result.archivedRows.map((row) => row.rowId), ['client:8:group:paid']);
 });
 
+test('keeps a paid unregistered client without an invoice visible for billing', () => {
+  const paidWithoutInvoice = {
+    rowId: 'unregistered-event:50',
+    isUnregisteredClient: true,
+    invoices: [],
+    billingGroups: [{
+      events: [{
+        id: 50,
+        billingStatus: 'paid',
+        financial: { hasInvoice: false, revenue: 1166.04, receivable: 0 },
+      }],
+    }],
+    nonInvoicedServices: [],
+  };
+
+  const result = splitClientBillingRows([paidWithoutInvoice]);
+
+  assert.deepEqual(result.activeRows.map((row) => row.rowId), ['unregistered-event:50']);
+  assert.deepEqual(result.archivedRows, []);
+});
+
+test('archives an unregistered client after its paid service has an invoice', () => {
+  const paidWithInvoice = {
+    rowId: 'unregistered-event:51',
+    isUnregisteredClient: true,
+    invoices: [{ id: 7, status: 'paid' }],
+    billingGroups: [{
+      events: [{
+        id: 51,
+        billingStatus: 'paid',
+        financial: { hasInvoice: true, revenue: 250, receivable: 0 },
+      }],
+    }],
+    nonInvoicedServices: [],
+  };
+
+  const result = splitClientBillingRows([paidWithInvoice]);
+
+  assert.deepEqual(result.activeRows, []);
+  assert.deepEqual(result.archivedRows.map((row) => row.rowId), ['unregistered-event:51']);
+});
+
 test('uses event revenue as the archived billing value when receivable is already zero', () => {
   const row = {
     billingGroups: [{

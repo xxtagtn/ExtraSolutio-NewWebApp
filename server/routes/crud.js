@@ -217,6 +217,7 @@ export function normalizeEvent(input) {
     ]),
     totalCost: parseDecimal(input.totalCost),
     totalRevenue: parseDecimal(input.totalRevenue),
+    billingAdjustment: parseDecimal(input.billingAdjustment),
     vatRateSnapshot: parseDecimal(input.vatRateSnapshot),
     taxAmount: parseDecimal(input.taxAmount),
     travelExpenseAmount: parseDecimal(input.travelExpenseAmount),

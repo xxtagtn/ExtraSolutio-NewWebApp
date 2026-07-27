@@ -69,9 +69,89 @@ const tabs = [
   { id: 'history', label: 'Histórico', icon: History },
 ];
 
+const weekdayFormatter = new Intl.DateTimeFormat('pt-PT', { weekday: 'long' });
+
 function parseNumber(value) {
   const parsed = Number(String(value ?? 0).replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function RoleCombobox({ defaultValue = '', value, options, placeholder, onChange, onCommit, onKeyDown }) {
+  const isControlled = value !== undefined;
+  const [draft, setDraft] = useState(isControlled ? value : defaultValue);
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isControlled) setDraft(value ?? '');
+  }, [isControlled, value]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function closeOnOutsideClick(event) {
+      if (!wrapperRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+  }, [open]);
+
+  const normalizedDraft = String(draft || '').trim().toLocaleLowerCase('pt-PT');
+  const filteredOptions = options.filter((option) => (
+    !normalizedDraft || option.toLocaleLowerCase('pt-PT').includes(normalizedDraft)
+  ));
+
+  function updateValue(nextValue) {
+    setDraft(nextValue);
+    onChange?.(nextValue);
+    setOpen(true);
+  }
+
+  function commitValue(nextValue = draft) {
+    const result = onCommit?.(nextValue, inputRef.current);
+    if (result === false && !isControlled) setDraft(defaultValue);
+  }
+
+  function selectOption(option) {
+    setDraft(option);
+    onChange?.(option);
+    setOpen(false);
+    commitValue(option);
+  }
+
+  return (
+    <div className="service-detail-role-combobox" ref={wrapperRef}>
+      <input
+        ref={inputRef}
+        value={draft ?? ''}
+        placeholder={placeholder}
+        autoComplete="off"
+        onFocus={() => setOpen(true)}
+        onChange={(event) => updateValue(event.target.value)}
+        onBlur={() => {
+          commitValue();
+          window.setTimeout(() => setOpen(false), 0);
+        }}
+        onKeyDown={onKeyDown}
+      />
+      {open && filteredOptions.length ? (
+        <div className="service-detail-role-combobox__options" role="listbox">
+          {filteredOptions.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="option"
+              aria-selected={option === draft}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectOption(option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function advanceRows(value) {
@@ -94,6 +174,15 @@ function formatDate(value) {
   if (!value) return '-';
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? '-' : date.format(parsed);
+}
+
+function formatWeekday(value) {
+  const day = String(value || '').slice(0, 10);
+  if (!day) return '';
+  const parsed = new Date(`${day}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const label = weekdayFormatter.format(parsed);
+  return label.charAt(0).toLocaleUpperCase('pt-PT') + label.slice(1);
 }
 
 function formatDateRange(service) {
@@ -540,13 +629,13 @@ export default function ServiceDetail() {
     if (!nextRole) {
       setTeamError('O nome da função não pode ficar vazio.');
       if (inputElement) inputElement.value = currentRole;
-      return;
+      return false;
     }
-    if (normalizedRoleKey(nextRole) === normalizedRoleKey(currentRole)) return;
+    if (normalizedRoleKey(nextRole) === normalizedRoleKey(currentRole)) return true;
     if (currentDayRoles.some((item) => normalizedRoleKey(item.role) === normalizedRoleKey(nextRole))) {
       setTeamError(`A função "${nextRole}" já existe neste dia.`);
       if (inputElement) inputElement.value = currentRole;
-      return;
+      return false;
     }
     setTeamRoles((current) => current.map((item) => (
       roleRequirementsForDay(teamService, currentDay, [item]).length
@@ -656,6 +745,7 @@ export default function ServiceDetail() {
     setTeamRows(next.rows);
     setTeamRoles(next.requirements);
     setTeamError('');
+    return true;
   }
 
   async function saveTeamRows() {
@@ -963,7 +1053,10 @@ export default function ServiceDetail() {
                   onClick={() => setSelectedDay(day)}
                 >
                   {isEventDayCancelled(service, day) ? <Ban size={13} aria-hidden="true" /> : null}
-                  <span>{formatDate(day).slice(0, 5)}</span>
+                  <span className="service-detail-day-tab__content">
+                    <span>{formatDate(day).slice(0, 5)}</span>
+                    {currentDay === day ? <small>{formatWeekday(day)}</small> : null}
+                  </span>
                 </button>
               ))}
             </div>
@@ -1020,10 +1113,10 @@ export default function ServiceDetail() {
                   <div className="service-detail-role-manager__row" key={`${currentDay || 'single'}-${requirement.role}`}>
                     <label>
                       <span>Função</span>
-                      <input
+                      <RoleCombobox
                         defaultValue={requirement.role}
-                        list="service-detail-role-options"
-                        onBlur={(event) => renameDailyRole(requirement.role, event.target.value, event.target)}
+                        options={collaboratorRoleOptions}
+                        onCommit={(nextValue, inputElement) => renameDailyRole(requirement.role, nextValue, inputElement)}
                       />
                     </label>
                     <label className="service-detail-role-manager__qty">
@@ -1054,11 +1147,11 @@ export default function ServiceDetail() {
               {!currentDayCancelled ? <div className="service-detail-role-manager__add">
                 <label>
                   <span>Nova função</span>
-                  <input
+                  <RoleCombobox
                     value={newRoleName}
-                    list="service-detail-role-options"
+                    options={collaboratorRoleOptions}
                     placeholder="Selecionar ou escrever"
-                    onChange={(event) => setNewRoleName(event.target.value)}
+                    onChange={setNewRoleName}
                     onKeyDown={(event) => {
                       if (event.key !== 'Enter') return;
                       event.preventDefault();
@@ -1098,9 +1191,6 @@ export default function ServiceDetail() {
                   </button>
                 </div>
               ) : null}
-              <datalist id="service-detail-role-options">
-                {collaboratorRoleOptions.map((role) => <option key={role} value={role} />)}
-              </datalist>
             </div>
           ) : null}
           </> : null}

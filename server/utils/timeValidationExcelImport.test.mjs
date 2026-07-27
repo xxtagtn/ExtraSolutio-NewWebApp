@@ -121,7 +121,7 @@ test('parses client access report with displaced header row', () => {
     plannedHours: 4.5,
     plannedValue: 40.5,
     clientCheckIn: '11:30',
-    clientCheckOut: '16:09',
+    clientCheckOut: '16:00',
     clientHours: 4.5,
   });
 });
@@ -187,7 +187,47 @@ test('builds an import preview with reusable mappings and assignment match', () 
   assert.equal(preview.rows[0].status, 'valid');
   assert.equal(preview.rows[0].assignmentId, 30);
   assert.equal(preview.rows[0].clientCheckIn, '11:30');
-  assert.equal(preview.rows[0].clientCheckOut, '16:09');
+  assert.equal(preview.rows[0].clientCheckOut, '16:00');
+});
+
+test('ignores Excel seconds before applying the ExtraSolutio rounding rule', () => {
+  const parsed = parseTimeValidationWorkbook(workbookBuffer([
+    [
+      'Nome da Sessão',
+      'Nome do Colaborador',
+      'NIF',
+      'Departamento',
+      'Categoria',
+      'Data do Evento',
+      'Hora de Entrada',
+      'Hora de Saída',
+    ],
+    [
+      'SERVIÇO TESTE',
+      'Colaborador Um',
+      '123456789',
+      'Restaurante',
+      'EMPREGADO DE MESA',
+      new Date('2026-07-20T00:00:00'),
+      ((10 * 60 * 60) + (14 * 60) + 59) / (24 * 60 * 60),
+      ((22 * 60 * 60) + (45 * 60) + 1) / (24 * 60 * 60),
+    ],
+    [
+      'SERVIÇO TESTE',
+      'Colaborador Dois',
+      '987654321',
+      'Restaurante',
+      'EMPREGADO DE MESA',
+      new Date('2026-07-20T00:00:00'),
+      '23:44:59',
+      '23:45:01',
+    ],
+  ]));
+
+  assert.equal(parsed.rows[0].clientCheckIn, '10:00');
+  assert.equal(parsed.rows[0].clientCheckOut, '23:00');
+  assert.equal(parsed.rows[1].clientCheckIn, '23:30');
+  assert.equal(parsed.rows[1].clientCheckOut, '00:00');
 });
 
 test('recalculates imported client hours from clocks instead of trusting the spreadsheet total', () => {
@@ -235,6 +275,8 @@ test('recalculates imported client hours from clocks instead of trusting the spr
 
   assert.equal(preview.rows[0].clientRealHours, 6);
   assert.equal(preview.rows[0].clientBillableHours, 6);
+  assert.equal(preview.rows[0].clientCheckIn, '17:30');
+  assert.equal(preview.rows[0].clientCheckOut, '23:30');
 });
 
 test('matches a report session to the unique event by date and department', () => {

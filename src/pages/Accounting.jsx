@@ -1,6 +1,7 @@
 import {
   Banknote,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   FileText,
   Landmark,
@@ -39,6 +40,7 @@ import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { clientChargeHours, decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
 import { buildClientFinancialSummary } from '../utils/clientFinancialSummary.js';
+import { paginateItems } from '../utils/pagination.js';
 import { calculateFinancialMargin, clientRateForAssignment } from '../utils/eventFinancialRules.js';
 import { statusLabel as operationalStatusLabel } from '../utils/serviceStatus.js';
 import {
@@ -448,7 +450,17 @@ function statusLabel(options, value) {
   return options.find((option) => option.value === value)?.label || value || '-';
 }
 
-function ClientFinancialEventTable({ row, onInvoiceStatusChange, onEventBillingStatusChange, updatingInvoiceId, updatingEventId }) {
+function ClientFinancialEventTable({
+  row,
+  onInvoiceStatusChange,
+  onEventBillingStatusChange,
+  clientAdjustmentDraftFor,
+  onClientAdjustmentDraftChange,
+  onClientAdjustmentSave,
+  updatingInvoiceId,
+  updatingEventId,
+  updatingClientAdjustmentEventId,
+}) {
   const navigate = useNavigate();
   const [selectedEvent, setSelectedEvent] = useState(null);
   const shownInvoiceIds = new Set();
@@ -529,6 +541,26 @@ function ClientFinancialEventTable({ row, onInvoiceStatusChange, onEventBillingS
           ) : null}
         </div>
         <span>{event.date ? date.format(new Date(event.date)) : '-'}</span>
+        <div className="finance-client-event-adjustment" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+          {invoice ? (
+            <span className="muted" title="A fatura já foi emitida.">-</span>
+          ) : (
+            <input
+              className="payment-adjustment-input finance-client-adjustment-input"
+              inputMode="decimal"
+              placeholder="+2,50 / -2,43"
+              value={clientAdjustmentDraftFor(event)}
+              disabled={updatingClientAdjustmentEventId === event.id}
+              aria-label={`Ajuste de faturação de ${event.name || 'evento'}`}
+              onClick={(clickEvent) => clickEvent.stopPropagation()}
+              onChange={(changeEvent) => onClientAdjustmentDraftChange(event.id, changeEvent.target.value)}
+              onBlur={() => onClientAdjustmentSave(event)}
+              onKeyDown={(keyboardEvent) => {
+                if (keyboardEvent.key === 'Enter') keyboardEvent.currentTarget.blur();
+              }}
+            />
+          )}
+        </div>
         <strong>{money.format(event.displayValue)}</strong>
         <span>
           <Badge tone={invoice ? (invoiceIsPaid(invoice) ? 'success' : 'warning') : billingStatus === 'paid' ? 'success' : 'warning'}>
@@ -573,6 +605,7 @@ function ClientFinancialEventTable({ row, onInvoiceStatusChange, onEventBillingS
       <div className="finance-client-event-head">
         <span>Evento/Serviço</span>
         <span>Data</span>
+        <span>Ajustes</span>
         <span>Valor</span>
         <span>Estado da faturação</span>
         <span>Vencimento</span>
@@ -587,6 +620,7 @@ function ClientFinancialEventTable({ row, onInvoiceStatusChange, onEventBillingS
             <small>Fatura sem evento associado no período</small>
           </div>
           <span>{invoice.issueDate ? date.format(new Date(invoice.issueDate)) : '-'}</span>
+          <span className="muted">-</span>
           <strong>{money.format(invoice.total)}</strong>
           <span><Badge tone={invoiceIsPaid(invoice) ? 'success' : 'warning'}>{statusLabel(INVOICE_STATUS, invoice.status)}</Badge></span>
           <span>{invoice.dueDate ? date.format(new Date(invoice.dueDate)) : '-'}</span>
@@ -691,8 +725,12 @@ function ClientFinancialWorkspace({
   onToggleClient,
   onInvoiceStatusChange,
   onEventBillingStatusChange,
+  clientAdjustmentDraftFor,
+  onClientAdjustmentDraftChange,
+  onClientAdjustmentSave,
   updatingInvoiceId,
   updatingEventId,
+  updatingClientAdjustmentEventId,
 }) {
   const visibleRows = selectedClientKey === 'all'
     ? rows
@@ -705,6 +743,7 @@ function ClientFinancialWorkspace({
       clientName: selectedOption?.label || 'Cliente',
       eventCount: 0,
       pendingBilling: 0,
+      adjustments: 0,
       billedOpen: 0,
       received: 0,
       total: 0,
@@ -714,10 +753,11 @@ function ClientFinancialWorkspace({
   const totals = visibleRows.reduce((summary, row) => ({
     events: summary.events + row.eventCount,
     pendingBilling: summary.pendingBilling + row.pendingBilling,
+    adjustments: summary.adjustments + row.adjustments,
     billedOpen: summary.billedOpen + row.billedOpen,
     received: summary.received + row.received,
     total: summary.total + row.total,
-  }), { events: 0, pendingBilling: 0, billedOpen: 0, received: 0, total: 0 });
+  }), { events: 0, pendingBilling: 0, adjustments: 0, billedOpen: 0, received: 0, total: 0 });
 
   return (
     <section className="finance-client-workspace">
@@ -738,6 +778,7 @@ function ClientFinancialWorkspace({
       <div className="finance-client-summary-grid">
         <div className="finance-client-summary-card"><span>Eventos/Serviços</span><strong>{totals.events}</strong></div>
         <div className="finance-client-summary-card finance-client-summary-card--pending"><span>Por faturar</span><strong>{money.format(totals.pendingBilling)}</strong></div>
+        <div className="finance-client-summary-card"><span>Ajustes</span><strong>{money.format(totals.adjustments)}</strong></div>
         <div className="finance-client-summary-card finance-client-summary-card--open"><span>Faturado em aberto</span><strong>{money.format(totals.billedOpen)}</strong></div>
         <div className="finance-client-summary-card finance-client-summary-card--received"><span>Recebido</span><strong>{money.format(totals.received)}</strong></div>
         <div className="finance-client-summary-card finance-client-summary-card--total"><span>Total do período</span><strong>{money.format(totals.total)}</strong></div>
@@ -752,8 +793,12 @@ function ClientFinancialWorkspace({
             row={selectedRow}
             onInvoiceStatusChange={onInvoiceStatusChange}
             onEventBillingStatusChange={onEventBillingStatusChange}
+            clientAdjustmentDraftFor={clientAdjustmentDraftFor}
+            onClientAdjustmentDraftChange={onClientAdjustmentDraftChange}
+            onClientAdjustmentSave={onClientAdjustmentSave}
             updatingInvoiceId={updatingInvoiceId}
             updatingEventId={updatingEventId}
+            updatingClientAdjustmentEventId={updatingClientAdjustmentEventId}
           />
         </section>
       ) : (
@@ -764,6 +809,7 @@ function ClientFinancialWorkspace({
                 <th>Cliente</th>
                 <th>Eventos/Serviços</th>
                 <th>Por faturar</th>
+                <th>Ajustes</th>
                 <th>Faturado em aberto</th>
                 <th>Recebido</th>
                 <th>Total do período</th>
@@ -789,19 +835,24 @@ function ClientFinancialWorkspace({
                       <td data-label="Cliente"><span className="finance-client-summary-name">{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<strong>{row.clientName}</strong></span></td>
                       <td data-label="Eventos/Serviços">{row.eventCount}</td>
                       <td data-label="Por faturar">{money.format(row.pendingBilling)}</td>
+                      <td data-label="Ajustes">{money.format(row.adjustments)}</td>
                       <td data-label="Faturado em aberto">{money.format(row.billedOpen)}</td>
                       <td data-label="Recebido">{money.format(row.received)}</td>
                       <td data-label="Total do período"><strong>{money.format(row.total)}</strong></td>
                     </tr>
                     {isExpanded ? (
                       <tr className="finance-client-summary-detail-row">
-                        <td colSpan={6}>
+                        <td colSpan={7}>
                           <ClientFinancialEventTable
                             row={row}
                             onInvoiceStatusChange={onInvoiceStatusChange}
                             onEventBillingStatusChange={onEventBillingStatusChange}
+                            clientAdjustmentDraftFor={clientAdjustmentDraftFor}
+                            onClientAdjustmentDraftChange={onClientAdjustmentDraftChange}
+                            onClientAdjustmentSave={onClientAdjustmentSave}
                             updatingInvoiceId={updatingInvoiceId}
                             updatingEventId={updatingEventId}
+                            updatingClientAdjustmentEventId={updatingClientAdjustmentEventId}
                           />
                         </td>
                       </tr>
@@ -870,6 +921,10 @@ export default function Accounting() {
   const [updatingAssignmentId, setUpdatingAssignmentId] = useState(null);
   const [updatingInvoiceId, setUpdatingInvoiceId] = useState(null);
   const [updatingEventId, setUpdatingEventId] = useState(null);
+  const [clientAdjustmentDrafts, setClientAdjustmentDrafts] = useState({});
+  const [updatingClientAdjustmentEventId, setUpdatingClientAdjustmentEventId] = useState(null);
+  const [staffCostPage, setStaffCostPage] = useState(1);
+  const [staffCostPageSize, setStaffCostPageSize] = useState('10');
   const [expenseForm, setExpenseForm] = useState(emptyExpense());
   const [expenseError, setExpenseError] = useState('');
   const [savingExpense, setSavingExpense] = useState(false);
@@ -1167,7 +1222,7 @@ export default function Accounting() {
           nonInvoicedServices: [event],
           actionableInvoice: null,
           actionableService: event,
-          invoicesCount: billingStatus === 'pending' ? 0 : 1,
+          invoicesCount: 0,
           invoiceDebt: billingStatus === 'invoiced' ? receivable : 0,
           pendingBilling,
           billedOpen: billingStatus === 'invoiced' ? receivable : 0,
@@ -1397,6 +1452,13 @@ export default function Accounting() {
     }
     return [...map.values()].sort((a, b) => b.total - a.total);
   }, [filteredStaffEntries]);
+
+  const staffCostPagination = useMemo(() => {
+    const pageSize = staffCostPageSize === 'all'
+      ? Math.max(staffByCollaborator.length, 1)
+      : Number(staffCostPageSize);
+    return paginateItems(staffByCollaborator, staffCostPage, pageSize);
+  }, [staffByCollaborator, staffCostPage, staffCostPageSize]);
 
   const staffByMonth = useMemo(() => {
     const map = new Map();
@@ -1658,6 +1720,40 @@ export default function Accounting() {
       reload();
     } finally {
       setUpdatingAssignmentId(null);
+    }
+  }
+
+  function clientAdjustmentDraftFor(event) {
+    const key = String(event.id);
+    if (Object.prototype.hasOwnProperty.call(clientAdjustmentDrafts, key)) {
+      return clientAdjustmentDrafts[key];
+    }
+    return adjustmentInputValue(event.billingAdjustment);
+  }
+
+  function updateClientAdjustmentDraft(eventId, value) {
+    setClientAdjustmentDrafts((prev) => ({
+      ...prev,
+      [String(eventId)]: value,
+    }));
+  }
+
+  async function saveClientBillingAdjustment(event) {
+    if (event.invoice || updatingClientAdjustmentEventId === event.id) return;
+    const parsed = decimalValue(clientAdjustmentDraftFor(event)) || 0;
+    setUpdatingClientAdjustmentEventId(event.id);
+    try {
+      await api(`/services/${event.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ billingAdjustment: parsed }),
+      });
+      setClientAdjustmentDrafts((prev) => ({
+        ...prev,
+        [String(event.id)]: adjustmentInputValue(parsed),
+      }));
+      await reload();
+    } finally {
+      setUpdatingClientAdjustmentEventId(null);
     }
   }
 
@@ -2097,8 +2193,12 @@ export default function Accounting() {
             onToggleClient={(key) => setExpandedFinanceClientKey((current) => (current === key ? null : key))}
             onInvoiceStatusChange={updateInvoiceStatus}
             onEventBillingStatusChange={(eventId, status) => updateEventBillingStatus([eventId], status, eventId)}
+            clientAdjustmentDraftFor={clientAdjustmentDraftFor}
+            onClientAdjustmentDraftChange={updateClientAdjustmentDraft}
+            onClientAdjustmentSave={saveClientBillingAdjustment}
             updatingInvoiceId={updatingInvoiceId}
             updatingEventId={updatingEventId}
+            updatingClientAdjustmentEventId={updatingClientAdjustmentEventId}
           />
 
           <div className="finance-client-legacy">
@@ -2503,7 +2603,7 @@ export default function Accounting() {
                   </tr>
                 </thead>
                 <tbody>
-                  {staffByCollaborator.map((row) => (
+                  {staffCostPagination.items.map((row) => (
                     <tr key={row.id}>
                       <td>{row.name}</td>
                       <td>{row.nif}</td>
@@ -2517,6 +2617,60 @@ export default function Accounting() {
               </table>
               {!staffByCollaborator.length ? <p className="muted">Sem custos de staff para os filtros selecionados.</p> : null}
             </div>
+            {staffCostPagination.totalItems ? (
+              <footer className="collab-pagination finance-cost-pagination">
+                <span className="collab-pagination__summary">
+                  A mostrar {staffCostPagination.startItem}-{staffCostPagination.endItem} de {staffCostPagination.totalItems}
+                </span>
+                <label className="collab-pagination__size">
+                  <span>Por página</span>
+                  <select
+                    className="form-control"
+                    value={staffCostPageSize}
+                    onChange={(event) => {
+                      setStaffCostPageSize(event.target.value);
+                      setStaffCostPage(1);
+                    }}
+                  >
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="all">Tudo</option>
+                  </select>
+                </label>
+                <nav className="collab-pagination__pages" aria-label="Paginação dos custos por colaborador">
+                  <button
+                    className="collab-pagination__page"
+                    type="button"
+                    aria-label="Página anterior"
+                    disabled={staffCostPagination.currentPage <= 1}
+                    onClick={() => setStaffCostPage(staffCostPagination.currentPage - 1)}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  {staffCostPagination.pageNumbers.map((pageNumber) => (
+                    <button
+                      key={pageNumber}
+                      className={`collab-pagination__page ${pageNumber === staffCostPagination.currentPage ? 'is-active' : ''}`}
+                      type="button"
+                      aria-current={pageNumber === staffCostPagination.currentPage ? 'page' : undefined}
+                      onClick={() => setStaffCostPage(pageNumber)}
+                    >
+                      {pageNumber}
+                    </button>
+                  ))}
+                  <button
+                    className="collab-pagination__page"
+                    type="button"
+                    aria-label="Página seguinte"
+                    disabled={staffCostPagination.currentPage >= staffCostPagination.totalPages}
+                    onClick={() => setStaffCostPage(staffCostPagination.currentPage + 1)}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </nav>
+              </footer>
+            ) : null}
           </Card>
 
           <Card title="Evolução Mensal Staff">

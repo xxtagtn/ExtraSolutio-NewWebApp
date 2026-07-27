@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildBulkValidationCandidates, buildClientCopyCandidates } from './hourValidationBulk.js';
+import {
+  buildBulkValidationCandidates,
+  buildClientCopyCandidates,
+  rowsForEventDay,
+} from './hourValidationBulk.js';
+
+test('scopes bulk validation rows to one event day', () => {
+  const rows = [
+    { id: 1, event: { id: 10 }, workDateKey: '2026-07-01' },
+    { id: 2, event: { id: 10 }, workDateKey: '2026-07-02' },
+    { id: 3, event: { id: 11 }, workDateKey: '2026-07-01' },
+  ];
+
+  assert.deepEqual(
+    rowsForEventDay(rows, 10, '2026-07-01').map((row) => row.id),
+    [1],
+  );
+  assert.deepEqual(rowsForEventDay(rows, 10, 'all'), []);
+});
 
 test('builds bulk validation candidates only from rows with complete staff and client times', () => {
   const rows = [

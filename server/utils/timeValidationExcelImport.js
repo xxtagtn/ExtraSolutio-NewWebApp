@@ -1,5 +1,10 @@
 import * as XLSX from 'xlsx';
-import { clientChargeHours, clientRealHours, decimalValue } from '../../src/utils/serviceFinance.js';
+import {
+  clientChargeHours,
+  clientRealHours,
+  decimalValue,
+  roundedClockTime,
+} from '../../src/utils/serviceFinance.js';
 import { collaboratorRoleOptions } from '../../src/utils/collaboratorRoles.js';
 
 const FIELD_ALIASES = {
@@ -111,7 +116,7 @@ function sameStoredDate(a, b) {
 }
 
 function minutesToTime(minutes) {
-  const normalized = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  const normalized = ((Math.trunc(minutes) % 1440) + 1440) % 1440;
   const hours = Math.floor(normalized / 60);
   const mins = normalized % 60;
   return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
@@ -121,9 +126,8 @@ function parseTime(value) {
   if (!value && value !== 0) return '';
   if (value instanceof Date) return minutesToTime((value.getHours() * 60) + value.getMinutes());
   if (typeof value === 'number') {
-    if (value >= 0 && value < 1) return minutesToTime(value * 24 * 60);
-    const date = excelSerialToDate(value);
-    return date ? minutesToTime((date.getHours() * 60) + date.getMinutes()) : '';
+    const dayFraction = ((value % 1) + 1) % 1;
+    return minutesToTime(Math.floor((dayFraction * 24 * 60) + 1e-7));
   }
   const text = normalizeText(value);
   if (!text) return '';
@@ -132,6 +136,11 @@ function parseTime(value) {
   const compactMatch = text.match(/^(\d{1,2})(?::?(\d{2}))?$/);
   if (compactMatch) return `${compactMatch[1].padStart(2, '0')}:${compactMatch[2] || '00'}`;
   return '';
+}
+
+function parseImportedClientTime(value) {
+  const parsed = parseTime(value);
+  return parsed ? roundedClockTime(parsed) : '';
 }
 
 function parseDurationHours(value) {
@@ -198,8 +207,8 @@ function parsedRowFrom(values, fields, rowNumber) {
     plannedCheckIn: parseTime(valueAt(values, fields, 'plannedCheckIn')),
     plannedHours: parseDurationHours(valueAt(values, fields, 'plannedHours')),
     plannedValue: parseMoney(valueAt(values, fields, 'plannedValue')),
-    clientCheckIn: parseTime(valueAt(values, fields, 'clientCheckIn')),
-    clientCheckOut: parseTime(valueAt(values, fields, 'clientCheckOut')),
+    clientCheckIn: parseImportedClientTime(valueAt(values, fields, 'clientCheckIn')),
+    clientCheckOut: parseImportedClientTime(valueAt(values, fields, 'clientCheckOut')),
     clientHours: parseDurationHours(valueAt(values, fields, 'clientHours')),
   };
 }
@@ -547,7 +556,12 @@ export function buildImportPreview(rows = [], context = {}) {
   const services = context.services || [];
   const collaborators = context.collaborators || [];
   const unresolvedMappings = unresolvedBucket();
-  const previewRows = rows.map((row) => {
+  const previewRows = rows.map((sourceRow) => {
+    const row = {
+      ...sourceRow,
+      clientCheckIn: parseImportedClientTime(sourceRow.clientCheckIn),
+      clientCheckOut: parseImportedClientTime(sourceRow.clientCheckOut),
+    };
     const errors = [];
     const warnings = [];
     const mappingFields = [];
@@ -655,11 +669,13 @@ export function normalizeImportMappings(mappings = [], source = 'time_validation
 }
 
 export function assignmentUpdateFromPreviewRow(row = {}) {
+  const clientCheckIn = parseImportedClientTime(row.clientCheckIn);
+  const clientCheckOut = parseImportedClientTime(row.clientCheckOut);
   return {
     assignmentId: Number(row.assignmentId),
     data: {
-      clientCheckIn: row.clientCheckIn || null,
-      clientCheckOut: row.clientCheckOut || null,
+      clientCheckIn: clientCheckIn || null,
+      clientCheckOut: clientCheckOut || null,
       clientRealHours: decimalValue(row.clientRealHours),
       clientBillableHours: decimalValue(row.clientBillableHours),
       validationStatus: row.validationStatus || 'pending',

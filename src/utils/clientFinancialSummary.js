@@ -78,6 +78,7 @@ function ensureSummary(map, event, clientsById) {
     clientStatus: registeredClient?.status || event?.client?.status || 'active',
     eventCount: 0,
     pendingBilling: 0,
+    adjustments: 0,
     billedOpen: 0,
     received: 0,
     total: 0,
@@ -93,6 +94,7 @@ function roundSummary(row) {
   return {
     ...row,
     pendingBilling: Number(row.pendingBilling.toFixed(2)),
+    adjustments: Number(row.adjustments.toFixed(2)),
     billedOpen: Number(row.billedOpen.toFixed(2)),
     received: Number(row.received.toFixed(2)),
     total: Number((row.pendingBilling + row.billedOpen + row.received).toFixed(2)),
@@ -128,12 +130,16 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
     const eventId = Number(event.id);
     const linkedInvoices = invoiceByEventId.get(eventId) || [];
     const revenue = eventRevenue(event);
+    const adjustment = linkedInvoices.length ? 0 : numberValue(event.billingAdjustment);
+    const adjustedRevenue = Math.max(0, revenue + adjustment);
     const billingStatus = eventBillingState(event);
 
     summary.eventCount += 1;
+    summary.adjustments += adjustment;
     summary.events.push({
       ...event,
-      displayValue: revenue,
+      displayValue: adjustedRevenue,
+      displayAdjustment: adjustment,
       billingStatus,
       invoices: linkedInvoices,
       invoice: linkedInvoices[0] || null,
@@ -141,12 +147,14 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
 
     if (!linkedInvoices.length) {
       if (billingStatus === 'paid') {
-        summary.received += Math.max(revenue, eventReceived(event));
+        summary.received += Math.max(adjustedRevenue, eventReceived(event));
       } else if (['partial70', 'invoiced'].includes(billingStatus)) {
-        summary.received += Math.max(0, revenue - eventReceivable(event));
-        summary.billedOpen += eventReceivable(event);
+        const receivedBase = Math.max(0, revenue - eventReceivable(event));
+        const received = Math.min(adjustedRevenue, receivedBase);
+        summary.received += received;
+        summary.billedOpen += Math.max(0, adjustedRevenue - received);
       } else {
-        summary.pendingBilling += revenue;
+        summary.pendingBilling += adjustedRevenue;
       }
     }
   }
@@ -179,4 +187,3 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
     }))
     .sort((a, b) => a.clientName.localeCompare(b.clientName, 'pt-PT', { sensitivity: 'base' }));
 }
-

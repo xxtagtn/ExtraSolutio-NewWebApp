@@ -240,6 +240,24 @@ function eventRangeEnd(item) {
   return item?.isContinuous && item.endDate ? item.endDate : item?.date;
 }
 
+function eventOverlapsMonth(item, month, year) {
+  if (!month && !year) return true;
+  const start = parseDateOnly(item?.date);
+  const end = parseDateOnly(eventRangeEnd(item)) || start;
+  if (!start || !end) return false;
+
+  const firstYear = year ? Number(year) : start.getFullYear();
+  const lastYear = year ? Number(year) : end.getFullYear();
+  for (let currentYear = firstYear; currentYear <= lastYear; currentYear += 1) {
+    const periodStart = new Date(currentYear, month ? Number(month) - 1 : 0, 1);
+    const periodEnd = month
+      ? new Date(currentYear, Number(month), 0)
+      : new Date(currentYear, 11, 31);
+    if (start <= periodEnd && end >= periodStart) return true;
+  }
+  return false;
+}
+
 function inclusiveDayCount(startValue, endValue) {
   const start = parseDateOnly(startValue);
   const end = parseDateOnly(endValue || startValue);
@@ -488,6 +506,10 @@ export default function Services() {
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [listScope, setListScope] = useState('active');
+  const [archiveMonth, setArchiveMonth] = useState('');
+  const [archiveYear, setArchiveYear] = useState('');
+  const [archivePage, setArchivePage] = useState(1);
+  const [archivePageSize, setArchivePageSize] = useState('10');
   const [formOpen, setFormOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('summary');
   const [editing, setEditing] = useState(null);
@@ -515,11 +537,42 @@ export default function Services() {
     const byDate = fromDate ? dateOnly(eventRangeEnd(row)) >= fromDate : true;
     const byClient = clientFilter ? String(row.clientId) === clientFilter : true;
     const byStatus = statusFilter ? serviceStatusForDisplay(row) === statusFilter : true;
-    return byArchive && byDate && byClient && byStatus;
-  }), [data, listScope, fromDate, clientFilter, statusFilter]);
+    const byArchivePeriod = listScope !== 'archive' || eventOverlapsMonth(row, archiveMonth, archiveYear);
+    return byArchive && byDate && byClient && byStatus && byArchivePeriod;
+  }), [data, listScope, fromDate, clientFilter, statusFilter, archiveMonth, archiveYear]);
+
+  const archiveYears = useMemo(() => {
+    const years = new Set([String(new Date().getFullYear())]);
+    data.filter((row) => isArchivedService(row)).forEach((row) => {
+      [row.date, eventRangeEnd(row)].forEach((value) => {
+        const year = dateOnly(value).slice(0, 4);
+        if (/^\d{4}$/.test(year)) years.add(year);
+      });
+    });
+    return [...years].sort((a, b) => Number(b) - Number(a));
+  }, [data]);
+
+  const archiveTotalPages = archivePageSize === 'all'
+    ? 1
+    : Math.max(1, Math.ceil(rows.length / Number(archivePageSize)));
+
+  const visibleRows = useMemo(() => {
+    if (listScope !== 'archive' || archivePageSize === 'all') return rows;
+    const pageSize = Number(archivePageSize);
+    const start = (archivePage - 1) * pageSize;
+    return rows.slice(start, start + pageSize);
+  }, [archivePage, archivePageSize, listScope, rows]);
 
   const activeCount = useMemo(() => data.filter((row) => !isArchivedService(row)).length, [data]);
   const archiveCount = useMemo(() => data.filter((row) => isArchivedService(row)).length, [data]);
+
+  useEffect(() => {
+    setArchivePage(1);
+  }, [archiveMonth, archiveYear, archivePageSize, clientFilter, fromDate, listScope, statusFilter]);
+
+  useEffect(() => {
+    setArchivePage((currentPage) => Math.min(currentPage, archiveTotalPages));
+  }, [archiveTotalPages]);
 
   const availableRoles = useMemo(
     () => [...new Set((roleCatalog || []).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt')),
@@ -1501,12 +1554,15 @@ export default function Services() {
           <button
             type="button"
             className={`service-tab ${listScope === 'archive' ? 'service-tab--active' : ''}`}
-            onClick={() => setListScope('archive')}
+            onClick={() => {
+              setListScope('archive');
+              setArchivePage(1);
+            }}
           >
             Arquivo ({archiveCount})
           </button>
         </div>
-        <div className="filters">
+        <div className={`filters ${listScope === 'archive' ? 'services-archive-filters' : ''}`}>
           <input className="form-control" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
           <select className="form-control" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}>
             <option value="">Todos os clientes</option>
@@ -1516,12 +1572,27 @@ export default function Services() {
             <option value="">Todos os estados</option>
             {operationalStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
+          {listScope === 'archive' ? (
+            <>
+              <select className="form-control" value={archiveMonth} onChange={(event) => setArchiveMonth(event.target.value)} aria-label="Mês do arquivo">
+                <option value="">Todos os meses</option>
+                {[
+                  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+                ].map((month, index) => <option key={month} value={String(index + 1)}>{month}</option>)}
+              </select>
+              <select className="form-control" value={archiveYear} onChange={(event) => setArchiveYear(event.target.value)} aria-label="Ano do arquivo">
+                <option value="">Todos os anos</option>
+                {archiveYears.map((year) => <option key={year} value={year}>{year}</option>)}
+              </select>
+            </>
+          ) : null}
         </div>
         {error ? <p className="notice">{error}</p> : null}
         {loading ? <p className="muted">A carregar...</p> : null}
         {!loading && !rows.length ? <p className="muted">Nenhum evento/serviço encontrado.</p> : null}
         <div className="service-card-list">
-          {rows.map((row) => {
+          {visibleRows.map((row) => {
             const requestedTotal = requiredStaffTotal(row);
             const confirmedTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'confirmed').length;
             const pendingTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'pending_confirmation').length;
@@ -1553,6 +1624,27 @@ export default function Services() {
             );
           })}
         </div>
+        {listScope === 'archive' && rows.length ? (
+          <div className="services-archive-pagination">
+            <span className="muted">{archivePageSize === 'all' ? `A mostrar ${rows.length} evento(s)` : `A mostrar ${(archivePage - 1) * Number(archivePageSize) + 1}-${Math.min(archivePage * Number(archivePageSize), rows.length)} de ${rows.length}`}</span>
+            <label>
+              Por página
+              <select className="form-control" value={archivePageSize} onChange={(event) => setArchivePageSize(event.target.value)}>
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="100">100</option>
+                <option value="all">Tudo</option>
+              </select>
+            </label>
+            {archivePageSize !== 'all' ? (
+              <div className="services-archive-pagination__actions">
+                <button type="button" className="secondary-button" onClick={() => setArchivePage((page) => Math.max(1, page - 1))} disabled={archivePage <= 1}>Anterior</button>
+                <span>Página {archivePage} de {archiveTotalPages}</span>
+                <button type="button" className="secondary-button" onClick={() => setArchivePage((page) => Math.min(archiveTotalPages, page + 1))} disabled={archivePage >= archiveTotalPages}>Seguinte</button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </Card>
 
       {formOpen ? (

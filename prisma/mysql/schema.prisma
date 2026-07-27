@@ -291,6 +291,7 @@ model Event {
   statusMode   String            @default("automatic") @db.VarChar(20)
   totalCost    Decimal           @default(0) @db.Decimal(12, 2)
   totalRevenue Decimal           @default(0) @db.Decimal(12, 2)
+  billingAdjustment Decimal      @default(0) @db.Decimal(12, 2)
   vatRateSnapshot Decimal        @default(0) @db.Decimal(8, 4)
   taxAmount    Decimal           @default(0) @db.Decimal(12, 2)
   notes        String?           @db.Text

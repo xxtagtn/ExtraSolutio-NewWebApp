@@ -24,7 +24,11 @@ import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { date, durationHours } from '../utils/formatters.js';
-import { buildBulkValidationCandidates, buildClientCopyCandidates } from '../utils/hourValidationBulk.js';
+import {
+  buildBulkValidationCandidates,
+  buildClientCopyCandidates,
+  rowsForEventDay,
+} from '../utils/hourValidationBulk.js';
 import {
   STAFF_ACCEPTED_VALIDATION_STATUS,
   hoursValidationState,
@@ -1387,18 +1391,24 @@ export default function TimeValidation() {
   }
 
   async function validateAllRowsForEvent(item) {
-    const eventRows = clientRows.filter((row) => (
-      String(row.event.id) === String(item.event.id)
-      && !NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status))
-    ));
+    const targetWorkDateKey = item.workDateKey
+      || (selectedWorkDateKey !== 'all' ? selectedWorkDateKey : '');
+    const eventRows = rowsForEventDay(clientRows, item.event.id, targetWorkDateKey)
+      .filter((row) => !NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status)));
+
+    if (!targetWorkDateKey) {
+      window.alert('Seleciona um dia do evento antes de validar o dia.');
+      return;
+    }
+
     const candidates = buildBulkValidationCandidates(eventRows, drafts);
 
     if (!candidates.ready.length) {
-      window.alert('Não existem colaboradores por validar com horas suficientes neste evento.');
+      window.alert('Não existem colaboradores por validar com horas suficientes neste dia.');
       return;
     }
     if (candidates.missing.length) {
-      window.alert(`Não foi possível validar tudo. Existem ${candidates.missing.length} colaborador(es) sem horas suficientes.`);
+      window.alert(`Não foi possível validar este dia. Existem ${candidates.missing.length} colaborador(es) sem horas suficientes.`);
       return;
     }
 
@@ -1420,7 +1430,7 @@ export default function TimeValidation() {
       });
       reload();
     } catch (error) {
-      window.alert(error?.message || 'Não foi possível validar todos os colaboradores deste evento.');
+      window.alert(error?.message || 'Não foi possível validar todos os colaboradores deste dia.');
     } finally {
       setBulkValidatingEventId(null);
     }
@@ -1754,7 +1764,7 @@ export default function TimeValidation() {
                         disabled={bulkValidatingEventId === item.event.id}
                         onClick={() => validateAllRowsForEvent(item)}
                       >
-                        {bulkValidatingEventId === item.event.id ? 'A validar...' : 'Validar tudo'}
+                        {bulkValidatingEventId === item.event.id ? 'A validar...' : 'Validar Dia'}
                       </button>
                     ) : null}
                     {stage === TIME_VALIDATION_STAGE.clientPending && item.ready ? (
@@ -1842,7 +1852,9 @@ export default function TimeValidation() {
                         {copyingClientEventId === selectedPanelEvent.id ? 'A copiar...' : 'Copiar Staff para Cliente'}
                       </button>
                     ) : null}
-                    {stage === TIME_VALIDATION_STAGE.clientPending && canBulkAcceptEvent(selectedPanelSummary) ? (
+                    {stage === TIME_VALIDATION_STAGE.clientPending
+                      && selectedPanelSummary.workDateKey
+                      && canBulkAcceptEvent(selectedPanelSummary) ? (
                       <button
                         className="secondary-button"
                         type="button"
@@ -1850,7 +1862,7 @@ export default function TimeValidation() {
                         onClick={() => validateAllRowsForEvent(selectedPanelSummary)}
                       >
                         <CheckCircle2 size={16} />
-                        {bulkValidatingEventId === selectedPanelEvent.id ? 'A validar...' : 'Validar tudo'}
+                        {bulkValidatingEventId === selectedPanelEvent.id ? 'A validar...' : 'Validar Dia'}
                       </button>
                     ) : null}
                     {stage === TIME_VALIDATION_STAGE.clientPending && selectedPanelSummary.ready ? (

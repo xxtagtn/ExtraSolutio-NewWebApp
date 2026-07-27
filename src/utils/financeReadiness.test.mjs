@@ -87,6 +87,48 @@ test('does not make an event processable only because billing is closed', () => 
   }), false);
 });
 
+test('includes an external-only event after its billing is processed', () => {
+  assert.equal(isFinanceReadyEvent({
+    status: 'drafting',
+    billingStatus: 'paid',
+    assignments: [],
+    externalCosts: JSON.stringify([
+      { id: 'external-1', supplier: 'Fun Ride', costAmount: 790 },
+    ]),
+  }), true);
+
+  assert.equal(isFinanceReadyEvent({
+    status: 'drafting',
+    billingStatus: 'invoiced',
+    assignments: [],
+    externalCosts: [
+      { id: 'external-1', supplier: 'Fun Ride', costAmount: 790 },
+    ],
+  }), true);
+});
+
+test('keeps pending external-only events in forecast', () => {
+  assert.equal(isFinanceReadyEvent({
+    status: 'drafting',
+    billingStatus: 'pending',
+    assignments: [],
+    externalCosts: JSON.stringify([
+      { id: 'external-1', supplier: 'Fun Ride', costAmount: 790 },
+    ]),
+  }), false);
+});
+
+test('does not bypass operational validation when staff exists', () => {
+  assert.equal(isFinanceReadyEvent({
+    status: 'team_complete',
+    billingStatus: 'paid',
+    assignments: [{ collaboratorId: 7, validationStatus: 'pending' }],
+    externalCosts: JSON.stringify([
+      { id: 'external-1', supplier: 'Fun Ride', costAmount: 790 },
+    ]),
+  }), false);
+});
+
 test('keeps legacy final operational statuses processable', () => {
   assert.equal(isFinanceReadyEvent({ status: 'paid', billingStatus: 'pending' }), true);
   assert.equal(isFinanceReadyEvent({ status: 'invoiced', billingStatus: 'pending' }), true);
@@ -98,8 +140,15 @@ test('splits events between forecast and processable finance buckets', () => {
     { id: 1, status: 'finalized' },
     { id: 2, status: 'to_validate_client', billingStatus: 'paid' },
     { id: 3, status: 'drafting' },
+    {
+      id: 4,
+      status: 'drafting',
+      billingStatus: 'paid',
+      externalCosts: '[{"id":"external-1"}]',
+      assignments: [],
+    },
   ]);
 
-  assert.deepEqual(result.readyEvents.map((event) => event.id), [1]);
+  assert.deepEqual(result.readyEvents.map((event) => event.id), [1, 4]);
   assert.deepEqual(result.forecastEvents.map((event) => event.id), [2, 3]);
 });

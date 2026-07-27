@@ -291,6 +291,7 @@ model Event {
   statusMode   String            @default("automatic")
   totalCost    Decimal           @default(0)
   totalRevenue Decimal           @default(0)
+  billingAdjustment Decimal      @default(0)
   vatRateSnapshot Decimal        @default(0)
   taxAmount    Decimal           @default(0)
   notes        String?

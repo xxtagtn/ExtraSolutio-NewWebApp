@@ -1,0 +1,1 @@
+ALTER TABLE `Event` ADD COLUMN `billingAdjustment` DECIMAL(12, 2) NOT NULL DEFAULT 0;

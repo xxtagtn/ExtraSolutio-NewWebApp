@@ -42,3 +42,25 @@ test('keeps received invoices separate from open and pending values', () => {
   );
 });
 
+test('applies an event billing adjustment before an invoice is issued', () => {
+  const rows = buildClientFinancialSummary({
+    period: '2026-06',
+    clients: [{ id: 1, name: 'SSH', status: 'active' }],
+    events: [
+      {
+        id: 30,
+        date: '2026-06-15',
+        clientId: 1,
+        client: { id: 1, name: 'SSH' },
+        totalRevenue: 100,
+        billingAdjustment: 15,
+        billingStatus: 'pending',
+      },
+    ],
+  });
+
+  assert.equal(rows[0].adjustments, 15);
+  assert.equal(rows[0].pendingBilling, 115);
+  assert.equal(rows[0].total, 115);
+  assert.equal(rows[0].events[0].displayValue, 115);
+});

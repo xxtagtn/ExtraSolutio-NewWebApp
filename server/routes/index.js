@@ -90,6 +90,7 @@ const communicationQr = requirePermission(PERMISSIONS.COMMUNICATION_MANAGE_QR_CO
 const financialEventFields = [
   'totalCost',
   'totalRevenue',
+  'billingAdjustment',
   'vatRateSnapshot',
   'taxAmount',
   'rateHistory',

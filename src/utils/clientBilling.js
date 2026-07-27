@@ -226,7 +226,14 @@ export function billingPaymentDateForRow(row) {
 export function splitClientBillingRows(rows) {
   return (rows || []).reduce((result, row) => {
     const hasServiceEvents = billingEventIdsForRow(row).length > 0;
-    const isArchived = hasServiceEvents && billingStatusForRow(row) === 'paid';
+    const isUnregisteredClientWithoutInvoice = Boolean(
+      row?.isUnregisteredClient
+      && !(row?.invoices || []).length
+      && rowBillingServices(row).some((service) => !service?.financial?.hasInvoice),
+    );
+    const isArchived = hasServiceEvents
+      && billingStatusForRow(row) === 'paid'
+      && !isUnregisteredClientWithoutInvoice;
     if (isArchived) {
       result.archivedRows.push(row);
     } else {

@@ -1,5 +1,17 @@
 import { hoursValidationState } from './hourValidationStatus.js';
 
+export function rowsForEventDay(rows = [], eventId, workDateKey) {
+  const normalizedEventId = String(eventId ?? '');
+  const normalizedWorkDateKey = String(workDateKey ?? '').trim();
+
+  if (!normalizedEventId || !normalizedWorkDateKey || normalizedWorkDateKey === 'all') return [];
+
+  return rows.filter((row) => (
+    String(row?.event?.id ?? '') === normalizedEventId
+    && String(row?.workDateKey ?? '') === normalizedWorkDateKey
+  ));
+}
+
 export function buildAcceptedValidation(row, draft = {}) {
   const merged = { ...(row?.assignment || {}), ...(draft || {}) };
   const staffComplete = Boolean(merged.checkIn && merged.checkOut);

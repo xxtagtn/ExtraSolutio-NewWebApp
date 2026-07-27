@@ -1,9 +1,31 @@
 const FINANCE_READY_EVENT_STATUSES = new Set(['finalized', 'completed', 'invoiced', 'paid']);
+const FINANCE_CLOSED_BILLING_STATUSES = new Set(['invoiced', 'paid']);
 const VALIDATED_EVENT_MARKER = '[EVENT_VALIDATED_HOURS]';
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 
 function normalized(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function parsedExternalCosts(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function isProcessedExternalOnlyEvent(event) {
+  const hasAssignedStaff = (event?.assignments || []).some((assignment) => assignment?.collaboratorId);
+  const hasExternalCosts = parsedExternalCosts(event?.externalCosts).length > 0;
+
+  return !hasAssignedStaff
+    && hasExternalCosts
+    && FINANCE_CLOSED_BILLING_STATUSES.has(normalized(event?.billingStatus));
 }
 
 function hasCompleteValidatedClientRows(event) {
@@ -24,6 +46,7 @@ function hasCompleteValidatedClientRows(event) {
 export function isFinanceReadyEvent(event) {
   const operationalStatus = normalized(event?.status);
   if (FINANCE_READY_EVENT_STATUSES.has(operationalStatus)) return true;
+  if (isProcessedExternalOnlyEvent(event)) return true;
 
   // Older records may keep an operational status from before the event-level
   // validation action updated it. The marker is only written by that explicit
