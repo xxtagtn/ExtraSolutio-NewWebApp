@@ -28,6 +28,8 @@ test('applying a second service template replaces values loaded by the first tem
       travelExpenseAmount: 25,
       travelManualAmount: 25,
       description: 'Primeiro template',
+      workLocationsEnabled: true,
+      workLocations: ['Lounge A', 'Lounge VIP'],
       requiredRoles: [{ role: 'Emp.Mesa', qty: 3, agreedRate: '10,00' }],
     }),
   };
@@ -49,6 +51,8 @@ test('applying a second service template replaces values loaded by the first tem
       travelExpenseAmount: '',
       travelManualAmount: '',
       description: 'Segundo template',
+      workLocationsEnabled: false,
+      workLocations: [],
       requiredRoles: [{ role: 'Barman', qty: 2, agreedRate: '14,50' }],
     }),
   };
@@ -80,6 +84,8 @@ test('applying a second service template replaces values loaded by the first tem
     split5050: false,
     travelManualAmount: '',
     description: '',
+    workLocationsEnabled: false,
+    workLocations: [],
     requiredRoles: [],
     assignments: [{ collaboratorId: '1' }],
   };
@@ -93,6 +99,8 @@ test('applying a second service template replaces values loaded by the first tem
     selectedClient: null,
   });
 
+  assert.equal(afterFirst.workLocationsEnabled, true);
+  assert.deepEqual(afterFirst.workLocations, ['Lounge A', 'Lounge VIP']);
   assert.equal(afterSecond.name, 'Cocktail B');
   assert.equal(afterSecond.eventType, 'Corporate');
   assert.equal(afterSecond.startTime, '18:30');
@@ -104,6 +112,8 @@ test('applying a second service template replaces values loaded by the first tem
   assert.equal(afterSecond.onsiteContactPhone, '920000000');
   assert.equal(afterSecond.travelExpenseEnabled, false);
   assert.equal(afterSecond.travelType, 'none');
+  assert.equal(afterSecond.workLocationsEnabled, false);
+  assert.deepEqual(afterSecond.workLocations, []);
   assert.deepEqual(afterSecond.requiredRoles, [{ role: 'Barman', qty: 2, agreedRate: '14,50' }]);
   assert.deepEqual(afterSecond.assignments, []);
 });

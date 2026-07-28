@@ -173,6 +173,8 @@ function emptyForm() {
     split5050: false,
     travelManualAmount: '',
     description: '',
+    workLocationsEnabled: false,
+    workLocations: [],
     status: 'drafting',
     billingStatus: 'pending',
     signaledAmount: '',
@@ -342,6 +344,7 @@ function emptyAssignmentForRole(role, assignmentDate = '') {
     clientBillableHours: 0,
     staffPayableHours: 0,
     hourlyRate: '',
+    workLocationId: '',
     validationStatus: 'pending',
     validationNotes: '',
     clientSynced: false,
@@ -410,6 +413,7 @@ function toForm(row) {
       clientBillableHours: legacyTimesArePlanned ? 0 : Number(item.clientBillableHours || 0),
       staffPayableHours: legacyTimesArePlanned ? 0 : Number(item.staffPayableHours || 0),
       hourlyRate: formatMoneyInline(item.hourlyRate),
+      workLocationId: item.workLocationId ? String(item.workLocationId) : '',
       validationStatus,
       validationNotes: item.validationNotes || '',
       clientSynced: Boolean(item.clientSynced),
@@ -463,6 +467,10 @@ function toForm(row) {
     split5050: Boolean(row.split5050),
     travelManualAmount: savedTravelType === 'manual' ? formatMoneyInline(row.travelManualAmount || savedTravelAmount) : '',
     description: row.description || '',
+    workLocationsEnabled: Boolean(row.workLocationsEnabled),
+    workLocations: Array.isArray(row.workLocations)
+      ? row.workLocations.map((item) => ({ ...item }))
+      : [],
     status: row.status || 'drafting',
     statusMode: row.statusMode || 'automatic',
     billingStatus: row.billingStatus || 'pending',
@@ -1380,6 +1388,7 @@ export default function Services() {
           clientBillableHours: clientHours,
           staffPayableHours: payableStaffHours,
           hourlyRate,
+          workLocationId: item.workLocationId ? Number(item.workLocationId) : null,
           totalPay: Number((payableStaffHours * hourlyRate).toFixed(2)),
           validationStatus: item.validationStatus || 'pending',
           validationNotes: item.validationNotes || null,
@@ -1836,6 +1845,76 @@ export default function Services() {
                     <label className="span-2">Local do evento
                       <input value={form.useDefaultLocation ? (selectedClient?.address || form.location) : form.location} readOnly={form.useDefaultLocation} onChange={(event) => setForm({ ...form, location: event.target.value })} />
                     </label>
+                    <div className="span-2 service-work-location-opt-in">
+                      <label className="check-inline service-check">
+                        <input
+                          type="checkbox"
+                          checked={form.workLocationsEnabled}
+                          onChange={(event) => setForm({
+                            ...form,
+                            workLocationsEnabled: event.target.checked,
+                            workLocations: event.target.checked ? form.workLocations : [],
+                          })}
+                        />
+                        <span>Usar Locais/Áreas de Trabalho neste evento</span>
+                      </label>
+                      <p className="muted">
+                        Ativa apenas quando precisares de distribuir a equipa por lounges, salas, bancadas ou outras áreas internas.
+                      </p>
+                      {form.workLocationsEnabled && !editing ? (
+                        <div className="service-work-location-builder">
+                          <div className="service-work-location-builder__header">
+                            <strong>Locais/Áreas iniciais</strong>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => setForm({
+                                ...form,
+                                workLocations: [...form.workLocations, ''],
+                              })}
+                            >
+                              + Adicionar local
+                            </button>
+                          </div>
+                          {form.workLocations.map((item, index) => (
+                            <div className="service-work-location-builder__row" key={`work-location-${index}`}>
+                              <input
+                                value={typeof item === 'string' ? item : item?.name || ''}
+                                placeholder="Ex: Lounge A"
+                                aria-label={`Local de Trabalho ${index + 1}`}
+                                onChange={(event) => {
+                                  const next = [...form.workLocations];
+                                  next[index] = event.target.value;
+                                  setForm({ ...form, workLocations: next });
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="icon-button icon-button--danger"
+                                aria-label={`Remover local ${index + 1}`}
+                                onClick={() => setForm({
+                                  ...form,
+                                  workLocations: form.workLocations.filter((_, itemIndex) => itemIndex !== index),
+                                })}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          ))}
+                          {!form.workLocations.length ? (
+                            <p className="muted">Podes guardar e adicionar os locais mais tarde na ficha do evento.</p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {form.workLocationsEnabled && editing ? (
+                        <p className="service-work-location-opt-in__notice">
+                          {form.workLocations.length
+                            ? `${form.workLocations.length} local(is) configurado(s).`
+                            : 'Ainda não existem locais configurados.'}
+                          {' '}A gestão dos nomes e da ordem é feita no separador Colaboradores da ficha do evento.
+                        </p>
+                      ) : null}
+                    </div>
                     <div className="service-uniform-row span-2">
                       <label>Ponto de Encontro
                         <input value={form.meetingPoint} placeholder="Ex: Entrada de Staff" onChange={(event) => setForm({ ...form, meetingPoint: event.target.value })} />

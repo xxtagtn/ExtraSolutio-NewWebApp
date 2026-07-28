@@ -94,6 +94,13 @@ export function templatePayloadFromForm(currentForm) {
     split5050: Boolean(currentForm.split5050),
     travelManualAmount: currentForm.travelManualAmount || '',
     description: currentForm.description || '',
+    workLocationsEnabled: Boolean(currentForm.workLocationsEnabled),
+    workLocations: Boolean(currentForm.workLocationsEnabled)
+      ? (currentForm.workLocations || [])
+        .map((item) => (typeof item === 'string' ? item : item?.name))
+        .map((name) => String(name || '').trim())
+        .filter(Boolean)
+      : [],
     requiredRoles: (currentForm.requiredRoles || []).map((item) => ({
       role: item.role || '',
       qty: Number(item.qty || 0),
@@ -140,6 +147,13 @@ export function applyServiceTemplateToForm(previousForm, template, options = {})
     split5050: Boolean(payload.split5050),
     travelManualAmount: payload.travelManualAmount ?? payload.travelExpenseAmount ?? '',
     description: payload.description || '',
+    workLocationsEnabled: Boolean(payload.workLocationsEnabled),
+    workLocations: Boolean(payload.workLocationsEnabled) && Array.isArray(payload.workLocations)
+      ? payload.workLocations
+        .map((item) => (typeof item === 'string' ? item : item?.name))
+        .map((name) => String(name || '').trim())
+        .filter(Boolean)
+      : [],
     requiredRoles: Array.isArray(payload.requiredRoles)
       ? payload.requiredRoles.map((item) => ({
         role: item.role || '',

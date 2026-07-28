@@ -28,6 +28,7 @@ export function normalizeAssignmentDrafts(value) {
       plannedCheckIn: text(item?.plannedCheckIn),
       plannedCheckOut: text(item?.plannedCheckOut),
       hourlyRate: text(item?.hourlyRate),
+      workLocationId: text(item?.workLocationId),
       status: text(item?.status) || 'pending_confirmation',
       clientSynced: bool(item?.clientSynced),
       isDriver: bool(item?.isDriver),

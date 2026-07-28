@@ -271,6 +271,28 @@ function maskEventForRole(event, user) {
   return output;
 }
 
+function normalizeWorkLocationName(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function normalizeWorkLocationInputs(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value
+    .map((item, index) => ({
+      name: normalizeWorkLocationName(item?.name ?? item),
+      sortOrder: Number.isFinite(Number(item?.sortOrder))
+        ? Math.max(0, Math.trunc(Number(item.sortOrder)))
+        : index,
+    }))
+    .filter((item) => {
+      const key = item.name.toLocaleLowerCase('pt');
+      if (!item.name || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 async function normalizeServiceCreate(input) {
   const data = normalizeEvent(input);
   const client = data.clientId ? await prisma.client.findUnique({
@@ -278,12 +300,18 @@ async function normalizeServiceCreate(input) {
     select: { minimumHours: true, roleRates: true },
   }) : null;
   const requiredRoles = snapshotEventRoleRates(data.requiredRoles, client?.roleRates);
+  const workLocations = data.workLocationsEnabled
+    ? normalizeWorkLocationInputs(input.workLocations)
+    : [];
   return {
     ...data,
     minimumHoursSnapshot: minimumHoursForEventUpdate(null, client?.minimumHours),
     ...(data.requiredRoles !== undefined ? {
       requiredRoles: JSON.stringify(requiredRoles),
       rateHistory: initialEventRateHistory(requiredRoles),
+    } : {}),
+    ...(workLocations.length ? {
+      workLocations: { create: workLocations },
     } : {}),
   };
 }
@@ -317,17 +345,50 @@ async function normalizeServiceUpdate(input, existing) {
 async function normalizeAssignmentCreate(input) {
   const data = normalizeAssignment(input);
   await assertAssignmentDayIsActive(data);
+  await assertAssignmentWorkLocationIsValid(data);
   await assertNoAssignmentConflict(prisma, data);
   return data;
 }
 
 async function normalizeAssignmentUpdate(input, existing) {
   const data = normalizeAssignment(input);
-  await assertAssignmentDayIsActive({ ...existing, ...data });
+  const merged = { ...existing, ...data };
+  await assertAssignmentDayIsActive(merged);
+  if (data.workLocationId !== undefined || data.eventId !== undefined) {
+    await assertAssignmentWorkLocationIsValid(merged);
+  }
   if (assignmentConflictNeedsCheck(data, existing)) {
     await assertNoAssignmentConflict(prisma, data, existing);
   }
   return data;
+}
+
+async function assertAssignmentWorkLocationIsValid(assignment = {}) {
+  if (assignment.workLocationId === undefined || assignment.workLocationId === null) return;
+  const eventId = Number(assignment.eventId);
+  const workLocationId = Number(assignment.workLocationId);
+  if (!Number.isInteger(eventId) || eventId <= 0 || !Number.isInteger(workLocationId) || workLocationId <= 0) {
+    const error = new Error('Local de Trabalho invÃ¡lido.');
+    error.statusCode = 400;
+    error.expose = true;
+    throw error;
+  }
+  const [event, workLocation] = await Promise.all([
+    prisma.event.findUnique({
+      where: { id: eventId },
+      select: { workLocationsEnabled: true },
+    }),
+    prisma.eventWorkLocation.findUnique({
+      where: { id: workLocationId },
+      select: { eventId: true },
+    }),
+  ]);
+  if (!event?.workLocationsEnabled || Number(workLocation?.eventId) !== eventId) {
+    const error = new Error('O Local de Trabalho selecionado nÃ£o pertence a este evento.');
+    error.statusCode = 409;
+    error.expose = true;
+    throw error;
+  }
 }
 
 async function assertAssignmentDayIsActive(assignment = {}) {
@@ -492,6 +553,138 @@ apiRouter.post('/services/:id/days/:date/reactivate', servicesUpdate, asyncHandl
   return res.json(maskEventForRole(event, req.user));
 }));
 
+apiRouter.get('/services/:id/work-locations', servicesRead, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await prisma.event.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+  if (!event) return res.status(404).json({ message: 'Evento/ServiÃ§o nÃ£o encontrado.' });
+  const rows = await prisma.eventWorkLocation.findMany({
+    where: { eventId: id },
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+  });
+  return res.json(rows);
+}));
+
+apiRouter.post('/services/:id/work-locations', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const name = normalizeWorkLocationName(req.body?.name);
+  if (!name) return res.status(400).json({ message: 'Indica o nome do Local de Trabalho.' });
+  const event = await prisma.event.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      workLocationsEnabled: true,
+      workLocations: { select: { name: true, sortOrder: true } },
+    },
+  });
+  if (!event) return res.status(404).json({ message: 'Evento/ServiÃ§o nÃ£o encontrado.' });
+  if (!event.workLocationsEnabled) {
+    return res.status(409).json({ message: 'Ativa primeiro os Locais/Ãreas de Trabalho neste evento.' });
+  }
+  const duplicate = event.workLocations.some(
+    (item) => item.name.toLocaleLowerCase('pt') === name.toLocaleLowerCase('pt'),
+  );
+  if (duplicate) return res.status(409).json({ message: 'Este Local de Trabalho jÃ¡ existe no evento.' });
+  const maxSortOrder = event.workLocations.reduce(
+    (maximum, item) => Math.max(maximum, Number(item.sortOrder) || 0),
+    -1,
+  );
+  const row = await prisma.eventWorkLocation.create({
+    data: {
+      eventId: id,
+      name,
+      sortOrder: maxSortOrder + 1,
+    },
+  });
+  return res.status(201).json(row);
+}));
+
+apiRouter.put('/work-locations/:id', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const existing = await prisma.eventWorkLocation.findUnique({
+    where: { id },
+    select: { id: true, eventId: true },
+  });
+  if (!existing) return res.status(404).json({ message: 'Local de Trabalho nÃ£o encontrado.' });
+  const name = normalizeWorkLocationName(req.body?.name);
+  if (!name) return res.status(400).json({ message: 'Indica o nome do Local de Trabalho.' });
+  const duplicate = await prisma.eventWorkLocation.findFirst({
+    where: {
+      eventId: existing.eventId,
+      id: { not: id },
+    },
+    select: { id: true, name: true },
+  });
+  const allLocations = await prisma.eventWorkLocation.findMany({
+    where: { eventId: existing.eventId, id: { not: id } },
+    select: { id: true, name: true },
+  });
+  if (duplicate && allLocations.some(
+    (item) => item.name.toLocaleLowerCase('pt') === name.toLocaleLowerCase('pt'),
+  )) {
+    return res.status(409).json({ message: 'Este Local de Trabalho jÃ¡ existe no evento.' });
+  }
+  const row = await prisma.eventWorkLocation.update({
+    where: { id },
+    data: { name },
+  });
+  return res.json(row);
+}));
+
+apiRouter.delete('/work-locations/:id', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const existing = await prisma.eventWorkLocation.findUnique({
+    where: { id },
+    include: { _count: { select: { assignments: true } } },
+  });
+  if (!existing) return res.status(404).json({ message: 'Local de Trabalho nÃ£o encontrado.' });
+  if (existing._count.assignments > 0) {
+    return res.status(409).json({
+      message: 'Este local ainda tem colaboradores atribuÃ­dos. Altera primeiro essas alocaÃ§Ãµes.',
+    });
+  }
+  await prisma.eventWorkLocation.delete({ where: { id } });
+  return res.status(204).end();
+}));
+
+apiRouter.put('/services/:id/work-locations/reorder', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const requestedIds = Array.isArray(req.body?.ids)
+    ? req.body.ids.map(Number).filter((value) => Number.isInteger(value) && value > 0)
+    : [];
+  const existing = await prisma.eventWorkLocation.findMany({
+    where: { eventId: id },
+    select: { id: true },
+    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+  });
+  const existingIds = existing.map((item) => item.id);
+  if (
+    requestedIds.length !== existingIds.length
+    || new Set(requestedIds).size !== requestedIds.length
+    || existingIds.some((value) => !requestedIds.includes(value))
+  ) {
+    return res.status(400).json({ message: 'A ordem indicada nÃ£o corresponde aos locais deste evento.' });
+  }
+  await prisma.$transaction(
+    requestedIds.map((workLocationId, sortOrder) => prisma.eventWorkLocation.update({
+      where: { id: workLocationId },
+      data: { sortOrder },
+    })),
+  );
+  const rows = await prisma.eventWorkLocation.findMany({
+    where: { eventId: id },
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+  });
+  return res.json(rows);
+}));
+
 apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   include: serviceListInclude,
   readMiddleware: servicesRead,
@@ -521,6 +714,7 @@ apiRouter.use('/service-templates', createCrudRouter(prisma.eventTemplate, [], {
 apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   'eventId',
   'collaboratorId',
+  'workLocationId',
   'role',
   'plannedCheckIn',
   'plannedCheckOut',
@@ -534,7 +728,7 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   'advancePayments',
   'status',
 ], {
-  include: { event: true, collaborator: true },
+  include: { event: true, collaborator: true, workLocation: true },
   readMiddleware: assignmentsRead,
   createMiddleware: assignmentsWrite,
   updateMiddleware: assignmentsWrite,

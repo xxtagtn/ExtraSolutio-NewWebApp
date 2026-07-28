@@ -63,9 +63,13 @@ export const assignmentCollaboratorSelect = {
 
 export const serviceListInclude = {
   client: true,
+  workLocations: {
+    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+  },
   assignments: {
     include: {
       collaborator: { select: assignmentCollaboratorSelect },
+      workLocation: true,
     },
   },
 };

@@ -14347,3 +14347,179 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     width: 100%;
   }
 }
+
+/* Optional work locations in the event team. */
+.service-detail-role-toolbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.service-detail-work-location-manager {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(24, 191, 178, 0.32);
+  border-radius: var(--control-radius);
+  background: rgba(8, 27, 29, 0.48);
+}
+
+.service-detail-work-location-manager__list {
+  display: grid;
+  gap: 8px;
+}
+
+.service-detail-work-location-manager__row,
+.service-detail-work-location-manager__add {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.service-detail-work-location-manager__row > div {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.service-detail-work-location-manager__row input,
+.service-detail-work-location-manager__add input {
+  width: 100%;
+  min-width: 0;
+}
+
+.service-detail-work-location-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 240px);
+  gap: 10px 16px;
+  align-items: end;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--control-radius);
+  background: rgba(12, 22, 26, 0.56);
+}
+
+.service-detail-work-location-summary__counts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.service-detail-work-location-summary__counts > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--muted);
+  background: rgba(8, 17, 20, 0.72);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.service-detail-work-location-summary__counts strong {
+  color: var(--text);
+}
+
+.service-detail-work-location-summary__counts .service-detail-work-location-summary__warning {
+  border-color: rgba(245, 158, 11, 0.36);
+  color: #f6c45c;
+  background: rgba(98, 60, 4, 0.2);
+}
+
+.service-detail-work-location-filter {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.service-detail-work-location-filter > span,
+.service-detail-work-location-field > span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.service-detail-work-location-warning {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #f6c45c;
+  font-size: 0.78rem;
+}
+
+.service-detail-work-location-field {
+  min-width: 0;
+}
+
+.service-detail-work-location-field select {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (min-width: 901px) {
+  .service-detail-team-columns.service-detail-team-columns--work-locations,
+  .service-detail-team-row.service-detail-team-row--work-locations {
+    grid-template-columns:
+      minmax(190px, 1.35fr)
+      minmax(145px, 0.9fr)
+      minmax(124px, 0.76fr)
+      82px
+      82px
+      86px
+      minmax(120px, 0.82fr)
+      96px
+      76px
+      102px
+      50px;
+    min-width: 1260px;
+    column-gap: 9px;
+  }
+}
+
+@media (max-width: 900px) {
+  .service-detail-work-location-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .service-detail-work-location-warning {
+    grid-column: auto;
+  }
+
+  .service-detail-team-row--work-locations > .service-detail-team-collaborator,
+  .service-detail-team-row--work-locations > .service-detail-work-location-field,
+  .service-detail-team-row--work-locations > .service-detail-team-flags {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .service-detail-role-toolbar__actions,
+  .service-detail-role-toolbar__actions > button {
+    width: 100%;
+  }
+
+  .service-detail-work-location-manager__row,
+  .service-detail-work-location-manager__add {
+    grid-template-columns: 1fr;
+  }
+
+  .service-detail-work-location-manager__row > div,
+  .service-detail-work-location-manager__add > button {
+    width: 100%;
+  }
+
+  .service-detail-work-location-manager__row > div > button {
+    flex: 1 1 0;
+  }
+}

@@ -253,6 +253,7 @@ model Event {
   date         DateTime          @db.DateTime(3)
   endDate      DateTime?         @db.DateTime(3)
   isContinuous Boolean           @default(false)
+  workLocationsEnabled Boolean   @default(false)
   startTime    String?           @db.VarChar(20)
   endTime      String?           @db.VarChar(20)
   actualStartTime String?        @db.VarChar(20)
@@ -298,6 +299,7 @@ model Event {
   createdAt    DateTime          @default(now()) @db.DateTime(3)
   updatedAt    DateTime          @updatedAt @db.DateTime(3)
   assignments  EventAssignment[]
+  workLocations EventWorkLocation[]
   invoices     Invoice[]
   communicationLogs CommunicationLog[]
   qrCheckCodes QrCheckCode[]
@@ -320,12 +322,28 @@ model EventTemplate {
   @@index([eventType])
 }
 
+model EventWorkLocation {
+  id          Int               @id @default(autoincrement())
+  eventId     Int
+  event       Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name        String            @db.VarChar(160)
+  sortOrder   Int               @default(0)
+  createdAt   DateTime          @default(now()) @db.DateTime(3)
+  updatedAt   DateTime          @updatedAt @db.DateTime(3)
+  assignments EventAssignment[]
+
+  @@unique([eventId, name])
+  @@index([eventId, sortOrder])
+}
+
 model EventAssignment {
   id             Int          @id @default(autoincrement())
   eventId        Int
   event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
   collaboratorId Int
   collaborator   Collaborator @relation(fields: [collaboratorId], references: [id])
+  workLocationId Int?
+  workLocation   EventWorkLocation? @relation(fields: [workLocationId], references: [id], onDelete: SetNull)
   assignmentDate DateTime?    @db.DateTime(3)
   role           String?      @db.VarChar(80)
   plannedCheckIn String?      @db.VarChar(20)
@@ -361,6 +379,7 @@ model EventAssignment {
 
   @@index([eventId, collaboratorId, role], map: "EventAssignment_eventId_collaboratorId_role_idx")
   @@index([collaboratorId])
+  @@index([workLocationId])
   @@index([status])
   @@index([paymentStatus])
   @@index([paymentDeferredMonth])

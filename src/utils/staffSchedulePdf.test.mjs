@@ -37,6 +37,8 @@ test('builds printable staff schedule rows from validation rows', () => {
     location: 'Lisboa',
     collaboratorName: 'Ana Silva',
     role: 'Barman',
+    workLocationsEnabled: false,
+    workLocationName: '',
     checkIn: '10:00',
     checkOut: '16:00',
     hours: 6,
@@ -248,6 +250,59 @@ test('builds styled excel html grouped by event with totals', () => {
   assert.equal(html.includes('Total geral'), true);
   assert.equal(html.includes('7:30h'), true);
   assert.equal(html.includes('mso-number-format'), true);
+});
+
+test('only includes work locations in exports for events that explicitly enable them', () => {
+  const disabledRows = [{
+    event: {
+      id: 1,
+      name: 'Evento simples',
+      client: { name: 'Cliente' },
+      date: '2026-07-08',
+      workLocationsEnabled: false,
+    },
+    assignment: {
+      collaborator: { shortName: 'Ana' },
+      role: 'Staff',
+      checkIn: '09:00',
+      checkOut: '12:00',
+      workLocation: { name: 'Lounge A' },
+    },
+    staffScheduleHours: 3,
+  }];
+
+  const enabledRows = [{
+    event: {
+      id: 2,
+      name: 'Evento com áreas',
+      client: { name: 'Cliente' },
+      date: '2026-07-08',
+      workLocationsEnabled: true,
+    },
+    assignment: {
+      collaborator: { shortName: 'Rui' },
+      role: 'Staff',
+      checkIn: '09:00',
+      checkOut: '12:00',
+      workLocation: { name: 'Lounge VIP' },
+    },
+    staffScheduleHours: 3,
+  }];
+
+  assert.equal(buildStaffSchedulePdfHtml(disabledRows).includes('Local de Trabalho'), false);
+  assert.equal(buildStaffScheduleCsv(disabledRows).includes('Local de Trabalho'), false);
+  assert.equal(buildStaffScheduleExcelHtml(disabledRows).includes('Local de Trabalho'), false);
+
+  const pdf = buildStaffSchedulePdfHtml(enabledRows);
+  const csv = buildStaffScheduleCsv(enabledRows);
+  const excel = buildStaffScheduleExcelHtml(enabledRows);
+
+  assert.equal(pdf.includes('Local de Trabalho'), true);
+  assert.equal(pdf.includes('Lounge VIP'), true);
+  assert.equal(csv.includes('Local de Trabalho'), true);
+  assert.equal(csv.includes('Lounge VIP'), true);
+  assert.equal(excel.includes('Local de Trabalho'), true);
+  assert.equal(excel.includes('Lounge VIP'), true);
 });
 
 test('keeps Portuguese accents intact in PDF and Excel exports', () => {

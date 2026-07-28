@@ -215,6 +215,7 @@ export function normalizeEvent(input) {
       'signaledAt',
       'billingPaymentDate', 'remainingPaymentDate', 'status', 'statusMode', 'notes', 'clientName',
     ]),
+    workLocationsEnabled: parseBoolean(input.workLocationsEnabled),
     totalCost: parseDecimal(input.totalCost),
     totalRevenue: parseDecimal(input.totalRevenue),
     billingAdjustment: parseDecimal(input.billingAdjustment),
@@ -389,6 +390,9 @@ export function normalizeAssignment(input) {
   return compact({
     eventId: asInt(input.eventId),
     collaboratorId: asInt(input.collaboratorId),
+    workLocationId: input.workLocationId === undefined
+      ? undefined
+      : (asInt(input.workLocationId) || null),
     ...(input.assignmentDate !== undefined ? { assignmentDate: input.assignmentDate ? toDate(input.assignmentDate) : null } : {}),
     role: input.role,
     plannedCheckIn: input.plannedCheckIn === undefined ? undefined : input.plannedCheckIn,

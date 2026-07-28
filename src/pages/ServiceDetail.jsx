@@ -279,6 +279,11 @@ export default function ServiceDetail() {
   const [teamRows, setTeamRows] = useState([]);
   const [teamRoles, setTeamRoles] = useState([]);
   const [roleManagerOpen, setRoleManagerOpen] = useState(false);
+  const [workLocationManagerOpen, setWorkLocationManagerOpen] = useState(false);
+  const [workLocationFilter, setWorkLocationFilter] = useState('all');
+  const [newWorkLocationName, setNewWorkLocationName] = useState('');
+  const [workLocationBusy, setWorkLocationBusy] = useState(false);
+  const [workLocationError, setWorkLocationError] = useState('');
   const [collapsedRoles, setCollapsedRoles] = useState(() => new Set());
   const [newRoleName, setNewRoleName] = useState('');
   const [newRoleQty, setNewRoleQty] = useState('1');
@@ -327,6 +332,44 @@ export default function ServiceDetail() {
     () => groupAssignmentsByRole(displayAssignments, teamService, currentDay),
     [currentDay, displayAssignments, teamService],
   );
+  const workLocations = useMemo(
+    () => (service?.workLocationsEnabled ? [...(service.workLocations || [])] : [])
+      .sort((left, right) => (
+        Number(left.sortOrder || 0) - Number(right.sortOrder || 0)
+        || String(left.name || '').localeCompare(String(right.name || ''), 'pt')
+      )),
+    [service],
+  );
+  const currentDayAssignedRows = useMemo(
+    () => assignmentGroups.flatMap((group) => group.rows).filter((row) => row.collaboratorId),
+    [assignmentGroups],
+  );
+  const validWorkLocationIds = useMemo(
+    () => new Set(workLocations.map((item) => String(item.id))),
+    [workLocations],
+  );
+  const workLocationCounts = useMemo(() => {
+    const counts = new Map();
+    currentDayAssignedRows.forEach((row) => {
+      const locationId = row.workLocationId ? String(row.workLocationId) : '';
+      const key = locationId && validWorkLocationIds.has(locationId) ? locationId : 'unassigned';
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }, [currentDayAssignedRows, validWorkLocationIds]);
+  const visibleAssignmentGroups = useMemo(() => {
+    if (!service?.workLocationsEnabled || workLocationFilter === 'all') return assignmentGroups;
+    return assignmentGroups
+      .map((group) => ({
+        ...group,
+        rows: group.rows.filter((row) => (
+          workLocationFilter === 'unassigned'
+            ? !row.workLocationId || !validWorkLocationIds.has(String(row.workLocationId))
+            : String(row.workLocationId || '') === workLocationFilter
+        )),
+      }))
+      .filter((group) => group.rows.length);
+  }, [assignmentGroups, service?.workLocationsEnabled, validWorkLocationIds, workLocationFilter]);
   const teamTotals = useMemo(() => {
     const rows = assignmentGroups.flatMap((group) => group.rows);
     const assignedRows = rows.filter((row) => row.collaboratorId);
@@ -385,6 +428,10 @@ export default function ServiceDetail() {
     setTeamRows(buildEditableTeamRows({ ...service, requiredRoles: normalizedRoles }));
     setTeamError('');
     setRoleManagerOpen(false);
+    setWorkLocationManagerOpen(false);
+    setWorkLocationFilter('all');
+    setNewWorkLocationName('');
+    setWorkLocationError('');
     setCollapsedRoles(new Set());
     setNewRoleName('');
     setNewRoleQty('1');
@@ -454,6 +501,7 @@ export default function ServiceDetail() {
   useEffect(() => {
     setDayActionError('');
     setRoleManagerOpen(false);
+    setWorkLocationFilter('all');
   }, [currentDay]);
 
   useEffect(() => {
@@ -494,6 +542,103 @@ export default function ServiceDetail() {
 
   function updateTeamRow(rowKey, patch) {
     setTeamRows((current) => current.map((row) => (row.rowKey === rowKey ? { ...row, ...patch } : row)));
+  }
+
+  async function activateWorkLocations() {
+    if (!service || workLocationBusy) return;
+    setWorkLocationBusy(true);
+    setWorkLocationError('');
+    try {
+      await api(`/services/${service.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ workLocationsEnabled: true }),
+      });
+      setWorkLocationManagerOpen(true);
+      await reload();
+    } catch (err) {
+      setWorkLocationError(err?.message || 'Não foi possível ativar os Locais/Áreas de Trabalho.');
+    } finally {
+      setWorkLocationBusy(false);
+    }
+  }
+
+  async function addWorkLocation() {
+    const name = String(newWorkLocationName || '').trim();
+    if (!service || !name || workLocationBusy) return;
+    setWorkLocationBusy(true);
+    setWorkLocationError('');
+    try {
+      await api(`/services/${service.id}/work-locations`, {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      setNewWorkLocationName('');
+      await reload();
+    } catch (err) {
+      setWorkLocationError(err?.message || 'Não foi possível adicionar o Local de Trabalho.');
+    } finally {
+      setWorkLocationBusy(false);
+    }
+  }
+
+  async function renameWorkLocation(workLocation, nextName, inputElement) {
+    const name = String(nextName || '').trim();
+    if (!name || name === workLocation.name || workLocationBusy) {
+      if (!name && inputElement) inputElement.value = workLocation.name;
+      return;
+    }
+    setWorkLocationBusy(true);
+    setWorkLocationError('');
+    try {
+      await api(`/work-locations/${workLocation.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name }),
+      });
+      await reload();
+    } catch (err) {
+      if (inputElement) inputElement.value = workLocation.name;
+      setWorkLocationError(err?.message || 'Não foi possível alterar o Local de Trabalho.');
+    } finally {
+      setWorkLocationBusy(false);
+    }
+  }
+
+  async function removeWorkLocation(workLocation) {
+    if (!workLocation || workLocationBusy) return;
+    const confirmed = window.confirm(`Remover o Local de Trabalho "${workLocation.name}" deste evento?`);
+    if (!confirmed) return;
+    setWorkLocationBusy(true);
+    setWorkLocationError('');
+    try {
+      await api(`/work-locations/${workLocation.id}`, { method: 'DELETE' });
+      if (workLocationFilter === String(workLocation.id)) setWorkLocationFilter('all');
+      await reload();
+    } catch (err) {
+      setWorkLocationError(err?.message || 'Não foi possível remover o Local de Trabalho.');
+    } finally {
+      setWorkLocationBusy(false);
+    }
+  }
+
+  async function moveWorkLocation(workLocation, direction) {
+    const currentIndex = workLocations.findIndex((item) => item.id === workLocation.id);
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= workLocations.length || workLocationBusy) return;
+    const reordered = [...workLocations];
+    [reordered[currentIndex], reordered[nextIndex]] = [reordered[nextIndex], reordered[currentIndex]];
+    setWorkLocationBusy(true);
+    setWorkLocationError('');
+    try {
+      await api(`/services/${service.id}/work-locations/reorder`, {
+        method: 'PUT',
+        body: JSON.stringify({ ids: reordered.map((item) => item.id) }),
+      });
+      await reload();
+    } catch (err) {
+      setWorkLocationError(err?.message || 'Não foi possível reordenar os Locais de Trabalho.');
+    } finally {
+      setWorkLocationBusy(false);
+    }
   }
 
   function updateTeamAdvances(rowKey, updater) {
@@ -1090,16 +1235,92 @@ export default function ServiceDetail() {
                   : `${currentDayRoles.length} função(ões) · ${currentDayRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0)} lugar(es)`}
               </span>
             </div>
-            <button
-              className={`secondary-button${roleManagerOpen ? ' secondary-button--active' : ''}`}
-              type="button"
-              onClick={() => setRoleManagerOpen((current) => !current)}
-              aria-expanded={roleManagerOpen}
-            >
-              <Settings2 size={16} />
-              {roleManagerOpen ? 'Fechar gestão' : 'Gerir o dia'}
-            </button>
+            <div className="service-detail-role-toolbar__actions">
+              {!service.workLocationsEnabled ? (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={activateWorkLocations}
+                  disabled={workLocationBusy}
+                >
+                  <MapPin size={16} />
+                  {workLocationBusy ? 'A ativar...' : 'Ativar Locais/Áreas'}
+                </button>
+              ) : (
+                <button
+                  className={`secondary-button${workLocationManagerOpen ? ' secondary-button--active' : ''}`}
+                  type="button"
+                  onClick={() => setWorkLocationManagerOpen((current) => !current)}
+                  aria-expanded={workLocationManagerOpen}
+                >
+                  <MapPin size={16} />
+                  {workLocationManagerOpen ? 'Fechar locais' : 'Gerir locais'}
+                </button>
+              )}
+              <button
+                className={`secondary-button${roleManagerOpen ? ' secondary-button--active' : ''}`}
+                type="button"
+                onClick={() => setRoleManagerOpen((current) => !current)}
+                aria-expanded={roleManagerOpen}
+              >
+                <Settings2 size={16} />
+                {roleManagerOpen ? 'Fechar gestão' : 'Gerir o dia'}
+              </button>
+            </div>
           </div>
+          {workLocationError ? <p className="notice">{workLocationError}</p> : null}
+          {service.workLocationsEnabled && workLocationManagerOpen ? (
+            <div className="service-detail-work-location-manager">
+              <div className="service-detail-role-manager__heading">
+                <div>
+                  <strong>Locais / Áreas de Trabalho</strong>
+                  <span>Configuração deste evento. A atribuição pode variar em cada dia.</span>
+                </div>
+              </div>
+              <div className="service-detail-work-location-manager__list">
+                {workLocations.map((workLocation, index) => (
+                  <div className="service-detail-work-location-manager__row" key={workLocation.id}>
+                    <MapPin size={15} aria-hidden="true" />
+                    <input
+                      defaultValue={workLocation.name}
+                      aria-label={`Nome do local ${workLocation.name}`}
+                      onBlur={(event) => renameWorkLocation(workLocation, event.target.value, event.target)}
+                    />
+                    <span>{workLocationCounts.get(String(workLocation.id)) || 0} neste dia</span>
+                    <button className="icon-button" type="button" title="Mover para cima" aria-label={`Mover ${workLocation.name} para cima`} disabled={index === 0 || workLocationBusy} onClick={() => moveWorkLocation(workLocation, -1)}>
+                      <ChevronUp size={16} />
+                    </button>
+                    <button className="icon-button" type="button" title="Mover para baixo" aria-label={`Mover ${workLocation.name} para baixo`} disabled={index === workLocations.length - 1 || workLocationBusy} onClick={() => moveWorkLocation(workLocation, 1)}>
+                      <ChevronDown size={16} />
+                    </button>
+                    <button className="icon-button icon-button--danger" type="button" title="Eliminar local" aria-label={`Eliminar ${workLocation.name}`} disabled={workLocationBusy} onClick={() => removeWorkLocation(workLocation)}>
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+                {!workLocations.length ? <p className="muted">Ainda não existem locais definidos para este evento.</p> : null}
+              </div>
+              <div className="service-detail-work-location-manager__add">
+                <label>
+                  <span>Novo local / área</span>
+                  <input
+                    value={newWorkLocationName}
+                    placeholder="Ex.: Lounge A, VIP, Backstage"
+                    onChange={(event) => setNewWorkLocationName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return;
+                      event.preventDefault();
+                      addWorkLocation();
+                    }}
+                  />
+                </label>
+                <button className="command-button" type="button" onClick={addWorkLocation} disabled={workLocationBusy || !newWorkLocationName.trim()}>
+                  <Plus size={16} />
+                  Adicionar local
+                </button>
+              </div>
+            </div>
+          ) : null}
           {roleManagerOpen ? (
             <div className="service-detail-role-manager">
               <div className="service-detail-role-manager__heading">
@@ -1195,8 +1416,41 @@ export default function ServiceDetail() {
           ) : null}
           </> : null}
           {teamError ? <p className="notice">{teamError}</p> : null}
+          {service.workLocationsEnabled && !currentDayCancelled ? (
+            <div className="service-detail-work-location-summary">
+              <div className="service-detail-work-location-summary__counts">
+                {workLocations.map((workLocation) => (
+                  <span key={workLocation.id}>
+                    <MapPin size={13} />
+                    {workLocation.name}
+                    <strong>{workLocationCounts.get(String(workLocation.id)) || 0}</strong>
+                  </span>
+                ))}
+                <span className={(workLocationCounts.get('unassigned') || 0) > 0 ? 'service-detail-work-location-summary__warning' : ''}>
+                  Sem local
+                  <strong>{workLocationCounts.get('unassigned') || 0}</strong>
+                </span>
+              </div>
+              <label className="service-detail-work-location-filter">
+                <span>Filtrar por local</span>
+                <select value={workLocationFilter} onChange={(event) => setWorkLocationFilter(event.target.value)}>
+                  <option value="all">Todos os locais</option>
+                  {workLocations.map((workLocation) => (
+                    <option key={workLocation.id} value={String(workLocation.id)}>{workLocation.name}</option>
+                  ))}
+                  <option value="unassigned">Sem local atribuído</option>
+                </select>
+              </label>
+              {(workLocationCounts.get('unassigned') || 0) > 0 ? (
+                <p className="service-detail-work-location-warning">
+                  <MapPin size={15} />
+                  Existem colaboradores sem Local de Trabalho atribuído. Podes guardar e completar mais tarde.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {currentDayCancelled ? null : <div className="service-detail-team">
-            {assignmentGroups.map((group) => {
+            {visibleAssignmentGroups.map((group) => {
               const roleCollapsed = collapsedRoles.has(group.role);
               return (
               <section key={group.role} className={`service-detail-role${roleCollapsed ? ' service-detail-role--collapsed' : ''}`}>
@@ -1235,8 +1489,9 @@ export default function ServiceDetail() {
                   </div>
                 </header>
                 {!roleCollapsed ? <div className="service-detail-team-table">
-                  <div className="service-detail-team-columns" aria-hidden="true">
+                  <div className={`service-detail-team-columns${service.workLocationsEnabled ? ' service-detail-team-columns--work-locations' : ''}`} aria-hidden="true">
                     <span>Colaborador</span>
+                    {service.workLocationsEnabled ? <span>Local de Trabalho</span> : null}
                     <span>Data</span>
                     <span>Entrada</span>
                     <span>Saída</span>
@@ -1261,6 +1516,7 @@ export default function ServiceDetail() {
                     const rowKey = assignment.rowKey || `${assignment.id}-${assignmentWorkDate(assignment, service)}`;
                     const rowClasses = [
                       'service-detail-team-row',
+                      service.workLocationsEnabled ? 'service-detail-team-row--work-locations' : '',
                       assignment.isDraft ? 'service-detail-team-row--empty' : '',
                       assignment.status === 'confirmed' ? 'service-detail-team-row--confirmed' : '',
                     ].filter(Boolean).join(' ');
@@ -1341,6 +1597,20 @@ export default function ServiceDetail() {
                           ) : null}
                         </div>
                       </div>
+                      {service.workLocationsEnabled ? (
+                        <label className="service-detail-work-location-field">
+                          <span>Local de Trabalho</span>
+                          <select
+                            value={validWorkLocationIds.has(String(assignment.workLocationId || '')) ? String(assignment.workLocationId) : ''}
+                            onChange={(event) => updateTeamRow(assignment.rowKey, { workLocationId: event.target.value })}
+                          >
+                            <option value="">Por atribuir</option>
+                            {workLocations.map((workLocation) => (
+                              <option key={workLocation.id} value={String(workLocation.id)}>{workLocation.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
                       {service.isContinuous ? (
                         <label>
                           <span>Data</span>
@@ -1472,6 +1742,16 @@ export default function ServiceDetail() {
                   title="Sem funções necessárias definidas"
                   description="Podes adicionar colaboradores diretamente nesta ficha ou definir funções necessárias se quiseres planear por cargo."
                   action={<button className="command-button" type="button" onClick={() => setRoleManagerOpen(true)}><Plus size={16} /> Adicionar função</button>}
+                />
+              </div>
+            ) : null}
+            {assignmentGroups.length && !visibleAssignmentGroups.length ? (
+              <div className="service-detail-empty-team">
+                <EmptyState
+                  icon={MapPin}
+                  title="Sem colaboradores neste local"
+                  description="Nao existem colaboradores atribuidos ao local selecionado neste dia."
+                  action={<button className="secondary-button" type="button" onClick={() => setWorkLocationFilter('all')}>Ver todos os locais</button>}
                 />
               </div>
             ) : null}

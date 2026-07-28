@@ -108,6 +108,10 @@ export function buildStaffScheduleRows(rows) {
         location: row.event.location || '-',
         collaboratorName: row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-',
         role: row.assignment.role || '-',
+        workLocationsEnabled: Boolean(row.event.workLocationsEnabled),
+        workLocationName: row.event.workLocationsEnabled
+          ? (row.assignment.workLocation?.name || '-')
+          : '',
         checkIn: formatTime(row.assignment.checkIn),
         checkOut: formatTime(row.assignment.checkOut),
         hours,
@@ -129,6 +133,7 @@ function groupByEvent(rows) {
         clientName: row.clientName,
         eventDate: row.eventDate,
         location: row.location,
+        workLocationsEnabled: row.workLocationsEnabled,
         rows: [],
       });
     }
@@ -140,6 +145,7 @@ function groupByEvent(rows) {
 export function buildStaffSchedulePdfHtml(rows, options = {}) {
   const scheduleRows = buildStaffScheduleRows(rows);
   const groups = groupByEvent(scheduleRows);
+  const showWorkLocation = scheduleRows.some((row) => row.workLocationsEnabled);
   const generatedAt = options.generatedAt || new Date();
   const generatedAtLabel = new Intl.DateTimeFormat('pt-PT', {
     day: '2-digit',
@@ -181,6 +187,7 @@ export function buildStaffSchedulePdfHtml(rows, options = {}) {
         <thead>
           <tr>
             <th>Colaborador</th>
+            ${showWorkLocation ? '<th>Local de Trabalho</th>' : ''}
             <th>Função</th>
             <th>Entrada Staff</th>
             <th>Saída Staff</th>
@@ -192,6 +199,7 @@ export function buildStaffSchedulePdfHtml(rows, options = {}) {
           ${group.rows.map((row) => `
             <tr>
               <td>${escapeHtml(row.collaboratorName)}</td>
+              ${showWorkLocation ? `<td>${escapeHtml(row.workLocationName || '-')}</td>` : ''}
               <td>${escapeHtml(row.role)}</td>
               <td>${escapeHtml(row.checkIn)}</td>
               <td>${escapeHtml(row.checkOut)}</td>
@@ -352,12 +360,14 @@ export function buildStaffSchedulePdfHtml(rows, options = {}) {
 
 export function buildStaffScheduleCsv(rows) {
   const scheduleRows = buildStaffScheduleRows(rows);
+  const showWorkLocation = scheduleRows.some((row) => row.workLocationsEnabled);
   const headers = [
     'Cliente',
     'Evento/Serviço',
     'Data',
     'Local',
     'Colaborador',
+    ...(showWorkLocation ? ['Local de Trabalho'] : []),
     'Função',
     'Entrada Staff',
     'Saída Staff',
@@ -374,6 +384,7 @@ export function buildStaffScheduleCsv(rows) {
       row.eventDate,
       row.location,
       row.collaboratorName,
+      ...(showWorkLocation ? [row.workLocationName || '-'] : []),
       row.role,
       row.checkIn,
       row.checkOut,
@@ -389,6 +400,9 @@ export function buildStaffScheduleCsv(rows) {
 export function buildStaffScheduleExcelHtml(rows, options = {}) {
   const scheduleRows = buildStaffScheduleRows(rows);
   const groups = groupByEvent(scheduleRows);
+  const showWorkLocation = scheduleRows.some((row) => row.workLocationsEnabled);
+  const columnCount = showWorkLocation ? 11 : 10;
+  const totalLabelColumnCount = columnCount - 2;
   const generatedAt = options.generatedAt || new Date();
   const generatedAtLabel = new Intl.DateTimeFormat('pt-PT', {
     day: '2-digit',
@@ -405,13 +419,13 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
     const groupValue = group.rows.reduce((sum, row) => sum + Number(row.totalValue || 0), 0);
     return `
       <tr class="event-title">
-        <td colspan="10">${escapeHtml(group.eventName)}</td>
+        <td colspan="${columnCount}">${escapeHtml(group.eventName)}</td>
       </tr>
       <tr class="event-meta">
         <td colspan="2"><strong>Cliente</strong><br>${escapeHtml(group.clientName)}</td>
         <td colspan="2"><strong>Data</strong><br>${escapeHtml(group.eventDate)}</td>
         <td colspan="3"><strong>Local</strong><br>${escapeHtml(group.location)}</td>
-        <td colspan="2"><strong>Total horas</strong><br>${escapeHtml(formatHours(groupHours))}</td>
+        <td colspan="${showWorkLocation ? 3 : 2}"><strong>Total horas</strong><br>${escapeHtml(formatHours(groupHours))}</td>
         <td><strong>Valor total</strong><br>${escapeHtml(formatMoney(groupValue))}</td>
       </tr>
       <tr class="table-head">
@@ -420,6 +434,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
         <td>Data</td>
         <td>Local</td>
         <td>Colaborador</td>
+        ${showWorkLocation ? '<td>Local de Trabalho</td>' : ''}
         <td>Função</td>
         <td>Entrada Staff</td>
         <td>Saída Staff</td>
@@ -433,6 +448,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
           <td>${escapeHtml(row.eventDate)}</td>
           <td>${escapeHtml(row.location)}</td>
           <td>${escapeHtml(row.collaboratorName)}</td>
+          ${showWorkLocation ? `<td>${escapeHtml(row.workLocationName || '-')}</td>` : ''}
           <td>${escapeHtml(row.role)}</td>
           <td class="time-cell">${escapeHtml(row.checkIn)}</td>
           <td class="time-cell">${escapeHtml(row.checkOut)}</td>
@@ -441,11 +457,11 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
         </tr>
       `).join('')}
       <tr class="event-total">
-        <td colspan="8">Total evento</td>
+        <td colspan="${totalLabelColumnCount}">Total evento</td>
         <td class="number-cell">${escapeHtml(formatHoursCell(groupHours))}</td>
         <td class="money-cell">${escapeHtml(formatMoney(groupValue))}</td>
       </tr>
-      <tr class="spacer"><td colspan="10"></td></tr>
+      <tr class="spacer"><td colspan="${columnCount}"></td></tr>
     `;
   }).join('');
 
@@ -535,6 +551,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
       <col style="width: 90px" />
       <col style="width: 180px" />
       <col style="width: 180px" />
+      ${showWorkLocation ? '<col style="width: 150px" />' : ''}
       <col style="width: 120px" />
       <col style="width: 85px" />
       <col style="width: 85px" />
@@ -542,21 +559,21 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
       <col style="width: 260px" />
     </colgroup>
     <tr class="report-title">
-      <td colspan="10">Horários registados pelo Staff</td>
+      <td colspan="${columnCount}">Horários registados pelo Staff</td>
     </tr>
     <tr class="report-meta">
       <td colspan="3"><strong>Cliente</strong><br>${escapeHtml(options.clientLabel || 'Todos os clientes')}</td>
       <td colspan="3"><strong>Período</strong><br>${escapeHtml(options.periodLabel || options.monthLabel || '-')}</td>
       <td colspan="2"><strong>Gerado em</strong><br>${escapeHtml(generatedAtLabel)}</td>
-      <td colspan="2"><strong>Registos</strong><br>${scheduleRows.length}</td>
+      <td colspan="${showWorkLocation ? 3 : 2}"><strong>Registos</strong><br>${scheduleRows.length}</td>
     </tr>
     <tr class="report-total">
-      <td colspan="8">Total geral de horas Staff</td>
+      <td colspan="${totalLabelColumnCount}">Total geral de horas Staff</td>
       <td class="number-cell">${escapeHtml(formatHoursCell(totalHours))}</td>
       <td class="money-cell"><strong>Valor total dos serviços</strong><br>${escapeHtml(formatMoney(totalValue))}</td>
     </tr>
-    <tr class="spacer"><td colspan="10"></td></tr>
-    ${groupRows || '<tr><td colspan="10">Sem horários Staff registados para os filtros selecionados.</td></tr>'}
+    <tr class="spacer"><td colspan="${columnCount}"></td></tr>
+    ${groupRows || `<tr><td colspan="${columnCount}">Sem horários Staff registados para os filtros selecionados.</td></tr>`}
   </table>
 </body>
 </html>`;
