@@ -1,8 +1,12 @@
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { decimalValue } from './serviceFinance.js';
 import { staffPaymentTiming } from './staffPayment.js';
-import { dueDateForBillingGroup } from './clientBilling.js';
 import { prepaymentRemainingReminderDate } from './prepaymentPolicy.js';
+import {
+  effectiveInvoiceDueDate,
+  invoiceIsIssued,
+  invoiceIsPaid,
+} from '../../shared/invoiceLifecycle.js';
 import {
   activeEventAssignments,
   activeEventDayKeys,
@@ -12,7 +16,6 @@ import {
 const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const CLOSED_SERVICE_STATUSES = new Set(['cancelled']);
 const PAID_BILLING_STATUSES = new Set(['paid']);
-const OPEN_INVOICE_STATUSES = new Set(['draft', 'issued']);
 const STAFF_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 const PERIOD_BILLING_METHODS = new Set(['monthly', 'biweekly', 'custom']);
 const PRIORITY_ORDER = {
@@ -154,7 +157,8 @@ function billingIssueDateForEvent(event) {
   const serviceDate = validDate(event?.date);
   if (!serviceDate) return null;
   const client = event?.client || {};
-  const method = client.billingMethod || 'per_event';
+  const method = client.billingMethod;
+  if (!method) return null;
   const year = serviceDate.getFullYear();
   const month = serviceDate.getMonth();
   const day = serviceDate.getDate();
@@ -163,17 +167,6 @@ function billingIssueDateForEvent(event) {
   if (method === 'biweekly') return day <= 15 ? new Date(year, month, 15) : lastDayOfMonth(year, month);
   if (method === 'prepaid') return startOfDay(serviceDate);
   return addDays(serviceDate, 1);
-}
-
-function billingDueDateForEvent(event, today) {
-  const issueDate = billingIssueDateForEvent(event);
-  if (!issueDate) return null;
-  return dueDateForBillingGroup({
-    method: event?.client?.billingMethod || 'per_event',
-    issueDate,
-    client: event?.client || {},
-    events: [event],
-  }, today);
 }
 
 function dateKey(value) {
@@ -399,16 +392,14 @@ function addBillingActions(actions, services, today) {
       continue;
     }
 
-    if (billingStatus === 'pending' || billingStatus === 'invoiced') {
+    if (billingStatus === 'pending') {
       const issueDate = billingIssueDateForEvent(event);
-      const dueDate = billingDueDateForEvent(event, today) || issueDate;
-      const actionDate = billingStatus === 'invoiced' ? dueDate : issueDate;
-      const days = daysUntil(actionDate, today);
+      const days = daysUntil(issueDate, today);
       if (days === null || days > 0) continue;
-      if (billingStatus === 'pending' && !isFinanceReadyEvent(event)) continue;
+      if (!isFinanceReadyEvent(event)) continue;
 
-      const method = event?.client?.billingMethod || 'per_event';
-      if (billingStatus === 'pending' && PERIOD_BILLING_METHODS.has(method)) {
+      const method = event?.client?.billingMethod;
+      if (PERIOD_BILLING_METHODS.has(method)) {
         const clientId = event?.client?.id || normalized(clientName(event));
         const key = `${clientId}-${method}-${dateKey(issueDate)}`;
         const group = groupedReadyToBill.get(key) || {
@@ -417,7 +408,7 @@ function addBillingActions(actions, services, today) {
           client: event?.client || {},
           clientName: clientName(event),
           issueDate,
-          actionDate,
+          actionDate: issueDate,
           events: [],
           total: 0,
         };
@@ -430,27 +421,20 @@ function addBillingActions(actions, services, today) {
       addAction(actions, {
         id: `service-billing-${event.id}`,
         category: 'Clientes',
-        title: billingStatus === 'invoiced' ? 'Pagamento de cliente pendente' : 'Serviço pronto para faturar',
+        title: 'Serviço pronto para faturar',
         description: `${clientName(event)} - ${event.name || 'Evento/Serviço'}.`,
-        priority: billingStatus === 'invoiced' ? 'high' : 'medium',
-        tone: billingStatus === 'invoiced' ? 'warning' : 'info',
-        dueDate: actionDate,
-        to: billingStatus === 'invoiced' ? `/finance?area=clients&eventId=${event.id}` : `/services/${event.id}`,
+        priority: 'medium',
+        tone: 'info',
+        dueDate: issueDate,
+        to: `/services/${event.id}`,
         origin: clientName(event),
         meta: [`Valor: ${formatEuro(event.totalRevenue)}`],
-        buttonLabel: billingStatus === 'invoiced' ? 'Abrir' : 'Faturar',
-        details: billingStatus === 'invoiced'
-          ? [
-              { label: 'Cliente', value: clientName(event) },
-              { label: 'Evento', value: event.name || 'Evento/Serviço' },
-              { label: 'Valor', value: formatEuro(event.totalRevenue) },
-              { label: 'Vencimento', value: relativeDateWithExact(actionDate, today) },
-            ]
-          : [
-              { label: 'Cliente', value: clientName(event) },
-              { label: 'Evento', value: event.name || 'Evento/Serviço' },
-              { label: 'Valor a faturar', value: formatEuro(event.totalRevenue) },
-            ],
+        buttonLabel: 'Faturar',
+        details: [
+          { label: 'Cliente', value: clientName(event) },
+          { label: 'Evento', value: event.name || 'Evento/Serviço' },
+          { label: 'Valor a faturar', value: formatEuro(event.totalRevenue) },
+        ],
       });
     }
   }
@@ -592,10 +576,10 @@ function addBudgetActions(actions, budgets, today) {
 
 function addInvoiceActions(actions, invoices, today) {
   for (const invoice of invoices || []) {
-    const status = normalized(invoice.status);
-    if (!OPEN_INVOICE_STATUSES.has(status)) continue;
+    if (!invoiceIsIssued(invoice) || invoiceIsPaid(invoice)) continue;
 
-    const days = daysUntil(invoice.dueDate, today);
+    const dueDate = effectiveInvoiceDueDate(invoice, invoice.client);
+    const days = daysUntil(dueDate, today);
     if (days === null || days > 0) continue;
 
     addAction(actions, {
@@ -605,7 +589,7 @@ function addInvoiceActions(actions, invoices, today) {
       description: `${invoice.client?.name || 'Cliente'} - ${invoice.number || `Fatura #${invoice.id}`}.`,
       priority: days < 0 ? 'high' : 'medium',
       tone: days < 0 ? 'danger' : 'warning',
-      dueDate: invoice.dueDate,
+      dueDate,
       to: `/finance?area=clients&invoiceId=${invoice.id}`,
       origin: invoice.client?.name || 'Cliente',
       meta: [`Valor: ${formatEuro(invoice.total)}`],
@@ -613,7 +597,7 @@ function addInvoiceActions(actions, invoices, today) {
         { label: 'Cliente', value: invoice.client?.name || 'Cliente' },
         { label: 'Fatura', value: invoice.number || `Fatura #${invoice.id}` },
         { label: 'Valor', value: formatEuro(invoice.total) },
-        { label: 'Vencimento', value: relativeDateWithExact(invoice.dueDate, today) },
+        { label: 'Vencimento', value: relativeDateWithExact(dueDate, today) },
       ],
     });
   }

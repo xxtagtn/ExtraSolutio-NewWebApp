@@ -174,16 +174,26 @@ usersRouter.get('/', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), asyncHan
 
 usersRouter.post('/', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), asyncHandler(async (req, res) => {
   const { email, name, password, role, accessProfileId, permissionOverrides, photo } = req.body;
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const normalizedName = typeof name === 'string' ? name.trim() : '';
 
-  if (!email || !name || !password) {
+  if (!normalizedEmail || !normalizedName || typeof password !== 'string' || !password) {
     return res.status(400).json({ message: 'Nome, email e password sao obrigatorios.' });
+  }
+  if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+    return res.status(400).json({ message: 'Indica um email valido.' });
   }
 
   const passwordStrength = validatePasswordStrength(password);
   if (!passwordStrength.valid) return res.status(400).json({ message: passwordStrength.message });
 
-  const profileId = accessProfileId ? Number(accessProfileId) : null;
-  if (profileId) {
+  const profileId = accessProfileId === null || accessProfileId === undefined || accessProfileId === ''
+    ? null
+    : Number(accessProfileId);
+  if (profileId !== null && (!Number.isInteger(profileId) || profileId <= 0)) {
+    return res.status(400).json({ message: 'Perfil de acesso invalido.' });
+  }
+  if (profileId !== null) {
     const profile = await prisma.accessProfile.findUnique({ where: { id: profileId } });
     if (!profile) return res.status(400).json({ message: 'Perfil de acesso inválido.' });
   }
@@ -195,18 +205,26 @@ usersRouter.post('/', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), asyncHa
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }
-  const user = await prisma.user.create({
-    data: {
-      email: email.trim().toLowerCase(),
-      name: name.trim(),
-      photo: normalizedPhoto ?? null,
-      password: hashedPassword,
-      role: normalizeRole(role),
-      accessProfileId: profileId,
-      permissionOverrides: userPermissionOverridesPayload(permissionOverrides),
-    },
-    select: publicSelect,
-  });
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: {
+        email: normalizedEmail,
+        name: normalizedName,
+        photo: normalizedPhoto ?? null,
+        password: hashedPassword,
+        role: normalizeRole(role),
+        accessProfileId: profileId,
+        permissionOverrides: userPermissionOverridesPayload(permissionOverrides),
+      },
+      select: publicSelect,
+    });
+  } catch (error) {
+    if (error?.code === 'P2002') {
+      return res.status(409).json({ message: 'Este email ja esta associado a outro utilizador.' });
+    }
+    throw error;
+  }
 
   await auditPermissionChange(prisma, {
     actorId: req.user.id,
@@ -228,8 +246,15 @@ usersRouter.put('/:id', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), async
   const { email, name, password, role, accessProfileId, permissionOverrides, photo } = req.body;
   const data = {};
 
-  if (email !== undefined) data.email = email.trim().toLowerCase();
-  if (name !== undefined) data.name = name.trim();
+  if (email !== undefined) {
+    if (typeof email !== 'string' || !email.trim()) return res.status(400).json({ message: 'Indica um email valido.' });
+    data.email = email.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(data.email)) return res.status(400).json({ message: 'Indica um email valido.' });
+  }
+  if (name !== undefined) {
+    if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ message: 'Indica o nome do utilizador.' });
+    data.name = name.trim();
+  }
   if (photo !== undefined) {
     try {
       data.photo = normalizeUserPhoto(photo);
@@ -239,8 +264,11 @@ usersRouter.put('/:id', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), async
   }
   if (role !== undefined) data.role = normalizeRole(role);
   if (accessProfileId !== undefined) {
-    const profileId = accessProfileId ? Number(accessProfileId) : null;
-    if (profileId) {
+    const profileId = accessProfileId === null || accessProfileId === '' ? null : Number(accessProfileId);
+    if (profileId !== null && (!Number.isInteger(profileId) || profileId <= 0)) {
+      return res.status(400).json({ message: 'Perfil de acesso invalido.' });
+    }
+    if (profileId !== null) {
       const profile = await prisma.accessProfile.findUnique({ where: { id: profileId } });
       if (!profile) return res.status(400).json({ message: 'Perfil de acesso inválido.' });
     }
@@ -260,11 +288,19 @@ usersRouter.put('/:id', requirePermission(PERMISSIONS.ADMIN_MANAGE_USERS), async
     return res.status(400).json({ message: 'Sem alteracoes para guardar.' });
   }
 
-  const user = await prisma.user.update({
-    where: { id },
-    data,
-    select: publicSelect,
-  });
+  let user;
+  try {
+    user = await prisma.user.update({
+      where: { id },
+      data,
+      select: publicSelect,
+    });
+  } catch (error) {
+    if (error?.code === 'P2002') {
+      return res.status(409).json({ message: 'Este email ja esta associado a outro utilizador.' });
+    }
+    throw error;
+  }
 
   const sensitiveChanged = ['role', 'accessProfileId', 'permissionOverrides'].some((field) => field in data);
   if (sensitiveChanged) {

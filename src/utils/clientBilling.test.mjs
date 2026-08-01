@@ -79,7 +79,7 @@ test('does not match a monthly group by due date when the service belongs to ano
   assert.deepEqual(filterBillingGroupsByPeriod(groups, '2026-07').map((group) => group.key), ['black:monthly:2026-07']);
 });
 
-test('uses the month end as due date for monthly billing groups', () => {
+test('does not assign a due date before the invoice is issued', () => {
   const dueDate = dueDateForBillingGroup({
     method: 'monthly',
     issueDate: new Date('2026-07-31T00:00:00.000Z'),
@@ -87,7 +87,19 @@ test('uses the month end as due date for monthly billing groups', () => {
     events: [{ date: '2026-07-08' }],
   });
 
-  assert.equal(localDateKey(dueDate), '2026-07-31');
+  assert.equal(dueDate, null);
+});
+
+test('calculates the due date from the actual invoice issue date and client payment term', () => {
+  const dueDate = dueDateForBillingGroup({
+    invoice: {
+      status: 'issued',
+      issueDate: '2026-07-31T00:00:00.000Z',
+    },
+    client: { paymentTerm: 'days_15' },
+  });
+
+  assert.equal(localDateKey(dueDate), '2026-08-15');
 });
 
 test('creates one visible client row per billing period', () => {

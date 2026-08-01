@@ -16,6 +16,11 @@ import {
 import Header from './Header.jsx';
 import Sidebar from './Sidebar.jsx';
 import BackToTop from '../UI/BackToTop.jsx';
+import {
+  effectiveInvoiceDueDate,
+  invoiceIsIssued,
+  invoiceIsPaid,
+} from '../../../shared/invoiceLifecycle.js';
 
 function isToday(value) {
   if (!value) return false;
@@ -128,10 +133,9 @@ export default function Layout() {
     }
 
     for (const invoice of invoices || []) {
-      const status = String(invoice.status || '').toLowerCase();
-      if (status === 'paid' || status === 'cancelled') continue;
-      if (!invoice.dueDate) continue;
-      const dueDate = new Date(invoice.dueDate);
+      if (!invoiceIsIssued(invoice) || invoiceIsPaid(invoice)) continue;
+      const dueDate = effectiveInvoiceDueDate(invoice, invoice.client);
+      if (!dueDate) continue;
       if (Number.isNaN(dueDate.getTime())) continue;
       const dueStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
       if (dueStart < todayStart) {

@@ -1,14 +1,14 @@
+import {
+  effectiveInvoiceDueDate,
+  invoiceIsIssued,
+} from '../../shared/invoiceLifecycle.js';
+
 function selectedPeriodParts(period) {
   const [year, month] = String(period || '').split('-').map(Number);
   return {
     year: Number.isFinite(year) ? year : new Date().getFullYear(),
     month: Number.isFinite(month) ? month : new Date().getMonth() + 1,
   };
-}
-
-function startOfLocalDay(value) {
-  const d = new Date(value);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
 function addDays(value, days) {
@@ -26,15 +26,6 @@ function monthPeriodLabel(value) {
     month: 'long',
     year: 'numeric',
   }).format(value);
-}
-
-function paymentTermDays(client) {
-  if (client?.paymentTerm === 'immediate') return 0;
-  if (client?.paymentTerm === 'days_15') return 15;
-  if (client?.paymentTerm === 'days_30') return 30;
-  if (client?.paymentTerm === 'days_45') return 45;
-  if (client?.paymentTerm === 'custom') return Number(client.paymentTermDays || 0);
-  return 30;
 }
 
 function num(value) {
@@ -63,9 +54,15 @@ function rowBillingServices(row) {
 
 function serviceMatchesBillingGroup(service, group, fallbackMethod) {
   if (!service?.date || !group) return false;
-  const method = group.method || fallbackMethod || 'per_event';
+  if ((group.events || []).some((event) => Number(event.id) === Number(service.id))) {
+    return true;
+  }
+
+  const method = group.method || fallbackMethod || 'unconfigured';
+  if (method === 'unconfigured') return false;
+
   const serviceDate = new Date(service.date);
-  const issueDate = new Date(group.issueDate || group.dueDate || service.date);
+  const issueDate = new Date(group.issueDate);
   if (Number.isNaN(serviceDate.getTime()) || Number.isNaN(issueDate.getTime())) return false;
 
   if (method === 'monthly' || method === 'custom') {
@@ -81,7 +78,7 @@ function serviceMatchesBillingGroup(service, group, fallbackMethod) {
       && serviceHalf === issueHalf;
   }
 
-  return (group.events || []).some((event) => Number(event.id) === Number(service.id));
+  return false;
 }
 
 function mergeStandaloneServicesIntoGroups(groups, services, billingMethod) {
@@ -112,11 +109,20 @@ function mergeStandaloneServicesIntoGroups(groups, services, billingMethod) {
 
 function standaloneGroupInfoForService(row, service) {
   const client = row || {};
-  const method = client.billingMethod || 'per_event';
+  const method = client.billingMethod || 'unconfigured';
   const d = new Date(service.date);
   const year = d.getFullYear();
   const month = d.getMonth();
   const day = d.getDate();
+
+  if (method === 'unconfigured') {
+    return {
+      key: `${client.id}:unconfigured:${service.id}`,
+      label: `${client.name || 'Cliente'} · condições comerciais por configurar`,
+      issueDate: null,
+      method,
+    };
+  }
 
   if (method === 'monthly') {
     return {
@@ -171,7 +177,6 @@ function buildStandaloneServiceGroups(row, services) {
     };
     current.events.push(service);
     current.total += serviceValue(service);
-    current.dueDate = dueDateForBillingGroup(current);
     groups.set(info.key, current);
   }
   return [...groups.values()].sort((a, b) => new Date(a.issueDate || 0).getTime() - new Date(b.issueDate || 0).getTime());
@@ -281,24 +286,16 @@ export function filterServicesByPeriod(services, period) {
 }
 
 export function filterInvoicesByPeriod(invoices, period) {
-  return (invoices || []).filter((invoice) => (
-    isDateInBillingPeriod(invoice.issueDate, period)
-    || isDateInBillingPeriod(invoice.dueDate, period)
-  ));
+  return (invoices || []).filter((invoice) => {
+    if (!invoiceIsIssued(invoice)) return false;
+    const dueDate = effectiveInvoiceDueDate(invoice, invoice.client);
+    return isDateInBillingPeriod(invoice.issueDate, period)
+      || isDateInBillingPeriod(dueDate, period);
+  });
 }
 
-export function dueDateForBillingGroup(group, today = new Date()) {
-  if (!group?.issueDate) return null;
-
-  if (group.method === 'prepaid') {
-    const eventDate = startOfLocalDay(group.events?.[0]?.date || group.issueDate);
-    const currentDay = startOfLocalDay(today);
-    return eventDate < currentDay ? currentDay : eventDate;
-  }
-
-  const issueDate = startOfLocalDay(group.issueDate);
-  if (group.method === 'monthly' || group.method === 'biweekly') return issueDate;
-  return addDays(issueDate, paymentTermDays(group.client));
+export function dueDateForBillingGroup(group) {
+  return effectiveInvoiceDueDate(group?.invoice, group?.client);
 }
 
 export function expandClientBillingRows(row, options = {}) {
@@ -326,7 +323,7 @@ export function expandClientBillingRows(row, options = {}) {
   const groupedEventIds = new Set(groups.flatMap((group) => (group.events || []).map((event) => Number(event.id))));
   const rows = groups.map((group) => {
     const groupServices = group.events || [];
-    const dueDate = group.dueDate || group.issueDate || null;
+    const dueDate = dueDateForBillingGroup(group);
     return {
       ...row,
       rowId: `client:${row.id}:group:${group.key}`,

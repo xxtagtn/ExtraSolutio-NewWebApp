@@ -3,8 +3,11 @@ import { useCallback, useEffect, useState } from 'react';
 import Modal from '../components/UI/Modal.jsx';
 import Badge from '../components/UI/Badge.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
+import { useAuth } from '../hooks/useAuth.jsx';
 import { api } from '../utils/api.js';
+import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { createImageThumbnailDataUrl } from '../utils/imageThumbnails.js';
+import { PASSWORD_MIN_LENGTH, validatePasswordStrength } from '../utils/passwordPolicy.js';
 import { ROLES, roleLabels, roleOptions } from '../utils/roles.js';
 import { userInitials } from '../utils/userProfile.js';
 
@@ -38,7 +41,7 @@ function PermissionMatrix({
   mode = 'profile',
   inherited = [],
 }) {
-  const selected = new Set(value || []);
+  const selected = new Set(mode === 'user' ? [] : (value || []));
   const inheritedSet = new Set(inherited || []);
 
   return (
@@ -126,6 +129,7 @@ function UserAvatar({ user, size = 'default' }) {
 
 export default function Admin() {
   const toast = useToast();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('users');
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
@@ -136,13 +140,29 @@ export default function Admin() {
   const [profileModal, setProfileModal] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  const canManageUsers = hasPermission(user, PERMISSIONS.ADMIN_MANAGE_USERS);
+  const canManagePermissions = hasPermission(user, PERMISSIONS.ADMIN_MANAGE_PERMISSIONS);
+  const canViewAudit = hasPermission(user, PERMISSIONS.ADMIN_VIEW_AUDIT);
+  const visibleTabs = tabs.filter((tab) => (
+    (tab.key === 'users' && canManageUsers)
+    || (tab.key === 'profiles' && canManagePermissions)
+    || (tab.key === 'audit' && canViewAudit)
+  ));
+  const firstVisibleTab = visibleTabs[0]?.key || null;
+  const activeTabAllowed = visibleTabs.some((tab) => tab.key === activeTab);
+
   const loadAdminData = useCallback(async () => {
     setLoading(true);
     try {
+      const manageUsers = hasPermission(user, PERMISSIONS.ADMIN_MANAGE_USERS);
+      const managePermissions = hasPermission(user, PERMISSIONS.ADMIN_MANAGE_PERMISSIONS);
+      const viewAudit = hasPermission(user, PERMISSIONS.ADMIN_VIEW_AUDIT);
       const [catalogPayload, userRows, auditRows] = await Promise.all([
-        api('/users/permission-catalog'),
-        api('/users'),
-        api('/users/permission-audit'),
+        managePermissions
+          ? api('/users/permission-catalog')
+          : Promise.resolve({ catalog: [], profiles: [] }),
+        manageUsers ? api('/users') : Promise.resolve([]),
+        viewAudit ? api('/users/permission-audit') : Promise.resolve([]),
       ]);
       setCatalog(catalogPayload.catalog || []);
       setProfiles(catalogPayload.profiles || []);
@@ -153,11 +173,15 @@ export default function Admin() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [user, toast]);
 
   useEffect(() => {
     loadAdminData();
   }, [loadAdminData]);
+
+  useEffect(() => {
+    if (!activeTabAllowed && firstVisibleTab) setActiveTab(firstVisibleTab);
+  }, [activeTabAllowed, firstVisibleTab]);
 
   function openUser(row = null) {
     setUserModal({
@@ -197,15 +221,27 @@ export default function Admin() {
     event.preventDefault();
     setSaving(true);
     try {
+      const name = String(userModal.name || '').trim();
+      const email = String(userModal.email || '').trim().toLowerCase();
+      const password = String(userModal.password || '');
+
+      if (!name) throw new Error('Indica o nome do utilizador.');
+      if (!email) throw new Error('Indica o email do utilizador.');
+      if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Indica um email valido.');
+      if (!userModal.id || password) {
+        const passwordStrength = validatePasswordStrength(password);
+        if (!passwordStrength.valid) throw new Error(passwordStrength.message);
+      }
+
       const payload = {
-        name: userModal.name,
-        email: userModal.email,
+        name,
+        email,
         photo: userModal.photo || null,
         role: userModal.role,
         accessProfileId: userModal.accessProfileId || null,
         permissionOverrides: userModal.permissionOverrides,
       };
-      if (!userModal.id || userModal.password) payload.password = userModal.password;
+      if (!userModal.id || password) payload.password = password;
       await api(userModal.id ? `/users/${userModal.id}` : '/users', {
         method: userModal.id ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
@@ -277,7 +313,7 @@ export default function Admin() {
       </header>
 
       <div className="segmented-tabs">
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
@@ -291,6 +327,12 @@ export default function Admin() {
 
       {loading ? <p className="notice">A carregar administração...</p> : null}
 
+      {!loading && visibleTabs.length === 0 ? (
+        <section className="panel">
+          <p className="notice">A tua conta pode abrir a Administração, mas não tem permissões para gerir utilizadores, perfis ou auditoria.</p>
+        </section>
+      ) : null}
+
       {!loading && activeTab === 'users' ? (
         <section className="panel">
           <div className="panel__header">
@@ -298,9 +340,11 @@ export default function Admin() {
               <h2>Utilizadores</h2>
               <p>Define o perfil base e exceções específicas de cada utilizador.</p>
             </div>
-            <button type="button" className="button button--primary" onClick={() => openUser()}>
-              <Plus size={16} /> Novo utilizador
-            </button>
+            {canManageUsers ? (
+              <button type="button" className="button button--primary" onClick={() => openUser()}>
+                <Plus size={16} /> Novo utilizador
+              </button>
+            ) : null}
           </div>
           <div className="table-wrap">
             <table className="data-table">
@@ -480,9 +524,13 @@ export default function Admin() {
                   type="password"
                   value={userModal.password}
                   onChange={(event) => setUserModal((current) => ({ ...current, password: event.target.value }))}
-                  minLength={12}
+                  minLength={PASSWORD_MIN_LENGTH}
+                  autoComplete="new-password"
                   required={!userModal.id}
                 />
+                <small className="form-help">
+                  Mínimo {PASSWORD_MIN_LENGTH} caracteres, com maiúscula, minúscula, número e símbolo.
+                </small>
               </label>
             </div>
             <h3>Exceções individuais</h3>

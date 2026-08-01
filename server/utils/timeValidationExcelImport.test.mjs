@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as XLSX from 'xlsx';
 import {
+  assignmentUpdateFromPreviewRow,
   buildImportPreview,
   EVENT_NAME_MAPPING_PREFIX,
   normalizeImportMappings,
@@ -48,12 +49,12 @@ function fixtureBuffer() {
       'Extra Solutio',
       'Restaurante',
       'EMPREGADO DE MESA',
-      new Date('2026-06-20T00:00:00'),
+      '2026-06-20',
       '11:30:00',
       '04:30:00',
       40.5,
-      new Date('2026-06-20T11:30:31'),
-      new Date('2026-06-20T16:09:42'),
+      '11:30:31',
+      '16:09:42',
       '04:30:00',
     ],
   ]);
@@ -75,11 +76,11 @@ function multiSheetFixtureBuffer() {
   ];
   const june = XLSX.utils.aoa_to_sheet([
     [], [], [], [], [], headers,
-    ['', 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26', 'Miriam Peçanha de Oliveira', '326077405', 'Restaurante', 'EMPREGADO DE MESA', new Date('2026-06-20T00:00:00'), new Date('2026-06-20T11:30:00'), new Date('2026-06-20T16:00:00'), '04:30:00'],
+    ['', 'RESTAURANTE ATIVIDADES DIÁRIAS JUNHO 26', 'Miriam Peçanha de Oliveira', '326077405', 'Restaurante', 'EMPREGADO DE MESA', '2026-06-20', '11:30:00', '16:00:00', '04:30:00'],
   ]);
   const july = XLSX.utils.aoa_to_sheet([
     [], [], [], [], [], headers,
-    ['', 'RESTAURANTE ATIVIDADES DIÁRIAS JULHO', 'Miriam Peçanha de Oliveira', '326077405', 'Restaurante', 'EMPREGADO DE MESA', new Date('2026-07-21T00:00:00'), new Date('2026-07-21T10:00:00'), new Date('2026-07-21T16:00:00'), '06:00:00'],
+    ['', 'RESTAURANTE ATIVIDADES DIÁRIAS JULHO', 'Miriam Peçanha de Oliveira', '326077405', 'Restaurante', 'EMPREGADO DE MESA', '2026-07-21', '10:00:00', '16:00:00', '06:00:00'],
   ]);
   // Some Excel exports retain formatting far below the real data range.
   july['!ref'] = 'A1:P1045211';
@@ -121,7 +122,7 @@ test('parses client access report with displaced header row', () => {
     plannedHours: 4.5,
     plannedValue: 40.5,
     clientCheckIn: '11:30',
-    clientCheckOut: '16:00',
+    clientCheckOut: '16:09',
     clientHours: 4.5,
   });
 });
@@ -187,10 +188,10 @@ test('builds an import preview with reusable mappings and assignment match', () 
   assert.equal(preview.rows[0].status, 'valid');
   assert.equal(preview.rows[0].assignmentId, 30);
   assert.equal(preview.rows[0].clientCheckIn, '11:30');
-  assert.equal(preview.rows[0].clientCheckOut, '16:00');
+  assert.equal(preview.rows[0].clientCheckOut, '16:09');
 });
 
-test('ignores Excel seconds before applying the ExtraSolutio rounding rule', () => {
+test('ignores Excel seconds while preserving the real imported clock time', () => {
   const parsed = parseTimeValidationWorkbook(workbookBuffer([
     [
       'Nome da Sessão',
@@ -208,7 +209,7 @@ test('ignores Excel seconds before applying the ExtraSolutio rounding rule', () 
       '123456789',
       'Restaurante',
       'EMPREGADO DE MESA',
-      new Date('2026-07-20T00:00:00'),
+      '2026-07-20',
       ((10 * 60 * 60) + (14 * 60) + 59) / (24 * 60 * 60),
       ((22 * 60 * 60) + (45 * 60) + 1) / (24 * 60 * 60),
     ],
@@ -218,16 +219,52 @@ test('ignores Excel seconds before applying the ExtraSolutio rounding rule', () 
       '987654321',
       'Restaurante',
       'EMPREGADO DE MESA',
-      new Date('2026-07-20T00:00:00'),
-      '23:44:59',
-      '23:45:01',
+      '2026-07-20',
+      '19:13:18',
+      '23:14:29',
+    ],
+    [
+      'SERVIÇO TESTE',
+      'Colaborador Três',
+      '111222333',
+      'Restaurante',
+      'EMPREGADO DE MESA',
+      '2026-07-20',
+      '19:13:59',
+      '23:14:59',
+    ],
+    [
+      'SERVIÃ‡O TESTE',
+      'Colaborador Quatro',
+      '444555666',
+      'Restaurante',
+      'EMPREGADO DE MESA',
+      46224,
+      46224 + (((10 * 60 * 60) + (58 * 60) + 53) / (24 * 60 * 60)),
+      46224 + (((16 * 60 * 60) + 10) / (24 * 60 * 60)),
+    ],
+    [
+      'SERVIÃ‡O TESTE',
+      'Colaborador Cinco',
+      '777888999',
+      'Restaurante',
+      'EMPREGADO DE MESA',
+      46221,
+      46221 + (((12 * 60 * 60) + (18 * 60)) / (24 * 60 * 60)),
+      46221 + (((23 * 60 * 60) + (14 * 60) + 59) / (24 * 60 * 60)),
     ],
   ]));
 
-  assert.equal(parsed.rows[0].clientCheckIn, '10:00');
-  assert.equal(parsed.rows[0].clientCheckOut, '23:00');
-  assert.equal(parsed.rows[1].clientCheckIn, '23:30');
-  assert.equal(parsed.rows[1].clientCheckOut, '00:00');
+  assert.equal(parsed.rows[0].clientCheckIn, '10:14');
+  assert.equal(parsed.rows[0].clientCheckOut, '22:45');
+  assert.equal(parsed.rows[1].clientCheckIn, '19:13');
+  assert.equal(parsed.rows[1].clientCheckOut, '23:14');
+  assert.equal(parsed.rows[2].clientCheckIn, '19:13');
+  assert.equal(parsed.rows[2].clientCheckOut, '23:14');
+  assert.equal(parsed.rows[3].clientCheckIn, '10:58');
+  assert.equal(parsed.rows[3].clientCheckOut, '16:00');
+  assert.equal(parsed.rows[4].clientCheckIn, '12:18');
+  assert.equal(parsed.rows[4].clientCheckOut, '23:14');
 });
 
 test('recalculates imported client hours from clocks instead of trusting the spreadsheet total', () => {
@@ -275,8 +312,25 @@ test('recalculates imported client hours from clocks instead of trusting the spr
 
   assert.equal(preview.rows[0].clientRealHours, 6);
   assert.equal(preview.rows[0].clientBillableHours, 6);
-  assert.equal(preview.rows[0].clientCheckIn, '17:30');
-  assert.equal(preview.rows[0].clientCheckOut, '23:30');
+  assert.equal(preview.rows[0].clientCheckIn, '17:43');
+  assert.equal(preview.rows[0].clientCheckOut, '23:16');
+});
+
+test('persists real client clocks while keeping rounded accounting hours', () => {
+  const previewRow = {
+    assignmentId: 30,
+    clientCheckIn: '19:13:42',
+    clientCheckOut: '23:14:08',
+    clientRealHours: 4,
+    clientBillableHours: 4,
+  };
+
+  const update = assignmentUpdateFromPreviewRow(previewRow);
+
+  assert.equal(update.data.clientCheckIn, '19:13');
+  assert.equal(update.data.clientCheckOut, '23:14');
+  assert.equal(update.data.clientRealHours, 4);
+  assert.equal(update.data.clientBillableHours, 4);
 });
 
 test('matches a report session to the unique event by date and department', () => {

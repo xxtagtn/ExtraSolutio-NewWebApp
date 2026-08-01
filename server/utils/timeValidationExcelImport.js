@@ -3,9 +3,10 @@ import {
   clientChargeHours,
   clientRealHours,
   decimalValue,
-  roundedClockTime,
 } from '../../src/utils/serviceFinance.js';
 import { collaboratorRoleOptions } from '../../src/utils/collaboratorRoles.js';
+
+const XLSX_SSF = XLSX.SSF || XLSX.default?.SSF;
 
 const FIELD_ALIASES = {
   sessionName: ['nome da sessao', 'sessao', 'evento', 'servico'],
@@ -75,9 +76,15 @@ function localDateKey(dateValue) {
 }
 
 function excelSerialToDate(value) {
-  const parsed = XLSX.SSF.parse_date_code(value);
+  const parsed = XLSX_SSF?.parse_date_code(value);
   if (!parsed) return null;
   return new Date(parsed.y, parsed.m - 1, parsed.d, parsed.H || 0, parsed.M || 0, Math.floor(parsed.S || 0));
+}
+
+function excelSerialToTime(value) {
+  const parsed = XLSX_SSF?.parse_date_code(value);
+  if (!parsed) return '';
+  return `${String(parsed.H || 0).padStart(2, '0')}:${String(parsed.M || 0).padStart(2, '0')}`;
 }
 
 function parseDateKey(value) {
@@ -126,8 +133,7 @@ function parseTime(value) {
   if (!value && value !== 0) return '';
   if (value instanceof Date) return minutesToTime((value.getHours() * 60) + value.getMinutes());
   if (typeof value === 'number') {
-    const dayFraction = ((value % 1) + 1) % 1;
-    return minutesToTime(Math.floor((dayFraction * 24 * 60) + 1e-7));
+    return excelSerialToTime(value);
   }
   const text = normalizeText(value);
   if (!text) return '';
@@ -139,8 +145,29 @@ function parseTime(value) {
 }
 
 function parseImportedClientTime(value) {
-  const parsed = parseTime(value);
-  return parsed ? roundedClockTime(parsed) : '';
+  if (!value && value !== 0) return '';
+
+  if (value instanceof Date) {
+    return minutesToTime((value.getHours() * 60) + value.getMinutes());
+  }
+
+  if (typeof value === 'number') {
+    // Read H/M directly from the Excel serial. Converting the serial to a
+    // JavaScript Date first can add the historical timezone offset of the
+    // Excel epoch and incorrectly advance the minute.
+    return excelSerialToTime(value);
+  }
+
+  const text = normalizeText(value);
+  if (!text) return '';
+
+  // Partner reports may include seconds, but imported clocks are minute-precise.
+  const clockMatch = text.match(/(\d{1,2}):(\d{2})(?::\d{1,2}(?:[.,]\d+)?)?(?:\s*[AP]M)?$/i);
+  if (clockMatch) {
+    return `${clockMatch[1].padStart(2, '0')}:${clockMatch[2]}`;
+  }
+
+  return parseTime(value);
 }
 
 function parseDurationHours(value) {
@@ -276,7 +303,9 @@ function sheetCandidateScore(candidate, fileName, sheetIndex) {
 }
 
 export function parseTimeValidationWorkbook(buffer, { fileName = '' } = {}) {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  // Keep Excel date/time cells as raw serials. This avoids timezone conversion
+  // and lets imported seconds be discarded without rounding the real minute.
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false });
   if (!workbook.SheetNames.length) {
     const error = new Error('O Excel não contém folhas para importar.');
     error.statusCode = 422;

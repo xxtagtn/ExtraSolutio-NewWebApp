@@ -243,6 +243,7 @@ model Budget {
 model Event {
   id           Int               @id @default(autoincrement())
   name         String            @db.VarChar(191)
+  serviceReference String?       @db.VarChar(160)
   eventType    String?           @db.VarChar(80)
   description  String?           @db.Text
   clientId     Int?

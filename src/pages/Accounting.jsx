@@ -26,7 +26,6 @@ import {
   billingStatusForRow,
   billingValueForRow,
   clientBillingRowsForActiveEvents,
-  dueDateForBillingGroup,
   expandClientBillingRows,
   filterBillingGroupsByPeriod,
   filterInvoicesByPeriod,
@@ -49,6 +48,11 @@ import {
   staffCarAdvancesTotal,
   staffPaymentRemaining,
 } from '../utils/staffAdvances.js';
+import {
+  effectiveInvoiceDueDate,
+  invoiceIsIssued,
+  invoiceIsPaid,
+} from '../../shared/invoiceLifecycle.js';
 import {
   buildMoveToPaidPayload,
   buildStaffPaymentStatusPayload,
@@ -94,6 +98,7 @@ const INVOICE_STATUS = [
 ];
 
 const BILLING_METHOD_LABELS = {
+  unconfigured: 'Por configurar',
   prepaid: 'Pré-pagamento',
   per_event: 'Por evento',
   biweekly: 'Quinzenal',
@@ -314,14 +319,6 @@ function eventFinancialRow(event, invoices, expenses) {
   };
 }
 
-function invoiceIsPaid(invoice) {
-  return invoice.status === 'paid';
-}
-
-function invoiceIsIssued(invoice) {
-  return invoice.status !== 'draft' && invoice.status !== 'cancelled';
-}
-
 function parseInvoiceEventIds(invoice) {
   if (invoice.eventIds) {
     try {
@@ -338,11 +335,6 @@ function invoiceIncludesEvent(invoice, eventId) {
   return parseInvoiceEventIds(invoice).includes(Number(eventId));
 }
 
-function startOfDay(value) {
-  const d = new Date(value);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
 function addDays(value, days) {
   const d = new Date(value);
   d.setDate(d.getDate() + days);
@@ -353,38 +345,21 @@ function lastDayOfMonth(year, month) {
   return new Date(year, month + 1, 0);
 }
 
-function paymentTermDays(client) {
-  if (client?.paymentTerm === 'immediate') return 0;
-  if (client?.paymentTerm === 'days_15') return 15;
-  if (client?.paymentTerm === 'days_30') return 30;
-  if (client?.paymentTerm === 'days_45') return 45;
-  if (client?.paymentTerm === 'custom') return Number(client.paymentTermDays || 0);
-  return 30;
-}
-
-function dueDateForGroup(group) {
-  return dueDateForBillingGroup(group);
-}
-
-function dueDateForService(client, service) {
-  if (!service?.date) return null;
-  const serviceDate = startOfDay(service.date);
-  const method = client?.billingMethod || 'per_event';
-  if (method === 'monthly') return lastDayOfMonth(serviceDate.getFullYear(), serviceDate.getMonth());
-  if (method === 'biweekly') return serviceDate.getDate() <= 15
-    ? new Date(serviceDate.getFullYear(), serviceDate.getMonth(), 15)
-    : lastDayOfMonth(serviceDate.getFullYear(), serviceDate.getMonth());
-  if (method === 'custom') return addDays(lastDayOfMonth(serviceDate.getFullYear(), serviceDate.getMonth()), paymentTermDays(client));
-  return serviceDate; // per_event, prepaid
-}
-
 function groupKeyForEvent(event) {
   const client = event.client || {};
-  const method = client.billingMethod || 'per_event';
+  const method = String(client.billingMethod || '').trim();
   const d = new Date(event.date);
   const year = d.getFullYear();
   const month = d.getMonth();
   const day = d.getDate();
+
+  if (!method) {
+    return {
+      key: `${client.id || event.clientId || 'unregistered'}:unconfigured:${event.id}`,
+      label: `${client.name || event.clientName || 'Cliente'} · Condições comerciais por configurar`,
+      issueDate: d,
+    };
+  }
 
   if (method === 'monthly') {
     return {
@@ -426,7 +401,7 @@ function buildBillingGroups(events, invoices) {
     if (invoices.some((invoice) => invoiceIncludesEvent(invoice, event.id))) continue;
     if (CLOSED_BILLING_STATUSES.has(String(event.billingStatus || ''))) continue;
 
-    const method = event.client?.billingMethod || 'per_event';
+    const method = String(event.client?.billingMethod || '').trim() || 'unconfigured';
     const info = groupKeyForEvent(event);
     const current = groups.get(info.key) || {
       key: info.key,
@@ -434,13 +409,11 @@ function buildBillingGroups(events, invoices) {
       method,
       label: info.label,
       issueDate: info.issueDate,
-      dueDate: null,
       events: [],
       total: 0,
     };
     current.events.push(event);
     current.total += total;
-    current.dueDate = dueDateForGroup(current);
     groups.set(info.key, current);
   }
   return [...groups.values()].sort((a, b) => a.issueDate.getTime() - b.issueDate.getTime());
@@ -492,7 +465,7 @@ function ClientFinancialEventTable({
 
     const invoiceStatus = invoice?.status || '';
     const billingStatus = event.billingStatus || 'pending';
-    const dueDate = invoice?.dueDate || event.dueDate;
+    const dueDate = invoice ? effectiveInvoiceDueDate(invoice, invoice.client || event.client) : null;
     const eventStatus = operationalStatusLabel(event.status || event.operationalStatus || event.serviceStatus);
     const descriptor = eventDescriptors.get(String(event.id)) || {};
     const operationalSummary = descriptor.operationalSummary || {};
@@ -532,8 +505,10 @@ function ClientFinancialEventTable({
       >
         <div className="finance-client-event-name">
           <strong>{event.name || 'Evento/Serviço'}</strong>
+          {event.serviceReference ? (
+            <span className="finance-client-event-reference">Ref. interna: {event.serviceReference}</span>
+          ) : null}
           <small className="finance-client-event-meta">
-            {descriptor.sequenceLabel ? <span>{descriptor.sequenceLabel}</span> : null}
             {detailParts.join(' · ') || '-'}
           </small>
           {operationalParts.length ? (
@@ -623,7 +598,7 @@ function ClientFinancialEventTable({
           <span className="muted">-</span>
           <strong>{money.format(invoice.total)}</strong>
           <span><Badge tone={invoiceIsPaid(invoice) ? 'success' : 'warning'}>{statusLabel(INVOICE_STATUS, invoice.status)}</Badge></span>
-          <span>{invoice.dueDate ? date.format(new Date(invoice.dueDate)) : '-'}</span>
+          <span>{effectiveInvoiceDueDate(invoice, invoice.client) ? date.format(effectiveInvoiceDueDate(invoice, invoice.client)) : '-'}</span>
           <span className="muted">-</span>
           <div className="finance-client-event-action">
             {statusSelect(
@@ -644,9 +619,6 @@ function ClientFinancialEventTable({
               <div>
                 <span className="finance-event-summary__eyebrow">Evento/Serviço</span>
                 <h3>{selectedEvent.name || 'Evento/Serviço'}</h3>
-                {selectedDescriptor.sequenceLabel ? (
-                  <Badge tone="info">{selectedDescriptor.sequenceLabel}</Badge>
-                ) : null}
               </div>
               <strong>{money.format(selectedEvent.displayValue)}</strong>
             </div>
@@ -1085,11 +1057,9 @@ export default function Accounting() {
   );
 
   const dashboard = useMemo(() => {
-    const invoiceIssued = currentMonthInvoices.filter(invoiceIsIssued).reduce((sum, invoice) => sum + num(invoice.total), 0);
-    const directIssued = currentEventRows
-      .filter((event) => !event.financial.hasInvoice && ['invoiced', 'paid'].includes(String(event.billingStatus || '')))
-      .reduce((sum, event) => sum + event.financial.revenue, 0);
-    const issued = invoiceIssued + directIssued;
+    const issued = currentMonthInvoices
+      .filter(invoiceIsIssued)
+      .reduce((sum, invoice) => sum + num(invoice.total), 0);
     const received = currentEventRows.reduce((sum, event) => sum + event.financial.received, 0);
     const staff = currentEventRows.reduce((sum, event) => sum + event.financial.staff, 0);
     const operational = currentMonthExpenses.reduce((sum, expense) => sum + num(expense.amount), 0);
@@ -1109,26 +1079,21 @@ export default function Accounting() {
 
   const buildClientRowsForPeriod = useCallback((period, sourceEventRows = eventRows, sourceBillingGroups = billingGroups) => {
     const periodEventRows = filterServicesByPeriod(sourceEventRows, period);
-    const periodDirectReceivableByClient = new Map();
-    for (const event of periodEventRows) {
-      if (!event.clientId || event.financial.receivable <= 0) continue;
-      if (event.financial.hasInvoice) continue;
-      if (!['paid', 'partial70'].includes(String(event.billingStatus || ''))) continue;
-      const key = Number(event.clientId);
-      periodDirectReceivableByClient.set(key, (periodDirectReceivableByClient.get(key) || 0) + num(event.financial.receivable));
-    }
 
     const registeredClientRows = clients.flatMap((client) => {
       const clientInvoices = invoices.filter((invoice) => Number(invoice.clientId) === Number(client.id));
       const periodInvoices = filterInvoicesByPeriod(clientInvoices, period);
-      const unpaidInvoices = periodInvoices.filter((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled');
+      const issuedInvoices = periodInvoices.filter(invoiceIsIssued);
+      const unpaidInvoices = issuedInvoices.filter((invoice) => !invoiceIsPaid(invoice));
       const clientGroups = filterBillingGroupsByPeriod(
         sourceBillingGroups.filter((group) => Number(group.client?.id) === Number(client.id)),
         period,
       );
-      const billedOpen = num(periodDirectReceivableByClient.get(Number(client.id)));
       const overdue = unpaidInvoices
-        .map((invoice) => ({ invoice, days: dayDiffFromToday(invoice.dueDate) }))
+        .map((invoice) => {
+          const dueDate = effectiveInvoiceDueDate(invoice, client);
+          return { invoice, dueDate, days: dueDate ? dayDiffFromToday(dueDate) : 0 };
+        })
         .filter((item) => item.days > 0)
         .sort((a, b) => b.days - a.days)[0];
       const invoiceDebt = unpaidInvoices.reduce((sum, invoice) => sum + num(invoice.total), 0);
@@ -1136,49 +1101,29 @@ export default function Accounting() {
       const nonInvoicedServices = periodEventRows
         .filter((event) => Number(event.clientId) === Number(client.id) && !event.financial.hasInvoice)
         .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
-      const actionableService = nonInvoicedServices.find((event) => ['pending', 'partial70', 'paid', 'invoiced'].includes(String(event.billingStatus || '')))
-        || nonInvoicedServices[0]
-        || null;
-      const openServiceReceivable = nonInvoicedServices
-        .filter((event) => ['invoiced', 'paid', 'partial70'].includes(String(event.billingStatus || '')))
-        .reduce((sum, event) => sum + num(event.financial.receivable), 0);
-      const openServiceCount = nonInvoicedServices
-        .filter((event) => ['invoiced', 'paid', 'partial70'].includes(String(event.billingStatus || '')))
-        .length;
-      const totalOpen = invoiceDebt + pendingBilling + openServiceReceivable;
+      const actionableService = nonInvoicedServices[0] || null;
+      const totalOpen = invoiceDebt + pendingBilling;
       const actionableInvoice = unpaidInvoices
         .sort((a, b) => new Date(a.issueDate || 0).getTime() - new Date(b.issueDate || 0).getTime())[0] || null;
+      const nextDueDate = unpaidInvoices
+        .map((invoice) => effectiveInvoiceDueDate(invoice, client))
+        .filter(Boolean)
+        .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] || null;
       const clientRow = {
         ...client,
-        invoices: periodInvoices
-          .filter((invoice) => invoice.status !== 'cancelled')
+        invoices: issuedInvoices
           .sort((a, b) => new Date(b.issueDate || 0).getTime() - new Date(a.issueDate || 0).getTime()),
         billingGroups: clientGroups,
         nonInvoicedServices,
         actionableInvoice,
         actionableService,
-        invoicesCount: unpaidInvoices.length + openServiceCount,
+        invoicesCount: issuedInvoices.length,
         invoiceDebt,
         pendingBilling,
-        billedOpen,
+        billedOpen: invoiceDebt,
         totalOpen,
         overdueDays: overdue?.days || 0,
-        nextDueDate: (() => {
-          const nextInvoiceDueDate = unpaidInvoices
-            .filter((invoice) => invoice.dueDate)
-            .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate;
-          const nextServiceDueDate = nonInvoicedServices
-            .map((service) => dueDateForService(client, service))
-            .concat(clientGroups.map((group) => group.dueDate))
-            .filter(Boolean)
-            .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
-          if (nextInvoiceDueDate && nextServiceDueDate) {
-            return new Date(nextInvoiceDueDate).getTime() <= new Date(nextServiceDueDate).getTime()
-              ? nextInvoiceDueDate
-              : nextServiceDueDate;
-          }
-          return nextInvoiceDueDate || nextServiceDueDate || null;
-        })(),
+        nextDueDate,
       };
       return expandClientBillingRows(clientRow, { overdueDaysFromDate: dayDiffFromToday });
     });
@@ -1187,28 +1132,21 @@ export default function Accounting() {
       .filter((event) => !event.clientId && String(event.clientName || '').trim())
       .map((event) => {
         const displayName = String(event.clientName).trim();
-        const billingStatus = String(event.billingStatus || 'pending');
         const revenue = num(event.financial?.revenue);
-        const receivable = num(event.financial?.receivable);
-        const pendingBilling = billingStatus === 'pending' ? revenue : 0;
-        const totalOpen = billingStatus === 'pending' ? revenue : receivable;
-        const dueDate = dueDateForService({ billingMethod: 'per_event' }, event);
+        const pendingBilling = revenue;
         const pseudoClient = {
           id: `unregistered-${event.id}`,
           name: displayName,
-          billingMethod: 'per_event',
-          paymentTerm: 'immediate',
+          billingMethod: '',
+          paymentTerm: '',
         };
-        const overdueDays = ['invoiced', 'partial70'].includes(billingStatus)
-          ? Math.max(0, dayDiffFromToday(dueDate))
-          : 0;
         const group = {
-          key: `unregistered:per_event:${event.id}`,
+          key: `unregistered:unconfigured:${event.id}`,
           client: pseudoClient,
-          method: 'per_event',
+          method: 'unconfigured',
           label: `${displayName} · ${event.name || 'Evento/Serviço'}`,
-          issueDate: dueDate,
-          dueDate,
+          issueDate: null,
+          dueDate: null,
           events: [event],
           total: pendingBilling,
         };
@@ -1223,17 +1161,19 @@ export default function Accounting() {
           actionableInvoice: null,
           actionableService: event,
           invoicesCount: 0,
-          invoiceDebt: billingStatus === 'invoiced' ? receivable : 0,
+          invoiceDebt: 0,
           pendingBilling,
-          billedOpen: billingStatus === 'invoiced' ? receivable : 0,
-          totalOpen,
-          overdueDays,
-          nextDueDate: dueDate,
+          billedOpen: 0,
+          totalOpen: pendingBilling,
+          overdueDays: 0,
+          nextDueDate: null,
         };
       });
 
     return [...registeredClientRows, ...unregisteredEventRows].sort((a, b) => {
-      const dateDiff = new Date(a.nextDueDate || 0).getTime() - new Date(b.nextDueDate || 0).getTime();
+      const aDate = a.nextDueDate ? new Date(a.nextDueDate).getTime() : Number.POSITIVE_INFINITY;
+      const bDate = b.nextDueDate ? new Date(b.nextDueDate).getTime() : Number.POSITIVE_INFINITY;
+      const dateDiff = aDate - bDate;
       if (dateDiff) return dateDiff;
       return b.totalOpen - a.totalOpen;
     });
@@ -1533,7 +1473,7 @@ export default function Accounting() {
 
   const treasury = useMemo(() => {
     const invoiceReceivable = invoices
-      .filter((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled')
+      .filter((invoice) => invoiceIsIssued(invoice) && !invoiceIsPaid(invoice))
       .reduce((sum, invoice) => sum + num(invoice.total), 0);
     const pendingBilling = billingGroups.reduce((sum, group) => sum + num(group.total), 0);
     const payable = financeServices.reduce((sum, event) => sum + billableAssignments(event)
@@ -1549,8 +1489,14 @@ export default function Accounting() {
   }, [invoices, billingGroups, financeServices, bankBalance, latestBankBalance]);
 
   const alerts = useMemo(() => {
-    const overdueInvoices = invoices.filter((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled' && dayDiffFromToday(invoice.dueDate) > 0);
-    const overdue30 = overdueInvoices.filter((invoice) => dayDiffFromToday(invoice.dueDate) >= 30);
+    const overdueInvoices = invoices
+      .filter((invoice) => invoiceIsIssued(invoice) && !invoiceIsPaid(invoice))
+      .map((invoice) => {
+        const dueDate = effectiveInvoiceDueDate(invoice, invoice.client);
+        return { invoice, dueDate, days: dueDate ? dayDiffFromToday(dueDate) : 0 };
+      })
+      .filter((item) => item.days > 0);
+    const overdue30 = overdueInvoices.filter((item) => item.days >= 30);
     const unpaidStaff = currentMonthUnpaidAssignments.reduce((sum, assignment) => sum + assignmentOutstandingPay(assignment), 0);
     return [
       {
@@ -2073,7 +2019,11 @@ export default function Accounting() {
                     <ReceiptText size={18} />
                     <div>
                       <strong>{group.label}</strong>
-                      <small>{group.events.length} evento(s) · emissão {date.format(group.issueDate)}</small>
+                      <small>
+                        {group.events.length} evento(s) · {group.issueDate
+                          ? `emissão prevista ${date.format(group.issueDate)}`
+                          : 'configurar condições comerciais do cliente'}
+                      </small>
                     </div>
                     <strong>{money.format(group.total)}</strong>
                   </article>
@@ -2286,7 +2236,9 @@ export default function Accounting() {
                     <td>
                       {client.overdueDays >= 30 ? <Badge tone="danger">Vencida há {client.overdueDays} dias</Badge>
                         : client.overdueDays > 0 ? <Badge tone="warning">Vencida há {client.overdueDays} dias</Badge>
-                          : <Badge tone="success">Sem atraso</Badge>}
+                          : client.invoiceDebt > 0 ? <Badge tone="info">A vencer</Badge>
+                            : client.pendingBilling > 0 ? <Badge tone="warning">Por faturar</Badge>
+                              : <Badge tone="success">Regularizado</Badge>}
                     </td>
                       </tr>
                       {isExpanded ? (
@@ -2301,15 +2253,24 @@ export default function Accounting() {
                                       <strong>{group.label}</strong>
                                     </div>
                                     <Badge tone="info">{BILLING_METHOD_LABELS[group.method] || group.method}</Badge>
-                                    <span>Vencimento: {group.dueDate ? date.format(new Date(group.dueDate)) : '-'}</span>
+                                    <span>
+                                      {group.method === 'unconfigured'
+                                        ? 'Condições comerciais por configurar'
+                                        : `Emissão prevista: ${group.issueDate ? date.format(new Date(group.issueDate)) : '-'}`}
+                                    </span>
                                     <strong>{money.format(group.total)}</strong>
                                   </header>
                                   <div className="finance-client-services">
                                     {group.events.map((service) => (
                                       <div key={service.id} className="finance-client-service">
                                         <span>{service.date ? date.format(new Date(service.date)) : '-'}</span>
-                                        <strong>{service.name}</strong>
-                                        <small>{service.eventType || service.location || '-'}</small>
+                                        <div className="finance-client-service__identity">
+                                          <strong>{service.name}</strong>
+                                          {service.serviceReference ? (
+                                            <span className="service-reference-badge">Ref: {service.serviceReference}</span>
+                                          ) : null}
+                                          <small>{service.eventType || service.location || '-'}</small>
+                                        </div>
                                         <span>{money.format(service.financial?.revenue || eventRevenue(service))}</span>
                                       </div>
                                     ))}
@@ -2325,7 +2286,11 @@ export default function Accounting() {
                                       <strong>{invoice.number || invoice.description || `Fatura #${invoice.id}`}</strong>
                                     </div>
                                     <Badge tone={invoiceIsPaid(invoice) ? 'success' : 'warning'}>{statusLabel(INVOICE_STATUS, invoice.status)}</Badge>
-                                    <span>Vencimento: {invoice.dueDate ? date.format(new Date(invoice.dueDate)) : '-'}</span>
+                                    <span>
+                                      Vencimento: {effectiveInvoiceDueDate(invoice, invoice.client || client)
+                                        ? date.format(new Date(effectiveInvoiceDueDate(invoice, invoice.client || client)))
+                                        : '-'}
+                                    </span>
                                     <strong>{money.format(invoice.total)}</strong>
                                   </header>
                                 </article>
@@ -2339,7 +2304,7 @@ export default function Accounting() {
                                       <strong>{service.name}</strong>
                                     </div>
                                     <Badge tone="warning">{statusLabel(BILLING_STATUS, service.billingStatus || 'pending')}</Badge>
-                                    <span>Vencimento: {date.format(new Date(dueDateForService(client, service)))}</span>
+                                    <span>Por faturar · vencimento após emissão</span>
                                     <strong>{money.format(service.financial?.receivable || service.financial?.revenue || 0)}</strong>
                                   </header>
                                 </article>
@@ -2466,15 +2431,20 @@ export default function Accounting() {
                                       <strong>{group.label}</strong>
                                     </div>
                                     <Badge tone="success">Pago</Badge>
-                                    <span>Vencimento: {group.dueDate ? date.format(new Date(group.dueDate)) : '-'}</span>
+                                    <span>Período faturado</span>
                                     <strong>{money.format(group.total)}</strong>
                                   </header>
                                   <div className="finance-client-services">
                                     {group.events.map((service) => (
                                       <div key={service.id} className="finance-client-service">
                                         <span>{service.date ? date.format(new Date(service.date)) : '-'}</span>
-                                        <strong>{service.name}</strong>
-                                        <small>{service.eventType || service.location || '-'}</small>
+                                        <div className="finance-client-service__identity">
+                                          <strong>{service.name}</strong>
+                                          {service.serviceReference ? (
+                                            <span className="service-reference-badge">Ref: {service.serviceReference}</span>
+                                          ) : null}
+                                          <small>{service.eventType || service.location || '-'}</small>
+                                        </div>
                                         <span>{money.format(service.financial?.revenue || eventRevenue(service))}</span>
                                       </div>
                                     ))}
@@ -2490,7 +2460,7 @@ export default function Accounting() {
                                       <strong>{service.name}</strong>
                                     </div>
                                     <Badge tone="success">{statusLabel(BILLING_STATUS, service.billingStatus || 'paid')}</Badge>
-                                    <span>Vencimento: {date.format(new Date(dueDateForService(client, service)))}</span>
+                                    <span>Sem vencimento calculado pelo evento</span>
                                     <strong>{money.format(service.financial?.revenue || 0)}</strong>
                                   </header>
                                 </article>
@@ -3149,19 +3119,33 @@ export default function Accounting() {
           <Card title="Planeamento de Recebimentos">
             <div className="finance-list">
               {topItems([...invoices]
-                .filter((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled')
-                .sort((a, b) => new Date(a.dueDate || 0).getTime() - new Date(b.dueDate || 0).getTime()), 8)
-                .map((invoice) => (
+                .filter((invoice) => invoiceIsIssued(invoice) && !invoiceIsPaid(invoice))
+                .map((invoice) => ({
+                  invoice,
+                  dueDate: effectiveInvoiceDueDate(invoice, invoice.client),
+                }))
+                .sort((a, b) => {
+                  if (!a.dueDate) return 1;
+                  if (!b.dueDate) return -1;
+                  return a.dueDate.getTime() - b.dueDate.getTime();
+                }), 8)
+                .map(({ invoice, dueDate }) => (
                   <article key={invoice.id} className="finance-list-item finance-list-item--wide">
                     <div>
                       <strong>{invoice.client?.name || '-'}</strong>
-                      <small>{invoice.number} · vencimento {invoice.dueDate ? date.format(new Date(invoice.dueDate)) : '-'}</small>
+                      <small>
+                        {invoice.number} · vencimento {dueDate ? date.format(dueDate) : 'por configurar'}
+                      </small>
                     </div>
-                    <Badge tone={dayDiffFromToday(invoice.dueDate) > 0 ? 'danger' : 'info'}>{statusLabel(INVOICE_STATUS, invoice.status)}</Badge>
+                    <Badge tone={dueDate && dayDiffFromToday(dueDate) > 0 ? 'danger' : 'info'}>
+                      {statusLabel(INVOICE_STATUS, invoice.status)}
+                    </Badge>
                     <strong>{money.format(num(invoice.total))}</strong>
                   </article>
                 ))}
-              {!invoices.some((invoice) => !invoiceIsPaid(invoice) && invoice.status !== 'cancelled') ? <p className="muted">Sem recebimentos pendentes.</p> : null}
+              {!invoices.some((invoice) => invoiceIsIssued(invoice) && !invoiceIsPaid(invoice))
+                ? <p className="muted">Sem recebimentos pendentes.</p>
+                : null}
             </div>
           </Card>
         </div>

@@ -11,6 +11,7 @@ import {
   Edit3,
   Euro,
   FileClock,
+  FileSpreadsheet,
   History,
   MapPin,
   Plus,
@@ -36,6 +37,7 @@ import { calculateFinancialMargin, eventFinancialWarnings } from '../utils/event
 import { externalCostsTotals } from '../utils/externalCosts.js';
 import { isEventDayCancelled } from '../utils/eventCancelledDays.js';
 import { eventTaxAmount, expensesIncludingEventTax } from '../utils/eventTax.js';
+import { downloadEventAttendanceExcel } from '../utils/eventAttendanceExcel.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import {
   assignmentWorkDate,
@@ -289,6 +291,8 @@ export default function ServiceDetail() {
   const [newRoleQty, setNewRoleQty] = useState('1');
   const [savingTeam, setSavingTeam] = useState(false);
   const [teamError, setTeamError] = useState('');
+  const [attendanceExportBusy, setAttendanceExportBusy] = useState(false);
+  const [attendanceExportError, setAttendanceExportError] = useState('');
   const [activeAdvanceRowKey, setActiveAdvanceRowKey] = useState(null);
   const [dayActionBusy, setDayActionBusy] = useState(false);
   const [dayActionError, setDayActionError] = useState('');
@@ -893,6 +897,34 @@ export default function ServiceDetail() {
     return true;
   }
 
+  async function exportCurrentDayAttendance() {
+    if (!service || !currentDay || attendanceExportBusy) return;
+    setAttendanceExportError('');
+    if (currentDayCancelled) {
+      setAttendanceExportError('Reativa este dia antes de gerar a folha de registo de horas.');
+      return;
+    }
+    if (!currentDayAssignedRows.length) {
+      setAttendanceExportError('Não existem colaboradores atribuídos ao dia selecionado.');
+      return;
+    }
+
+    setAttendanceExportBusy(true);
+    try {
+      await downloadEventAttendanceExcel({
+        event: service,
+        selectedDay: currentDay,
+        assignments: currentDayAssignedRows,
+        collaborators: activeCollaborators,
+        workLocations,
+      });
+    } catch (err) {
+      setAttendanceExportError(err?.message || 'Não foi possível gerar a folha de registo de horas.');
+    } finally {
+      setAttendanceExportBusy(false);
+    }
+  }
+
   async function saveTeamRows() {
     if (!service || savingTeam) return;
     if (currentDayCancelled) {
@@ -1108,6 +1140,9 @@ export default function ServiceDetail() {
             <span className="eyebrow">Ficha do Evento/Serviço</span>
             <h1>{service.name}</h1>
             <p>{service.client?.name || service.clientName || 'Cliente por associar'} · {formatDateRange(service)}</p>
+            {service.serviceReference ? (
+              <span className="service-detail-reference">Ref. interna: {service.serviceReference}</span>
+            ) : null}
           </div>
           <Badge tone={service.status === 'finalized' ? 'success' : 'info'}>{statusLabel(service.status)}</Badge>
         </div>
@@ -1138,6 +1173,7 @@ export default function ServiceDetail() {
             <div className="service-detail-info-grid">
               <InfoItem label="Tipo de evento" value={fieldValue(service.eventType)} />
               <InfoItem label="Data" value={formatDateRange(service)} />
+              {service.serviceReference ? <InfoItem label="Referência interna" value={service.serviceReference} /> : null}
               <InfoItem label="Convidados/Participantes" value={service.guestsCount || '-'} />
               <InfoItem label="Estado operacional" value={statusLabel(service.status)} />
             </div>
@@ -1266,8 +1302,21 @@ export default function ServiceDetail() {
                 <Settings2 size={16} />
                 {roleManagerOpen ? 'Fechar gestão' : 'Gerir o dia'}
               </button>
+              <button
+                className="secondary-button service-detail-attendance-export__button"
+                type="button"
+                disabled={attendanceExportBusy || !currentDayAssignedRows.length}
+                title={currentDayAssignedRows.length
+                  ? `Gerar folha de registo de horas de ${formatDate(currentDay)}`
+                  : 'Adiciona colaboradores a este dia antes de gerar a folha'}
+                onClick={exportCurrentDayAttendance}
+              >
+                <FileSpreadsheet size={16} />
+                {attendanceExportBusy ? 'A gerar...' : 'Folha de Registo de Horas'}
+              </button>
             </div>
           </div>
+          {attendanceExportError ? <p className="notice">{attendanceExportError}</p> : null}
           {workLocationError ? <p className="notice">{workLocationError}</p> : null}
           {service.workLocationsEnabled && workLocationManagerOpen ? (
             <div className="service-detail-work-location-manager">
@@ -1280,22 +1329,26 @@ export default function ServiceDetail() {
               <div className="service-detail-work-location-manager__list">
                 {workLocations.map((workLocation, index) => (
                   <div className="service-detail-work-location-manager__row" key={workLocation.id}>
-                    <MapPin size={15} aria-hidden="true" />
-                    <input
-                      defaultValue={workLocation.name}
-                      aria-label={`Nome do local ${workLocation.name}`}
-                      onBlur={(event) => renameWorkLocation(workLocation, event.target.value, event.target)}
-                    />
+                    <div className="service-detail-work-location-manager__identity">
+                      <MapPin size={15} aria-hidden="true" />
+                      <input
+                        defaultValue={workLocation.name}
+                        aria-label={`Nome do local ${workLocation.name}`}
+                        onBlur={(event) => renameWorkLocation(workLocation, event.target.value, event.target)}
+                      />
+                    </div>
                     <span>{workLocationCounts.get(String(workLocation.id)) || 0} neste dia</span>
-                    <button className="icon-button" type="button" title="Mover para cima" aria-label={`Mover ${workLocation.name} para cima`} disabled={index === 0 || workLocationBusy} onClick={() => moveWorkLocation(workLocation, -1)}>
-                      <ChevronUp size={16} />
-                    </button>
-                    <button className="icon-button" type="button" title="Mover para baixo" aria-label={`Mover ${workLocation.name} para baixo`} disabled={index === workLocations.length - 1 || workLocationBusy} onClick={() => moveWorkLocation(workLocation, 1)}>
-                      <ChevronDown size={16} />
-                    </button>
-                    <button className="icon-button icon-button--danger" type="button" title="Eliminar local" aria-label={`Eliminar ${workLocation.name}`} disabled={workLocationBusy} onClick={() => removeWorkLocation(workLocation)}>
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="service-detail-work-location-manager__actions">
+                      <button className="icon-button" type="button" title="Mover para cima" aria-label={`Mover ${workLocation.name} para cima`} disabled={index === 0 || workLocationBusy} onClick={() => moveWorkLocation(workLocation, -1)}>
+                        <ChevronUp size={16} />
+                      </button>
+                      <button className="icon-button" type="button" title="Mover para baixo" aria-label={`Mover ${workLocation.name} para baixo`} disabled={index === workLocations.length - 1 || workLocationBusy} onClick={() => moveWorkLocation(workLocation, 1)}>
+                        <ChevronDown size={16} />
+                      </button>
+                      <button className="icon-button icon-button--danger" type="button" title="Eliminar local" aria-label={`Eliminar ${workLocation.name}`} disabled={workLocationBusy} onClick={() => removeWorkLocation(workLocation)}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {!workLocations.length ? <p className="muted">Ainda não existem locais definidos para este evento.</p> : null}

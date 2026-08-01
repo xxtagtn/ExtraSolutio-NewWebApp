@@ -17,6 +17,6 @@ test('returns a user-facing message with the password requirements', () => {
   const result = validatePasswordStrength('abc');
   assert.equal(result.valid, false);
   assert.match(result.message, /12 caracteres/);
-  assert.match(result.message, /maiúscula/i);
-  assert.match(result.message, /símbolo/i);
+  assert.match(result.message, /mai\u00FAscula/i);
+  assert.match(result.message, /s\u00EDmbolo/i);
 });

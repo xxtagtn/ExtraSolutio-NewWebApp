@@ -90,6 +90,7 @@ export function buildBudgetConversionDraft(row = {}) {
     clientId: row.clientId ? String(row.clientId) : '',
     clientLabel,
     name: eventName,
+    serviceReference: row.serviceReference || '',
     eventType: row.eventType || row.serviceType || '',
     date: firstDate,
     endDate: dates.length > 1 ? dates[dates.length - 1] : '',
@@ -139,6 +140,7 @@ export function buildEventPayloadFromBudgetConversion(draft = {}, clientId) {
 
   return {
     name: String(draft.name || '').trim(),
+    serviceReference: String(draft.serviceReference || '').trim() || null,
     eventType: draft.eventType || '',
     clientId: clientId || null,
     clientName: clientId ? null : (draft.clientLabel || null),

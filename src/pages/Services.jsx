@@ -145,6 +145,7 @@ function normalizeAssignmentStatus(value) {
 function emptyForm() {
   return {
     name: '',
+    serviceReference: '',
     eventType: '',
     date: '',
     endDate: '',
@@ -437,6 +438,7 @@ function toForm(row) {
   }));
   return {
     name: row.name || '',
+    serviceReference: row.serviceReference || '',
     eventType: row.eventType || '',
     date: dateOnly(row.date),
     endDate: row.endDate ? dateOnly(row.endDate) : '',
@@ -1309,6 +1311,7 @@ export default function Services() {
       const firstTravelCar = travelCars[0] || {};
       const payload = {
         ...form,
+        serviceReference: String(form.serviceReference || '').trim() || null,
         status: statusManualOverride ? form.status : nextAutomaticServiceStatus(form),
         statusMode: statusManualOverride ? 'manual' : 'automatic',
         assignmentDrafts: assignmentDraftsFromRows(form.assignments),
@@ -1747,35 +1750,45 @@ export default function Services() {
                     <label>Evento / Serviço
                       <input value={form.name} required onChange={(event) => setForm({ ...form, name: event.target.value })} />
                     </label>
-                    <label>Tipo de Evento
-                      <select value={form.eventType} onChange={(event) => setForm({ ...form, eventType: event.target.value })}>
-                        <option value="">Selecionar</option>
-                        {eventTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                      </select>
-                    </label>
-                    <label>{form.isContinuous ? 'Data de inicio' : 'Data'}
-                      <input type="date" value={form.date} required onChange={(event) => setForm({ ...form, date: event.target.value })} />
-                    </label>
-                    <label className="check-inline service-check">
+                    <label>Referência interna (opcional)
                       <input
-                        type="checkbox"
-                        checked={form.isContinuous}
-                        onChange={(event) => setForm({
-                          ...form,
-                          isContinuous: event.target.checked,
-                          endDate: event.target.checked ? (form.endDate || form.date) : '',
-                        })}
+                        value={form.serviceReference}
+                        maxLength={80}
+                        placeholder="Ex: Almoço institucional"
+                        onChange={(event) => setForm({ ...form, serviceReference: event.target.value })}
                       />
-                      <span>Evento continuo</span>
                     </label>
-                    {form.isContinuous ? (
-                      <label>Data de fim
-                        <input type="date" value={form.endDate} min={form.date || undefined} required onChange={(event) => setForm({ ...form, endDate: event.target.value })} />
+                    <div className={`event-schedule-grid${form.isContinuous ? ' is-continuous' : ''}`}>
+                      <label>Tipo de Evento
+                        <select value={form.eventType} onChange={(event) => setForm({ ...form, eventType: event.target.value })}>
+                          <option value="">Selecionar</option>
+                          {eventTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
                       </label>
-                    ) : null}
-                    <label>Nº de Convidados/Participantes
-                      <input type="number" min="0" value={form.guestsCount} onChange={(event) => setForm({ ...form, guestsCount: event.target.value })} />
-                    </label>
+                      <label>{form.isContinuous ? 'Data de início' : 'Data'}
+                        <input type="date" value={form.date} required onChange={(event) => setForm({ ...form, date: event.target.value })} />
+                      </label>
+                      {form.isContinuous ? (
+                        <label>Data de fim
+                          <input type="date" value={form.endDate} min={form.date || undefined} required onChange={(event) => setForm({ ...form, endDate: event.target.value })} />
+                        </label>
+                      ) : null}
+                      <label className="check-inline service-check event-continuous-toggle">
+                        <input
+                          type="checkbox"
+                          checked={form.isContinuous}
+                          onChange={(event) => setForm({
+                            ...form,
+                            isContinuous: event.target.checked,
+                            endDate: event.target.checked ? (form.endDate || form.date) : '',
+                          })}
+                        />
+                        <span>Evento contínuo</span>
+                      </label>
+                      <label>Nº de Convidados/Participantes
+                        <input type="number" min="0" value={form.guestsCount} onChange={(event) => setForm({ ...form, guestsCount: event.target.value })} />
+                      </label>
+                    </div>
                     {form.isContinuous ? <p className="muted">Duracao: {eventDays} dia(s). Os calculos usam o horario previsto repetido por dia.</p> : null}
                   </div>
                 </section>

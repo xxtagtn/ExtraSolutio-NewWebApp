@@ -107,6 +107,7 @@ export function buildStaffScheduleRows(rows) {
         eventDate: formatDate(effectiveRowDateKey(row)),
         location: row.event.location || '-',
         collaboratorName: row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-',
+        collaboratorNif: row.assignment.collaborator?.nif || '-',
         role: row.assignment.role || '-',
         workLocationsEnabled: Boolean(row.event.workLocationsEnabled),
         workLocationName: row.event.workLocationsEnabled
@@ -367,6 +368,7 @@ export function buildStaffScheduleCsv(rows) {
     'Data',
     'Local',
     'Colaborador',
+    'NIF',
     ...(showWorkLocation ? ['Local de Trabalho'] : []),
     'Função',
     'Entrada Staff',
@@ -384,6 +386,7 @@ export function buildStaffScheduleCsv(rows) {
       row.eventDate,
       row.location,
       row.collaboratorName,
+      row.collaboratorNif,
       ...(showWorkLocation ? [row.workLocationName || '-'] : []),
       row.role,
       row.checkIn,
@@ -401,7 +404,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
   const scheduleRows = buildStaffScheduleRows(rows);
   const groups = groupByEvent(scheduleRows);
   const showWorkLocation = scheduleRows.some((row) => row.workLocationsEnabled);
-  const columnCount = showWorkLocation ? 11 : 10;
+  const columnCount = showWorkLocation ? 12 : 11;
   const totalLabelColumnCount = columnCount - 2;
   const generatedAt = options.generatedAt || new Date();
   const generatedAtLabel = new Intl.DateTimeFormat('pt-PT', {
@@ -425,7 +428,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
         <td colspan="2"><strong>Cliente</strong><br>${escapeHtml(group.clientName)}</td>
         <td colspan="2"><strong>Data</strong><br>${escapeHtml(group.eventDate)}</td>
         <td colspan="3"><strong>Local</strong><br>${escapeHtml(group.location)}</td>
-        <td colspan="${showWorkLocation ? 3 : 2}"><strong>Total horas</strong><br>${escapeHtml(formatHours(groupHours))}</td>
+        <td colspan="${showWorkLocation ? 4 : 3}"><strong>Total horas</strong><br>${escapeHtml(formatHours(groupHours))}</td>
         <td><strong>Valor total</strong><br>${escapeHtml(formatMoney(groupValue))}</td>
       </tr>
       <tr class="table-head">
@@ -434,6 +437,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
         <td>Data</td>
         <td>Local</td>
         <td>Colaborador</td>
+        <td>NIF</td>
         ${showWorkLocation ? '<td>Local de Trabalho</td>' : ''}
         <td>Função</td>
         <td>Entrada Staff</td>
@@ -448,6 +452,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
           <td>${escapeHtml(row.eventDate)}</td>
           <td>${escapeHtml(row.location)}</td>
           <td>${escapeHtml(row.collaboratorName)}</td>
+          <td>${escapeHtml(row.collaboratorNif)}</td>
           ${showWorkLocation ? `<td>${escapeHtml(row.workLocationName || '-')}</td>` : ''}
           <td>${escapeHtml(row.role)}</td>
           <td class="time-cell">${escapeHtml(row.checkIn)}</td>
@@ -551,6 +556,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
       <col style="width: 90px" />
       <col style="width: 180px" />
       <col style="width: 180px" />
+      <col style="width: 110px" />
       ${showWorkLocation ? '<col style="width: 150px" />' : ''}
       <col style="width: 120px" />
       <col style="width: 85px" />
@@ -565,7 +571,7 @@ export function buildStaffScheduleExcelHtml(rows, options = {}) {
       <td colspan="3"><strong>Cliente</strong><br>${escapeHtml(options.clientLabel || 'Todos os clientes')}</td>
       <td colspan="3"><strong>Período</strong><br>${escapeHtml(options.periodLabel || options.monthLabel || '-')}</td>
       <td colspan="2"><strong>Gerado em</strong><br>${escapeHtml(generatedAtLabel)}</td>
-      <td colspan="${showWorkLocation ? 3 : 2}"><strong>Registos</strong><br>${scheduleRows.length}</td>
+      <td colspan="${showWorkLocation ? 4 : 3}"><strong>Registos</strong><br>${scheduleRows.length}</td>
     </tr>
     <tr class="report-total">
       <td colspan="${totalLabelColumnCount}">Total geral de horas Staff</td>

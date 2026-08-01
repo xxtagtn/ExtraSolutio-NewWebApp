@@ -1,9 +1,13 @@
 import { externalCostsTotals } from './externalCosts.js';
 import { eventTaxAmount } from './eventTax.js';
+import {
+  effectiveInvoiceDueDate,
+  invoiceIsIssued,
+  invoiceIsPaid,
+} from '../../shared/invoiceLifecycle.js';
 
 const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const finalizedStatuses = new Set(['finalized', 'completed', 'invoiced', 'paid']);
-const closedInvoiceStatuses = new Set(['paid', 'cancelled', 'void']);
 
 function numberValue(value) {
   const parsed = Number(String(value ?? 0).replace(/\s/g, '').replace('€', '').replace(',', '.'));
@@ -64,16 +68,6 @@ function eventStaffCost(event, externalCost) {
   return Math.max(0, numberValue(event?.totalCost ?? event?.staffCost ?? 0) - externalCost);
 }
 
-function eventReceivable(event, revenue) {
-  if (event?.financial?.receivable !== undefined && event?.financial?.receivable !== null) {
-    return Math.max(0, numberValue(event.financial.receivable));
-  }
-  if (String(event?.billingStatus || '').toLowerCase() === 'paid' || String(event?.paymentStatus || '').toLowerCase() === 'paid') {
-    return 0;
-  }
-  return Math.max(0, revenue - numberValue(event?.paidAmount || event?.prepaymentPaidAmount || event?.signalAmount || 0));
-}
-
 function inYear(date, year) {
   return !year || date.getFullYear() === Number(year);
 }
@@ -107,46 +101,16 @@ function invoiceEventIds(invoice) {
   return new Set([...ids].filter(Number.isFinite));
 }
 
-function paymentTermDays(client) {
-  if (client?.paymentTerm === 'immediate') return 0;
-  if (client?.paymentTerm === 'days_15') return 15;
-  if (client?.paymentTerm === 'days_30') return 30;
-  if (client?.paymentTerm === 'days_45') return 45;
-  if (client?.paymentTerm === 'custom') return Math.max(0, numberValue(client.paymentTermDays));
-  return 0;
-}
-
-function addDays(value, amount) {
-  const date = new Date(value);
-  date.setDate(date.getDate() + amount);
-  return date;
-}
-
-function derivedDueDate(event, serviceDate) {
-  const explicit = validDate(event?.financial?.dueDate || event?.dueDate || event?.billingDueDate);
-  if (explicit) return explicit;
-
-  const client = event?.client || {};
-  const method = client.billingMethod || 'per_event';
-  if (method === 'monthly' || method === 'custom') {
-    const monthEnd = new Date(serviceDate.getFullYear(), serviceDate.getMonth() + 1, 0);
-    return method === 'custom' ? addDays(monthEnd, paymentTermDays(client)) : monthEnd;
-  }
-  if (method === 'biweekly') {
-    return serviceDate.getDate() <= 15
-      ? new Date(serviceDate.getFullYear(), serviceDate.getMonth(), 15)
-      : new Date(serviceDate.getFullYear(), serviceDate.getMonth() + 1, 0);
-  }
-  if (method === 'prepaid') return serviceDate;
-  return addDays(serviceDate, paymentTermDays(client));
+function linkedInvoicesForEvent(event, invoices) {
+  const eventId = Number(event?.id);
+  return (invoices || [])
+    .filter((invoice) => invoiceEventIds(invoice).has(eventId));
 }
 
 function openInvoiceDueDate(event, invoices) {
-  const eventId = Number(event?.id);
-  return (invoices || [])
-    .filter((invoice) => !closedInvoiceStatuses.has(String(invoice?.status || '').toLowerCase()))
-    .filter((invoice) => invoiceEventIds(invoice).has(eventId))
-    .map((invoice) => validDate(invoice.dueDate || invoice.issueDate))
+  return linkedInvoicesForEvent(event, invoices)
+    .filter((invoice) => invoiceIsIssued(invoice) && !invoiceIsPaid(invoice))
+    .map((invoice) => effectiveInvoiceDueDate(invoice, event?.client))
     .filter(Boolean)
     .sort((a, b) => a - b)[0] || null;
 }
@@ -159,7 +123,19 @@ function rowFromEvent(event, invoices) {
   const tax = eventTaxAmount(event);
   const margin = revenue - staff - external - tax;
   const marginPct = revenue > 0 ? Math.round((margin / revenue) * 1000) / 10 : 0;
-  const receivable = eventReceivable(event, revenue);
+  const linkedInvoices = linkedInvoicesForEvent(event, invoices);
+  const issuedInvoices = linkedInvoices.filter(invoiceIsIssued);
+  const openInvoices = issuedInvoices.filter((invoice) => !invoiceIsPaid(invoice));
+  const hasIssuedOpenInvoice = openInvoices.length > 0;
+  const hasIssuedInvoices = issuedInvoices.length > 0;
+  const billingState = hasIssuedOpenInvoice
+    ? 'open'
+    : hasIssuedInvoices
+      ? 'settled'
+      : 'unbilled';
+  const receivable = Number(openInvoices
+    .reduce((total, invoice) => total + numberValue(invoice.total), 0)
+    .toFixed(2));
   return {
     id: event.id,
     event,
@@ -168,7 +144,8 @@ function rowFromEvent(event, invoices) {
     clientId: eventClientId(event),
     clientName: eventClientName(event),
     date,
-    dueDate: openInvoiceDueDate(event, invoices) || (date ? derivedDueDate(event, date) : null),
+    dueDate: openInvoiceDueDate(event, invoices),
+    billingState,
     revenue,
     staff,
     external,
@@ -251,6 +228,8 @@ function buildClientRows(rows, today) {
       nextDueDate: null,
       overdueDays: 0,
       eventIds: [],
+      hasUnbilled: false,
+      hasIssuedOpen: false,
     };
     current.eventCount += 1;
     current.revenue += row.revenue;
@@ -260,6 +239,8 @@ function buildClientRows(rows, today) {
     current.margin += row.margin;
     current.receivable += row.receivable;
     current.eventIds.push(row.id);
+    current.hasUnbilled = current.hasUnbilled || row.billingState === 'unbilled';
+    current.hasIssuedOpen = current.hasIssuedOpen || row.billingState === 'open';
     if (row.receivable > 0 && row.dueDate && (!current.nextDueDate || row.dueDate < current.nextDueDate)) {
       current.nextDueDate = row.dueDate;
     }
@@ -280,7 +261,13 @@ function buildClientRows(rows, today) {
         receivable: Number(row.receivable.toFixed(2)),
         marginPct: row.revenue > 0 ? Number(((row.margin / row.revenue) * 100).toFixed(1)) : 0,
         overdueDays: overdue ? dayDifference(nextDueDate, today) : 0,
-        state: overdue ? 'overdue' : row.receivable > 0 ? 'open' : 'settled',
+        state: overdue
+          ? 'overdue'
+          : row.hasIssuedOpen
+            ? 'open'
+            : row.hasUnbilled
+              ? 'unbilled'
+              : 'settled',
       };
     })
     .sort((a, b) => b.revenue - a.revenue || a.clientName.localeCompare(b.clientName, 'pt'));

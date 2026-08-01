@@ -57,6 +57,10 @@ import {
   eventDayKey,
   isEventDayCancelled,
 } from '../../src/utils/eventCancelledDays.js';
+import {
+  dueDateFromInvoiceIssue,
+  invoiceIsIssued,
+} from '../../shared/invoiceLifecycle.js';
 
 export const apiRouter = Router();
 const CLOSED_EVENT_STATUSES = ['finalized', 'completed', 'invoiced', 'paid'];
@@ -762,6 +766,52 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   },
 }));
 
+async function normalizeInvoiceLifecycle(input, existing = null) {
+  const normalized = normalizeInvoice(input);
+  const nextStatus = String(input?.status ?? existing?.status ?? 'draft').trim().toLowerCase();
+  const wasIssued = invoiceIsIssued(existing);
+  const willBeIssued = !['draft', 'cancelled', 'void'].includes(nextStatus);
+
+  if (!willBeIssued) {
+    return {
+      ...normalized,
+      status: nextStatus,
+      dueDate: null,
+    };
+  }
+
+  const suppliedIssueDate = input?.issueDate ? new Date(input.issueDate) : null;
+  const issueDate = suppliedIssueDate && !Number.isNaN(suppliedIssueDate.getTime())
+    ? suppliedIssueDate
+    : wasIssued && existing?.issueDate
+      ? existing.issueDate
+      : new Date();
+  const clientId = normalized.clientId ?? existing?.clientId;
+  const client = clientId
+    ? await prisma.client.findUnique({ where: { id: Number(clientId) } })
+    : null;
+  if (!client?.billingMethod || !client?.paymentTerm) {
+    const error = new Error('Configura o método de faturação e o prazo de pagamento do cliente antes de emitir a fatura.');
+    error.statusCode = 400;
+    error.expose = true;
+    throw error;
+  }
+  const dueDate = dueDateFromInvoiceIssue(issueDate, client);
+  if (!dueDate) {
+    const error = new Error('O prazo de pagamento configurado no cliente não é válido.');
+    error.statusCode = 400;
+    error.expose = true;
+    throw error;
+  }
+
+  return {
+    ...normalized,
+    status: nextStatus,
+    issueDate,
+    dueDate,
+  };
+}
+
 apiRouter.use('/invoices', createCrudRouter(prisma.invoice, [
   'number',
   'clientId',
@@ -779,8 +829,9 @@ apiRouter.use('/invoices', createCrudRouter(prisma.invoice, [
   createMiddleware: financeIssueInvoices,
   updateMiddleware: financeIssueInvoices,
   deleteMiddleware: financeIssueInvoices,
-  normalizeCreate: normalizeInvoice,
-  normalizeUpdate: normalizeInvoice,
+  normalizeCreate: normalizeInvoiceLifecycle,
+  normalizeUpdate: normalizeInvoiceLifecycle,
+  loadExistingForUpdate: true,
 }));
 
 apiRouter.use('/invoice-items', createCrudRouter(prisma.invoiceItem, [

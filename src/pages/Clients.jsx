@@ -69,9 +69,9 @@ function emptyForm() {
     address: '',
     postalCode: '',
     city: '',
-    billingMethod: 'per_event',
+    billingMethod: '',
     billingCustomRule: '',
-    paymentTerm: 'days_30',
+    paymentTerm: '',
     paymentTermDays: '',
     minimumHours: '',
     roleRates: [],
@@ -264,9 +264,9 @@ export default function Clients() {
       address: row.address || '',
       postalCode: row.postalCode || '',
       city: row.city || '',
-      billingMethod: row.billingMethod || 'per_event',
+      billingMethod: row.billingMethod || '',
       billingCustomRule: row.billingCustomRule || '',
-      paymentTerm: row.paymentTerm || 'days_30',
+      paymentTerm: row.paymentTerm || '',
       paymentTermDays: row.paymentTermDays ?? '',
       minimumHours: Number(row.minimumHours || 0) > 0 ? String(row.minimumHours) : '',
       roleRates: parseRoleRates(row.roleRates).map((item) => ({ role: item.role, rate: formatRate(item.rate) })),
@@ -296,6 +296,10 @@ export default function Clients() {
 
   async function submit(event) {
     event.preventDefault();
+    if (!form.billingMethod || !form.paymentTerm) {
+      setFormError('Seleciona o método de faturação e o prazo de pagamento deste cliente.');
+      return;
+    }
     setSaving(true);
     setFormError('');
     try {
@@ -616,7 +620,8 @@ export default function Clients() {
               <label>Código postal<input value={form.postalCode} onChange={(event) => setForm({ ...form, postalCode: event.target.value })} /></label>
               <label>Cidade<input value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></label>
               <label>Método de faturação
-                <select value={form.billingMethod} onChange={(event) => setForm({ ...form, billingMethod: event.target.value })}>
+                <select required value={form.billingMethod} onChange={(event) => setForm({ ...form, billingMethod: event.target.value })}>
+                  <option value="" disabled>Selecionar</option>
                   <option value="prepaid">Pré-pagamento</option>
                   <option value="per_event">Por evento</option>
                   <option value="biweekly">Quinzenal</option>
@@ -625,7 +630,8 @@ export default function Clients() {
                 </select>
               </label>
               <label>Prazo de pagamento
-                <select value={form.paymentTerm} onChange={(event) => setForm({ ...form, paymentTerm: event.target.value })}>
+                <select required value={form.paymentTerm} onChange={(event) => setForm({ ...form, paymentTerm: event.target.value })}>
+                  <option value="" disabled>Selecionar</option>
                   <option value="immediate">Pronto pagamento</option>
                   <option value="days_15">15 dias</option>
                   <option value="days_30">30 dias</option>

@@ -112,6 +112,12 @@
   overflow: hidden;
 }
 
+.finance-client-selected-detail {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
 .finance-client-financial-table {
   overflow-x: auto;
 }
@@ -168,7 +174,7 @@
 
 .finance-client-event-table {
   display: grid;
-  min-width: 1030px;
+  min-width: 1320px;
 }
 
 .finance-client-event-head,
@@ -176,7 +182,7 @@
   align-items: center;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(190px, 1.5fr) 100px 110px 110px minmax(130px, 0.9fr) 105px minmax(130px, 1fr) minmax(150px, 0.9fr);
+  grid-template-columns: minmax(320px, 2.4fr) 110px 116px 100px minmax(145px, 0.95fr) 110px minmax(145px, 0.9fr) minmax(150px, 0.95fr);
   padding: 11px 14px;
 }
 
@@ -214,6 +220,7 @@
 }
 
 .finance-client-event-name {
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -232,16 +239,32 @@
   overflow-wrap: anywhere;
 }
 
+.finance-client-event-reference {
+  align-items: center;
+  background: rgba(24, 190, 181, 0.08);
+  border: 1px solid rgba(24, 190, 181, 0.3);
+  border-radius: 999px;
+  color: var(--accent);
+  display: inline-flex;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  margin-top: 5px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 2px 7px;
+  width: fit-content;
+}
+
 .finance-client-event-name small {
   color: var(--muted);
   margin-top: 3px;
 }
 
 .finance-client-event-meta {
-  align-items: center;
-  display: flex !important;
-  flex-wrap: wrap;
-  gap: 4px 7px;
+  display: block !important;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
 }
 
 .finance-client-event-meta > span {
@@ -251,7 +274,9 @@
   color: var(--accent);
   font-size: 0.72rem;
   line-height: 1.35;
+  margin-right: 7px;
   padding: 1px 5px;
+  vertical-align: middle;
   white-space: nowrap;
 }
 
@@ -3470,6 +3495,68 @@ th {
   display: inline-flex !important;
 }
 
+.event-schedule-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(190px, 1.2fr) minmax(180px, 1.1fr) max-content minmax(190px, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.event-schedule-grid.is-continuous {
+  grid-template-columns: minmax(170px, 1.1fr) minmax(160px, 1fr) minmax(160px, 1fr) max-content minmax(160px, 1fr);
+}
+
+.event-schedule-grid label {
+  min-width: 0;
+}
+
+.event-schedule-grid input,
+.event-schedule-grid select {
+  width: 100%;
+}
+
+.event-continuous-toggle {
+  align-self: end;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 2px;
+  white-space: nowrap;
+}
+
+.form-grid .event-continuous-toggle input[type="checkbox"] {
+  width: 16px !important;
+  min-width: 16px;
+  height: 16px;
+  min-height: 16px !important;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 16px;
+  accent-color: var(--accent);
+}
+
+.event-continuous-toggle span {
+  line-height: 1.2;
+}
+
+@media (max-width: 900px) {
+  .event-schedule-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .event-schedule-grid.is-continuous {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .event-schedule-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .service-uniform-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3743,6 +3830,20 @@ th {
 .service-detail-title-row p {
   margin: 0;
   color: var(--muted);
+}
+
+.service-detail-reference {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 3px 8px;
+  border: 1px solid rgba(24, 190, 181, 0.3);
+  border-radius: 999px;
+  color: var(--accent);
+  background: rgba(24, 190, 181, 0.08);
+  font-size: 0.78rem;
 }
 
 .service-detail-progress-grid,
@@ -4024,7 +4125,19 @@ th {
   border-bottom: 1px solid rgba(71, 85, 105, 0.38);
 }
 
-.service-detail-role-toolbar > div {
+.service-detail-attendance-export__button {
+  border-color: rgba(24, 191, 178, 0.5);
+  background: rgba(24, 191, 178, 0.09);
+  color: var(--accent);
+}
+
+.service-detail-attendance-export__button:hover:not(:disabled),
+.service-detail-attendance-export__button:focus-visible {
+  border-color: rgba(24, 191, 178, 0.82);
+  background: rgba(24, 191, 178, 0.16);
+}
+
+.service-detail-role-toolbar > div:first-child {
   display: grid;
   gap: 2px;
 }
@@ -7379,7 +7492,7 @@ th {
 
 .finance-client-service {
   display: grid;
-  grid-template-columns: 110px minmax(160px, 1fr) minmax(130px, 0.7fr) auto;
+  grid-template-columns: 110px minmax(160px, 1fr) auto;
   gap: 10px;
   align-items: center;
   padding: 9px 12px;
@@ -7393,6 +7506,36 @@ th {
 .finance-client-service > span:first-child,
 .finance-client-service small {
   color: var(--muted);
+}
+
+.finance-client-service__identity {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.finance-client-service__identity strong {
+  min-width: 0;
+}
+
+.finance-client-service__identity small {
+  flex-basis: 100%;
+}
+
+.service-reference-badge {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid rgba(24, 190, 181, 0.3);
+  border-radius: 999px;
+  color: var(--accent);
+  background: rgba(24, 190, 181, 0.08);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (max-width: 760px) {
@@ -12648,8 +12791,19 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     flex-direction: column;
   }
 
-  .service-detail-role-toolbar .secondary-button {
+  .service-detail-role-toolbar .service-detail-role-toolbar__actions {
     width: 100%;
+    max-width: 100%;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .service-detail-role-toolbar .service-detail-role-toolbar__actions .secondary-button {
+    width: auto;
+    flex: 0 0 auto;
   }
 
   .service-detail-role-manager__row,
@@ -14353,15 +14507,22 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  min-width: 0;
+}
+
+.service-detail-role-toolbar__actions > button {
+  flex: 0 0 auto;
+  width: auto;
+  white-space: nowrap;
 }
 
 .service-detail-work-location-manager {
   display: grid;
-  gap: 12px;
-  margin-top: 14px;
-  padding: 14px;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
   border: 1px solid rgba(24, 191, 178, 0.32);
   border-radius: var(--control-radius);
   background: rgba(8, 27, 29, 0.48);
@@ -14375,22 +14536,74 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
 .service-detail-work-location-manager__row,
 .service-detail-work-location-manager__add {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
-.service-detail-work-location-manager__row > div {
+.service-detail-work-location-manager__row {
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 1px solid rgba(71, 85, 105, 0.36);
+  border-radius: 8px;
+  background: rgba(12, 22, 26, 0.64);
+}
+
+.service-detail-work-location-manager__identity {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  min-width: 0;
+  gap: 8px;
+  color: var(--accent);
+}
+
+.service-detail-work-location-manager__identity input {
+  min-width: 0;
+}
+
+.service-detail-work-location-manager__row > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.service-detail-work-location-manager__actions {
+  display: flex;
+  align-items: center;
   gap: 6px;
+}
+
+.service-detail-work-location-manager__actions .icon-button {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
 }
 
 .service-detail-work-location-manager__row input,
 .service-detail-work-location-manager__add input {
   width: 100%;
   min-width: 0;
+}
+
+.service-detail-work-location-manager__add {
+  align-items: end;
+  padding-top: 2px;
+}
+
+.service-detail-work-location-manager__add label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.service-detail-work-location-manager__add label > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.service-detail-work-location-manager__add > button {
+  min-height: 36px;
+  white-space: nowrap;
 }
 
 .service-detail-work-location-summary {
@@ -14504,9 +14717,13 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
 }
 
 @media (max-width: 600px) {
-  .service-detail-role-toolbar__actions,
-  .service-detail-role-toolbar__actions > button {
+  .service-detail-role-toolbar__actions {
+    justify-content: flex-start;
     width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
   }
 
   .service-detail-work-location-manager__row,
@@ -14514,12 +14731,12 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     grid-template-columns: 1fr;
   }
 
-  .service-detail-work-location-manager__row > div,
+  .service-detail-work-location-manager__actions,
   .service-detail-work-location-manager__add > button {
     width: 100%;
   }
 
-  .service-detail-work-location-manager__row > div > button {
+  .service-detail-work-location-manager__actions > button {
     flex: 1 1 0;
   }
 }

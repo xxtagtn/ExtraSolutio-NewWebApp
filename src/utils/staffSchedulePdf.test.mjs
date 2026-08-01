@@ -19,7 +19,7 @@ test('builds printable staff schedule rows from validation rows', () => {
         requiredRoles: JSON.stringify([{ role: 'Barman', agreedRate: 12.5 }]),
       },
       assignment: {
-        collaborator: { shortName: 'Ana Silva', name: 'Ana Maria Silva' },
+        collaborator: { shortName: 'Ana Silva', name: 'Ana Maria Silva', nif: '123456789' },
         role: 'Barman',
         checkIn: '10:00',
         checkOut: '16:00',
@@ -36,6 +36,7 @@ test('builds printable staff schedule rows from validation rows', () => {
     eventDate: '08/07/2026',
     location: 'Lisboa',
     collaboratorName: 'Ana Silva',
+    collaboratorNif: '123456789',
     role: 'Barman',
     workLocationsEnabled: false,
     workLocationName: '',
@@ -250,6 +251,27 @@ test('builds styled excel html grouped by event with totals', () => {
   assert.equal(html.includes('Total geral'), true);
   assert.equal(html.includes('7:30h'), true);
   assert.equal(html.includes('mso-number-format'), true);
+});
+
+test('includes collaborator NIF in Excel and CSV staff exports', () => {
+  const rows = [{
+    event: { id: 1, name: 'Evento', client: { name: 'Cliente' }, date: '2026-07-08' },
+    assignment: {
+      collaborator: { shortName: 'Ana', nif: '123456789' },
+      role: 'Staff',
+      checkIn: '09:00',
+      checkOut: '12:00',
+    },
+    staffScheduleHours: 3,
+  }];
+
+  const excel = buildStaffScheduleExcelHtml(rows);
+  const csv = buildStaffScheduleCsv(rows);
+
+  assert.equal(excel.includes('<td>NIF</td>'), true);
+  assert.equal(excel.includes('<td>123456789</td>'), true);
+  assert.equal(csv.includes('NIF'), true);
+  assert.equal(csv.includes('123456789'), true);
 });
 
 test('only includes work locations in exports for events that explicitly enable them', () => {

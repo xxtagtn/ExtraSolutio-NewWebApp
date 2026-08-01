@@ -215,6 +215,9 @@ export function normalizeEvent(input) {
       'signaledAt',
       'billingPaymentDate', 'remainingPaymentDate', 'status', 'statusMode', 'notes', 'clientName',
     ]),
+    ...(input.serviceReference !== undefined
+      ? { serviceReference: String(input.serviceReference || '').trim().slice(0, 160) || null }
+      : {}),
     workLocationsEnabled: parseBoolean(input.workLocationsEnabled),
     totalCost: parseDecimal(input.totalCost),
     totalRevenue: parseDecimal(input.totalRevenue),
@@ -290,6 +293,25 @@ function normalizeRoleRates(value) {
 }
 
 export function normalizeClient(input, existing = null) {
+  const billingMethod = String(input.billingMethod ?? existing?.billingMethod ?? '').trim();
+  const paymentTerm = String(input.paymentTerm ?? existing?.paymentTerm ?? '').trim();
+  if (!billingMethod || !paymentTerm) {
+    const error = new Error('Define o método de faturação e o prazo de pagamento do cliente.');
+    error.statusCode = 400;
+    error.expose = true;
+    throw error;
+  }
+
+  const paymentTermDays = input.paymentTermDays === undefined
+    ? existing?.paymentTermDays
+    : asInt(input.paymentTermDays);
+  if (paymentTerm === 'custom' && (!Number.isFinite(Number(paymentTermDays)) || Number(paymentTermDays) < 0)) {
+    const error = new Error('Define um número de dias válido para o prazo de pagamento personalizado.');
+    error.statusCode = 400;
+    error.expose = true;
+    throw error;
+  }
+
   const base = compact({
     ...pick(input, [
       'name',
@@ -311,7 +333,9 @@ export function normalizeClient(input, existing = null) {
       'status',
       'notes',
     ]),
-    paymentTermDays: asInt(input.paymentTermDays),
+    billingMethod,
+    paymentTerm,
+    paymentTermDays: paymentTerm === 'custom' ? Number(paymentTermDays) : null,
     minimumHours: input.minimumHours === undefined
       ? undefined
       : Math.max(0, parseDecimal(input.minimumHours) || 0),

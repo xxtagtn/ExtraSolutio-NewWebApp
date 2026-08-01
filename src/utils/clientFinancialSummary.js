@@ -1,4 +1,10 @@
-const CLOSED_INVOICE_STATUSES = new Set(['cancelled']);
+import {
+  effectiveInvoiceDueDate,
+  invoiceIsIssued,
+  invoiceIsPaid,
+} from '../../shared/invoiceLifecycle.js';
+
+const CLOSED_INVOICE_STATUSES = new Set(['cancelled', 'void']);
 
 function numberValue(value) {
   const parsed = Number(String(value ?? 0).replace(',', '.'));
@@ -43,22 +49,6 @@ function clientNameFor(event) {
 
 function eventRevenue(event) {
   return numberValue(event?.financial?.revenue ?? event?.totalRevenue ?? event?.revenue);
-}
-
-function eventReceivable(event) {
-  return Math.max(0, numberValue(event?.financial?.receivable));
-}
-
-function eventReceived(event) {
-  return Math.max(0, numberValue(event?.financial?.received ?? event?.paidAmount));
-}
-
-function invoiceIsIssued(invoice) {
-  return Boolean(invoice) && !['draft', ...CLOSED_INVOICE_STATUSES].includes(String(invoice.status || '').toLowerCase());
-}
-
-function invoiceIsPaid(invoice) {
-  return String(invoice?.status || '').toLowerCase() === 'paid';
 }
 
 function eventBillingState(event) {
@@ -109,8 +99,10 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
     if (CLOSED_INVOICE_STATUSES.has(String(invoice?.status || '').toLowerCase())) return false;
     const linkedIds = invoiceEventIds(invoice);
     return linkedIds.some((id) => eventIds.has(id))
-      || dateInPeriod(invoice.issueDate, period)
-      || dateInPeriod(invoice.dueDate, period);
+      || (invoiceIsIssued(invoice) && (
+        dateInPeriod(invoice.issueDate, period)
+        || dateInPeriod(effectiveInvoiceDueDate(invoice, invoice.client), period)
+      ));
   });
   const allInvoices = (invoices || []).filter((invoice) => !CLOSED_INVOICE_STATUSES.has(String(invoice?.status || '').toLowerCase()));
   const eventById = new Map((events || []).map((event) => [Number(event.id), event]));
@@ -145,17 +137,8 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
       invoice: linkedInvoices[0] || null,
     });
 
-    if (!linkedInvoices.length) {
-      if (billingStatus === 'paid') {
-        summary.received += Math.max(adjustedRevenue, eventReceived(event));
-      } else if (['partial70', 'invoiced'].includes(billingStatus)) {
-        const receivedBase = Math.max(0, revenue - eventReceivable(event));
-        const received = Math.min(adjustedRevenue, receivedBase);
-        summary.received += received;
-        summary.billedOpen += Math.max(0, adjustedRevenue - received);
-      } else {
-        summary.pendingBilling += adjustedRevenue;
-      }
+    if (!linkedInvoices.some((invoice) => invoiceIsIssued(invoice))) {
+      summary.pendingBilling += adjustedRevenue;
     }
   }
 
@@ -170,13 +153,13 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
     };
     const summary = ensureSummary(summaries, fallbackEvent, clientsById);
     if (summary.invoiceIds.has(invoice.id)) continue;
+    if (!invoiceIsIssued(invoice)) continue;
 
     const total = numberValue(invoice.total);
     summary.invoiceIds.add(invoice.id);
     summary.invoices.push(invoice);
     if (invoiceIsPaid(invoice)) summary.received += total;
-    else if (invoiceIsIssued(invoice)) summary.billedOpen += total;
-    else summary.pendingBilling += total;
+    else summary.billedOpen += total;
   }
 
   return [...summaries.values()]

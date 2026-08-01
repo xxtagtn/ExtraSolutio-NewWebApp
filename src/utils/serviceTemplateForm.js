@@ -70,6 +70,7 @@ export function templatePayloadFromForm(currentForm) {
   const calculatedTravelAmount = calculateTravelAmount(currentForm);
   return {
     eventName: currentForm.name || '',
+    serviceReference: currentForm.serviceReference || '',
     eventType: currentForm.eventType || '',
     isContinuous: Boolean(currentForm.isContinuous),
     useDefaultLocation: Boolean(currentForm.useDefaultLocation),
@@ -120,6 +121,7 @@ export function applyServiceTemplateToForm(previousForm, template, options = {})
   return {
     ...previousForm,
     name: payload.eventName || template?.name || '',
+    serviceReference: payload.serviceReference || '',
     eventType: payload.eventType || '',
     isContinuous: Boolean(payload.isContinuous),
     endDate: payload.isContinuous ? previousForm.endDate : '',
