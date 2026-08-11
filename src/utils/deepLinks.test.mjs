@@ -46,6 +46,18 @@ test('builds staff payment filters from an assignment deep link', () => {
   });
 });
 
+test('opens forecast staff payments in awaiting validation', () => {
+  const state = staffPaymentLinkSelection({
+    id: 901,
+    collaboratorId: 13,
+    paymentStatus: 'unpaid',
+    _financeReady: false,
+    event: { id: 81 },
+  });
+
+  assert.equal(state.staffPaymentTab, 'awaiting_validation');
+});
+
 test('only treats deep links as handled after the destination has opened', () => {
   assert.equal(shouldHandleDeepLink('4', '', false), true);
   assert.equal(shouldHandleDeepLink('4', '4', false), false);

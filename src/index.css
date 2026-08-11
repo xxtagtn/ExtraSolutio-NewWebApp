@@ -3758,14 +3758,34 @@ th {
 }
 
 .service-card__meta {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, max-content) 18px;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
   min-width: 0;
   width: 100%;
-  justify-content: flex-end;
   color: var(--muted);
+}
+
+.service-card__stats {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.service-card__state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 210px;
+  white-space: nowrap;
+}
+
+.service-card__state .badge {
+  white-space: nowrap;
 }
 
 .service-assigned {
@@ -11827,7 +11847,15 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   }
 
   .service-card__meta {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, max-content) 18px;
+  }
+
+  .service-card__stats {
     justify-content: flex-start;
+  }
+
+  .service-card__state {
+    min-width: 180px;
   }
 
   .finance-page .stats-grid,
@@ -12022,6 +12050,23 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
 @media (max-width: 760px) {
   main {
     min-width: 0;
+  }
+
+  .service-card__meta {
+    grid-template-columns: minmax(0, 1fr) 18px;
+    gap: 8px;
+  }
+
+  .service-card__stats {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .service-card__state {
+    min-width: 0;
+    justify-content: flex-start;
   }
 
   .page,
@@ -14216,6 +14261,146 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   border-bottom-color: var(--accent);
   background: rgba(20, 184, 166, 0.07);
   color: var(--accent);
+}
+
+.finance-payment-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  width: auto;
+  max-width: 100%;
+  gap: 6px;
+  overflow: visible;
+  padding: 0 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.finance-payment-tabs .service-tab {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  width: auto;
+  min-width: 0;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: transparent;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.finance-payment-tabs .service-tab:hover {
+  border-color: rgba(20, 184, 166, 0.55);
+  background: transparent;
+  color: #99f6e4;
+}
+
+.finance-payment-tabs .service-tab--active {
+  border-color: rgba(20, 184, 166, 0.78);
+  background: rgba(20, 184, 166, 0.16);
+  color: #99f6e4;
+}
+
+.finance-payment-tabs .service-tab .finance-payment-tab__label {
+  display: inline;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+
+.finance-payment-tab__count {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  min-width: 24px;
+  height: 22px;
+  padding-inline: 7px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.finance-payment-tabs .service-tab--active .finance-payment-tab__count {
+  border-color: transparent;
+  background: var(--accent);
+  color: #041311;
+}
+
+.finance-payment-tools {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 12px 0 4px;
+}
+
+.finance-payment-search {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 380px);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.finance-payment-search .form-control {
+  width: 100%;
+}
+
+.finance-payment-info {
+  max-width: 620px;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  border-radius: var(--control-radius);
+  background: rgba(245, 158, 11, 0.07);
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 1100px) {
+  .finance-payment-tabs {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 700px) {
+  .finance-payment-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 7px;
+    scrollbar-width: thin;
+  }
+
+  .finance-payment-tabs .service-tab {
+    min-height: 36px;
+    flex: 0 0 auto;
+  }
+
+  .finance-payment-tools {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .finance-payment-search,
+  .finance-payment-info {
+    width: 100%;
+    max-width: none;
+  }
 }
 
 /* KPI/stat blocks use the same restrained event-detail surface. */

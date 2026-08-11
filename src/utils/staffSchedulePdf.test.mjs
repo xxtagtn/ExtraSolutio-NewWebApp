@@ -5,7 +5,11 @@ import {
   buildStaffScheduleExcelHtml,
   buildStaffSchedulePdfHtml,
   buildStaffScheduleRows,
+  createStaffScheduleWorkbook,
 } from './staffSchedulePdf.js';
+
+const importedXlsx = await import('xlsx-js-style');
+const XLSX = importedXlsx.default || importedXlsx;
 
 test('builds printable staff schedule rows from validation rows', () => {
   const rows = buildStaffScheduleRows([
@@ -47,6 +51,75 @@ test('builds printable staff schedule rows from validation rows', () => {
     totalValue: 75,
     notes: 'Entrada confirmada',
   });
+});
+
+test('creates one worksheet per event with per-event totals at the top', () => {
+  const rows = [
+    {
+      event: {
+        id: 10,
+        name: 'Evento Contínuo / Julho',
+        client: { name: 'Cliente A' },
+        location: 'Lisboa',
+        requiredRoles: JSON.stringify([{ role: 'Emp. Mesa', agreedRate: 10 }]),
+      },
+      assignment: {
+        collaborator: { shortName: 'Ana', nif: '123456789' },
+        role: 'Emp. Mesa',
+        checkIn: '10:00',
+        checkOut: '13:00',
+      },
+      workDateKey: '2026-07-08',
+      staffScheduleHours: 3,
+    },
+    {
+      event: {
+        id: 10,
+        name: 'Evento Contínuo / Julho',
+        client: { name: 'Cliente A' },
+        location: 'Lisboa',
+        requiredRoles: JSON.stringify([{ role: 'Emp. Mesa', agreedRate: 10 }]),
+      },
+      assignment: {
+        collaborator: { shortName: 'Bruno', nif: '987654321' },
+        role: 'Emp. Mesa',
+        checkIn: '14:00',
+        checkOut: '16:00',
+      },
+      workDateKey: '2026-07-09',
+      staffScheduleHours: 2,
+    },
+    {
+      event: {
+        id: 11,
+        name: 'Outro Evento / Junho',
+        client: { name: 'Cliente B' },
+        location: 'Porto',
+        requiredRoles: JSON.stringify([{ role: 'Bar', agreedRate: 12.5 }]),
+      },
+      assignment: {
+        collaborator: { shortName: 'Carla', nif: '111222333' },
+        role: 'Bar',
+        checkIn: '12:00',
+        checkOut: '16:00',
+      },
+      workDateKey: '2026-06-15',
+      staffScheduleHours: 4,
+    },
+  ];
+
+  const workbook = createStaffScheduleWorkbook(rows, { XLSX });
+  assert.equal(workbook.SheetNames.length, 2);
+  assert.equal(workbook.SheetNames.every((name) => name.length <= 31), true);
+
+  const continuousSheet = workbook.Sheets[workbook.SheetNames.find((name) => name.startsWith('Evento Cont'))];
+  const values = XLSX.utils.sheet_to_json(continuousSheet, { header: 1, defval: '' }).flat().join('|');
+  assert.equal(values.includes('Total de horas Staff'), true);
+  assert.equal(values.includes('5:00h'), true);
+  assert.equal(values.includes('Valor total dos serviços'), true);
+  assert.equal(values.includes('50,00\u00a0€'), true);
+  assert.equal(values.includes('08/07/2026'), true);
+  assert.equal(values.includes('09/07/2026'), true);
 });
 
 test('uses assignment date as printable schedule date when present', () => {

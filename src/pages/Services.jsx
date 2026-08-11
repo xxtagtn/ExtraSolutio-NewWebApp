@@ -1625,11 +1625,15 @@ export default function Services() {
                   </div>
                 </div>
                 <div className="service-card__meta">
-                  <span className="service-assigned"><Users size={14} /> Solicitados: {requestedTotal}</span>
-                  <span className="service-status-count service-status-count--confirmed">Confirmados: {confirmedTotal}</span>
-                  {pendingTotal > 0 ? <span className="service-status-count service-status-count--pending">A aguardar: {pendingTotal}</span> : null}
-                  <span className="service-status-count">Valor: {euro(eventRevenueForDisplay(row))}</span>
-                  <Badge tone={isArchivedService(row) ? 'success' : 'info'}>{statusLabel(serviceStatusForDisplay(row))}</Badge>
+                  <div className="service-card__stats">
+                    <span className="service-assigned"><Users size={14} /> Solicitados: {requestedTotal}</span>
+                    <span className="service-status-count service-status-count--confirmed">Confirmados: {confirmedTotal}</span>
+                    {pendingTotal > 0 ? <span className="service-status-count service-status-count--pending">A aguardar: {pendingTotal}</span> : null}
+                    <span className="service-status-count">Valor: {euro(eventRevenueForDisplay(row))}</span>
+                  </div>
+                  <div className="service-card__state">
+                    <Badge tone={isArchivedService(row) ? 'success' : 'info'}>{statusLabel(serviceStatusForDisplay(row))}</Badge>
+                  </div>
                   <ChevronRight size={16} />
                 </div>
               </button>

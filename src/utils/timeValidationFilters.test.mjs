@@ -5,11 +5,18 @@ import {
   dateKeysFrom,
   effectiveRowDateKey,
   effectiveRowStartTime,
+  filterValidationRowsByCollaborator,
   filterRowsByDateRange,
   filterRowsBySelectedDays,
   localDayNumber,
+  matchesValidationClientFilter,
   normalizeTimeInput,
   sanitizeTimeInput,
+  validationClientFilterKey,
+  validationCollaboratorFilterKey,
+  validationCollaboratorFilterIdentity,
+  validationClientFilterIdentity,
+  matchesValidationCollaboratorFilter,
 } from './timeValidationFilters.js';
 
 test('gets the local day number from an event date', () => {
@@ -131,6 +138,127 @@ test('filters date range by assignment date when present', () => {
   ];
 
   assert.deepEqual(filterRowsByDateRange(rows, '2026-07-04', '2026-07-10').map((row) => row.id), [2]);
+});
+
+test('normalizes validation client filter keys across API response shapes', () => {
+  assert.equal(validationClientFilterKey({ clientId: 12, client: { id: 99, name: 'Cliente A' } }), 'id:12');
+  assert.equal(validationClientFilterKey({ client: { id: 12, name: 'Cliente A' } }), 'id:12');
+  assert.equal(validationClientFilterKey({ clientName: 'Cliente ocasional' }), 'name:cliente ocasional');
+  assert.equal(validationClientFilterKey({}), 'unassigned');
+  assert.equal(matchesValidationClientFilter({ clientId: 12, client: { id: 99 } }, 'id:99'), false);
+  assert.equal(matchesValidationClientFilter({ clientId: 12, client: { id: 99 } }, '99'), false);
+  assert.equal(matchesValidationClientFilter({ clientId: 12, client: { id: 99 } }, 'id:12'), true);
+  assert.equal(matchesValidationClientFilter({ clientId: 12, client: { id: 99 } }, 'id:77'), false);
+  assert.equal(matchesValidationClientFilter({ clientName: 'Cliente ocasional' }, 'name:cliente ocasional'), true);
+});
+
+test('normalizes validation collaborator filter keys across API response shapes', () => {
+  assert.equal(validationCollaboratorFilterKey({ collaboratorId: 12, collaborator: { id: 99 } }), 'id:12');
+  assert.equal(validationCollaboratorFilterKey({ staffId: 12 }), 'id:12');
+  assert.equal(validationCollaboratorFilterKey({ collaborator: { id: 12 } }), 'id:12');
+  assert.equal(validationCollaboratorFilterKey({ collaboratorName: 'Ana Carolina Ravenna' }), 'name:ana carolina ravenna');
+  assert.equal(validationCollaboratorFilterKey({ collaborator: { nif: '312330847' } }), 'nif:312330847');
+  assert.equal(
+    validationCollaboratorFilterKey({
+      collaboratorId: 12,
+      collaborator: { id: 99, name: 'Ana Carolina Ravenna', nif: '312330847' },
+    }),
+    'id:12',
+  );
+  assert.equal(validationCollaboratorFilterKey({}), '');
+  assert.equal(matchesValidationCollaboratorFilter({ collaboratorId: 12 }, 'id:12'), true);
+  assert.equal(matchesValidationCollaboratorFilter({ collaboratorId: 12 }, '12'), true);
+  assert.equal(matchesValidationCollaboratorFilter({ collaboratorId: 99 }, 'id:12'), false);
+  assert.equal(matchesValidationCollaboratorFilter({ collaborator: { name: 'Ana Carolina Ravenna' } }, 'name:ana carolina ravenna'), true);
+  assert.equal(matchesValidationCollaboratorFilter({ collaboratorId: 99, collaborator: { name: 'Diego Garcia Bem' } }, 'id:12'), false);
+  assert.equal(matchesValidationCollaboratorFilter({ collaboratorId: 12, collaborator: { id: 99, name: 'Ana Carolina Ravenna' } }, 'id:99'), false);
+  assert.equal(matchesValidationCollaboratorFilter({ collaboratorId: 12, collaborator: { id: 99, name: 'Ana Carolina Ravenna' } }, 'id:12'), true);
+  assert.equal(matchesValidationCollaboratorFilter({ collaboratorId: 12, collaborator: { id: 99, name: 'Ana Carolina Ravenna' } }, 'name:ana carolina ravenna'), false);
+  assert.equal(matchesValidationCollaboratorFilter({ collaboratorId: 12, collaborator: { id: 99, name: 'Ana Carolina Ravenna' } }, 'id:77'), false);
+  assert.equal(matchesValidationCollaboratorFilter({ collaboratorId: 99 }, 'all'), true);
+});
+
+test('filters complete validation collections by the selected collaborator only', () => {
+  const rows = [
+    { id: 1, collaboratorFilterKey: 'id:12', workDateKey: '2026-07-01' },
+    { id: 2, collaboratorFilterKey: 'id:12', workDateKey: '2026-07-04' },
+    { id: 3, collaboratorFilterKey: 'id:18', workDateKey: '2026-07-04' },
+  ];
+
+  assert.deepEqual(
+    filterValidationRowsByCollaborator(rows, 'id:12').map((row) => row.id),
+    [1, 2],
+  );
+  assert.deepEqual(
+    filterValidationRowsByCollaborator(rows, '18').map((row) => row.id),
+    [3],
+  );
+  assert.deepEqual(filterValidationRowsByCollaborator(rows, 'id:99'), []);
+  assert.equal(filterValidationRowsByCollaborator(rows, 'all'), rows);
+});
+
+test('combines collaborator filtering with client and date filters without leaking rows', () => {
+  const rows = [
+    {
+      id: 1,
+      collaboratorFilterKey: 'id:12',
+      clientFilterIdentity: { clientId: 7 },
+      event: { date: '2026-07-01' },
+    },
+    {
+      id: 2,
+      collaboratorFilterKey: 'id:18',
+      clientFilterIdentity: { clientId: 7 },
+      event: { date: '2026-07-01' },
+    },
+    {
+      id: 3,
+      collaboratorFilterKey: 'id:12',
+      clientFilterIdentity: { clientId: 9 },
+      event: { date: '2026-07-01' },
+    },
+    {
+      id: 4,
+      collaboratorFilterKey: 'id:12',
+      clientFilterIdentity: { clientId: 7 },
+      event: { date: '2026-08-01' },
+    },
+  ];
+
+  const inPeriod = filterRowsByDateRange(rows, '2026-07-01', '2026-07-31');
+  const forClient = inPeriod.filter((row) => (
+    matchesValidationClientFilter(row.clientFilterIdentity, 'id:7')
+  ));
+
+  assert.deepEqual(
+    filterValidationRowsByCollaborator(forClient, 'id:12').map((row) => row.id),
+    [1],
+  );
+});
+
+test('keeps validation filter identity consistent with fallback API fields', () => {
+  const assignment = validationCollaboratorFilterIdentity({
+    staffId: 12,
+    staffName: 'Ana Carolina Ravenna',
+    staffNif: '312 330 847',
+  });
+  const event = validationClientFilterIdentity({
+    customerId: 7,
+    customer: { id: 7, name: 'SSH - Supreme Sport Hospitality' },
+  });
+
+  assert.equal(validationCollaboratorFilterKey(assignment), 'id:12');
+  assert.equal(matchesValidationCollaboratorFilter(assignment, 'id:12'), true);
+  assert.equal(matchesValidationCollaboratorFilter(
+    validationCollaboratorFilterIdentity({ staffName: 'Ana Carolina Ravenna', staffNif: '312 330 847' }),
+    'nif:312330847',
+  ), true);
+  assert.equal(matchesValidationCollaboratorFilter(
+    validationCollaboratorFilterIdentity({ staffId: 8, staffName: 'Diego Garcia Bem', staffNif: '320 780 317' }),
+    'nif:312330847',
+  ), false);
+  assert.equal(validationClientFilterKey(event), 'id:7');
+  assert.equal(matchesValidationClientFilter(event, '7'), true);
 });
 
 test('completes an hour-only validation time with zero minutes', () => {

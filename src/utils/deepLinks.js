@@ -1,3 +1,5 @@
+import { staffPaymentWorkflowTab } from './staffPaymentWorkflow.js';
+
 function normalized(value) {
   return String(value || '')
     .trim()
@@ -46,7 +48,7 @@ export function staffPaymentLinkSelection(assignment, { paymentMonth = '', workD
   if (!assignment?.id) return null;
   return {
     selectedMonth: paymentMonth || '',
-    staffPaymentTab: assignment.paymentStatus === 'paid' ? 'paid' : 'unpaid',
+    staffPaymentTab: staffPaymentWorkflowTab(assignment),
     selectedStaffPaymentIds: [String(assignment.id)],
     staffFilters: {
       eventId: assignment.event?.id ? String(assignment.event.id) : 'all',

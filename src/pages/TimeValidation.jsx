@@ -41,7 +41,7 @@ import {
   staffWorkedHours,
 } from '../utils/serviceFinance.js';
 import { SERVICE_STATUS } from '../utils/serviceStatus.js';
-import { buildStaffScheduleExcelHtml, buildStaffSchedulePdfHtml } from '../utils/staffSchedulePdf.js';
+import { buildStaffSchedulePdfHtml, createStaffScheduleWorkbook } from '../utils/staffSchedulePdf.js';
 import { assessTimeTolerance, resolvePlannedTimes } from '../utils/timeTolerance.js';
 import {
   canConfirmTimeValidationImport,
@@ -53,8 +53,15 @@ import {
 import {
   dateKeysFrom,
   effectiveRowDateKey,
+  filterValidationRowsByCollaborator,
   filterRowsByDateRange,
+  matchesValidationClientFilter,
   normalizeTimeInput,
+  validationClientFilterKey,
+  validationClientFilterIdentity,
+  validationCollaboratorFilterIdentity,
+  validationCollaboratorFilterKey,
+  validationCollaboratorFilterKeys,
 } from '../utils/timeValidationFilters.js';
 import {
   compareTimeValidationRowsChronological,
@@ -511,9 +518,21 @@ function reopenAssignmentPayload(assignment) {
   };
 }
 
+// The services endpoint normally returns an array. Keep the page render-safe
+// while a cached or paginated response is being replaced by the fresh list.
+const EMPTY_SERVICES = [];
+
+function normalizeServiceRecords(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return EMPTY_SERVICES;
+}
+
 export default function TimeValidation() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', []);
+  const serviceRecords = normalizeServiceRecords(services);
   const [stage, setStage] = useState(TIME_VALIDATION_STAGE.staffPending);
   const [viewMode, setViewMode] = useState('event');
   const [selectedClientId, setSelectedClientId] = useState('all');
@@ -547,8 +566,8 @@ export default function TimeValidation() {
   }, [stage]);
 
   useEffect(() => {
-    if (loading || statusSyncing || !services.length) return;
-    const updates = services.filter((event) => event.statusMode !== 'manual');
+    if (loading || statusSyncing || !serviceRecords.length) return;
+    const updates = serviceRecords.filter((event) => event.statusMode !== 'manual');
     if (!updates.length) return;
 
     let cancelled = false;
@@ -571,7 +590,7 @@ export default function TimeValidation() {
     return () => {
       cancelled = true;
     };
-  }, [loading, reload, services, statusSyncing]);
+  }, [loading, reload, serviceRecords, statusSyncing]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -582,34 +601,44 @@ export default function TimeValidation() {
 
   useEffect(() => {
     setDrafts((current) => {
-      const assignmentsById = new Map(services.flatMap((event) => (
+      const assignmentsById = new Map(serviceRecords.flatMap((event) => (
         event.assignments || []
       )).map((assignment) => [Number(assignment.id), assignment]));
       const next = prunePersistedDrafts(current, assignmentsById);
       return Object.keys(next).length === Object.keys(current).length ? current : next;
     });
-  }, [services]);
+  }, [serviceRecords]);
 
   const allRows = useMemo(
-    () => services.flatMap((event) => (event.assignments || [])
+    () => serviceRecords.flatMap((event) => (event.assignments || [])
       .filter((assignment) => (
-        assignment.collaboratorId
+        validationCollaboratorFilterKeys(assignment).length > 0
         && assignment.role
         && String(assignment.status || '').toLowerCase() !== 'cancelled'
       ))
       .map((assignment) => {
         const draft = drafts[assignment.id] || {};
         const merged = { ...assignment, ...draft };
+        const collaboratorFilterIdentity = validationCollaboratorFilterIdentity(merged);
+        const collaboratorFilterKey = validationCollaboratorFilterKey(assignment)
+          || validationCollaboratorFilterKey(collaboratorFilterIdentity);
+        const clientFilterIdentity = validationClientFilterIdentity(event);
         const assessment = rowAssessment(merged);
         const persistedAssignment = persistedWorkflowAssignment(assignment, draft);
         const persistedAssessment = rowAssessment(persistedAssignment);
         const planned = resolvePlannedTimes(merged, event);
-        const collaboratorName = merged.collaborator?.shortName || merged.collaborator?.name || '';
+        const collaboratorName = collaboratorFilterIdentity.collaboratorName
+          || merged.collaborator?.shortName
+          || merged.collaborator?.name
+          || '';
         const workDateKey = effectiveRowDateKey({ event, assignment: merged });
         const row = {
           id: assignment.id,
           event,
+          clientFilterIdentity,
           assignment: merged,
+          collaboratorFilterIdentity,
+          collaboratorFilterKey,
           eventValidated: eventIsMarkedValidated(event),
           workDateKey,
           workDateLabel: workDateKey ? date.format(new Date(workDateKey)) : '-',
@@ -639,13 +668,13 @@ export default function TimeValidation() {
           }),
         };
       })),
-    [services, drafts],
+    [serviceRecords, drafts],
   );
 
   useEffect(() => {
     const idParam = searchParams.get('eventId');
     if (!idParam || loading) return;
-    const target = services.find((event) => String(event.id) === String(idParam));
+    const target = serviceRecords.find((event) => String(event.id) === String(idParam));
     if (!target) return;
 
     const targetRows = allRows.filter((row) => String(row.event.id) === String(idParam));
@@ -668,7 +697,7 @@ export default function TimeValidation() {
     const nextParams = new window.URLSearchParams(searchParams);
     nextParams.delete('eventId');
     setSearchParams(nextParams, { replace: true });
-  }, [allRows, loading, searchParams, services, setSearchParams]);
+  }, [allRows, loading, searchParams, serviceRecords, setSearchParams]);
 
   const periodRows = useMemo(
     () => filterRowsByDateRange(allRows, periodStart, periodEnd),
@@ -678,11 +707,11 @@ export default function TimeValidation() {
   const clientOptions = useMemo(() => {
     const seen = new Map();
     for (const row of periodRows) {
-      const id = String(row.event.clientId || row.event.client?.id || '');
-      if (!id || seen.has(id)) continue;
+      const id = validationClientFilterKey(row.clientFilterIdentity);
+      if (seen.has(id)) continue;
       seen.set(id, {
         id,
-        label: row.event.client?.name || row.event.clientName || '-',
+        label: row.clientFilterIdentity.clientName || 'Sem cliente associado',
       });
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
@@ -691,14 +720,27 @@ export default function TimeValidation() {
   const clientRows = useMemo(
     () => periodRows.filter((row) => (
       selectedClientId === 'all'
-      || String(row.event.clientId || row.event.client?.id || '') === selectedClientId
+      || matchesValidationClientFilter(row.clientFilterIdentity, selectedClientId)
     )),
     [periodRows, selectedClientId],
   );
 
+  // Apply the collaborator filter before deriving stages, event cards and
+  // summaries. This keeps every visible representation based on the same set
+  // of rows, including continuous-event day summaries.
+  const collaboratorFilteredRows = useMemo(
+    () => filterValidationRowsByCollaborator(clientRows, selectedCollaboratorId),
+    [clientRows, selectedCollaboratorId],
+  );
+
   const stageRows = useMemo(
-    () => rowsForValidationStage(clientRows, stage),
-    [clientRows, stage],
+    () => rowsForValidationStage(collaboratorFilteredRows, stage),
+    [collaboratorFilteredRows, stage],
+  );
+
+  const collaboratorFilteredStageRows = useMemo(
+    () => rowsForValidationStage(collaboratorFilteredRows, stage),
+    [collaboratorFilteredRows, stage],
   );
 
   const eventOptions = useMemo(() => {
@@ -721,31 +763,36 @@ export default function TimeValidation() {
 
   const collaboratorOptions = useMemo(() => {
     const seen = new Map();
-    for (const row of stageRows) {
-      const id = String(row.assignment.collaboratorId);
+    // Build the list from all rows in the active period/client, not only the
+    // current workflow stage. A selected collaborator may have no rows in the
+    // current stage and must still remain selected instead of being reset.
+    for (const row of clientRows) {
+      const id = row.collaboratorFilterKey;
+      if (!id) continue;
       if (!seen.has(id)) {
+        const nif = row.collaboratorFilterIdentity.nif || '-';
         seen.set(id, {
           id,
-          label: `${row.collaboratorName || '-'} · ${row.assignment.collaborator?.nif || '-'}`,
+          label: `${row.collaboratorName || '-'} · ${nif}`,
         });
       }
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
-  }, [stageRows]);
+  }, [clientRows]);
 
   const importEventOptions = useMemo(
-    () => services
+    () => serviceRecords
       .map((event) => ({
         id: String(event.id),
         label: `${event.name || '-'} · ${event.client?.name || event.clientName || '-'} · ${dateRangeLabelFromKeys([event.date, event.endDate])}`,
       }))
       .sort((a, b) => a.label.localeCompare(b.label, 'pt')),
-    [services],
+    [serviceRecords],
   );
 
   const importCollaboratorOptions = useMemo(() => {
     const seen = new Map();
-    for (const service of services) {
+    for (const service of serviceRecords) {
       for (const assignment of service.assignments || []) {
         const collaborator = assignment.collaborator;
         if (!collaborator?.id || seen.has(String(collaborator.id))) continue;
@@ -756,43 +803,43 @@ export default function TimeValidation() {
       }
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
-  }, [services]);
+  }, [serviceRecords]);
 
   const importProfileOptions = useMemo(() => {
     const seen = new Map();
-    for (const service of services) {
+    for (const service of serviceRecords) {
       const client = service.client;
       const id = String(service.clientId || client?.id || '');
       if (!id || seen.has(id)) continue;
       seen.set(id, { id, label: client?.name || service.clientName || `Cliente ${id}` });
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
-  }, [services]);
+  }, [serviceRecords]);
 
   const importScopedEventOptions = useMemo(() => {
     if (!importProfileClientId) return importEventOptions;
-    const allowedIds = new Set(services
+    const allowedIds = new Set(serviceRecords
       .filter((event) => String(event.clientId || event.client?.id || '') === importProfileClientId)
       .map((event) => String(event.id)));
     return importEventOptions.filter((event) => allowedIds.has(event.id));
-  }, [importEventOptions, importProfileClientId, services]);
+  }, [importEventOptions, importProfileClientId, serviceRecords]);
 
   const importDepartmentOptions = useMemo(() => {
     const values = new Set();
     const scopedServices = importProfileClientId
-      ? services.filter((event) => String(event.clientId || event.client?.id || '') === importProfileClientId)
-      : services;
+      ? serviceRecords.filter((event) => String(event.clientId || event.client?.id || '') === importProfileClientId)
+      : serviceRecords;
     for (const event of scopedServices) {
       [event.department, event.eventType, event.category, event.name]
         .filter(Boolean)
         .forEach((value) => values.add(String(value).trim()));
     }
     return [...values].sort((a, b) => a.localeCompare(b, 'pt'));
-  }, [importProfileClientId, services]);
+  }, [importProfileClientId, serviceRecords]);
 
   const eventProgress = useMemo(() => {
     const map = new Map();
-    for (const row of clientRows) {
+    for (const row of collaboratorFilteredRows) {
       const key = String(row.event.id);
       if (!map.has(key)) {
         map.set(key, {
@@ -828,7 +875,7 @@ export default function TimeValidation() {
         };
       })
       .sort((a, b) => new Date(b.latestWorkDateKey || 0).getTime() - new Date(a.latestWorkDateKey || 0).getTime());
-  }, [clientRows]);
+  }, [collaboratorFilteredRows]);
 
   const pendingEvents = useMemo(() => eventProgress.filter((item) => !item.markedValidated), [eventProgress]);
   const validatedEvents = useMemo(
@@ -840,7 +887,7 @@ export default function TimeValidation() {
   );
   const finalizedRowsByEvent = useMemo(() => {
     const map = new Map();
-    for (const row of clientRows) {
+    for (const row of collaboratorFilteredRows) {
       if (row.workflowStage !== TIME_VALIDATION_STAGE.finalized) continue;
       const key = String(row.event.id);
       if (!map.has(key)) map.set(key, []);
@@ -850,14 +897,8 @@ export default function TimeValidation() {
       eventRows.sort(compareTimeValidationRowsChronological);
     }
     return map;
-  }, [clientRows]);
-  const stageCounts = useMemo(() => validationDisplayStageCounts(clientRows), [clientRows]);
-
-  useEffect(() => {
-    if (selectedClientId !== 'all' && !clientOptions.some((item) => item.id === selectedClientId)) {
-      setSelectedClientId('all');
-    }
-  }, [clientOptions, selectedClientId]);
+  }, [collaboratorFilteredRows]);
+  const stageCounts = useMemo(() => validationDisplayStageCounts(collaboratorFilteredRows), [collaboratorFilteredRows]);
 
   useEffect(() => {
     if (selectedEventId !== 'all' && !eventOptions.some((item) => item.id === selectedEventId)) {
@@ -867,18 +908,20 @@ export default function TimeValidation() {
   }, [eventOptions, selectedEventId]);
 
   useEffect(() => {
-    if (selectedCollaboratorId !== 'all' && !collaboratorOptions.some((item) => item.id === selectedCollaboratorId)) {
-      setSelectedCollaboratorId('all');
+    if (
+      selectedClientId !== 'all'
+      && !clientOptions.some((item) => item.id === selectedClientId)
+    ) {
+      setSelectedClientId('all');
     }
-  }, [collaboratorOptions, selectedCollaboratorId]);
+  }, [clientOptions, selectedClientId]);
 
   const rows = useMemo(
-    () => clientRows
+    () => collaboratorFilteredRows
       .filter((row) => {
         if (!rowMatchesValidationStage(row.workflowStage, stage)) return false;
         if (viewMode === 'event' && selectedEventId !== 'all' && String(row.event.id) !== selectedEventId) return false;
         if (viewMode === 'event' && selectedWorkDateKey !== 'all' && row.workDateKey !== selectedWorkDateKey) return false;
-        if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
         return true;
       })
       .sort((a, b) => {
@@ -889,20 +932,19 @@ export default function TimeValidation() {
         }
         return compareTimeValidationRowsChronological(a, b);
       }),
-    [clientRows, stage, selectedCollaboratorId, selectedEventId, selectedWorkDateKey, viewMode],
+    [collaboratorFilteredRows, stage, selectedEventId, selectedWorkDateKey, viewMode],
   );
 
   const staffPdfRows = useMemo(
-    () => clientRows
+    () => collaboratorFilteredRows
       .filter((row) => {
         if (!rowMatchesValidationStage(row.workflowStage, stage)) return false;
         if (viewMode === 'event' && selectedEventId !== 'all' && String(row.event.id) !== selectedEventId) return false;
         if (viewMode === 'event' && selectedWorkDateKey !== 'all' && row.workDateKey !== selectedWorkDateKey) return false;
-        if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
         return true;
       })
       .map((row) => ({ ...row, staffScheduleHours: staffColumnHours(row.assignment) })),
-    [clientRows, stage, selectedCollaboratorId, selectedEventId, selectedWorkDateKey, viewMode],
+    [collaboratorFilteredRows, stage, selectedEventId, selectedWorkDateKey, viewMode],
   );
 
   const rowGroups = useMemo(() => {
@@ -923,12 +965,11 @@ export default function TimeValidation() {
   }, [rows]);
 
   const eventCardRows = useMemo(
-    () => stageRows.filter((row) => {
-      if (viewMode === 'collaborator' && selectedCollaboratorId !== 'all' && String(row.assignment.collaboratorId) !== selectedCollaboratorId) return false;
+    () => collaboratorFilteredStageRows.filter((row) => {
       if (viewMode === 'event' && selectedEventId !== 'all' && String(row.event.id) !== selectedEventId) return false;
       return true;
     }),
-    [selectedCollaboratorId, selectedEventId, stageRows, viewMode],
+    [collaboratorFilteredStageRows, selectedEventId, viewMode],
   );
   const visibleEventIds = useMemo(() => new Set(eventCardRows.map((row) => String(row.event.id))), [eventCardRows]);
   const visiblePendingEvents = useMemo(
@@ -1248,6 +1289,7 @@ export default function TimeValidation() {
 
   function showEventRows(eventId, workDateKey = 'all') {
     setViewMode('event');
+    setSelectedCollaboratorId('all');
     if (String(selectedEventId) === String(eventId) && selectedWorkDateKey === workDateKey) {
       setSelectedEventId('all');
       setSelectedWorkDateKey('all');
@@ -1286,26 +1328,38 @@ export default function TimeValidation() {
     }, 250);
   }
 
-  function downloadStaffExcel() {
+  async function downloadStaffExcel() {
     if (!staffPdfRows.length) {
       window.alert('Sem horários Staff para gerar Excel com os filtros selecionados.');
       return;
     }
 
-    const excelHtml = buildStaffScheduleExcelHtml(staffPdfRows, {
-      clientLabel: selectedClientLabel,
-      periodLabel: periodLabel(periodStart, periodEnd),
-    });
-    const blob = new window.Blob([`\uFEFF${excelHtml}`], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const filename = `horarios-staff-${fileSafeName(selectedClientLabel)}-${fileSafeName(periodLabel(periodStart, periodEnd))}.xls`;
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.setTimeout(() => window.URL.revokeObjectURL(url), 500);
+    try {
+      const imported = await import('xlsx-js-style');
+      const XLSX = imported.default || imported;
+      const workbook = createStaffScheduleWorkbook(staffPdfRows, { XLSX });
+      const content = XLSX.write(workbook, {
+        bookType: 'xlsx',
+        type: 'array',
+        compression: true,
+        cellStyles: true,
+      });
+      const blob = new window.Blob([content], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const filename = `horarios-staff-${fileSafeName(selectedClientLabel)}-${fileSafeName(periodLabel(periodStart, periodEnd))}.xlsx`;
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 500);
+    } catch (error) {
+      console.error('Erro ao gerar o Excel de horários Staff', error);
+      window.alert('Nao foi possivel gerar o Excel. Tenta novamente.');
+    }
   }
 
   function validationBodyFor(row, merged, mode = 'auto') {
@@ -1610,21 +1664,37 @@ export default function TimeValidation() {
           <button
             type="button"
             className={`service-tab ${viewMode === 'event' ? 'service-tab--active' : ''}`}
-            onClick={() => setViewMode('event')}
+            onClick={() => {
+              setViewMode('event');
+              setSelectedCollaboratorId('all');
+            }}
           >
             Evento/Serviço
           </button>
           <button
             type="button"
             className={`service-tab ${viewMode === 'collaborator' ? 'service-tab--active' : ''}`}
-            onClick={() => setViewMode('collaborator')}
+            onClick={() => {
+              setViewMode('collaborator');
+              setSelectedEventId('all');
+              setSelectedWorkDateKey('all');
+            }}
           >
             Colaboradores
           </button>
         </div>
 
         <div className="validation-filters">
-          <select className="form-control" value={selectedClientId} onChange={(event) => setSelectedClientId(event.target.value)}>
+          <select
+            className="form-control"
+            value={selectedClientId}
+            onChange={(event) => {
+              setSelectedClientId(event.target.value);
+              setSelectedEventId('all');
+              setSelectedWorkDateKey('all');
+              setSelectedCollaboratorId('all');
+            }}
+          >
             <option value="all">Todos os clientes</option>
             {clientOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
@@ -1894,7 +1964,7 @@ export default function TimeValidation() {
                     <EmptyState
                       compact
                       icon={Hourglass}
-                      title="Sem registos para validar"
+                      title={selectedCollaboratorId === 'all' ? 'Sem registos para validar' : 'Sem registos encontrados'}
                       description="Não existem colaboradores nesta fase para os filtros selecionados."
                     />
                   ) : null}
@@ -1935,7 +2005,7 @@ export default function TimeValidation() {
                           <tr key={row.id} className={`validation-row validation-row--${row.validationState.isValidated ? 'success' : row.tone}`}>
                             <td className="validation-collaborator-cell">
                               <div className="validation-collaborator-heading">
-                                <strong>{row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-'}</strong>
+                                <strong>{row.collaboratorName || '-'}</strong>
                                 <Badge tone={row.validationState.tone}>
                                   {row.validationState.isValidated ? <CheckCircle2 size={13} /> : <Hourglass size={13} />}
                                   <span>{row.validationState.label}</span>
@@ -2135,8 +2205,8 @@ export default function TimeValidation() {
                           {eventRows.map((row) => (
                             <tr key={row.id} className={`validation-row validation-row--${row.tone}`}>
                               <td>
-                                <strong>{row.assignment.collaborator?.shortName || row.assignment.collaborator?.name || '-'}</strong>
-                                <small>{row.assignment.collaborator?.nif || '-'}</small>
+                                <strong>{row.collaboratorName || '-'}</strong>
+                                <small>{row.collaboratorFilterIdentity.nif || '-'}</small>
                               </td>
                               <td>{row.workDateLabel}</td>
                               <td>{row.assignment.role || '-'}</td>

@@ -400,6 +400,211 @@ export function buildStaffScheduleCsv(rows) {
   return `\uFEFF${lines.join('\n')}`;
 }
 
+function groupByEventWorkbook(rows) {
+  const map = new Map();
+  for (const row of rows) {
+    const key = row.eventId ? `id:${row.eventId}` : [row.eventName, row.clientName, row.location].join('|');
+    if (!map.has(key)) {
+      map.set(key, {
+        eventId: row.eventId,
+        eventName: row.eventName,
+        clientName: row.clientName,
+        location: row.location,
+        rows: [],
+      });
+    }
+    map.get(key).rows.push(row);
+  }
+  return [...map.values()];
+}
+
+function workbookDateSortValue(value) {
+  const match = String(value || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return 0;
+  return Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+}
+
+function workbookPeriod(rows) {
+  const dates = [...new Set(rows.map((row) => row.eventDate).filter((value) => value && value !== '-'))]
+    .sort((a, b) => workbookDateSortValue(a) - workbookDateSortValue(b));
+  if (!dates.length) return '-';
+  if (dates.length === 1) return dates[0];
+  return `${dates[0]} a ${dates[dates.length - 1]}`;
+}
+
+function workbookLocation(rows) {
+  const locations = [...new Set(rows.map((row) => row.location).filter((value) => value && value !== '-'))];
+  if (!locations.length) return '-';
+  return locations.length === 1 ? locations[0] : 'Varios locais';
+}
+
+function safeWorkbookSheetName(value, usedNames) {
+  const base = String(value || 'Evento')
+    .replace(/[\[\]:*?/\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 31) || 'Evento';
+  let name = base;
+  let suffix = 2;
+  while (usedNames.has(name)) {
+    const suffixText = ` (${suffix})`;
+    name = `${base.slice(0, 31 - suffixText.length)}${suffixText}`;
+    suffix += 1;
+  }
+  usedNames.add(name);
+  return name;
+}
+
+function workbookColumnName(XLSX, index) {
+  return XLSX.utils.encode_col(index);
+}
+
+function styleWorkbookRange(XLSX, sheet, startRow, endRow, startColumn, endColumn, style) {
+  for (let row = startRow; row <= endRow; row += 1) {
+    for (let column = startColumn; column <= endColumn; column += 1) {
+      const address = XLSX.utils.encode_cell({ r: row, c: column });
+      if (!sheet[address]) sheet[address] = { t: 's', v: '' };
+      sheet[address].s = { ...(sheet[address].s || {}), ...style };
+    }
+  }
+}
+
+function mergeWorkbookCells(XLSX, sheet, startRow, endRow, startColumn, endColumn) {
+  sheet['!merges'] = sheet['!merges'] || [];
+  sheet['!merges'].push({
+    s: { r: startRow, c: startColumn },
+    e: { r: endRow, c: endColumn },
+  });
+}
+
+function workbookMoney(value) {
+  const parsed = Number(value || 0);
+  const safeValue = Number.isFinite(parsed) ? parsed : 0;
+  return `${safeValue.toFixed(2).replace('.', ',')}\u00a0\u20ac`;
+}
+
+/**
+ * Creates a real XLSX workbook with one worksheet per event. Continuous
+ * events are kept together, so all their service days share one worksheet.
+ * XLSX is injected to keep this utility usable in the browser and in tests.
+ */
+export function createStaffScheduleWorkbook(rows, options = {}) {
+  const XLSX = options.XLSX;
+  if (!XLSX?.utils?.book_new || !XLSX?.utils?.aoa_to_sheet || !XLSX?.utils?.book_append_sheet) {
+    throw new Error('XLSX engine is required to create the staff schedule workbook.');
+  }
+
+  const scheduleRows = buildStaffScheduleRows(rows);
+  const groups = groupByEventWorkbook(scheduleRows);
+  const showWorkLocation = scheduleRows.some((row) => row.workLocationsEnabled);
+  const headers = [
+    'Cliente',
+    'Evento/Serviço',
+    'Data',
+    'Local',
+    'Colaborador',
+    'NIF',
+    ...(showWorkLocation ? ['Local de Trabalho'] : []),
+    'Função',
+    'Entrada Staff',
+    'Saída Staff',
+    'Total horas',
+    'Notas',
+  ];
+  const columnCount = headers.length;
+  const rightLabelColumn = Math.max(2, Math.floor(columnCount / 2));
+  const usedNames = new Set();
+  const workbook = XLSX.utils.book_new();
+
+  for (const group of groups) {
+    const groupHours = group.rows.reduce((sum, row) => sum + Number(row.hours || 0), 0);
+    const groupValue = group.rows.reduce((sum, row) => sum + Number(row.totalValue || 0), 0);
+    const metadataRow = (leftLabel, leftValue, rightLabel, rightValue) => {
+      const row = Array(columnCount).fill('');
+      row[0] = leftLabel;
+      row[1] = leftValue;
+      row[rightLabelColumn] = rightLabel;
+      row[rightLabelColumn + 1] = rightValue;
+      return row;
+    };
+    const data = [
+      ['Horários registados pelo Staff', ...Array(columnCount - 1).fill('')],
+      metadataRow('Evento/Serviço', group.eventName, 'Cliente', group.clientName),
+      metadataRow('Período', workbookPeriod(group.rows), 'Local', workbookLocation(group.rows)),
+      metadataRow('Total de horas Staff', formatHours(groupHours), 'Valor total dos serviços', workbookMoney(groupValue)),
+      [],
+      headers,
+      ...group.rows.map((row) => [
+        row.clientName,
+        row.eventName,
+        row.eventDate,
+        row.location,
+        row.collaboratorName,
+        row.collaboratorNif,
+        ...(showWorkLocation ? [row.workLocationName || '-'] : []),
+        row.role,
+        row.checkIn,
+        row.checkOut,
+        formatHoursCell(row.hours),
+        row.notes || '-',
+      ]),
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet(data);
+    const lastColumn = workbookColumnName(XLSX, columnCount - 1);
+    const lastRow = data.length;
+    const labelStyle = {
+      font: { bold: true, color: { rgb: '64748B' } },
+      alignment: { vertical: 'center' },
+    };
+    const titleStyle = {
+      font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 16 },
+      fill: { fgColor: { rgb: '0F766E' } },
+      alignment: { vertical: 'center' },
+    };
+    const headerStyle = {
+      font: { bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '1F2937' } },
+      alignment: { vertical: 'center', wrapText: true },
+    };
+    const summaryStyle = {
+      font: { bold: true, color: { rgb: '075985' } },
+      fill: { fgColor: { rgb: 'E0F2FE' } },
+      alignment: { vertical: 'center' },
+    };
+    mergeWorkbookCells(XLSX, sheet, 0, 0, 0, columnCount - 1);
+    styleWorkbookRange(XLSX, sheet, 0, 0, 0, columnCount - 1, titleStyle);
+    styleWorkbookRange(XLSX, sheet, 1, 3, 0, 0, labelStyle);
+    styleWorkbookRange(XLSX, sheet, 1, 3, rightLabelColumn, rightLabelColumn, labelStyle);
+    styleWorkbookRange(XLSX, sheet, 3, 3, 0, columnCount - 1, summaryStyle);
+    styleWorkbookRange(XLSX, sheet, 5, 5, 0, columnCount - 1, headerStyle);
+    sheet['!cols'] = [
+      { wch: 26 },
+      { wch: 31 },
+      { wch: 12 },
+      { wch: 28 },
+      { wch: 25 },
+      { wch: 14 },
+      ...(showWorkLocation ? [{ wch: 20 }] : []),
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 34 },
+    ];
+    sheet['!rows'] = [{ hpt: 26 }, { hpt: 20 }, { hpt: 20 }, { hpt: 24 }, { hpt: 8 }, { hpt: 22 }];
+    sheet['!autofilter'] = { ref: `A6:${lastColumn}${lastRow}` };
+    sheet['!freeze'] = { xSplit: 0, ySplit: 6, topLeftCell: 'A7', activePane: 'bottomRight', state: 'frozen' };
+    XLSX.utils.book_append_sheet(workbook, sheet, safeWorkbookSheetName(group.eventName, usedNames));
+  }
+
+  if (!groups.length) {
+    const sheet = XLSX.utils.aoa_to_sheet([['Horários registados pelo Staff'], ['Sem horários Staff registados para os filtros selecionados.']]);
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Sem registos');
+  }
+
+  return workbook;
+}
+
 export function buildStaffScheduleExcelHtml(rows, options = {}) {
   const scheduleRows = buildStaffScheduleRows(rows);
   const groups = groupByEvent(scheduleRows);
