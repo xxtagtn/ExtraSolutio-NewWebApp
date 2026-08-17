@@ -28,20 +28,26 @@ import { withCommunicationMessageDraft } from '../utils/communicationMessageDraf
 import { date } from '../utils/formatters.js';
 
 const stateLabels = {
+  scheduled: 'Agendado',
   pending_contact: 'Por contactar',
   ready: 'Pronto',
   prepared: 'Preparado',
+  sending: 'A enviar',
   sent: 'Enviado',
+  failed: 'Falhou',
   responded: 'Respondeu',
   confirmed: 'Confirmado',
   unavailable: 'Não disponível',
 };
 
 const stateTones = {
+  scheduled: 'neutral',
   pending_contact: 'warning',
   ready: 'warning',
   prepared: 'info',
+  sending: 'info',
   sent: 'info',
+  failed: 'danger',
   responded: 'warning',
   confirmed: 'success',
   unavailable: 'danger',
@@ -314,6 +320,8 @@ export default function Communication() {
   const [eventFilter, setEventFilter] = useState('all');
   const [selectedId, setSelectedId] = useState('');
   const [messageDrafts, setMessageDrafts] = useState({});
+  const [whatsappOverrides, setWhatsappOverrides] = useState({});
+  const [updatingWhatsappId, setUpdatingWhatsappId] = useState(null);
   const [notice, setNotice] = useState('');
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('messages');
@@ -414,8 +422,34 @@ export default function Communication() {
   }
 
   function openWhatsapp(task) {
-    if (!task?.whatsappUrl) return;
+    if (!task?.whatsappUrl || !whatsappEnabledFor(task)) return;
     window.open(task.whatsappUrl, '_blank', 'noopener,noreferrer');
+  }
+
+  function whatsappEnabledFor(task) {
+    if (!task) return false;
+    return whatsappOverrides[task.assignmentId] ?? task.whatsappEnabled !== false;
+  }
+
+  async function updateWhatsappPreference(task, enabled) {
+    if (!task?.assignmentId) return;
+    const assignmentId = task.assignmentId;
+    const previous = whatsappEnabledFor(task);
+    setWhatsappOverrides((current) => ({ ...current, [assignmentId]: enabled }));
+    setUpdatingWhatsappId(assignmentId);
+    setNotice('');
+    try {
+      await api(`/assignments/${assignmentId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ whatsappEnabled: enabled }),
+      });
+      reloadServices();
+    } catch (error) {
+      setWhatsappOverrides((current) => ({ ...current, [assignmentId]: previous }));
+      setNotice(error.message || 'Não foi possível guardar a preferência de WhatsApp.');
+    } finally {
+      setUpdatingWhatsappId(null);
+    }
   }
 
   const loading = loadingServices || loadingLogs;
@@ -426,7 +460,7 @@ export default function Communication() {
       <div className="communication-head">
         <div>
           <h1>Comunicação</h1>
-          <p>Centro manual de contacto com colaboradores, sem envios automáticos nem fornecedores externos.</p>
+          <p>Confirmações manuais e lembretes WhatsApp automáticos dos serviços confirmados.</p>
         </div>
       </div>
 
@@ -449,6 +483,7 @@ export default function Communication() {
 
       <section className="communication-summary-grid" aria-label="Resumo de comunicação">
         <SummaryCard icon={MessageSquareText} label="Total em lista" value={summary.total} />
+        <SummaryCard icon={Clock3} label="Agendados" value={summary.scheduled} />
         <SummaryCard icon={Clock3} label="Por contactar" value={summary.pendingContact} tone="warning" />
         <SummaryCard icon={Send} label="Enviados" value={summary.sent} tone="info" />
         <SummaryCard icon={UserCheck} label="Confirmados" value={summary.confirmed} tone="success" />
@@ -467,7 +502,11 @@ export default function Communication() {
           <option value="open">Apenas por resolver</option>
           <option value="all">Todos os estados</option>
           <option value="pending_contact">Por contactar</option>
+          <option value="scheduled">Agendado</option>
+          <option value="ready">Pronto</option>
+          <option value="sending">A enviar</option>
           <option value="sent">Enviado</option>
+          <option value="failed">Falhou</option>
           <option value="responded">Respondeu</option>
           <option value="confirmed">Confirmado</option>
           <option value="unavailable">Não disponível</option>
@@ -485,24 +524,43 @@ export default function Communication() {
 
       <section className="communication-workspace">
         <div className="communication-list" aria-label="Lista de contactos">
-          {filteredTasks.length ? filteredTasks.map((task) => (
-            <button
-              key={task.id}
-              type="button"
-              className={`communication-task ${selectedTask?.id === task.id ? 'communication-task--active' : ''}`}
-              onClick={() => setSelectedId(task.id)}
-            >
-              <span>
-                <strong>{task.collaboratorName}</strong>
-                <small>{task.role || 'Sem função'} · {task.rawPhone || 'Sem telefone'}</small>
-              </span>
-              <span>
-                <b>{task.eventName}</b>
-                <small>{task.clientName} · {formatTaskDate(task.date)} · {[task.startTime, task.endTime].filter(Boolean).join(' → ')}</small>
-              </span>
-              <Badge tone={stateTones[task.state] || 'neutral'}>{stateLabels[task.state] || task.state}</Badge>
-            </button>
-          )) : (
+          {filteredTasks.length ? filteredTasks.map((task) => {
+            const whatsappEnabled = whatsappEnabledFor(task);
+            return (
+              <div
+                key={task.id}
+                className={`communication-task-row ${selectedTask?.id === task.id ? 'communication-task-row--active' : ''}`}
+              >
+                <label
+                  className="communication-whatsapp-toggle"
+                  title={whatsappEnabled ? 'Enviar mensagem WhatsApp' : 'Não enviar mensagem WhatsApp'}
+                >
+                  <input
+                    type="checkbox"
+                    checked={whatsappEnabled}
+                    disabled={updatingWhatsappId === task.assignmentId}
+                    aria-label={`Enviar mensagem WhatsApp a ${task.collaboratorName}`}
+                    onChange={(event) => updateWhatsappPreference(task, event.target.checked)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="communication-task"
+                  onClick={() => setSelectedId(task.id)}
+                >
+                  <span>
+                    <strong>{task.collaboratorName}</strong>
+                    <small>{task.role || 'Sem função'} · {task.rawPhone || 'Sem telefone'}</small>
+                  </span>
+                  <span>
+                    <b>{task.eventName}</b>
+                    <small>{task.clientName} · {formatTaskDate(task.date)} · {[task.startTime, task.endTime].filter(Boolean).join(' → ')}</small>
+                  </span>
+                  <Badge tone={stateTones[task.state] || 'neutral'}>{stateLabels[task.state] || task.state}</Badge>
+                </button>
+              </div>
+            );
+          }) : (
             <EmptyState
               compact
               icon={loading ? Clock3 : MessageSquareText}
@@ -562,7 +620,7 @@ export default function Communication() {
                   type="button"
                   className="secondary-button"
                   onClick={() => openWhatsapp(selectedTaskWithDraft)}
-                  disabled={!selectedTaskWithDraft.whatsappUrl}
+                  disabled={!selectedTaskWithDraft.whatsappUrl || !whatsappEnabledFor(selectedTaskWithDraft)}
                 >
                   <ExternalLink size={16} /> Abrir WhatsApp
                 </button>

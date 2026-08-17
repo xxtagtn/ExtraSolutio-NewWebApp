@@ -399,8 +399,8 @@ export function normalizePayment(input) {
 }
 
 export function normalizeCommunicationLog(input) {
-  return compact({
-    ...pick(input, ['type', 'channel', 'status', 'message', 'response']),
+    return compact({
+      ...pick(input, ['type', 'channel', 'status', 'message', 'response', 'dedupeKey']),
     eventId: asInt(input.eventId),
     assignmentId: asInt(input.assignmentId),
     collaboratorId: asInt(input.collaboratorId),
@@ -439,6 +439,7 @@ export function normalizeAssignment(input) {
     validationStatus: input.validationStatus,
     validationNotes: input.validationNotes,
     clientSynced: parseBoolean(input.clientSynced),
+    whatsappEnabled: parseBoolean(input.whatsappEnabled),
     isDriver: parseBoolean(input.isDriver),
     status: input.status,
     paymentStatus: input.paymentStatus,

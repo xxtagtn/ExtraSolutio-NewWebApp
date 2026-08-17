@@ -196,6 +196,11 @@ test('normalizes assignment client sync flag', () => {
   assert.equal(normalizeAssignment({ clientSynced: 'false' }).clientSynced, false);
 });
 
+test('normalizes assignment WhatsApp preference', () => {
+  assert.equal(normalizeAssignment({ whatsappEnabled: true }).whatsappEnabled, true);
+  assert.equal(normalizeAssignment({ whatsappEnabled: 'false' }).whatsappEnabled, false);
+});
+
 test('normalizes assignment driver flag', () => {
   assert.equal(normalizeAssignment({ isDriver: true }).isDriver, true);
   assert.equal(normalizeAssignment({ isDriver: 'false' }).isDriver, false);

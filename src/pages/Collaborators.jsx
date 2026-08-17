@@ -18,6 +18,7 @@ import {
 } from '../utils/collaboratorDetails.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { documentExpiryAlert } from '../utils/documentExpiry.js';
+import { documentTypeLabel } from '../utils/documentTypes.js';
 import { shouldHandleDeepLink } from '../utils/deepLinks.js';
 import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import { money } from '../utils/formatters.js';
@@ -662,7 +663,7 @@ export default function Collaborators() {
                         <p><span>Inclui IVA</span><strong>{displayRow.includeVat ? 'Sim (23%)' : 'Não'}</strong></p>
                         <p><span>Viatura própria</span><strong>{displayRow.hasOwnCar ? 'Sim' : 'Não'}</strong></p>
                         <p><span>IBAN</span><strong>{displayRow.iban || '-'}</strong></p>
-                        <p><span>Documento</span><strong>{displayRow.documentType || '-'} {displayRow.documentNumber || ''}</strong></p>
+                        <p><span>Documento</span><strong>{displayRow.documentType ? documentTypeLabel(displayRow.documentType) : '-'} {displayRow.documentNumber || ''}</strong></p>
                         <p><span>Validade</span><strong>{displayRow.documentExpiry ? String(displayRow.documentExpiry).slice(0, 10) : '-'}</strong></p>
                         <p><span>Nascimento</span><strong>{displayRow.birthDate ? String(displayRow.birthDate).slice(0, 10) : '-'}</strong></p>
                         <p><span>Género</span><strong>{displayRow.gender || '-'}</strong></p>

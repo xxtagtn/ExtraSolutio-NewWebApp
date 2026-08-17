@@ -364,6 +364,7 @@ model EventAssignment {
   validationStatus String     @default("pending")
   validationNotes  String?
   clientSynced     Boolean    @default(false)
+  whatsappEnabled  Boolean    @default(true)
   isDriver         Boolean    @default(false)
   status         String       @default("assigned")
   paymentStatus  String       @default("unpaid")
@@ -446,6 +447,7 @@ model CommunicationLog {
   status         String           @default("prepared")
   message        String?
   response       String?
+  dedupeKey      String?           @unique
   sentAt         DateTime?
   respondedAt    DateTime?
   createdAt      DateTime         @default(now())

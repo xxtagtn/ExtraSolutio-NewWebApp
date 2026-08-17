@@ -6335,6 +6335,43 @@ th {
   overflow: auto;
 }
 
+.communication-task-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+
+.communication-task-row:hover,
+.communication-task-row--active {
+  background: rgba(20, 184, 166, 0.09);
+}
+
+.communication-task-row--active {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.communication-whatsapp-toggle {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  cursor: pointer;
+}
+
+.communication-whatsapp-toggle input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.communication-whatsapp-toggle input:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .communication-task {
   display: grid;
   grid-template-columns: minmax(160px, 0.85fr) minmax(220px, 1fr) auto;
@@ -6344,19 +6381,9 @@ th {
   min-height: 78px;
   padding: 12px;
   border: 0;
-  border-bottom: 1px solid var(--line);
   background: transparent;
   color: var(--text);
   text-align: left;
-}
-
-.communication-task:hover,
-.communication-task--active {
-  background: rgba(20, 184, 166, 0.09);
-}
-
-.communication-task--active {
-  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .communication-task strong,

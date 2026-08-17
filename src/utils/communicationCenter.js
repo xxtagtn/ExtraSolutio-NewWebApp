@@ -1,6 +1,17 @@
 const NON_CONTACTABLE_ASSIGNMENT_STATUSES = new Set(['cancelled', 'missed_justified', 'missed_unjustified']);
 const CONFIRMED_STATUSES = new Set(['confirmed', 'confirmado']);
-const MANUAL_STATES = new Set(['pending_contact', 'ready', 'prepared', 'sent', 'responded', 'confirmed', 'unavailable']);
+const MANUAL_STATES = new Set([
+  'scheduled',
+  'pending_contact',
+  'ready',
+  'prepared',
+  'sending',
+  'sent',
+  'failed',
+  'responded',
+  'confirmed',
+  'unavailable',
+]);
 
 function text(value) {
   return String(value ?? '').trim();
@@ -67,6 +78,11 @@ function isInNext24Hours(service = {}, assignment = {}, today = new Date()) {
   return diff >= 0 && diff <= 24 * 60 * 60 * 1000;
 }
 
+function isUpcoming(service = {}, assignment = {}, today = new Date()) {
+  const startsAt = parseDateTime(assignmentDate(assignment, service), assignmentStart(assignment, service));
+  return Boolean(startsAt && startsAt.getTime() >= new Date(today).getTime());
+}
+
 function line(label, value) {
   const clean = text(value);
   return clean ? `${label}: ${clean}` : '';
@@ -123,16 +139,20 @@ export function buildCommunicationCenter(data = {}, options = {}) {
 
       const collaborator = assignment.collaborator || {};
       const status = normalized(assignment.status);
-      const kind = CONFIRMED_STATUSES.has(status)
-        ? (isInNext24Hours(service, assignment, today) ? 'reminder_24h' : 'confirmed')
+      const confirmed = CONFIRMED_STATUSES.has(status);
+      const dueIn24Hours = confirmed && isInNext24Hours(service, assignment, today);
+      const kind = confirmed
+        ? (isUpcoming(service, assignment, today) ? 'reminder_24h' : 'confirmed')
         : 'confirmation';
 
       if (kind === 'confirmed') continue;
 
       const latestLog = latestLogFor(communicationLogs, assignment.id, kind);
       const message = text(latestLog?.message) || buildMessage({ kind, service, assignment, collaborator });
-      const state = CONFIRMED_STATUSES.has(status)
-        ? (latestLog?.status && MANUAL_STATES.has(latestLog.status) ? latestLog.status : 'ready')
+      const state = confirmed
+        ? (latestLog?.status && MANUAL_STATES.has(latestLog.status)
+          ? latestLog.status
+          : (dueIn24Hours ? 'ready' : 'scheduled'))
         : (latestLog?.status && MANUAL_STATES.has(latestLog.status) ? latestLog.status : 'pending_contact');
 
       tasks.push({
@@ -143,6 +163,7 @@ export function buildCommunicationCenter(data = {}, options = {}) {
         serviceId: service.id,
         assignmentId: assignment.id,
         collaboratorId: assignment.collaboratorId,
+        whatsappEnabled: assignment.whatsappEnabled !== false,
         eventName: text(service.name) || 'Evento/Serviço',
         clientName: clientDisplayName(service),
         collaboratorName: collaboratorDisplayName(collaborator),
@@ -172,6 +193,7 @@ export function communicationSummary(tasks = []) {
     const state = task.state || '';
     summary.total += 1;
     if (state === 'pending_contact' || state === 'ready') summary.pendingContact += 1;
+    if (state === 'scheduled') summary.scheduled += 1;
     if (state === 'sent') summary.sent += 1;
     if (state === 'responded') summary.responded += 1;
     if (state === 'confirmed') summary.confirmed += 1;
@@ -179,6 +201,7 @@ export function communicationSummary(tasks = []) {
     return summary;
   }, {
     total: 0,
+    scheduled: 0,
     pendingContact: 0,
     sent: 0,
     responded: 0,

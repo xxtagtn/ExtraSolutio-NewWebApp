@@ -52,10 +52,36 @@ test('builds confirmation tasks for assigned staff with a prepared message', () 
   assert.equal(tasks[0].state, 'pending_contact');
   assert.equal(tasks[0].collaboratorName, 'Ana Silva');
   assert.equal(tasks[0].phone, '351963680415');
+  assert.equal(tasks[0].whatsappEnabled, true);
   assert.match(tasks[0].message, /Olá Ana Silva/);
   assert.match(tasks[0].message, /Restaurante Luz Chakall/);
   assert.match(tasks[0].message, /Uniforme: Camisa Preta/);
   assert.match(tasks[0].whatsappUrl, /^https:\/\/wa\.me\/351963680415\?text=/);
+});
+
+test('preserves an assignment preference not to send WhatsApp', () => {
+  const tasks = buildCommunicationCenter({
+    services: [
+      {
+        id: 10,
+        name: 'Restaurante Luz Chakall',
+        date: '2026-07-03',
+        assignments: [
+          {
+            id: 101,
+            collaboratorId: 7,
+            role: 'Emp.Mesa',
+            status: 'pending_confirmation',
+            whatsappEnabled: false,
+            collaborator: { id: 7, shortName: 'Ana Silva', phone: '963 680 415' },
+          },
+        ],
+      },
+    ],
+    communicationLogs: [],
+  }, { today });
+
+  assert.equal(tasks[0].whatsappEnabled, false);
 });
 
 test('uses the latest communication log as the visible state', () => {
@@ -128,10 +154,34 @@ test('summarizes communication workload by state', () => {
 
   assert.deepEqual(communicationSummary(tasks), {
     total: 5,
+    scheduled: 0,
     pendingContact: 1,
     sent: 2,
     responded: 1,
     confirmed: 1,
     unavailable: 0,
   });
+});
+
+test('keeps future confirmed shifts visible as scheduled reminders', () => {
+  const tasks = buildCommunicationCenter({
+    services: [{
+      id: 30,
+      name: 'Jantar de Gala',
+      date: '2026-07-05',
+      startTime: '20:00',
+      assignments: [{
+        id: 301,
+        collaboratorId: 9,
+        status: 'confirmed',
+        whatsappEnabled: true,
+        collaborator: { id: 9, name: 'Maria Costa', phone: '963680415' },
+      }],
+    }],
+    communicationLogs: [],
+  }, { today });
+
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].kind, 'reminder_24h');
+  assert.equal(tasks[0].state, 'scheduled');
 });
