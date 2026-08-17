@@ -1,9 +1,13 @@
-const CACHE_NAME = 'extrasolutio-pwa-v1';
+const CACHE_NAME = 'extrasolutio-pwa-v2';
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
   '/logo.svg',
   '/logo.png',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-512-maskable.png',
+  '/icons/apple-touch-icon.png',
 ];
 
 function isApiRequest(url) {
