@@ -114,6 +114,7 @@ test('creates reminder tasks for confirmed shifts in the next 24 hours', () => {
   assert.equal(tasks[0].kind, 'reminder_24h');
   assert.equal(tasks[0].state, 'ready');
   assert.match(tasks[0].message, /lembramos que tens serviço/);
+  assert.match(tasks[0].message, /Informa a equipa ExtraSolutio, caso não consigas\./);
 });
 
 test('summarizes communication workload by state', () => {

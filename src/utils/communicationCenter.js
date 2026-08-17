@@ -92,7 +92,7 @@ function buildMessage({ kind, service, assignment, collaborator }) {
     line('Função', assignment.role),
     line('Uniforme', service.uniform),
     line('Local', service.location),
-    kind === 'reminder_24h' ? 'Obrigado.' : 'Responde por favor com Confirmo ou Não disponível.',
+    kind === 'reminder_24h' ? 'Informa a equipa ExtraSolutio, caso não consigas.' : 'Responde por favor com Confirmo ou Não disponível.',
   ].filter(Boolean).join('\n');
 }
 

@@ -69,9 +69,9 @@ async function readMetaResponse(response) {
   }
 }
 
-export async function sendWhatsAppTemplateMessage({
+async function sendWhatsAppPayload({
   config = whatsappConfigFromEnv(),
-  message,
+  payload,
   fetchImpl = globalThis.fetch,
 } = {}) {
   const configState = validateWhatsAppConfig(config);
@@ -79,9 +79,8 @@ export async function sendWhatsAppTemplateMessage({
     throw createPublicError(503, `Configuração WhatsApp incompleta: ${configState.missing.join(', ')}.`);
   }
 
-  const payload = buildWhatsAppTemplatePayload(message);
-  if (!payload.to) {
-    throw createPublicError(400, 'Número WhatsApp inválido.');
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('Fetch não está disponível para enviar mensagens WhatsApp.');
   }
 
   const response = await fetchImpl(whatsappMessagesUrl(config), {
@@ -100,4 +99,48 @@ export async function sendWhatsAppTemplateMessage({
   }
 
   return data;
+}
+
+export async function sendWhatsAppTemplateMessage({
+  config = whatsappConfigFromEnv(),
+  message,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const payload = buildWhatsAppTemplatePayload(message);
+  if (!payload.to) {
+    throw createPublicError(400, 'Número WhatsApp inválido.');
+  }
+
+  return sendWhatsAppPayload({ config, payload, fetchImpl });
+}
+
+export function buildWhatsAppTextPayload({ to, body } = {}) {
+  const normalizedRecipient = normalizeWhatsAppRecipient(to);
+  const textBody = String(body || '').trim();
+
+  if (!normalizedRecipient) {
+    throw createPublicError(400, 'Número WhatsApp inválido.');
+  }
+  if (!textBody) {
+    throw createPublicError(400, 'O texto da mensagem é obrigatório.');
+  }
+
+  return {
+    messaging_product: 'whatsapp',
+    to: normalizedRecipient,
+    type: 'text',
+    text: {
+      preview_url: false,
+      body: textBody,
+    },
+  };
+}
+
+export async function sendWhatsAppTextMessage({
+  config = whatsappConfigFromEnv(),
+  message,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const payload = buildWhatsAppTextPayload(message);
+  return sendWhatsAppPayload({ config, payload, fetchImpl });
 }

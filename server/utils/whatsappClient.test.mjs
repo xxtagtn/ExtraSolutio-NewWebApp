@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buildWhatsAppTemplatePayload,
+  buildWhatsAppTextPayload,
   normalizeWhatsAppRecipient,
   sendWhatsAppTemplateMessage,
+  sendWhatsAppTextMessage,
   validateWhatsAppConfig,
 } from './whatsappClient.js';
 
@@ -24,6 +26,18 @@ test('builds a WhatsApp template payload with safe defaults', () => {
         name: 'hello_world',
         language: { code: 'en_US' },
       },
+    },
+  );
+});
+
+test('builds a WhatsApp text payload without a preview', () => {
+  assert.deepEqual(
+    buildWhatsAppTextPayload({ to: '+351 933 811 286', body: '  Olá  ' }),
+    {
+      messaging_product: 'whatsapp',
+      to: '351933811286',
+      type: 'text',
+      text: { preview_url: false, body: 'Olá' },
     },
   );
 });
@@ -72,6 +86,37 @@ test('sends a template message to the Meta messages endpoint', async () => {
   assert.equal(requestedOptions.headers.Authorization, 'Bearer secret-token');
   assert.equal(JSON.parse(requestedOptions.body).to, '351933811286');
   assert.deepEqual(result, { messages: [{ id: 'wamid.test' }] });
+});
+
+test('sends a WhatsApp text message to the Meta messages endpoint', async () => {
+  let requestedBody = null;
+
+  const result = await sendWhatsAppTextMessage({
+    config: {
+      accessToken: 'secret-token',
+      phoneNumberId: '1225592500636551',
+      graphVersion: 'v25.0',
+    },
+    message: { to: '933811286', body: 'Resposta automática' },
+    fetchImpl: async (_url, options) => {
+      requestedBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { messages: [{ id: 'wamid.reply' }] };
+        },
+      };
+    },
+  });
+
+  assert.deepEqual(requestedBody, {
+    messaging_product: 'whatsapp',
+    to: '351933811286',
+    type: 'text',
+    text: { preview_url: false, body: 'Resposta automática' },
+  });
+  assert.deepEqual(result, { messages: [{ id: 'wamid.reply' }] });
 });
 
 test('reports Meta API errors without exposing the access token', async () => {

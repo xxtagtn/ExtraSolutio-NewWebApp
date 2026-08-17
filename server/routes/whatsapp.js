@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../utils/http.js';
+import { processWhatsAppIncomingMessages } from '../utils/whatsappInbound.js';
 import { sendWhatsAppTemplateMessage } from '../utils/whatsappClient.js';
 
 function webhookVerifyToken() {
@@ -26,6 +27,15 @@ whatsappWebhookRouter.post('/webhook', (req, res) => {
     object: req.body?.object || null,
     entries: Array.isArray(req.body?.entry) ? req.body.entry.length : 0,
   }));
+
+  void processWhatsAppIncomingMessages(req.body).then((summary) => {
+    if (summary.received > 0) {
+      console.info('[whatsapp-auto-reply]', JSON.stringify(summary));
+    }
+  }).catch((error) => {
+    console.error('[whatsapp-auto-reply]', error?.message || error);
+  });
+
   return res.sendStatus(200);
 });
 
