@@ -10,6 +10,7 @@
     "api": "node server/index.js",
     "dev:all": "npm run dev",
     "build": "vite build",
+    "verify:pwa": "node scripts/verify-pwa-build.js",
     "preview": "vite preview",
     "lint": "eslint .",
     "db:generate": "prisma generate --schema prisma/sqlite/schema.prisma",

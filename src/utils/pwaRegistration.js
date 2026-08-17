@@ -6,7 +6,7 @@ export async function registerPwaServiceWorker({
   prod = false,
   windowRef = globalThis.window,
   navigatorRef = globalThis.navigator,
-  serviceWorkerUrl = '/service-worker.js',
+  serviceWorkerUrl = '/service-worker.js?v=5',
 } = {}) {
   if (!shouldRegisterPwaServiceWorker({ prod, navigatorRef })) {
     return { status: 'skipped' };
@@ -14,7 +14,11 @@ export async function registerPwaServiceWorker({
 
   const register = async () => {
     try {
-      const registration = await navigatorRef.serviceWorker.register(serviceWorkerUrl, { scope: '/' });
+      const registration = await navigatorRef.serviceWorker.register(serviceWorkerUrl, {
+        scope: '/',
+        updateViaCache: 'none',
+      });
+      await registration.update?.();
       return { status: 'registered', registration };
     } catch (error) {
       return { status: 'error', error };

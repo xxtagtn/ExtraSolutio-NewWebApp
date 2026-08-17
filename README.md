@@ -315,6 +315,14 @@ Conteúdo:
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
 
+    # O manifesto e o service worker devem ser sempre revalidados. Os restantes
+    # assets do Vite mantêm cache forte através do hash no nome do ficheiro.
+    <FilesMatch "^(manifest.*\.webmanifest|service-worker\.js)$">
+        Header always set Cache-Control "no-cache, no-store, must-revalidate"
+        Header always set Pragma "no-cache"
+        Header always set Expires "0"
+    </FilesMatch>
+
     ErrorLog  ${APACHE_LOG_DIR}/esgestao-error.log
     CustomLog ${APACHE_LOG_DIR}/esgestao-access.log combined
 </VirtualHost>
@@ -441,6 +449,7 @@ sudo -u esgestao -H npm run db:generate:mysql
 sudo systemctl stop esgestao-api
 sudo -u esgestao -H npm run db:deploy:mysql
 sudo -u esgestao -H npm run build
+sudo -u esgestao -H npm run verify:pwa
 
 # 5. Voltar a disponibilizar a API.
 sudo systemctl start esgestao-api
@@ -451,6 +460,8 @@ Depois da atualização:
 
 ```bash
 curl -fsS https://esgestao.ddns.net/api/health
+curl -fsSI https://esgestao.ddns.net/manifest-v5.webmanifest
+curl -fsSI https://esgestao.ddns.net/icons/icon-512-maskable-v5.png
 sudo journalctl -u esgestao-api -n 100 --no-pager
 ```
 
@@ -476,6 +487,8 @@ Se a aplicação for copiada por `rsync`, preservar `public/uploads` e o `.env`.
 - [ ] Fotografias de colaboradores continuam acessíveis depois de reiniciar a API.
 - [ ] Migrações MySQL aplicadas com `db:deploy:mysql`.
 - [ ] Exportações Excel/PDF funcionam.
+- [ ] `npm run verify:pwa` confirma o manifesto e os ícones no `dist`.
+- [ ] O manifesto v5 e o ícone maskable v5 respondem com HTTP 200 e o tipo de conteúdo correto.
 - [ ] Validação de horas e Financeiro mostram os dados da MariaDB.
 - [ ] Se usado, o feed de calendário gera URL HTTPS.
 - [ ] Se usado, o WhatsApp tem as variáveis e webhook configurados para o domínio HTTPS.
