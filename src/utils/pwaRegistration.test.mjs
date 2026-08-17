@@ -65,6 +65,6 @@ test('registers the production service worker after window load', async () => {
 
   await loadCallback();
 
-  assert.equal(registeredUrl, '/service-worker.js?v=5');
+  assert.equal(registeredUrl, '/service-worker.js?v=6');
   assert.deepEqual(registeredOptions, { scope: '/', updateViaCache: 'none' });
 });

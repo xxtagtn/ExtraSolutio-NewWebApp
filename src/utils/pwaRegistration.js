@@ -6,7 +6,7 @@ export async function registerPwaServiceWorker({
   prod = false,
   windowRef = globalThis.window,
   navigatorRef = globalThis.navigator,
-  serviceWorkerUrl = '/service-worker.js?v=5',
+  serviceWorkerUrl = '/service-worker.js?v=6',
 } = {}) {
   if (!shouldRegisterPwaServiceWorker({ prod, navigatorRef })) {
     return { status: 'skipped' };

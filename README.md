@@ -460,8 +460,8 @@ Depois da atualização:
 
 ```bash
 curl -fsS https://esgestao.ddns.net/api/health
-curl -fsSI https://esgestao.ddns.net/manifest-v5.webmanifest
-curl -fsSI https://esgestao.ddns.net/icons/icon-512-maskable-v5.png
+curl -fsSI https://esgestao.ddns.net/manifest-v6.webmanifest
+curl -fsSI https://esgestao.ddns.net/pwa-icons/icon-512-maskable-v6.png
 sudo journalctl -u esgestao-api -n 100 --no-pager
 ```
 
