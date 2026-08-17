@@ -472,7 +472,10 @@ export default function Clients() {
           <p><span>Telefone</span><strong>{row.phone || '-'}</strong></p>
           <p><span>Email</span><strong>{row.email || '-'}</strong></p>
           <p><span>Estado</span><strong>{row.status === 'active' ? 'Ativo' : row.status === 'inactive' ? 'Inativo' : 'Pausado'}</strong></p>
-          <p className="span-2"><span>Notas</span><strong>{row.notes || '-'}</strong></p>
+          <p className="span-2 client-detail-note-row">
+            <span>Notas</span>
+            <strong className="client-detail-note-value">{row.notes || '-'}</strong>
+          </p>
         </div>
       </section>
     );

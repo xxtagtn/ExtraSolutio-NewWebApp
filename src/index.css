@@ -10962,6 +10962,20 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   grid-column: span 2;
 }
 
+.client-detail-note-row {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start !important;
+  gap: 6px 12px !important;
+}
+
+.client-detail-note-value {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
 .collab-detail-photo {
   border: 1px dashed rgba(148, 163, 184, 0.35);
   border-radius: 8px;
