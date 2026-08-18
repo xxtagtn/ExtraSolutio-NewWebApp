@@ -33,7 +33,10 @@ const stateLabels = {
   ready: 'Pronto',
   prepared: 'Preparado',
   sending: 'A enviar',
-  sent: 'Enviado',
+  accepted: 'Aceite pela Meta',
+  sent: 'Enviado pela Meta',
+  delivered: 'Entregue',
+  read: 'Lido',
   failed: 'Falhou',
   responded: 'Respondeu',
   confirmed: 'Confirmado',
@@ -46,7 +49,10 @@ const stateTones = {
   ready: 'warning',
   prepared: 'info',
   sending: 'info',
+  accepted: 'info',
   sent: 'info',
+  delivered: 'success',
+  read: 'success',
   failed: 'danger',
   responded: 'warning',
   confirmed: 'success',
@@ -327,6 +333,11 @@ export default function Communication() {
   const [activeTab, setActiveTab] = useState('messages');
   const canManageQrCodes = hasPermission(user, PERMISSIONS.COMMUNICATION_MANAGE_QR_CODES);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => reloadLogs({ background: true }), 15000);
+    return () => window.clearInterval(timer);
+  }, [reloadLogs]);
+
   const tasks = useMemo(
     () => buildCommunicationCenter({ services, communicationLogs }),
     [communicationLogs, services],
@@ -485,7 +496,8 @@ export default function Communication() {
         <SummaryCard icon={MessageSquareText} label="Total em lista" value={summary.total} />
         <SummaryCard icon={Clock3} label="Agendados" value={summary.scheduled} />
         <SummaryCard icon={Clock3} label="Por contactar" value={summary.pendingContact} tone="warning" />
-        <SummaryCard icon={Send} label="Enviados" value={summary.sent} tone="info" />
+        <SummaryCard icon={Send} label="Aceites pela Meta" value={summary.accepted + summary.sent} tone="info" />
+        <SummaryCard icon={CheckCircle2} label="Entregues" value={summary.delivered} tone="success" />
         <SummaryCard icon={UserCheck} label="Confirmados" value={summary.confirmed} tone="success" />
       </section>
 
@@ -505,7 +517,10 @@ export default function Communication() {
           <option value="scheduled">Agendado</option>
           <option value="ready">Pronto</option>
           <option value="sending">A enviar</option>
-          <option value="sent">Enviado</option>
+          <option value="accepted">Aceite pela Meta</option>
+          <option value="sent">Enviado pela Meta</option>
+          <option value="delivered">Entregue</option>
+          <option value="read">Lido</option>
           <option value="failed">Falhou</option>
           <option value="responded">Respondeu</option>
           <option value="confirmed">Confirmado</option>

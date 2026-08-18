@@ -261,7 +261,7 @@ export async function processWhatsAppReminders({
       const result = await sendMessage({ message: buildReminderTemplateMessage(assignment, env) });
       await db.communicationLog.update({
         where: { id: log.id },
-        data: { status: 'sent', sentAt: new Date(), response: providerResponse(result) },
+        data: { status: 'accepted', sentAt: new Date(), response: providerResponse(result) },
       });
       summary.sent += 1;
     } catch (error) {

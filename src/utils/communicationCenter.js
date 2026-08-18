@@ -6,7 +6,10 @@ const MANUAL_STATES = new Set([
   'ready',
   'prepared',
   'sending',
+  'accepted',
   'sent',
+  'delivered',
+  'read',
   'failed',
   'responded',
   'confirmed',
@@ -194,7 +197,9 @@ export function communicationSummary(tasks = []) {
     summary.total += 1;
     if (state === 'pending_contact' || state === 'ready') summary.pendingContact += 1;
     if (state === 'scheduled') summary.scheduled += 1;
+    if (state === 'accepted') summary.accepted += 1;
     if (state === 'sent') summary.sent += 1;
+    if (state === 'delivered' || state === 'read') summary.delivered += 1;
     if (state === 'responded') summary.responded += 1;
     if (state === 'confirmed') summary.confirmed += 1;
     if (state === 'unavailable') summary.unavailable += 1;
@@ -203,7 +208,9 @@ export function communicationSummary(tasks = []) {
     total: 0,
     scheduled: 0,
     pendingContact: 0,
+    accepted: 0,
     sent: 0,
+    delivered: 0,
     responded: 0,
     confirmed: 0,
     unavailable: 0,

@@ -107,7 +107,7 @@ test('sends once and records the provider message id', async () => {
   assert.deepEqual(result, { checked: 1, sent: 1, skipped: 0, failed: 0 });
   assert.equal(createdLogs[0].dedupeKey, 'whatsapp_reminder_24h:501:2026-08-20');
   assert.equal(sentMessages.length, 1);
-  assert.equal(updatedLogs[0].status, 'sent');
+  assert.equal(updatedLogs[0].status, 'accepted');
   assert.match(updatedLogs[0].response, /wamid\.test/);
 });
 
