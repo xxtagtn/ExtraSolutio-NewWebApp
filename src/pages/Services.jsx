@@ -817,20 +817,16 @@ export default function Services() {
 
     document.addEventListener('pointerdown', closePickerFromOutside);
     document.addEventListener('keydown', closePickerOnEscape);
-    window.addEventListener('resize', closePickerFromOutside);
-    window.addEventListener('scroll', closePickerFromOutside, true);
     return () => {
       document.removeEventListener('pointerdown', closePickerFromOutside);
       document.removeEventListener('keydown', closePickerOnEscape);
-      window.removeEventListener('resize', closePickerFromOutside);
-      window.removeEventListener('scroll', closePickerFromOutside, true);
     };
   }, [activeCollaboratorPickerIndex]);
 
   useEffect(() => {
     if (activeCollaboratorPickerIndex === null) return undefined;
     const frameId = window.requestAnimationFrame(() => {
-      collaboratorSearchRef.current?.focus();
+      collaboratorSearchRef.current?.focus({ preventScroll: true });
       collaboratorSearchRef.current?.select();
     });
     return () => window.cancelAnimationFrame(frameId);
@@ -2236,7 +2232,6 @@ export default function Services() {
                                       >
                                         <input
                                           ref={collaboratorSearchRef}
-                                          autoFocus
                                           type="text"
                                           placeholder="Filtrar por nome"
                                           value={assignment.collaboratorSearch || ''}
