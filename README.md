@@ -142,6 +142,10 @@ WHATSAPP_BUSINESS_ACCOUNT_ID=""
 WHATSAPP_ACCESS_TOKEN=""
 WHATSAPP_WEBHOOK_VERIFY_TOKEN=""
 
+# WhatsApp automation is disabled by default. Keep false for manual-only operation.
+WHATSAPP_REMINDER_ENABLED="false"
+WHATSAPP_AUTO_REPLY_ENABLED="false"
+
 # Proteção de login.
 LOGIN_WINDOW_MINUTES=15
 LOGIN_MAX_FAILURES=5

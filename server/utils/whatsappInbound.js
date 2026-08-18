@@ -23,7 +23,8 @@ function positiveNumber(value, fallback) {
 }
 
 export function whatsappAutoReplyConfig(env = process.env) {
-  const enabled = String(env.WHATSAPP_AUTO_REPLY_ENABLED ?? 'true').toLowerCase() !== 'false';
+  // Keep inbound auto-replies disabled unless explicitly enabled.
+  const enabled = String(env.WHATSAPP_AUTO_REPLY_ENABLED ?? 'false').toLowerCase() === 'true';
   const cooldownMinutes = positiveNumber(
     env.WHATSAPP_AUTO_REPLY_COOLDOWN_MINUTES,
     DEFAULT_COOLDOWN_MINUTES,

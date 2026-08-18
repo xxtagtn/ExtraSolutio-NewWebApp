@@ -278,7 +278,8 @@ export async function processWhatsAppReminders({
 }
 
 export function startWhatsAppReminderScheduler({
-  enabled = process.env.WHATSAPP_REMINDER_ENABLED !== 'false',
+  // Automatic reminders stay in standby unless explicitly enabled.
+  enabled = process.env.WHATSAPP_REMINDER_ENABLED === 'true',
   intervalMinutes = Number(process.env.WHATSAPP_REMINDER_INTERVAL_MINUTES || 5),
   startupDelayMs = Number(process.env.WHATSAPP_REMINDER_STARTUP_DELAY_MS || 15_000),
   logger = console,
