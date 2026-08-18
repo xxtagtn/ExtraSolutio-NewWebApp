@@ -58,13 +58,21 @@ test('builds approved template variables in the configured order', () => {
   const message = buildReminderTemplateMessage(assignment(), {
     WHATSAPP_REMINDER_TEMPLATE_NAME: 'lembrete_servico_24h',
     WHATSAPP_REMINDER_LANGUAGE_CODE: 'pt_PT',
-    WHATSAPP_REMINDER_TEMPLATE_FIELDS: 'collaborator,event,date,schedule,location',
+    WHATSAPP_REMINDER_TEMPLATE_FIELDS: 'collaborator,event,date,start,end,location,role',
   });
   assert.equal(message.to, '963680415');
   assert.equal(message.templateName, 'lembrete_servico_24h');
   assert.deepEqual(
     message.components[0].parameters.map((parameter) => parameter.text),
-    ['Ana Silva', 'Jantar Institucional', '20/08/2026', '18:00 → 23:00', 'Lisboa'],
+    ['Ana Silva', 'Jantar Institucional', '20/08/2026', '18:00', '23:00', 'Lisboa', 'Emp.Mesa'],
+  );
+});
+
+test('uses all approved template variables by default', () => {
+  const message = buildReminderTemplateMessage(assignment(), {});
+  assert.deepEqual(
+    message.components[0].parameters.map((parameter) => parameter.text),
+    ['Ana Silva', 'Jantar Institucional', '20/08/2026', '18:00', '23:00', 'Lisboa', 'Emp.Mesa'],
   );
 });
 

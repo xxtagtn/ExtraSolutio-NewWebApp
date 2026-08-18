@@ -53,6 +53,7 @@ export const assignmentCollaboratorSelect = {
   id: true,
   name: true,
   shortName: true,
+  phone: true,
   nif: true,
   hourlyRate: true,
   includeVat: true,

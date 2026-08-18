@@ -17,6 +17,7 @@ test('service list payload includes collaborators without photos', () => {
 
   assert.equal(collaboratorSelect.photo, undefined);
   assert.equal(collaboratorSelect.name, true);
+  assert.equal(collaboratorSelect.phone, true);
   assert.equal(collaboratorSelect.nif, true);
   assert.equal(collaboratorSelect.hourlyRate, true);
   assert.equal(collaboratorSelect.includeVat, true);

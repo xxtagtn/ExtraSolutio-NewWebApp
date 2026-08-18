@@ -10,7 +10,7 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CONFIRMED_STATUSES = new Set(['confirmed', 'confirmado']);
 const CANCELLED_STATUSES = new Set(['cancelled', 'cancelado']);
-const DEFAULT_TEMPLATE_FIELDS = ['collaborator', 'event', 'date', 'schedule', 'location'];
+const DEFAULT_TEMPLATE_FIELDS = ['collaborator', 'event', 'date', 'start', 'end', 'location', 'role'];
 
 function text(value) {
   return String(value ?? '').trim();
@@ -162,6 +162,8 @@ function templateFieldValue(field, assignment) {
     collaborator: collaboratorName(assignment),
     event: eventName(assignment),
     date: formatDatePt(assignmentDay(assignment)),
+    start: start || 'A confirmar',
+    end: end || 'A confirmar',
     schedule: [start, end].filter(Boolean).join(' → ') || 'A confirmar',
     location: text(assignment.event?.location) || 'A confirmar',
     role: text(assignment.role) || 'A confirmar',

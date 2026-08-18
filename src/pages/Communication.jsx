@@ -533,7 +533,7 @@ export default function Communication() {
               >
                 <label
                   className="communication-whatsapp-toggle"
-                  title={whatsappEnabled ? 'Enviar mensagem WhatsApp' : 'Não enviar mensagem WhatsApp'}
+                  title={whatsappEnabled ? 'Enviar lembrete WhatsApp automaticamente' : 'Não enviar lembrete WhatsApp'}
                 >
                   <input
                     type="checkbox"
