@@ -63,7 +63,7 @@ import {
 } from '../../shared/invoiceLifecycle.js';
 import { updateAssignmentsInBulk } from '../services/assignmentBulkUpdate.js';
 import {
-  assignmentsOutsideEventRange,
+  partitionAssignmentsOutsideEventRange,
   reconcileEventRangeData,
 } from '../utils/eventRangeReconciliation.js';
 
@@ -376,14 +376,22 @@ async function updateServiceWithRangeReconciliation({ id, data, existing, includ
   const reconciled = reconcileEventRangeData(existing, data);
   return prisma.$transaction(async (tx) => {
     const assignments = await tx.eventAssignment.findMany({ where: { eventId: id } });
-    const outside = assignmentsOutsideEventRange(assignments, reconciled.nextEvent);
-    if (outside.length) {
+    const { removable, blocking } = partitionAssignmentsOutsideEventRange(
+      assignments,
+      reconciled.nextEvent,
+    );
+    if (blocking.length) {
       const error = new Error(
-        `Não é possível reduzir o período: existem ${outside.length} colaborador(es) associado(s) aos dias que seriam removidos. Remove esses registos antes de alterar a data final.`,
+        `Não é possível reduzir o período: existem ${blocking.length} colaborador(es) associado(s) aos dias que seriam removidos. Remove esses registos antes de alterar a data final.`,
       );
       error.statusCode = 409;
       error.expose = true;
       throw error;
+    }
+    if (removable.length) {
+      await tx.eventAssignment.deleteMany({
+        where: { id: { in: removable.map((assignment) => assignment.id) } },
+      });
     }
     return tx.event.update({ where: { id }, data: reconciled.data, include });
   });
@@ -394,7 +402,7 @@ async function assertAssignmentWorkLocationIsValid(assignment = {}) {
   const eventId = Number(assignment.eventId);
   const workLocationId = Number(assignment.workLocationId);
   if (!Number.isInteger(eventId) || eventId <= 0 || !Number.isInteger(workLocationId) || workLocationId <= 0) {
-    const error = new Error('Local de Trabalho invÃ¡lido.');
+    const error = new Error('Local de Trabalho inválido.');
     error.statusCode = 400;
     error.expose = true;
     throw error;
@@ -410,7 +418,7 @@ async function assertAssignmentWorkLocationIsValid(assignment = {}) {
     }),
   ]);
   if (!event?.workLocationsEnabled || Number(workLocation?.eventId) !== eventId) {
-    const error = new Error('O Local de Trabalho selecionado nÃ£o pertence a este evento.');
+    const error = new Error('O Local de Trabalho selecionado não pertence a este evento.');
     error.statusCode = 409;
     error.expose = true;
     throw error;
@@ -586,7 +594,7 @@ apiRouter.get('/services/:id/work-locations', servicesRead, asyncHandler(async (
     where: { id },
     select: { id: true },
   });
-  if (!event) return res.status(404).json({ message: 'Evento/ServiÃ§o nÃ£o encontrado.' });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   const rows = await prisma.eventWorkLocation.findMany({
     where: { eventId: id },
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -607,14 +615,14 @@ apiRouter.post('/services/:id/work-locations', servicesUpdate, asyncHandler(asyn
       workLocations: { select: { name: true, sortOrder: true } },
     },
   });
-  if (!event) return res.status(404).json({ message: 'Evento/ServiÃ§o nÃ£o encontrado.' });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   if (!event.workLocationsEnabled) {
-    return res.status(409).json({ message: 'Ativa primeiro os Locais/Ãreas de Trabalho neste evento.' });
+    return res.status(409).json({ message: 'Ativa primeiro os Locais/Áreas de Trabalho neste evento.' });
   }
   const duplicate = event.workLocations.some(
     (item) => item.name.toLocaleLowerCase('pt') === name.toLocaleLowerCase('pt'),
   );
-  if (duplicate) return res.status(409).json({ message: 'Este Local de Trabalho jÃ¡ existe no evento.' });
+  if (duplicate) return res.status(409).json({ message: 'Este Local de Trabalho já existe no evento.' });
   const maxSortOrder = event.workLocations.reduce(
     (maximum, item) => Math.max(maximum, Number(item.sortOrder) || 0),
     -1,
@@ -636,7 +644,7 @@ apiRouter.put('/work-locations/:id', servicesUpdate, asyncHandler(async (req, re
     where: { id },
     select: { id: true, eventId: true },
   });
-  if (!existing) return res.status(404).json({ message: 'Local de Trabalho nÃ£o encontrado.' });
+  if (!existing) return res.status(404).json({ message: 'Local de Trabalho não encontrado.' });
   const name = normalizeWorkLocationName(req.body?.name);
   if (!name) return res.status(400).json({ message: 'Indica o nome do Local de Trabalho.' });
   const duplicate = await prisma.eventWorkLocation.findFirst({
@@ -653,7 +661,7 @@ apiRouter.put('/work-locations/:id', servicesUpdate, asyncHandler(async (req, re
   if (duplicate && allLocations.some(
     (item) => item.name.toLocaleLowerCase('pt') === name.toLocaleLowerCase('pt'),
   )) {
-    return res.status(409).json({ message: 'Este Local de Trabalho jÃ¡ existe no evento.' });
+    return res.status(409).json({ message: 'Este Local de Trabalho já existe no evento.' });
   }
   const row = await prisma.eventWorkLocation.update({
     where: { id },
@@ -669,10 +677,10 @@ apiRouter.delete('/work-locations/:id', servicesUpdate, asyncHandler(async (req,
     where: { id },
     include: { _count: { select: { assignments: true } } },
   });
-  if (!existing) return res.status(404).json({ message: 'Local de Trabalho nÃ£o encontrado.' });
+  if (!existing) return res.status(404).json({ message: 'Local de Trabalho não encontrado.' });
   if (existing._count.assignments > 0) {
     return res.status(409).json({
-      message: 'Este local ainda tem colaboradores atribuÃ­dos. Altera primeiro essas alocaÃ§Ãµes.',
+      message: 'Este local ainda tem colaboradores atribuídos. Altera primeiro essas alocações.',
     });
   }
   await prisma.eventWorkLocation.delete({ where: { id } });
@@ -696,7 +704,7 @@ apiRouter.put('/services/:id/work-locations/reorder', servicesUpdate, asyncHandl
     || new Set(requestedIds).size !== requestedIds.length
     || existingIds.some((value) => !requestedIds.includes(value))
   ) {
-    return res.status(400).json({ message: 'A ordem indicada nÃ£o corresponde aos locais deste evento.' });
+    return res.status(400).json({ message: 'A ordem indicada não corresponde aos locais deste evento.' });
   }
   await prisma.$transaction(
     requestedIds.map((workLocationId, sortOrder) => prisma.eventWorkLocation.update({
@@ -744,8 +752,7 @@ apiRouter.put('/assignments/bulk', assignmentsWrite, asyncHandler(async (req, re
     updates: req.body?.updates,
     include: { event: true, collaborator: true, workLocation: true },
     normalizeUpdate: normalizeAssignmentUpdate,
-    ensureQrCode: ensureQrCodeForAssignmentId,
-    synchronizeEvent: (eventId) => synchronizeEventAfterAssignmentMutation(eventId, {
+    synchronizeEvent: (eventId, client) => synchronizeEventWorkflow(client, eventId, {
       recalculateTotals: true,
     }),
   });

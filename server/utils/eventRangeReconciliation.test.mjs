@@ -3,6 +3,7 @@ import test from 'node:test';
 import { eventDayKeys } from '../../src/utils/eventCancelledDays.js';
 import {
   assignmentsOutsideEventRange,
+  partitionAssignmentsOutsideEventRange,
   reconcileEventRangeData,
 } from './eventRangeReconciliation.js';
 
@@ -51,4 +52,20 @@ test('detects collaborators associated with days outside the shortened range', (
     { id: 2, assignmentDate: date('2026-08-21') },
   ], event);
   assert.deepEqual(outside.map((item) => item.id), [2]);
+});
+
+test('allows cancelled assignments outside the shortened range to be removed permanently', () => {
+  const event = {
+    date: date('2026-08-01'),
+    endDate: date('2026-08-20'),
+    isContinuous: true,
+  };
+  const result = partitionAssignmentsOutsideEventRange([
+    { id: 20, assignmentDate: date('2026-08-20'), status: 'confirmed' },
+    { id: 21, assignmentDate: date('2026-08-21'), status: 'cancelled' },
+    { id: 22, assignmentDate: date('2026-08-22'), status: 'confirmed' },
+  ], event);
+
+  assert.deepEqual(result.removable.map((item) => item.id), [21]);
+  assert.deepEqual(result.blocking.map((item) => item.id), [22]);
 });

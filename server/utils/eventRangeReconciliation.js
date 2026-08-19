@@ -50,3 +50,15 @@ export function assignmentsOutsideEventRange(assignments = [], event = {}) {
     return Boolean(day && !activeDays.has(day));
   });
 }
+
+export function partitionAssignmentsOutsideEventRange(assignments = [], event = {}) {
+  const outside = assignmentsOutsideEventRange(assignments, event);
+  return {
+    removable: outside.filter((assignment) => (
+      String(assignment?.status || '').trim().toLowerCase() === 'cancelled'
+    )),
+    blocking: outside.filter((assignment) => (
+      String(assignment?.status || '').trim().toLowerCase() !== 'cancelled'
+    )),
+  };
+}

@@ -10,7 +10,6 @@ export async function updateAssignmentsInBulk({
   updates,
   include,
   normalizeUpdate,
-  ensureQrCode,
   synchronizeEvent,
 }) {
   if (!Array.isArray(updates) || !updates.length) {
@@ -46,28 +45,28 @@ export async function updateAssignmentsInBulk({
     });
   }
 
+  const eventIds = new Set(
+    prepared
+      .map((item) => Number(item.existing?.eventId))
+      .filter((eventId) => Number.isInteger(eventId) && eventId > 0),
+  );
+
   const rows = await prisma.$transaction(async (tx) => {
     const result = [];
     for (const item of prepared) {
-      result.push(await tx.eventAssignment.update({
+      const row = await tx.eventAssignment.update({
         where: { id: item.id },
         data: item.data,
         include,
-      }));
+      });
+      result.push(row);
+      const eventId = Number(row.eventId);
+      if (Number.isInteger(eventId) && eventId > 0) eventIds.add(eventId);
     }
+
+    for (const eventId of eventIds) await synchronizeEvent(eventId, tx);
     return result;
   });
-
-  for (const row of rows) await ensureQrCode(row.id);
-
-  const eventIds = new Set();
-  for (const item of prepared) {
-    if (item.existing?.eventId) eventIds.add(Number(item.existing.eventId));
-  }
-  for (const row of rows) {
-    if (row.eventId) eventIds.add(Number(row.eventId));
-  }
-  for (const eventId of eventIds) await synchronizeEvent(eventId);
 
   return rows;
 }

@@ -5,6 +5,7 @@ import {
   deriveEventWorkflowStatus,
   EVENT_WORKFLOW_MODE,
   isEventWorkflowManual,
+  reactivateEventDay,
 } from './eventWorkflow.js';
 
 test('keeps a manually selected operational status unchanged', () => {
@@ -130,5 +131,70 @@ test('cancels a represented day that is not fully validated even if the event st
   assert.equal(
     JSON.parse(updatedEventData.cancelledDays)[0].date,
     '2026-07-05',
+  );
+});
+
+test('reactivating one cancelled day leaves every other cancelled day unchanged', async () => {
+  const event = {
+    id: 88,
+    date: new Date('2026-08-01T00:00:00.000Z'),
+    endDate: new Date('2026-08-30T00:00:00.000Z'),
+    isContinuous: true,
+    status: 'to_validate_staff',
+    statusMode: EVENT_WORKFLOW_MODE.automatic,
+    requiredRoles: '[]',
+    invoices: [],
+    cancelledDays: JSON.stringify([
+      {
+        date: '2026-08-21',
+        assignmentStates: [{ id: 601, status: 'confirmed', validationStatus: 'pending' }],
+      },
+      {
+        date: '2026-08-25',
+        assignmentStates: [{ id: 602, status: 'confirmed', validationStatus: 'pending' }],
+      },
+    ]),
+    assignments: [
+      {
+        id: 601,
+        assignmentDate: new Date('2026-08-21T00:00:00.000Z'),
+        status: 'cancelled',
+        validationStatus: 'pending',
+        paymentStatus: 'unpaid',
+      },
+      {
+        id: 602,
+        assignmentDate: new Date('2026-08-25T00:00:00.000Z'),
+        status: 'cancelled',
+        validationStatus: 'pending',
+        paymentStatus: 'unpaid',
+      },
+    ],
+  };
+  const assignmentUpdates = [];
+  let updatedEventData = null;
+  const client = {
+    event: {
+      findUnique: async () => event,
+      update: async ({ data }) => {
+        updatedEventData = data;
+        return event;
+      },
+    },
+    eventAssignment: {
+      update: async (request) => {
+        assignmentUpdates.push(request);
+        return event.assignments.find((assignment) => assignment.id === request.where.id);
+      },
+    },
+  };
+  const prisma = { $transaction: async (callback) => callback(client) };
+
+  await reactivateEventDay(prisma, event.id, '2026-08-21');
+
+  assert.deepEqual(assignmentUpdates.map((request) => request.where.id), [601]);
+  assert.deepEqual(
+    JSON.parse(updatedEventData.cancelledDays).map((entry) => entry.date),
+    ['2026-08-25'],
   );
 });
