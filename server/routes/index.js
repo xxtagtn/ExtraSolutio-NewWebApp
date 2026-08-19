@@ -61,6 +61,11 @@ import {
   dueDateFromInvoiceIssue,
   invoiceIsIssued,
 } from '../../shared/invoiceLifecycle.js';
+import { updateAssignmentsInBulk } from '../services/assignmentBulkUpdate.js';
+import {
+  assignmentsOutsideEventRange,
+  reconcileEventRangeData,
+} from '../utils/eventRangeReconciliation.js';
 
 export const apiRouter = Router();
 const CLOSED_EVENT_STATUSES = ['finalized', 'completed', 'invoiced', 'paid'];
@@ -365,6 +370,23 @@ async function normalizeAssignmentUpdate(input, existing) {
     await assertNoAssignmentConflict(prisma, data, existing);
   }
   return data;
+}
+
+async function updateServiceWithRangeReconciliation({ id, data, existing, include }) {
+  const reconciled = reconcileEventRangeData(existing, data);
+  return prisma.$transaction(async (tx) => {
+    const assignments = await tx.eventAssignment.findMany({ where: { eventId: id } });
+    const outside = assignmentsOutsideEventRange(assignments, reconciled.nextEvent);
+    if (outside.length) {
+      const error = new Error(
+        `Não é possível reduzir o período: existem ${outside.length} colaborador(es) associado(s) aos dias que seriam removidos. Remove esses registos antes de alterar a data final.`,
+      );
+      error.statusCode = 409;
+      error.expose = true;
+      throw error;
+    }
+    return tx.event.update({ where: { id }, data: reconciled.data, include });
+  });
 }
 
 async function assertAssignmentWorkLocationIsValid(assignment = {}) {
@@ -701,6 +723,7 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   normalizeCreate: normalizeServiceCreate,
   normalizeUpdate: normalizeServiceUpdate,
   loadExistingForUpdate: true,
+  performUpdate: updateServiceWithRangeReconciliation,
   afterUpdate: async ({ id }) => {
     await synchronizeEventWorkflow(prisma, id, { recalculateTotals: true });
   },
@@ -713,6 +736,20 @@ apiRouter.use('/service-templates', createCrudRouter(prisma.eventTemplate, [], {
   deleteMiddleware: servicesDelete,
   normalizeCreate: normalizeEventTemplate,
   normalizeUpdate: normalizeEventTemplate,
+}));
+
+apiRouter.put('/assignments/bulk', assignmentsWrite, asyncHandler(async (req, res) => {
+  const rows = await updateAssignmentsInBulk({
+    prisma,
+    updates: req.body?.updates,
+    include: { event: true, collaborator: true, workLocation: true },
+    normalizeUpdate: normalizeAssignmentUpdate,
+    ensureQrCode: ensureQrCodeForAssignmentId,
+    synchronizeEvent: (eventId) => synchronizeEventAfterAssignmentMutation(eventId, {
+      recalculateTotals: true,
+    }),
+  });
+  res.json(rows.map((row) => maskAssignmentForRole(row, req.user)));
 }));
 
 apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [

@@ -1469,11 +1469,15 @@ export default function TimeValidation() {
     setBulkValidatingEventId(item.event.id);
     try {
       const updates = new Map();
-      await Promise.all(candidates.ready.map(({ row, merged }) => {
+      const bulkUpdates = candidates.ready.map(({ row, merged }) => {
         const body = validationBodyFor(row, merged, 'validated');
         updates.set(row.id, body);
-        return api(`/assignments/${row.id}`, { method: 'PUT', body: JSON.stringify(body) });
-      }));
+        return { id: row.id, data: body };
+      });
+      await api('/assignments/bulk', {
+        method: 'PUT',
+        body: JSON.stringify({ updates: bulkUpdates }),
+      });
 
       setDrafts((prev) => {
         const next = { ...prev };
@@ -1505,11 +1509,15 @@ export default function TimeValidation() {
     setCopyingClientEventId(item.event.id);
     try {
       const updates = new Map();
-      await Promise.all(candidates.ready.map(({ row, merged }) => {
+      const bulkUpdates = candidates.ready.map(({ row, merged }) => {
         const body = validationBodyFor(row, merged, 'auto');
         updates.set(row.id, body);
-        return api(`/assignments/${row.id}`, { method: 'PUT', body: JSON.stringify(body) });
-      }));
+        return { id: row.id, data: body };
+      });
+      await api('/assignments/bulk', {
+        method: 'PUT',
+        body: JSON.stringify({ updates: bulkUpdates }),
+      });
 
       setDrafts((prev) => {
         const next = { ...prev };
