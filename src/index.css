@@ -2209,7 +2209,13 @@ th {
 @media (min-width: 761px) {
   .modal-backdrop--stable-desktop {
     align-items: flex-start;
+    overflow: hidden;
     padding: 24px;
+  }
+
+  .modal-backdrop--stable-desktop > .modal--wide {
+    width: min(1320px, 100%);
+    max-width: 100%;
   }
 
   .modal--stable-desktop {
@@ -2221,9 +2227,13 @@ th {
   }
 
   .modal--stable-desktop > .collab-form {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     min-height: 0;
     flex: 1 1 auto;
-    overflow-y: scroll;
+    overflow-x: hidden;
+    overflow-y: auto;
     scrollbar-gutter: stable;
   }
 }
