@@ -748,7 +748,7 @@ export default function Collaborators() {
       </Card>
 
       {formOpen ? (
-        <Modal title={editing ? 'Editar Colaborador' : 'Novo Colaborador'} onClose={() => closeForm()} size="wide">
+        <Modal title={editing ? 'Editar Colaborador' : 'Novo Colaborador'} onClose={() => closeForm()} size="wide" stableDesktop>
           <form className="collab-form" onSubmit={submit}>
             <div className="collab-form-grid">
               <div className="collab-main">

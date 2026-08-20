@@ -11,7 +11,7 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
-export default function Modal({ title, children, onClose, size = 'default' }) {
+export default function Modal({ title, children, onClose, size = 'default', stableDesktop = false }) {
   const dialogRef = useRef(null);
   const previousFocusRef = useRef(null);
 
@@ -70,10 +70,10 @@ export default function Modal({ title, children, onClose, size = 'default' }) {
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onBackdropMouseDown}>
+    <div className={`modal-backdrop${stableDesktop ? ' modal-backdrop--stable-desktop' : ''}`} role="presentation" onMouseDown={onBackdropMouseDown}>
       <section
         ref={dialogRef}
-        className={`modal ${size === 'wide' ? 'modal--wide' : ''}`}
+        className={`modal ${size === 'wide' ? 'modal--wide' : ''}${stableDesktop ? ' modal--stable-desktop' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
