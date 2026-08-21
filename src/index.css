@@ -8557,6 +8557,18 @@ th {
   word-break: normal;
 }
 
+.validation-table td.validation-event-cell .validation-work-location {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  color: var(--accent);
+}
+
+.validation-work-location svg {
+  flex: 0 0 auto;
+}
+
 .validation-table td.validation-collaborator-cell .validation-collaborator-heading {
   width: 100%;
   min-width: 0;

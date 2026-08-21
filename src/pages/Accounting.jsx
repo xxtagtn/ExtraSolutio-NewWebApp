@@ -40,7 +40,11 @@ import { date, durationHours, money } from '../utils/formatters.js';
 import { clientChargeHours, decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
 import { buildClientFinancialSummary } from '../utils/clientFinancialSummary.js';
 import { paginateItems } from '../utils/pagination.js';
-import { calculateFinancialMargin, clientRateForAssignment } from '../utils/eventFinancialRules.js';
+import {
+  calculateFinancialMargin,
+  clientRateForAssignment,
+  isBillableEventAssignment,
+} from '../utils/eventFinancialRules.js';
 import { statusLabel as operationalStatusLabel } from '../utils/serviceStatus.js';
 import {
   normalizeStaffAdvances,
@@ -121,7 +125,6 @@ const EXPENSE_CATEGORIES = [
   'Outros',
 ];
 
-const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const CLOSED_BILLING_STATUSES = new Set(['partial70', 'invoiced', 'paid']);
 const MONTH_OPTIONS = [
   { value: '00', label: 'Todos os meses' },
@@ -195,12 +198,8 @@ function dayDiffFromToday(value) {
   return Math.floor((today.getTime() - targetDay.getTime()) / 86_400_000);
 }
 
-function normalizeAssignmentStatus(status) {
-  return String(status || '').trim().toLowerCase();
-}
-
 function billableAssignments(event) {
-  return (event.assignments || []).filter((assignment) => !NON_BILLABLE_ASSIGNMENT.has(normalizeAssignmentStatus(assignment.status)));
+  return (event.assignments || []).filter(isBillableEventAssignment);
 }
 
 function assignmentHours(assignment) {

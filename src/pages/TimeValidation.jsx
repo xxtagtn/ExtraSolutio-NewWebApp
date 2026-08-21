@@ -7,6 +7,7 @@ import {
   FileDown,
   FileSpreadsheet,
   Hourglass,
+  MapPin,
   OctagonAlert,
   RotateCcw,
   Save,
@@ -41,6 +42,7 @@ import {
   staffWorkedHours,
 } from '../utils/serviceFinance.js';
 import { SERVICE_STATUS } from '../utils/serviceStatus.js';
+import { isBillableEventAssignment } from '../utils/eventFinancialRules.js';
 import { buildStaffSchedulePdfHtml, createStaffScheduleWorkbook } from '../utils/staffSchedulePdf.js';
 import { assessTimeTolerance, resolvePlannedTimes } from '../utils/timeTolerance.js';
 import {
@@ -62,6 +64,7 @@ import {
   validationCollaboratorFilterIdentity,
   validationCollaboratorFilterKey,
   validationCollaboratorFilterKeys,
+  validationWorkLocationLabel,
 } from '../utils/timeValidationFilters.js';
 import {
   compareTimeValidationRowsChronological,
@@ -82,7 +85,6 @@ import {
   validationWorkflowStage,
 } from '../utils/timeValidationWorkflow.js';
 
-const NON_BILLABLE_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const VALIDATED_EVENT_MARKER = '[EVENT_VALIDATED_HOURS]';
 const VALIDATION_STAGE_TABS = [
   { value: TIME_VALIDATION_STAGE.staffPending, label: 'Por preencher Staff', icon: Hourglass, tone: 'neutral' },
@@ -102,10 +104,6 @@ const IMPORT_MANUAL_MAPPING_FIELDS = new Set(['session', 'category', 'department
 
 function num(value) {
   return Number(value || 0);
-}
-
-function assignmentStatus(status) {
-  return String(status || '').trim().toLowerCase();
 }
 
 function eventIsMarkedValidated(event) {
@@ -614,7 +612,7 @@ export default function TimeValidation() {
       .filter((assignment) => (
         validationCollaboratorFilterKeys(assignment).length > 0
         && assignment.role
-        && String(assignment.status || '').toLowerCase() !== 'cancelled'
+        && isBillableEventAssignment(assignment)
       ))
       .map((assignment) => {
         const draft = drafts[assignment.id] || {};
@@ -642,6 +640,7 @@ export default function TimeValidation() {
           eventValidated: eventIsMarkedValidated(event),
           workDateKey,
           workDateLabel: workDateKey ? date.format(new Date(workDateKey)) : '-',
+          workLocationLabel: validationWorkLocationLabel(event, merged),
           collaboratorName,
           validationState: hoursValidationState(persistedAssignment),
           persistedAssignment,
@@ -865,7 +864,7 @@ export default function TimeValidation() {
         const workDateKeys = [...item.workDateKeys].filter(Boolean).sort();
         const latestWorkDateKey = workDateKeys[workDateKeys.length - 1] || item.event.date || '';
         const summary = validationEventWorkflowSummary(item.rows, {
-          includeRow: (row) => !NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status)),
+          includeRow: (row) => isBillableEventAssignment(row.assignment),
         });
         return {
           ...item,
@@ -996,7 +995,7 @@ export default function TimeValidation() {
       .map((item) => {
         const sortedRows = [...item.rows].sort(compareTimeValidationRowsChronological);
         const summary = validationEventWorkflowSummary(item.rows, {
-          includeRow: (row) => !NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status)),
+          includeRow: (row) => isBillableEventAssignment(row.assignment),
         });
         return {
           ...item,
@@ -1448,7 +1447,7 @@ export default function TimeValidation() {
     const targetWorkDateKey = item.workDateKey
       || (selectedWorkDateKey !== 'all' ? selectedWorkDateKey : '');
     const eventRows = rowsForEventDay(clientRows, item.event.id, targetWorkDateKey)
-      .filter((row) => !NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status)));
+      .filter((row) => isBillableEventAssignment(row.assignment));
 
     if (!targetWorkDateKey) {
       window.alert('Seleciona um dia do evento antes de validar o dia.');
@@ -1497,7 +1496,7 @@ export default function TimeValidation() {
   async function copyStaffToClientForEvent(item) {
     const eventRows = clientRows.filter((row) => (
       String(row.event.id) === String(item.event.id)
-      && !NON_BILLABLE_STATUSES.has(assignmentStatus(row.assignment.status))
+      && isBillableEventAssignment(row.assignment)
     ));
     const candidates = buildClientCopyCandidates(eventRows, drafts);
 
@@ -2024,6 +2023,12 @@ export default function TimeValidation() {
                             <td className="validation-event-cell">
                               <strong>{row.event.name}</strong>
                               <small>{row.event.client?.name || row.event.clientName || '-'} · {row.workDateLabel}</small>
+                              {row.workLocationLabel ? (
+                                <small className="validation-work-location">
+                                  <MapPin size={12} aria-hidden="true" />
+                                  <span>Local: {row.workLocationLabel}</span>
+                                </small>
+                              ) : null}
                             </td>
                             {showPlannedColumn ? (
                               <td>

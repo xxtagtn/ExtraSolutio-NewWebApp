@@ -7,6 +7,12 @@ import {
 
 export const NON_BILLABLE_EVENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 
+export function isBillableEventAssignment(assignment = {}) {
+  return !NON_BILLABLE_EVENT_STATUSES.has(
+    String(assignment?.status || '').trim().toLowerCase(),
+  );
+}
+
 function safeArray(value) {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -64,9 +70,7 @@ export function clientRateForAssignment(assignment = {}, eventOrRoles = []) {
 }
 
 export function billableEventAssignments(assignments = []) {
-  return (assignments || []).filter((assignment) => (
-    !NON_BILLABLE_EVENT_STATUSES.has(String(assignment?.status || '').trim().toLowerCase())
-  ));
+  return (assignments || []).filter(isBillableEventAssignment);
 }
 
 export function calculateFinancialMargin(revenueValue, staffValue, expenseValue) {

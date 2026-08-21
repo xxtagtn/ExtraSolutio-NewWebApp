@@ -2,9 +2,25 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   calculateFinancialMargin,
+  billableEventAssignments,
   clientRateForAssignment,
   eventFinancialWarnings,
+  isBillableEventAssignment,
 } from './eventFinancialRules.js';
+
+test('excludes missed and cancelled assignments without deleting their records', () => {
+  const assignments = [
+    { id: 1, status: 'confirmed' },
+    { id: 2, status: 'missed_justified' },
+    { id: 3, status: 'missed_unjustified' },
+    { id: 4, status: 'cancelled' },
+  ];
+
+  assert.equal(isBillableEventAssignment(assignments[0]), true);
+  assert.equal(isBillableEventAssignment(assignments[1]), false);
+  assert.deepEqual(billableEventAssignments(assignments).map((item) => item.id), [1]);
+  assert.equal(assignments.length, 4);
+});
 
 test('uses the single historical event rate for legacy rows without a function', () => {
   const event = { requiredRoles: [{ role: 'Emp.Mesa', agreedRate: 9.5 }] };

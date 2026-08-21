@@ -16,6 +16,7 @@ import {
   validationCollaboratorFilterKey,
   validationCollaboratorFilterIdentity,
   validationClientFilterIdentity,
+  validationWorkLocationLabel,
   matchesValidationCollaboratorFilter,
 } from './timeValidationFilters.js';
 
@@ -54,11 +55,19 @@ test('uses planned assignment start as effective row start time', () => {
 test('sorts validation rows by date and collaborator name', () => {
   const rows = [
     { id: 3, event: { name: 'Evento', date: '2026-07-01', startTime: '09:00' }, assignment: { assignmentDate: '2026-07-02', plannedCheckIn: '08:00', collaborator: { shortName: 'Ana' } } },
-    { id: 1, event: { name: 'Evento', date: '2026-07-01', startTime: '09:00' }, assignment: { assignmentDate: '2026-07-01', plannedCheckIn: '10:00', collaborator: { shortName: 'Rui' } } },
-    { id: 2, event: { name: 'Evento', date: '2026-07-01', startTime: '09:00' }, assignment: { assignmentDate: '2026-07-01', plannedCheckIn: '08:00', collaborator: { shortName: 'Marta' } } },
+    { id: 1, event: { name: 'Evento', date: '2026-07-01', startTime: '09:00' }, assignment: { assignmentDate: '2026-07-01', plannedCheckIn: '08:00', collaborator: { shortName: 'Rui' } } },
+    { id: 2, event: { name: 'Evento', date: '2026-07-01', startTime: '09:00' }, assignment: { assignmentDate: '2026-07-01', plannedCheckIn: '10:00', collaborator: { shortName: 'Marta' } } },
   ];
 
   assert.deepEqual([...rows].sort(compareTimeValidationRows).map((row) => row.id), [2, 1, 3]);
+});
+
+test('shows only the assigned work location when the event enables locations', () => {
+  const assignment = { workLocation: { name: 'Lounge VIP' } };
+
+  assert.equal(validationWorkLocationLabel({ workLocationsEnabled: true }, assignment), 'Lounge VIP');
+  assert.equal(validationWorkLocationLabel({ workLocationsEnabled: false }, assignment), '');
+  assert.equal(validationWorkLocationLabel({ workLocationsEnabled: true }, {}), '');
 });
 
 test('sorts validation rows by resolved work date before grouping by day', () => {
