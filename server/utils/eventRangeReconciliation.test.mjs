@@ -11,6 +11,33 @@ function date(day) {
   return new Date(`${day}T00:00:00.000Z`);
 }
 
+test('preserves saved unassigned rows when a partial update omits drafts', () => {
+  const original = {
+    date: date('2026-08-01'),
+    endDate: date('2026-08-03'),
+    isContinuous: true,
+    assignmentDrafts: JSON.stringify([{ role: 'Barman', assignmentDate: '2026-08-02' }]),
+  };
+
+  for (const update of [{ notes: 'Updated' }, { assignmentDrafts: undefined }]) {
+    assert.equal(reconcileEventRangeData(original, update).data.assignmentDrafts, original.assignmentDrafts);
+  }
+});
+
+test('an explicitly empty draft list clears saved unassigned rows', () => {
+  const original = {
+    date: date('2026-08-01'),
+    endDate: date('2026-08-03'),
+    isContinuous: true,
+    assignmentDrafts: JSON.stringify([{ role: 'Barman', assignmentDate: '2026-08-02' }]),
+  };
+
+  for (const assignmentDrafts of [null, [], '[]']) {
+    const result = reconcileEventRangeData(original, { assignmentDrafts });
+    assert.equal(result.data.assignmentDrafts, null);
+  }
+});
+
 test('continuous event can shrink from 30 to 20 days and expand to 30 again', () => {
   const original = {
     date: date('2026-08-01'),

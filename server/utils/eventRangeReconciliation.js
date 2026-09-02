@@ -29,7 +29,8 @@ export function reconcileEventRangeData(existing = {}, data = {}) {
     const day = eventDayKey(role?.day || role?.date || role?.workDate);
     return !day || activeDays.has(day);
   });
-  const drafts = jsonArray(data.assignmentDrafts ?? existing.assignmentDrafts).filter((draft) => {
+  // An empty draft list is stored as null; only an omitted field preserves old rows.
+  const drafts = jsonArray(data.assignmentDrafts === undefined ? existing.assignmentDrafts : data.assignmentDrafts).filter((draft) => {
     const day = eventDayKey(draft?.assignmentDate || draft?.day || draft?.date);
     return !day || activeDays.has(day);
   });

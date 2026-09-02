@@ -1,6 +1,85 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normalizeAssignment, normalizeBudget, normalizeClient, normalizeEvent } from './crud.js';
+import { reconcileEventRangeData } from '../utils/eventRangeReconciliation.js';
+import {
+  buildEditableTeamRows,
+  editableTeamRowsToAssignmentDrafts,
+  normalizeDailyRoleRequirements,
+  removeEditableTeamRow,
+} from '../../src/utils/serviceDetail.js';
+
+for (const scenario of [
+  { name: 'last saved vacancy', savedDraft: true },
+  { name: 'only row on the selected day', savedDraft: true, emptyDay: true },
+  { name: 'vacancy with another day still unassigned', savedDraft: true, otherDraft: true },
+  { name: 'generated vacancy without a saved draft', savedDraft: false },
+]) {
+  test(`deleting ${scenario.name} in an archived continuous event survives save and reopen`, () => {
+    const assignments = ['2026-08-01', '2026-08-02', '2026-08-03']
+      .filter((day) => !scenario.emptyDay || day !== '2026-08-02')
+      .map((assignmentDate, index) => ({
+        id: index + 1,
+        collaboratorId: 10,
+        role: 'Barman',
+        assignmentDate,
+        status: 'confirmed',
+        validationStatus: 'validated',
+        paymentStatus: 'paid',
+        checkIn: '10:00',
+        checkOut: '14:00',
+        paymentDate: '2026-08-10',
+      }));
+    const drafts = [
+      ...(scenario.savedDraft ? [{ draftId: 'vacancy', role: 'Barman', assignmentDate: '2026-08-02' }] : []),
+      ...(scenario.otherDraft ? [{ draftId: 'other-day', role: 'Barman', assignmentDate: '2026-08-03' }] : []),
+    ];
+    const original = {
+      id: 42,
+      date: '2026-08-01',
+      endDate: '2026-08-03',
+      isContinuous: true,
+      status: 'finalized',
+      statusMode: 'manual',
+      billingStatus: 'paid',
+      cancelledDays: null,
+      requiredRoles: JSON.stringify([
+        { role: 'Barman', qty: 1, day: '2026-08-01' },
+        { role: 'Barman', qty: scenario.emptyDay ? 1 : 2, day: '2026-08-02' },
+        { role: 'Barman', qty: scenario.otherDraft ? 2 : 1, day: '2026-08-03' },
+      ]),
+      assignmentDrafts: drafts.length ? JSON.stringify(drafts) : null,
+      assignments,
+    };
+    const before = structuredClone(original);
+    const requirements = normalizeDailyRoleRequirements(original);
+    const rows = buildEditableTeamRows({ ...original, requiredRoles: requirements });
+    const vacancy = rows.find((row) => !row.collaboratorId && row.assignmentDate === '2026-08-02');
+    assert.ok(vacancy);
+    const removed = removeEditableTeamRow(rows, requirements, original, vacancy.rowKey);
+    const body = {
+      requiredRoles: removed.requirements,
+      assignmentDrafts: editableTeamRowsToAssignmentDrafts(removed.rows),
+    };
+
+    // Exercise the same normalization and reconciliation used by PUT /services/:id.
+    let saved = original;
+    for (let save = 0; save < 2; save += 1) {
+      const result = reconcileEventRangeData(saved, normalizeEvent(body));
+      saved = JSON.parse(JSON.stringify({ ...saved, ...result.data }));
+      const reopened = buildEditableTeamRows(saved);
+      assert.equal(reopened.some((row) => !row.collaboratorId && row.assignmentDate === '2026-08-02'), false);
+      assert.equal(reopened.filter((row) => row.assignmentDate === '2026-08-02').length, scenario.emptyDay ? 0 : 1);
+      assert.equal(reopened.filter((row) => row.assignmentDate === '2026-08-01').length, 1);
+      assert.equal(reopened.filter((row) => row.assignmentDate === '2026-08-03').length, scenario.otherDraft ? 2 : 1);
+      assert.deepEqual(saved.assignments, before.assignments);
+      assert.equal(saved.status, before.status);
+      assert.equal(saved.statusMode, before.statusMode);
+      assert.equal(saved.billingStatus, before.billingStatus);
+    }
+    assert.deepEqual(original, before);
+  });
+}
 
 test('normalizes event billing payment date when provided', () => {
   const payload = normalizeEvent({ billingPaymentDate: '2026-06-05' });
