@@ -157,3 +157,115 @@ test('includes collaborator VAT and payment adjustments in Staff cost', () => {
 
   assert.equal(totals.totalCost, 51.2);
 });
+
+test('recalculates 140 to 70 when the active team changes from two people to one', () => {
+  const event = {
+    status: 'to_validate_staff',
+    startTime: '12:00',
+    endTime: '16:00',
+    minimumHoursSnapshot: 5,
+    totalRevenue: 140,
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 1, agreedRate: 14 }],
+  };
+  const assignment = {
+    role: 'Emp.Mesa',
+    status: 'confirmed',
+    plannedCheckIn: '12:00',
+    plannedCheckOut: '16:00',
+    hourlyRate: 8.5,
+  };
+
+  assert.equal(calculateEventTotals(event, [assignment]).totalRevenue, 70);
+  assert.equal(calculateEventTotals({
+    ...event,
+    status: 'drafting',
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 2, agreedRate: 14 }],
+  }, [assignment]).totalRevenue, 140);
+});
+
+test('applies minimum hours independently to each active collaborator', () => {
+  const event = {
+    status: 'to_validate_staff',
+    minimumHoursSnapshot: 5,
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 1, agreedRate: 14 }],
+  };
+
+  assert.equal(calculateEventTotals(event, [{
+    role: 'Emp.Mesa', status: 'confirmed', plannedCheckIn: '12:00', plannedCheckOut: '15:00', hourlyRate: 8,
+  }]).totalRevenue, 70);
+  assert.equal(calculateEventTotals(event, [{
+    role: 'Emp.Mesa', status: 'confirmed', plannedCheckIn: '12:00', plannedCheckOut: '17:00', hourlyRate: 8,
+  }]).totalRevenue, 70);
+  assert.equal(calculateEventTotals(event, [{
+    role: 'Emp.Mesa', status: 'confirmed', plannedCheckIn: '12:00', plannedCheckOut: '19:00', hourlyRate: 8,
+  }]).totalRevenue, 98);
+});
+
+test('does not retain an obsolete total after all current commercial rows are removed', () => {
+  const totals = calculateEventTotals({
+    status: 'drafting',
+    totalRevenue: 140,
+    totalCost: 80,
+    requiredRoles: [],
+  }, []);
+
+  assert.equal(totals.totalRevenue, 0);
+  assert.equal(totals.totalCost, 0);
+});
+
+test('keeps issued client totals immutable while allowing staff costs to be rebuilt', () => {
+  const totals = calculateEventTotals({
+    totalRevenue: 140,
+    taxAmount: 10,
+    realHours: 10,
+    billableHours: 10,
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 1, agreedRate: 14 }],
+  }, [{
+    role: 'Emp.Mesa',
+    status: 'confirmed',
+    plannedCheckIn: '12:00',
+    plannedCheckOut: '17:00',
+    hourlyRate: 9,
+  }], { preserveClientTotals: true });
+
+  assert.equal(totals.totalRevenue, 140);
+  assert.equal(totals.taxAmount, 10);
+  assert.equal(totals.billableHours, 10);
+  assert.equal(totals.totalCost, 45);
+});
+
+test('forecasts legacy continuous requirements once per active day', () => {
+  const totals = calculateEventTotals({
+    status: 'drafting',
+    isContinuous: true,
+    date: '2026-09-01',
+    endDate: '2026-09-03',
+    cancelledDays: [{ date: '2026-09-02' }],
+    startTime: '12:00',
+    endTime: '16:00',
+    minimumHoursSnapshot: 5,
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 1, agreedRate: 14 }],
+  }, []);
+
+  assert.equal(totals.billableHours, 10);
+  assert.equal(totals.totalRevenue, 140);
+});
+
+test('does not multiply explicit continuous-day requirements a second time', () => {
+  const totals = calculateEventTotals({
+    status: 'drafting',
+    isContinuous: true,
+    date: '2026-09-01',
+    endDate: '2026-09-02',
+    startTime: '12:00',
+    endTime: '16:00',
+    minimumHoursSnapshot: 5,
+    requiredRoles: [
+      { role: 'Emp.Mesa', day: '2026-09-01', qty: 1, agreedRate: 14 },
+      { role: 'Emp.Mesa', day: '2026-09-02', qty: 2, agreedRate: 14 },
+    ],
+  }, []);
+
+  assert.equal(totals.billableHours, 15);
+  assert.equal(totals.totalRevenue, 210);
+});

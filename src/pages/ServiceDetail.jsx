@@ -28,6 +28,7 @@ import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
+import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { filterCollaboratorOptions } from '../utils/collaboratorSearch.js';
@@ -37,6 +38,7 @@ import { calculateFinancialMargin, eventFinancialWarnings } from '../utils/event
 import { externalCostsTotals } from '../utils/externalCosts.js';
 import { isEventDayCancelled } from '../utils/eventCancelledDays.js';
 import { eventTaxAmount, expensesIncludingEventTax } from '../utils/eventTax.js';
+import { eventFinancialImpactMessage } from '../utils/eventFinancialImpact.js';
 import { downloadEventAttendanceExcel } from '../utils/eventAttendanceExcel.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import {
@@ -274,6 +276,7 @@ function ProgressStat({ label, value, detail, tone = 'neutral' }) {
 export default function ServiceDetail() {
   const { serviceId } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', []);
   const { data: collaborators } = useApi('/collaborators?light=1', []);
@@ -982,6 +985,9 @@ export default function ServiceDetail() {
           assignmentDrafts,
         }),
       });
+      const refreshedEvent = await api(`/services/${service.id}`);
+      const impactMessage = eventFinancialImpactMessage(service, refreshedEvent);
+      if (impactMessage) toast.info(impactMessage);
       await reload();
     } catch (err) {
       setTeamError(err?.message || 'Não foi possível guardar os colaboradores.');

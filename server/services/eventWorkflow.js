@@ -11,6 +11,10 @@ import {
 } from '../../src/utils/eventCancelledDays.js';
 import { isBillableEventAssignment } from '../../src/utils/eventFinancialRules.js';
 import { calculateEventTotals } from '../utils/eventTotals.js';
+import {
+  eventRevenueIsLocked,
+  issuedInvoiceForEvent,
+} from '../utils/eventInvoiceProtection.js';
 
 export const EVENT_WORKFLOW_MODE = Object.freeze({
   automatic: 'automatic',
@@ -76,6 +80,7 @@ async function loadEvent(client, id) {
   return client.event.findUnique({
     where: { id },
     include: {
+      client: true,
       assignments: { include: { collaborator: true } },
       invoices: true,
     },
@@ -291,7 +296,10 @@ export async function synchronizeEventWorkflow(prisma, eventId, {
     if (nextStatus && nextStatus !== event.status) data.status = nextStatus;
 
     if (recalculateTotals) {
-      Object.assign(data, calculateEventTotals(event, event.assignments));
+      const issuedInvoice = await issuedInvoiceForEvent(client, id, event.invoices);
+      Object.assign(data, calculateEventTotals(event, event.assignments, {
+        preserveClientTotals: eventRevenueIsLocked(event) || Boolean(issuedInvoice),
+      }));
     }
 
     if (!Object.keys(data).length) return event;

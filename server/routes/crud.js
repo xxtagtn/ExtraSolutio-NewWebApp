@@ -93,6 +93,7 @@ export function createCrudRouter(model, fields, options = {}) {
       ? await model.findUnique({ where: { id } })
       : null;
     if (options.loadExistingForDelete && !existing) return res.status(404).json({ message: 'Registo não encontrado.' });
+    await options.beforeDelete?.({ id, existing });
     await model.delete({ where: { id } });
     await options.afterDelete?.({ id, existing });
     res.status(204).end();

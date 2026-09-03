@@ -66,9 +66,16 @@ import {
   partitionAssignmentsOutsideEventRange,
   reconcileEventRangeData,
 } from '../utils/eventRangeReconciliation.js';
+import {
+  assertEventRevenueEditable,
+  eventRevenueIsLocked,
+  hasAssignmentRevenueImpact,
+  hasEventFinancialImpact,
+  issuedInvoiceForEvent,
+} from '../utils/eventInvoiceProtection.js';
+import { inheritedAssignmentScheduleChanges } from '../utils/eventScheduleInheritance.js';
 
 export const apiRouter = Router();
-const CLOSED_EVENT_STATUSES = ['finalized', 'completed', 'invoiced', 'paid'];
 const clientsRead = requirePermission(PERMISSIONS.CLIENTS_VIEW);
 const clientsCreate = requirePermission(PERMISSIONS.CLIENTS_CREATE);
 const clientsUpdate = requirePermission(PERMISSIONS.CLIENTS_UPDATE);
@@ -326,6 +333,9 @@ async function normalizeServiceCreate(input) {
 }
 
 async function normalizeServiceUpdate(input, existing) {
+  if (hasEventFinancialImpact(input)) {
+    await assertEventRevenueEditable(prisma, existing?.id, [], existing);
+  }
   const data = normalizeEvent(input);
   if (existing?.statusMode === 'manual' && input.status !== undefined && input.statusMode === undefined) {
     data.status = existing.status;
@@ -343,7 +353,7 @@ async function normalizeServiceUpdate(input, existing) {
     });
   return {
     ...data,
-    minimumHoursSnapshot: minimumHoursForEventUpdate(existing, client?.minimumHours),
+    minimumHoursSnapshot: minimumHoursForEventUpdate({ ...existing, ...data }, client?.minimumHours),
     ...(requiredRoles !== undefined ? {
       requiredRoles: JSON.stringify(requiredRoles),
       rateHistory: appendEventRateHistory(existing?.rateHistory, existing?.requiredRoles, requiredRoles),
@@ -353,6 +363,7 @@ async function normalizeServiceUpdate(input, existing) {
 
 async function normalizeAssignmentCreate(input) {
   const data = normalizeAssignment(input);
+  await assertEventRevenueEditable(prisma, data.eventId);
   await assertAssignmentDayIsActive(data);
   await assertAssignmentWorkLocationIsValid(data);
   await assertNoAssignmentConflict(prisma, data);
@@ -362,6 +373,12 @@ async function normalizeAssignmentCreate(input) {
 async function normalizeAssignmentUpdate(input, existing) {
   const data = normalizeAssignment(input);
   const merged = { ...existing, ...data };
+  if (hasAssignmentRevenueImpact(input)) {
+    await assertEventRevenueEditable(prisma, existing?.eventId);
+    if (Number(merged.eventId) !== Number(existing?.eventId)) {
+      await assertEventRevenueEditable(prisma, merged.eventId);
+    }
+  }
   await assertAssignmentDayIsActive(merged);
   if (data.workLocationId !== undefined || data.eventId !== undefined) {
     await assertAssignmentWorkLocationIsValid(merged);
@@ -391,6 +408,18 @@ async function updateServiceWithRangeReconciliation({ id, data, existing, includ
     if (removable.length) {
       await tx.eventAssignment.deleteMany({
         where: { id: { in: removable.map((assignment) => assignment.id) } },
+      });
+    }
+    for (const change of inheritedAssignmentScheduleChanges(existing, reconciled.data)) {
+      await tx.eventAssignment.updateMany({
+        where: {
+          eventId: id,
+          OR: [
+            { [change.field]: null },
+            { [change.field]: change.previous },
+          ],
+        },
+        data: { [change.field]: change.next },
       });
     }
     return tx.event.update({ where: { id }, data: reconciled.data, include });
@@ -509,15 +538,22 @@ apiRouter.use('/clients', createCrudRouter(prisma.client, [
   loadExistingForUpdate: true,
   afterUpdate: async ({ id, row, existing }) => {
     if (!shouldPropagateMinimumHours(existing, row)) return;
-    await prisma.event.updateMany({
-      where: {
-        clientId: id,
-        status: { notIn: CLOSED_EVENT_STATUSES },
-      },
-      data: {
-        minimumHoursSnapshot: row.minimumHours,
+    const events = await prisma.event.findMany({
+      where: { clientId: id },
+      include: {
+        assignments: { include: { collaborator: true } },
+        invoices: true,
       },
     });
+    for (const event of events) {
+      if (eventRevenueIsLocked(event)
+        || await issuedInvoiceForEvent(prisma, event.id, event.invoices)) continue;
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { minimumHoursSnapshot: minimumHoursForEventUpdate(event, row.minimumHours) },
+      });
+      await synchronizeEventWorkflow(prisma, event.id, { recalculateTotals: true });
+    }
   },
 }));
 
@@ -736,6 +772,9 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   normalizeUpdate: normalizeServiceUpdate,
   loadExistingForUpdate: true,
   performUpdate: updateServiceWithRangeReconciliation,
+  afterCreate: async ({ row }) => {
+    await synchronizeEventWorkflow(prisma, row.id, { recalculateTotals: true });
+  },
   afterUpdate: async ({ id }) => {
     await synchronizeEventWorkflow(prisma, id, { recalculateTotals: true });
   },
@@ -811,6 +850,9 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
     await synchronizeEventAfterAssignmentMutation(existing?.eventId, {
       recalculateTotals: true,
     });
+  },
+  beforeDelete: async ({ existing }) => {
+    await assertEventRevenueEditable(prisma, existing?.eventId);
   },
 }));
 

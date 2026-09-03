@@ -1,4 +1,4 @@
-const FINAL_EVENT_STATUSES = new Set(['finalized', 'completed', 'invoiced', 'paid']);
+const INVOICED_EVENT_STATUSES = new Set(['invoiced', 'paid']);
 
 function numeric(value) {
   const parsed = Number(value || 0);
@@ -6,7 +6,8 @@ function numeric(value) {
 }
 
 export function isFinalizedEvent(event) {
-  return FINAL_EVENT_STATUSES.has(String(event?.status || '').trim().toLowerCase());
+  return INVOICED_EVENT_STATUSES.has(String(event?.status || '').trim().toLowerCase())
+    || INVOICED_EVENT_STATUSES.has(String(event?.billingStatus || '').trim().toLowerCase());
 }
 
 export function minimumHoursForEventUpdate(event, clientMinimumHours) {

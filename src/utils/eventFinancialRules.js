@@ -46,6 +46,35 @@ function canonicalRole(value) {
   return aliases[normalized] || normalized;
 }
 
+export function eventRoleKey(value) {
+  return canonicalRole(value);
+}
+
+function historicalRoleRates(value) {
+  const rates = new Map();
+  for (const entry of safeArray(value)) {
+    for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+      const role = canonicalRole(change?.role);
+      if (!role) continue;
+      const nextRate = decimalValue(change?.to) || 0;
+      const previousRate = decimalValue(change?.from) || 0;
+      if (nextRate > 0) rates.set(role, nextRate);
+      else if (!rates.has(role) && previousRate > 0) rates.set(role, previousRate);
+    }
+  }
+  return rates;
+}
+
+function clientRoleRates(client = {}) {
+  const rates = new Map();
+  for (const entry of safeArray(client?.roleRates)) {
+    const role = canonicalRole(entry?.role);
+    const rate = decimalValue(entry?.rate ?? entry?.agreedRate) || 0;
+    if (role && rate > 0) rates.set(role, rate);
+  }
+  return rates;
+}
+
 export function requiredRoleEntries(eventOrRoles = []) {
   const source = eventOrRoles?.requiredRoles ?? eventOrRoles;
   return safeArray(source)
@@ -64,8 +93,27 @@ export function clientRateForAssignment(assignment = {}, eventOrRoles = []) {
   const exact = entries.find((item) => canonicalRole(item.role) === assignmentRole);
   if (exact) return exact.agreedRate;
 
+  const event = eventOrRoles && !Array.isArray(eventOrRoles) ? eventOrRoles : {};
+  const historicalRates = historicalRoleRates(event.rateHistory);
+  const historicalRate = historicalRates.get(assignmentRole) || 0;
+  if (historicalRate > 0) return historicalRate;
+
+  const configuredClientRates = clientRoleRates(event.client);
+  const configuredClientRate = configuredClientRates.get(assignmentRole) || 0;
+  if (configuredClientRate > 0) return configuredClientRate;
+
   const roleIsMissing = !assignmentRole || assignmentRole === 'semfuncao';
-  if (roleIsMissing && entries.length === 1) return entries[0].agreedRate;
+  if (roleIsMissing) {
+    const availableRates = new Map();
+    for (const entry of entries) availableRates.set(canonicalRole(entry.role), entry.agreedRate);
+    for (const [role, rate] of historicalRates) {
+      if (!availableRates.has(role)) availableRates.set(role, rate);
+    }
+    for (const [role, rate] of configuredClientRates) {
+      if (!availableRates.has(role)) availableRates.set(role, rate);
+    }
+    if (availableRates.size === 1) return [...availableRates.values()][0];
+  }
   return 0;
 }
 

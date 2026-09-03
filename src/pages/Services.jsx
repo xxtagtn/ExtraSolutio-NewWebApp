@@ -8,6 +8,7 @@ import ExternalCostsEditor from '../components/Finance/ExternalCostsEditor.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import SourceBadge from '../components/UI/SourceBadge.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
+import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import {
@@ -16,6 +17,8 @@ import {
   findOverlappingAssignment,
 } from '../utils/assignmentOverlap.js';
 import { eventRevenueForDisplay, resolveEventRevenue } from '../utils/eventRevenue.js';
+import { eventFinancialImpactMessage } from '../utils/eventFinancialImpact.js';
+import { applyInheritedEventScheduleChange } from '../utils/eventScheduleInheritance.js';
 import {
   calculateFinancialMargin,
   clientRateForAssignment,
@@ -190,6 +193,7 @@ function emptyForm() {
     billableHours: 0,
     minimumHoursSnapshot: 0,
     requiredRoles: [],
+    rateHistory: null,
     assignments: [],
   };
 }
@@ -491,20 +495,32 @@ function toForm(row) {
       ...item,
       agreedRate: formatMoneyInline(item.agreedRate),
     })),
+    rateHistory: row.rateHistory || null,
     assignments: [...savedAssignments, ...draftAssignments],
   };
 }
 
-function getRoleForecast(requiredRoles, expectedHours) {
+function getRoleForecast(requiredRoles, {
+  startTime = '',
+  endTime = '',
+  minimumHours = 0,
+  continuousDays = 1,
+} = {}) {
   return requiredRoles.reduce((sum, item) => {
     const qty = Number(item.qty || 0);
     const rate = parseMoney(item.agreedRate) || 0;
-    return sum + (qty * expectedHours * rate);
+    const hours = Math.max(
+      roundedBillableHours(item.start || startTime, item.end || endTime),
+      Number(minimumHours || 0),
+    );
+    const dayMultiplier = item.day ? 1 : Math.max(1, Number(continuousDays || 1));
+    return sum + (qty * hours * rate * dayMultiplier);
   }, 0);
 }
 
 export default function Services() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi('/services', []);
   const { data: clients } = useApi('/clients', []);
@@ -641,7 +657,6 @@ export default function Services() {
   );
   const expectedDailyHours = roundedBillableHours(form.startTime, form.endTime);
   const minimumHoursSnapshot = Number(form.minimumHoursSnapshot || 0);
-  const expectedBillableHours = Number((Math.max(expectedDailyHours, minimumHoursSnapshot) * eventDays).toFixed(2));
   const travelExpenseAmount = calculateTravelAmount(form);
 
   const formAssignmentClientRealHours = useCallback((assignment) => {
@@ -667,7 +682,12 @@ export default function Services() {
   }, []);
 
   const financials = useMemo(() => {
-    const expectedRevenueByRoles = getRoleForecast(form.requiredRoles, expectedBillableHours);
+    const expectedRevenueByRoles = getRoleForecast(form.requiredRoles, {
+      startTime: form.startTime,
+      endTime: form.endTime,
+      minimumHours: minimumHoursSnapshot,
+      continuousDays: form.isContinuous ? eventDays : 1,
+    });
     const externalTotals = externalCostsTotals(form.externalCosts);
     const assignments = (form.assignments || []).filter((assignment) => assignment.role && assignment.collaboratorId);
     let totalRevenue = 0;
@@ -681,7 +701,11 @@ export default function Services() {
       const clientHours = formAssignmentClientHours(assignment);
       const staffHours = formAssignmentStaffHours(assignment);
       if (!assignment.role || (!clientHours && !staffHours)) continue;
-      const clientRate = clientRateForAssignment(assignment, { requiredRoles: form.requiredRoles });
+      const clientRate = clientRateForAssignment(assignment, {
+        requiredRoles: form.requiredRoles,
+        rateHistory: form.rateHistory,
+        client: selectedClient,
+      });
       const collaboratorRate = assignmentStaffRate(assignment, collaboratorsById, clientRate);
       const collaborator = collaboratorsById.get(String(assignment.collaboratorId));
       const baseStaffCost = staffHours * collaboratorRate;
@@ -750,7 +774,7 @@ export default function Services() {
       realHours: Number(realHours.toFixed(2)),
       billableHours: Number(billableHours.toFixed(2)),
     };
-  }, [form.requiredRoles, form.assignments, form.externalCosts, form.isContinuous, form.date, form.endDate, expectedBillableHours, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, form.totalRevenue, form.taxAmount, form.vatRateSnapshot]);
+  }, [form.requiredRoles, form.rateHistory, form.assignments, form.externalCosts, form.isContinuous, form.date, form.endDate, form.startTime, form.endTime, eventDays, minimumHoursSnapshot, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, selectedClient, form.totalRevenue, form.taxAmount, form.vatRateSnapshot]);
   const prepaymentSummary = buildPrepaymentSummary({
     total: financials.totalRevenue || financials.expectedRevenue || 0,
     serviceDate: form.date,
@@ -888,15 +912,20 @@ export default function Services() {
   }
 
   const formWithStaffRates = useCallback((nextForm) => {
+    const pricingClient = (clients || []).find((client) => String(client.id) === String(nextForm.clientId));
     return {
       ...nextForm,
       assignments: nextForm.assignments.map((assignment) => {
-        const clientRate = clientRateForAssignment(assignment, { requiredRoles: nextForm.requiredRoles });
+        const clientRate = clientRateForAssignment(assignment, {
+          requiredRoles: nextForm.requiredRoles,
+          rateHistory: nextForm.rateHistory,
+          client: pricingClient,
+        });
         const rate = assignmentStaffRate(assignment, collaboratorsById, clientRate);
         return rate > 0 ? { ...assignment, hourlyRate: formatMoneyInline(rate) } : assignment;
       }),
     };
-  }, [collaboratorsById]);
+  }, [clients, collaboratorsById]);
 
   const openEdit = useCallback((row) => {
     const nextForm = formWithStaffRates(withAssignmentPlaceholders(toForm(row)));
@@ -1367,7 +1396,11 @@ export default function Services() {
         const clientReal = hasManualClientTimes ? formAssignmentClientRealHours(item) : 0;
         const clientHours = hasManualClientTimes ? formAssignmentClientHours(item) : 0;
         const payableStaffHours = hasManualStaffTimes ? staffHours : 0;
-        const clientRoleRate = clientRateForAssignment(item, { requiredRoles: form.requiredRoles });
+        const clientRoleRate = clientRateForAssignment(item, {
+          requiredRoles: form.requiredRoles,
+          rateHistory: form.rateHistory,
+          client: selectedClient,
+        });
         const hourlyRate = assignmentStaffRate(item, collaboratorsById, clientRoleRate);
         const body = {
           eventId,
@@ -1421,6 +1454,11 @@ export default function Services() {
             reloadBudgets();
           }
         }
+      }
+      if (editing) {
+        const refreshedEvent = await api(`/services/${eventId}`);
+        const impactMessage = eventFinancialImpactMessage(editing, refreshedEvent);
+        if (impactMessage) toast.info(impactMessage);
       }
       closeForm(true);
       reload();
@@ -1963,10 +2001,10 @@ export default function Services() {
                   <h3>Horario e estado</h3>
                   <div className="form-grid">
                     <label>Entrada prevista
-                      <TimeInput value={form.startTime} onChange={(value) => setForm((current) => ({ ...current, startTime: value }))} />
+                      <TimeInput value={form.startTime} onChange={(value) => setForm((current) => applyInheritedEventScheduleChange(current, 'startTime', value))} />
                     </label>
                     <label>Saída prevista
-                      <TimeInput value={form.endTime} onChange={(value) => setForm((current) => ({ ...current, endTime: value }))} />
+                      <TimeInput value={form.endTime} onChange={(value) => setForm((current) => applyInheritedEventScheduleChange(current, 'endTime', value))} />
                     </label>
                     <div className="services-row-3-top span-2">
                       <label>Deslocação

@@ -37,12 +37,11 @@ import { eventTaxAmount } from '../utils/eventTax.js';
 import { buildFinanceEventDescriptors } from '../utils/financeEventIdentity.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
-import { clientChargeHours, decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
+import { decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
 import { buildClientFinancialSummary } from '../utils/clientFinancialSummary.js';
 import { paginateItems } from '../utils/pagination.js';
 import {
   calculateFinancialMargin,
-  clientRateForAssignment,
   isBillableEventAssignment,
 } from '../utils/eventFinancialRules.js';
 import { statusLabel as operationalStatusLabel } from '../utils/serviceStatus.js';
@@ -272,19 +271,7 @@ function eventStaffCost(event) {
 }
 
 function eventRevenue(event) {
-  const assignmentRevenue = billableAssignments(event).reduce((sum, assignment) => {
-    const hours = clientChargeHours(
-      assignment,
-      event.startTime,
-      event.endTime,
-      event.minimumHoursSnapshot,
-    );
-    return sum + (hours * clientRateForAssignment(assignment, event));
-  }, 0);
-  const travel = event.travelExpenseEnabled ? num(event.travelExpenseAmount) : 0;
-  const externalTotals = externalCostsTotals(event.externalCosts);
-  const calculated = assignmentRevenue + travel + externalTotals.chargeAmount + eventTaxAmount(event);
-  return calculated > 0 ? calculated : num(event.totalRevenue);
+  return num(event.totalRevenue);
 }
 
 function eventFinancialRow(event, invoices, expenses) {

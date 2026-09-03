@@ -42,6 +42,27 @@ test('matches common aliases for Empregado de Mesa', () => {
   assert.equal(clientRateForAssignment({ role: 'Empregado de Mesa' }, event), 10.5);
 });
 
+test('recovers the last event rate after a role requirement is removed', () => {
+  const event = {
+    requiredRoles: [],
+    rateHistory: JSON.stringify([
+      { type: 'snapshot', changes: [{ role: 'Emp.Mesa', from: 0, to: 14 }] },
+      { type: 'manual_update', changes: [{ role: 'Emp.Mesa', from: 14, to: 0 }] },
+    ]),
+  };
+
+  assert.equal(clientRateForAssignment({ role: 'Emp.Mesa' }, event), 14);
+});
+
+test('uses the client rate only when the event has no role snapshot', () => {
+  const event = {
+    requiredRoles: [],
+    client: { roleRates: JSON.stringify([{ role: 'Emp.Mesa', rate: 14 }]) },
+  };
+
+  assert.equal(clientRateForAssignment({ role: 'Empregado de Mesa' }, event), 14);
+});
+
 test('calculates margin and margin percentage from revenue', () => {
   assert.deepEqual(calculateFinancialMargin(570, 478.25, 0), { margin: 91.75, marginPct: 16.1 });
   assert.deepEqual(calculateFinancialMargin(0, 50, 10), { margin: -60, marginPct: 0 });

@@ -9,8 +9,12 @@ test('uses the current client minimum for an open event', () => {
   assert.equal(minimumHoursForEventUpdate({ status: 'to_validate_staff', minimumHoursSnapshot: 4 }, 5), 5);
 });
 
-test('preserves the stored minimum for a finalized event', () => {
-  assert.equal(minimumHoursForEventUpdate({ status: 'finalized', minimumHoursSnapshot: 4 }, 6), 4);
+test('updates the minimum for a finalized event that is still awaiting invoicing', () => {
+  assert.equal(minimumHoursForEventUpdate({ status: 'finalized', billingStatus: 'pending', minimumHoursSnapshot: 4 }, 6), 6);
+});
+
+test('preserves the stored minimum after invoicing', () => {
+  assert.equal(minimumHoursForEventUpdate({ status: 'finalized', billingStatus: 'invoiced', minimumHoursSnapshot: 4 }, 6), 4);
 });
 
 test('propagates client minimum changes only when the value changed', () => {
