@@ -5,9 +5,11 @@ import {
 } from '../../src/utils/serviceStatus.js';
 import {
   eventDayKey,
+  isEventDayCancelled,
   normalizeCancelledDayEntries,
   representedEventDayKeys,
 } from '../../src/utils/eventCancelledDays.js';
+import { isBillableEventAssignment } from '../../src/utils/eventFinancialRules.js';
 import { calculateEventTotals } from '../utils/eventTotals.js';
 
 export const EVENT_WORKFLOW_MODE = Object.freeze({
@@ -336,16 +338,58 @@ export async function markEventValidated(prisma, eventId, notes) {
   });
 }
 
-export async function reopenEventValidation(prisma, eventId, notes) {
+export async function reopenEventValidation(prisma, eventId, notes, { assignmentIds } = {}) {
   const id = Number(eventId);
   if (!Number.isInteger(id) || id <= 0) return null;
 
+  let selectedIds = null;
+  if (assignmentIds !== undefined) {
+    if (!Array.isArray(assignmentIds) || assignmentIds.some((value) => !Number.isInteger(Number(value)) || Number(value) <= 0)) {
+      throw publicWorkflowError(400, 'Seleciona registos válidos para reabrir a validação.');
+    }
+    selectedIds = new Set(assignmentIds.map(Number));
+    if (selectedIds.size !== assignmentIds.length) {
+      throw publicWorkflowError(400, 'O mesmo registo não pode ser reaberto mais do que uma vez no mesmo pedido.');
+    }
+  }
+
   return withTransaction(prisma, async (client) => {
-    const event = await loadEvent(client, id);
+    const event = await client.event.findUnique({
+      where: { id },
+      include: { assignments: { include: { collaborator: { select: { includeVat: true } } } } },
+    });
     if (!event) return null;
+    const selected = (event.assignments || []).filter((assignment) => selectedIds?.has(assignment.id));
+    if (selectedIds && selected.length !== selectedIds.size) {
+      throw publicWorkflowError(404, 'Um ou mais registos já não existem ou não pertencem a este evento. Atualiza a página.');
+    }
+    if (selected.some((assignment) => (
+      !isBillableEventAssignment(assignment)
+      || event.status === 'cancelled'
+      || isEventDayCancelled(event, assignmentDay(assignment, event))
+    ))) {
+      throw publicWorkflowError(409, 'Não é possível reabrir validações de faltas ou de serviços/dias cancelados. Atualiza a página.');
+    }
+
+    const validationData = {
+      validatedCheckIn: null,
+      validatedCheckOut: null,
+      validationStatus: 'reopened',
+    };
+    if (selected.length) {
+      // Reopen the selection and the event atomically, without per-row recalculations.
+      await client.eventAssignment.updateMany({
+        where: { eventId: id, id: { in: [...selectedIds] } },
+        data: validationData,
+      });
+    }
+    const nextAssignments = (event.assignments || []).map((assignment) => (
+      selectedIds?.has(assignment.id) ? { ...assignment, ...validationData } : assignment
+    ));
     return client.event.update({
       where: { id },
       data: {
+        ...(selected.length ? calculateEventTotals(event, nextAssignments) : {}),
         status: SERVICE_STATUS.toValidateStaff,
         statusMode: EVENT_WORKFLOW_MODE.automatic,
         notes: withoutValidatedHoursMarker(notes ?? event.notes) || null,

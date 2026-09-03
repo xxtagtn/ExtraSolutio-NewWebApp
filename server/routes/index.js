@@ -563,10 +563,14 @@ apiRouter.post('/services/:id/workflow/finalize', workflowWrite, asyncHandler(as
   return res.json(maskEventForRole(event, req.user));
 }));
 
-apiRouter.post('/services/:id/workflow/reopen', workflowWrite, asyncHandler(async (req, res) => {
+apiRouter.post('/services/:id/workflow/reopen', workflowWrite, (req, res, next) => (
+  req.body?.assignmentIds !== undefined ? assignmentsWrite(req, res, next) : next()
+), asyncHandler(async (req, res) => {
   const id = workflowEventId(req, res);
   if (!id) return;
-  const event = await reopenEventValidation(prisma, id, req.body?.notes);
+  const event = await reopenEventValidation(prisma, id, req.body?.notes, {
+    assignmentIds: req.body?.assignmentIds,
+  });
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   return res.json(maskEventForRole(event, req.user));
 }));

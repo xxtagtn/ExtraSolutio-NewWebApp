@@ -43,6 +43,7 @@ import {
 } from '../utils/serviceFinance.js';
 import { SERVICE_STATUS } from '../utils/serviceStatus.js';
 import { isBillableEventAssignment } from '../utils/eventFinancialRules.js';
+import { assignmentEventDay, isEventDayCancelled } from '../utils/eventCancelledDays.js';
 import { buildStaffSchedulePdfHtml, createStaffScheduleWorkbook } from '../utils/staffSchedulePdf.js';
 import { assessTimeTolerance, resolvePlannedTimes } from '../utils/timeTolerance.js';
 import {
@@ -117,14 +118,6 @@ function extractValidatedAt(event) {
   const dateValue = new Date(match[1].trim());
   if (Number.isNaN(dateValue.getTime())) return '';
   return date.format(dateValue);
-}
-
-function removeValidatedMarker(notes) {
-  const lines = String(notes || '')
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter((line) => !line.includes(VALIDATED_EVENT_MARKER));
-  return lines.join('\n').trim();
 }
 
 function dateKey(value) {
@@ -495,25 +488,6 @@ function validationStatusFor(_event, assignment) {
   const tone = rowTone(assignment);
   if (tone === 'success') return 'matched';
   return 'pending';
-}
-
-function reopenAssignmentPayload(assignment) {
-  return {
-    eventId: assignment.eventId,
-    collaboratorId: assignment.collaboratorId,
-    role: assignment.role,
-    checkIn: assignment.checkIn || null,
-    checkOut: assignment.checkOut || null,
-    clientCheckIn: assignment.clientCheckIn || null,
-    clientCheckOut: assignment.clientCheckOut || null,
-    validatedCheckIn: null,
-    validatedCheckOut: null,
-    validationStatus: 'reopened',
-    validationNotes: assignment.validationNotes || null,
-    status: assignment.status,
-    paymentStatus: assignment.paymentStatus,
-    clientSynced: Boolean(assignment.clientSynced),
-  };
 }
 
 // The services endpoint normally returns an array. Keep the page render-safe
@@ -1534,22 +1508,19 @@ export default function TimeValidation() {
   }
 
   async function reopenRowValidation(row) {
-    const merged = { ...row.assignment, ...(drafts[row.id] || {}) };
+    if (savingId !== null) return;
     setSavingId(row.id);
     try {
-      await api(`/assignments/${row.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(reopenAssignmentPayload(merged)),
-      });
-      await api(`/services/${row.event.id}/workflow/reopen`, {
+      const savedEvent = await api(`/services/${row.event.id}/workflow/reopen`, {
         method: 'POST',
-        body: JSON.stringify({ notes: removeValidatedMarker(row.event.notes) || null }),
+        body: JSON.stringify({ assignmentIds: [row.id] }),
       });
+      const savedAssignment = savedEvent.assignments.find((assignment) => String(assignment.id) === String(row.id));
       setDrafts((prev) => ({
         ...prev,
-        [row.id]: { ...merged, ...reopenAssignmentPayload(merged), _persisted: true },
+        [row.id]: { ...row.assignment, ...savedAssignment, _persisted: true },
       }));
-      reload();
+      await reload();
     } catch (error) {
       window.alert(error?.message || 'Não foi possível reabrir esta validação.');
     } finally {
@@ -1576,7 +1547,7 @@ export default function TimeValidation() {
   }
 
   async function reopenValidatedEvent(item) {
-    if (!item?.event?.id || !item.markedValidated) return;
+    if (!item?.event?.id || !item.markedValidated || validatingEventId !== null) return;
     const eventId = String(item.event.id);
     const targetStage = reopenTargetStage(clientRows.filter((row) => String(row.event.id) === eventId));
     setValidatingEventId(item.event.id);
@@ -1585,18 +1556,13 @@ export default function TimeValidation() {
         .filter((assignment) => (
           assignment.collaboratorId
           && assignment.role
-          && String(assignment.status || '').toLowerCase() !== 'cancelled'
+          && isBillableEventAssignment(assignment)
+          && !isEventDayCancelled(item.event, assignmentEventDay(assignment, item.event))
         ));
 
-      await Promise.all(assignmentsToReopen.map((assignment) => api(`/assignments/${assignment.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(reopenAssignmentPayload(assignment)),
-      })));
-
-      const nextNotes = removeValidatedMarker(item.event.notes);
       await api(`/services/${item.event.id}/workflow/reopen`, {
         method: 'POST',
-        body: JSON.stringify({ notes: nextNotes || null }),
+        body: JSON.stringify({ assignmentIds: assignmentsToReopen.map((assignment) => assignment.id) }),
       });
       setDrafts((prev) => {
         const next = { ...prev };
@@ -1609,7 +1575,7 @@ export default function TimeValidation() {
       setViewMode('event');
       setSelectedEventId(eventId);
       setStage(targetStage);
-      reload();
+      await reload();
     } catch (error) {
       window.alert(error?.message || 'Não foi possível voltar a colocar este evento em validação.');
     } finally {
