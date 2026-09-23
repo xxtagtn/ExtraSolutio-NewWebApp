@@ -1,0 +1,214 @@
+import { birthdayNotification } from './birthdays.js';
+import { isFinanceReadyEvent } from './financeReadiness.js';
+import { prepaymentRemainingReminderDate } from './prepaymentPolicy.js';
+import { staffPaymentTiming } from './staffPayment.js';
+import {
+  activeEventAssignments,
+  activeEventDayKeys,
+  activeEventRequiredRoles,
+  assignmentEventDay,
+  eventDayKey,
+} from './eventCancelledDays.js';
+import {
+  effectiveInvoiceDueDate,
+  invoiceIsIssued,
+  invoiceIsPaid,
+} from '../../shared/invoiceLifecycle.js';
+
+function isToday(value, now) {
+  if (!value) return false;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate();
+}
+
+function safeArrayJson(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function startOfDay(value) {
+  const d = new Date(value);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+export function layoutPaymentReminders(services = [], now = new Date()) {
+  return services.filter((service) => service.billingStatus === 'partial70' && isToday(prepaymentRemainingReminderDate(service), now));
+}
+
+export function buildLayoutNotifications({ budgets = [], invoices = [], services = [], collaborators = [], ignoredNotifications = [], now = new Date() } = {}) {
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const items = [];
+
+  for (const budget of budgets || []) {
+    let history = [];
+    try {
+      history = Array.isArray(budget.followUpHistory)
+        ? budget.followUpHistory
+        : JSON.parse(budget.followUpHistory || '[]');
+    } catch {
+      history = [];
+    }
+    for (const item of history) {
+      if (!item?.reminderDate) continue;
+      const reminderDate = new Date(item.reminderDate);
+      if (Number.isNaN(reminderDate.getTime())) continue;
+      const dueDate = new Date(reminderDate.getFullYear(), reminderDate.getMonth(), reminderDate.getDate());
+      if (dueDate <= todayStart) {
+        items.push({
+          id: `followup-${budget.id}-${item.reminderDate}-${item.text || ''}`,
+          kind: 'followup',
+          title: budget.clientName || budget.clientCompany || budget.clientEmail || `Orçamento #${budget.id}`,
+          subtitle: item.text || 'Follow-up pendente',
+          dueDate,
+        });
+      }
+    }
+  }
+
+  for (const service of services || []) {
+    if (!isFinanceReadyEvent(service)) continue;
+    const assignments = Array.isArray(service.assignments) ? service.assignments : [];
+    const paymentRows = assignments.filter((assignment) => {
+      const status = String(assignment.status || '').toLowerCase();
+      if (status === 'cancelled' || status === 'missed_justified' || status === 'missed_unjustified') return false;
+      if (String(assignment.paymentStatus || 'unpaid') === 'paid') return false;
+      const timing = staffPaymentTiming({ ...assignment, event: service }, now);
+      return timing.status === 'open';
+    });
+    if (paymentRows.length > 0) {
+      const dueDates = paymentRows
+        .map((assignment) => staffPaymentTiming({ ...assignment, event: service }, now).start)
+        .filter((value) => value && !Number.isNaN(value.getTime()))
+        .sort((a, b) => a.getTime() - b.getTime());
+      items.push({
+        id: `staff-unpaid-${service.id}`,
+        kind: 'staff_payment',
+        title: service.name || `Evento #${service.id}`,
+        subtitle: `${paymentRows.length} colaborador(es) por pagar`,
+        dueDate: dueDates[0] || todayStart,
+      });
+    }
+  }
+
+  for (const invoice of invoices || []) {
+    if (!invoiceIsIssued(invoice) || invoiceIsPaid(invoice)) continue;
+    const dueDate = effectiveInvoiceDueDate(invoice, invoice.client);
+    if (!dueDate) continue;
+    if (Number.isNaN(dueDate.getTime())) continue;
+    const dueStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+    if (dueStart < todayStart) {
+      const days = Math.floor((todayStart.getTime() - dueStart.getTime()) / 86_400_000);
+      items.push({
+        id: `invoice-overdue-${invoice.id}`,
+        kind: 'invoice_overdue',
+        title: invoice.number || `Fatura #${invoice.id}`,
+        subtitle: `Vencida há ${days} dia(s)`,
+        dueDate: dueStart,
+      });
+    }
+  }
+
+  for (const collaborator of collaborators || []) {
+    if (!collaborator?.documentType || !collaborator?.documentExpiry) continue;
+    const expiryDate = new Date(collaborator.documentExpiry);
+    if (Number.isNaN(expiryDate.getTime())) continue;
+    const expiryStart = startOfDay(expiryDate);
+    const days = Math.floor((expiryStart.getTime() - todayStart.getTime()) / 86_400_000);
+    if (days > 90) continue;
+    const label = days < 0
+      ? `Documento expirado há ${Math.abs(days)} dia(s)`
+      : days <= 30
+        ? `Documento expira em ${days} dia(s) [30]`
+        : days <= 60
+          ? `Documento expira em ${days} dia(s) [60]`
+          : `Documento expira em ${days} dia(s) [90]`;
+    items.push({
+      id: `doc-expiry-${collaborator.id}-${String(collaborator.documentExpiry).slice(0, 10)}`,
+      kind: 'document_expiry',
+      title: collaborator.shortName || collaborator.name || `Colaborador #${collaborator.id}`,
+      subtitle: label,
+      dueDate: expiryStart,
+    });
+  }
+
+  const nowPlus48h = new Date(now.getTime() + (48 * 60 * 60 * 1000));
+  for (const service of services || []) {
+    if (!service?.date) continue;
+    const startTime = service.startTime || '00:00';
+    const activeAssignments = activeEventAssignments(service);
+    const activeRoles = activeEventRequiredRoles(service, safeArrayJson(service.requiredRoles));
+
+    for (const serviceDay of activeEventDayKeys(service)) {
+      const startDt = new Date(`${serviceDay}T${startTime}:00`);
+      if (Number.isNaN(startDt.getTime()) || startDt < now || startDt > nowPlus48h) continue;
+      const dayAssignments = activeAssignments.filter(
+        (item) => assignmentEventDay(item, service) === serviceDay,
+      );
+      const dayRoles = activeRoles.filter((item) => (
+        !service.isContinuous || eventDayKey(item?.day || item?.date) === serviceDay
+      ));
+      const requested = dayRoles.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+      const confirmed = dayAssignments.filter(
+        (item) => String(item.status || '').toLowerCase() === 'confirmed',
+      ).length;
+      if (requested > 0 && confirmed >= requested) continue;
+      items.push({
+        id: `team-incomplete-${service.id}-${serviceDay}`,
+        kind: 'team_incomplete',
+        title: service.name || `Evento #${service.id}`,
+        subtitle: `Equipa incompleta em ${serviceDay} (${confirmed}/${requested || 0})`,
+        dueDate: startOfDay(startDt),
+      });
+    }
+  }
+
+  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
+  for (const service of services || []) {
+    if (!service?.date) continue;
+    const endBase = activeEventDayKeys(service).at(-1);
+    if (!endBase) continue;
+    const endDay = startOfDay(new Date(endBase));
+    if (Number.isNaN(endDay.getTime())) continue;
+    if (endDay.getTime() !== yesterdayStart.getTime()) continue;
+    const status = String(service.status || '').toLowerCase();
+    const pendingValidation = activeEventAssignments(service)
+      .some((item) => String(item.validationStatus || '').toLowerCase() !== 'validated');
+    if (!['to_validate_staff', 'to_validate_client'].includes(status) && !pendingValidation) continue;
+    items.push({
+      id: `validate-nextday-${service.id}-${String(endBase).slice(0, 10)}`,
+      kind: 'time_validation',
+      title: service.name || `Evento #${service.id}`,
+      subtitle: 'Validação de horários pendente (dia seguinte)',
+      dueDate: todayStart,
+    });
+  }
+
+  const todayBirthdayNotification = birthdayNotification(collaborators, now);
+  if (todayBirthdayNotification) items.push(todayBirthdayNotification);
+
+  const ignored = new Set(ignoredNotifications);
+  const allItems = items
+    .map((item) => ({ ...item, ignored: ignored.has(item.id) }))
+    .sort((a, b) => {
+      const aTime = a.dueDate ? a.dueDate.getTime() : Number.MAX_SAFE_INTEGER;
+      const bTime = b.dueDate ? b.dueDate.getTime() : Number.MAX_SAFE_INTEGER;
+      if (aTime !== bTime) return aTime - bTime;
+      return String(a.title || '').localeCompare(String(b.title || ''), 'pt');
+    });
+  const visibleItems = allItems.filter((item) => !item.ignored);
+
+  return {
+    allItems,
+    items: visibleItems,
+    total: visibleItems.length,
+  };
+}

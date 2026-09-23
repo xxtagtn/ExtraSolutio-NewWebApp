@@ -1,3 +1,5 @@
+import { eventDayKey } from './eventCancelledDays.js';
+
 const NON_CONTACTABLE_ASSIGNMENT_STATUSES = new Set(['cancelled', 'missed_justified', 'missed_unjustified']);
 const CONFIRMED_STATUSES = new Set(['confirmed', 'confirmado']);
 const MANUAL_STATES = new Set([
@@ -25,8 +27,7 @@ function normalized(value) {
 }
 
 function dateKey(value) {
-  if (!value) return '';
-  return String(value).slice(0, 10);
+  return eventDayKey(value);
 }
 
 function parseDateTime(dateValue, timeValue = '') {
@@ -44,6 +45,7 @@ function formatDatePt(value) {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
+    timeZone: 'UTC',
   }).format(parsed);
 }
 
@@ -73,16 +75,16 @@ function latestLogFor(logs = [], assignmentId, type) {
     .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0] || null;
 }
 
-function isInNext24Hours(service = {}, assignment = {}, today = new Date()) {
-  const startsAt = parseDateTime(assignmentDate(assignment, service), assignmentStart(assignment, service));
+function isInNext24Hours(service, assignment, today, resolveStart) {
+  const startsAt = resolveStart(assignmentDate(assignment, service), assignmentStart(assignment, service) || '00:00');
   if (!startsAt) return false;
   const now = today instanceof Date ? today : new Date(today);
   const diff = startsAt.getTime() - now.getTime();
   return diff >= 0 && diff <= 24 * 60 * 60 * 1000;
 }
 
-function isUpcoming(service = {}, assignment = {}, today = new Date()) {
-  const startsAt = parseDateTime(assignmentDate(assignment, service), assignmentStart(assignment, service));
+function isUpcoming(service, assignment, today, resolveStart) {
+  const startsAt = resolveStart(assignmentDate(assignment, service), assignmentStart(assignment, service) || '00:00');
   return Boolean(startsAt && startsAt.getTime() >= new Date(today).getTime());
 }
 
@@ -130,6 +132,7 @@ export function whatsappManualUrl(phone, message) {
 
 export function buildCommunicationCenter(data = {}, options = {}) {
   const today = options.today || new Date();
+  const resolveStart = options.resolveStart || parseDateTime;
   const services = Array.isArray(data.services) ? data.services : [];
   const communicationLogs = Array.isArray(data.communicationLogs) ? data.communicationLogs : [];
   const tasks = [];
@@ -143,15 +146,15 @@ export function buildCommunicationCenter(data = {}, options = {}) {
       const collaborator = assignment.collaborator || {};
       const status = normalized(assignment.status);
       const confirmed = CONFIRMED_STATUSES.has(status);
-      const dueIn24Hours = confirmed && isInNext24Hours(service, assignment, today);
+      const dueIn24Hours = confirmed && isInNext24Hours(service, assignment, today, resolveStart);
       const kind = confirmed
-        ? (isUpcoming(service, assignment, today) ? 'reminder_24h' : 'confirmed')
+        ? (isUpcoming(service, assignment, today, resolveStart) ? 'reminder_24h' : 'confirmed')
         : 'confirmation';
 
       if (kind === 'confirmed') continue;
 
-      const latestLog = latestLogFor(communicationLogs, assignment.id, kind);
-      const message = text(latestLog?.message) || buildMessage({ kind, service, assignment, collaborator });
+      const latestLog = latestLogFor(assignment.communicationLogs || communicationLogs, assignment.id, kind);
+      const message = options.includeMessage === false ? '' : text(latestLog?.message) || buildMessage({ kind, service, assignment, collaborator });
       const state = confirmed
         ? (latestLog?.status && MANUAL_STATES.has(latestLog.status)
           ? latestLog.status
@@ -187,7 +190,7 @@ export function buildCommunicationCenter(data = {}, options = {}) {
   return tasks.sort((a, b) => {
     const byDate = `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`);
     if (byDate) return byDate;
-    return a.collaboratorName.localeCompare(b.collaboratorName, 'pt');
+    return a.collaboratorName.localeCompare(b.collaboratorName, 'pt') || a.assignmentId - b.assignmentId;
   });
 }
 

@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
+import { readNotificationOverview } from '../services/notificationOverview.js';
 
 export const notificationsRouter = Router();
+
+notificationsRouter.get('/overview', asyncHandler(async (req, res) => {
+  res.json(await readNotificationOverview(prisma, req.user));
+}));
 
 notificationsRouter.get('/ignored', asyncHandler(async (req, res) => {
   const userId = Number(req.user?.id);
@@ -27,4 +32,3 @@ notificationsRouter.post('/ignored', asyncHandler(async (req, res) => {
 
   res.status(201).json({ ok: true, key });
 }));
-

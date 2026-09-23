@@ -22,6 +22,7 @@ import { requireAnyPermission, requirePermission } from '../security/permissions
 import { usersRouter } from './users.js';
 import { collaboratorsRouter } from './collaborators.js';
 import { notificationsRouter } from './notifications.js';
+import { communicationRouter } from './communication.js';
 import { timeValidationImportsRouter } from './timeValidationImports.js';
 import { whatsappRouter, whatsappWebhookRouter } from './whatsapp.js';
 import { calendarFeedPublicRouter, calendarFeedRouter } from './calendarFeed.js';
@@ -500,6 +501,7 @@ apiRouter.use('/collaborators', collaboratorsRouter);
 apiRouter.use('/time-validation-imports', requirePermission(PERMISSIONS.TIME_VALIDATION_IMPORT), timeValidationImportsRouter);
 apiRouter.use('/whatsapp', communicationSend, whatsappRouter);
 apiRouter.use('/qr-codes', communicationQr, qrCodesRouter);
+apiRouter.use('/communication', communicationRead, communicationRouter);
 
 apiRouter.use('/clients', createCrudRouter(prisma.client, [
   'name',

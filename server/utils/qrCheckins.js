@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
+import { eventStartInstant } from './eventTime.js';
+import { eventDayKey } from '../../src/utils/eventCancelledDays.js';
 
 export const QR_CHECK_ACTIONS = Object.freeze({
   checkIn: 'check_in',
@@ -40,28 +42,26 @@ function dateFromValue(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function startOfUtcDay(value) {
-  const date = dateFromValue(value) || new Date();
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
-}
-
-function endOfUtcDay(value) {
-  const date = startOfUtcDay(value);
-  date.setUTCHours(23, 59, 59, 999);
-  return date;
-}
-
-export function qrUsageWindow({ event = {}, assignment = {} } = {}) {
-  const referenceDate = assignment.assignmentDate || event.date;
+export function qrUsageWindow({ event = {}, assignment = {}, timeZone = process.env.APP_TIMEZONE || 'Europe/Lisbon' } = {}) {
+  const referenceDate = eventDayKey(assignment.assignmentDate || event.date);
+  const nextDay = dateFromValue(`${referenceDate}T00:00:00.000Z`);
+  const startsAt = eventStartInstant(referenceDate, '00:00', timeZone);
+  if (!nextDay || !startsAt) {
+    const error = new Error('Este serviço não tem uma data válida.');
+    error.code = 'QR_INVALID_DATE';
+    error.status = 400;
+    throw error;
+  }
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
   return {
-    startsAt: startOfUtcDay(referenceDate),
-    expiresAt: endOfUtcDay(referenceDate),
+    startsAt,
+    expiresAt: new Date(eventStartInstant(nextDay, '00:00', timeZone).getTime() - 1),
   };
 }
 
-export function validateQrUsage({ event = {}, assignment = {}, now = new Date() } = {}) {
+export function validateQrUsage({ event = {}, assignment = {}, now = new Date(), timeZone = process.env.APP_TIMEZONE || 'Europe/Lisbon' } = {}) {
   const current = dateFromValue(now) || new Date();
-  const { startsAt, expiresAt } = qrUsageWindow({ event, assignment });
+  const { startsAt, expiresAt } = qrUsageWindow({ event, assignment, timeZone });
 
   if (current < startsAt) {
     const error = new Error('Este QR Code ainda não está ativo para este dia de serviço.');

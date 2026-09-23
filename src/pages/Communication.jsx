@@ -16,14 +16,15 @@ import {
   UserX,
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
+import CommunicationPagination from '../components/UI/CommunicationPagination.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
-import { useApi } from '../hooks/useApi.js';
+import { useCommunicationData } from '../hooks/useCommunicationData.js';
 import { api } from '../utils/api.js';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
-import { buildCommunicationCenter, communicationSummary } from '../utils/communicationCenter.js';
+import { communicationSummary } from '../utils/communicationCenter.js';
 import { withCommunicationMessageDraft } from '../utils/communicationMessageDrafts.js';
 import { date } from '../utils/formatters.js';
 
@@ -71,19 +72,6 @@ function formatTaskDate(value) {
   return date.format(parsed);
 }
 
-function taskMatchesSearch(task, search) {
-  const q = search.trim().toLowerCase();
-  if (!q) return true;
-  return [
-    task.collaboratorName,
-    task.eventName,
-    task.clientName,
-    task.role,
-    task.rawPhone,
-    task.phone,
-  ].join(' ').toLowerCase().includes(q);
-}
-
 function SummaryCard({ icon: Icon, label, value, tone = 'accent' }) {
   return (
     <article className={`communication-summary-card communication-summary-card--${tone}`}>
@@ -102,50 +90,37 @@ const qrStateTones = {
   servico_concluido: 'success',
 };
 
-function QrCodesPanel({ services, canManageQrCodes }) {
-  const eventOptions = useMemo(() => (Array.isArray(services) ? services : [])
-    .filter((service) => (service.assignments || []).some((assignment) => assignment.collaboratorId))
-    .map((service) => ({
-      id: String(service.id),
-      name: service.name,
-      clientName: service.client?.name || service.clientName || '',
-      date: service.date,
-    }))
-    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || a.name.localeCompare(b.name, 'pt')), [services]);
-
+function QrCodesPanel({ canManageQrCodes }) {
   const [eventId, setEventId] = useState('');
-  const [payload, setPayload] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [copyNotice, setCopyNotice] = useState('');
   const [selectedQr, setSelectedQr] = useState(null);
   const [qrImage, setQrImage] = useState('');
+  const { data: eventOptions, error: optionsError } = useCommunicationData(canManageQrCodes ? '/qr-codes/events' : null);
+  const { data: payload, loading, error, reload: loadQrCodes } = useCommunicationData(
+    canManageQrCodes && eventId ? `/qr-codes/events/${eventId}?page=${page}&pageSize=${pageSize}` : null,
+    { poll: true },
+  );
 
   useEffect(() => {
-    if (!eventId && eventOptions[0]?.id) setEventId(eventOptions[0].id);
+    if (!eventId && eventOptions?.[0]?.id) setEventId(eventOptions[0].id);
   }, [eventId, eventOptions]);
 
-  const loadQrCodes = useCallback(async ({ background = false } = {}) => {
-    if (!eventId || !canManageQrCodes) return;
-    if (!background) setLoading(true);
-    setError('');
+  useEffect(() => {
+    if (!copyNotice) return undefined;
+    const timer = window.setTimeout(() => setCopyNotice(''), 3000);
+    return () => window.clearTimeout(timer);
+  }, [copyNotice]);
+
+  async function copyQrLink(row) {
     try {
-      setPayload(await api(`/qr-codes/events/${eventId}`));
-    } catch (err) {
-      setError(err.message || 'Não foi possível carregar os QR Codes.');
-    } finally {
-      if (!background) setLoading(false);
+      await window.navigator.clipboard.writeText(row.qrUrl);
+      setCopyNotice('Link copiado');
+    } catch {
+      setCopyNotice('Não foi possível copiar o link. Verifica a permissão da área de transferência.');
     }
-  }, [canManageQrCodes, eventId]);
-
-  useEffect(() => {
-    loadQrCodes();
-  }, [loadQrCodes]);
-
-  useEffect(() => {
-    if (!eventId || !canManageQrCodes) return undefined;
-    const timer = window.setInterval(() => loadQrCodes({ background: true }), 15000);
-    return () => window.clearInterval(timer);
-  }, [canManageQrCodes, eventId, loadQrCodes]);
+  }
 
   async function qrDataUrl(row) {
     return QRCode.toDataURL(row.qrUrl, {
@@ -160,6 +135,7 @@ function QrCodesPanel({ services, canManageQrCodes }) {
   }
 
   async function openQr(row) {
+    setQrImage('');
     setSelectedQr(row);
     setQrImage(await qrDataUrl(row));
   }
@@ -217,9 +193,9 @@ function QrCodesPanel({ services, canManageQrCodes }) {
       <div className="communication-qr-toolbar">
         <label>
           <span>Evento/Serviço</span>
-          <select value={eventId} onChange={(event) => setEventId(event.target.value)}>
-            {eventOptions.length ? eventOptions.map((item) => (
-              <option key={item.id} value={item.id}>{item.name} · {item.clientName}</option>
+          <select value={eventId} onChange={(event) => { setEventId(event.target.value); setPage(1); }}>
+            {eventOptions?.length ? eventOptions.map((item) => (
+              <option key={item.id} value={item.id}>{item.name} · {item.clientName} · {formatTaskDate(item.date)}</option>
             )) : <option value="">Sem eventos com colaboradores</option>}
           </select>
         </label>
@@ -228,7 +204,8 @@ function QrCodesPanel({ services, canManageQrCodes }) {
         </button>
       </div>
 
-      {error ? <p className="notice">{error}</p> : null}
+      {error || optionsError ? <p className="notice">{error || optionsError}</p> : null}
+      <span className="communication-copy-notice" role="status" aria-live="polite">{copyNotice}</span>
 
       <div className="communication-qr-summary">
         <article>
@@ -238,17 +215,17 @@ function QrCodesPanel({ services, canManageQrCodes }) {
         </article>
         <article>
           <small>QR gerados</small>
-          <strong>{payload?.rows?.length || 0}</strong>
+          <strong>{payload?.summary?.total || 0}</strong>
           <span>colaboradores atribuídos</span>
         </article>
         <article>
           <small>Entradas</small>
-          <strong>{(payload?.rows || []).filter((row) => row.checkIn).length}</strong>
+          <strong>{payload?.summary?.entries || 0}</strong>
           <span>registadas</span>
         </article>
         <article>
           <small>Concluídos</small>
-          <strong>{(payload?.rows || []).filter((row) => row.checkIn && row.checkOut).length}</strong>
+          <strong>{payload?.summary?.completed || 0}</strong>
           <span>com entrada e saída</span>
         </article>
       </div>
@@ -278,6 +255,7 @@ function QrCodesPanel({ services, canManageQrCodes }) {
                 <td data-label="Saída">{row.checkOut || '-'}</td>
                 <td data-label="Ações">
                   <div className="communication-qr-actions">
+                    <button type="button" className="icon-button" title="Copiar Link" aria-label={`Copiar Link de ${row.collaboratorName}`} onClick={() => copyQrLink(row)}><Copy size={16} /></button>
                     <button type="button" className="icon-button" title="Ver QR" onClick={() => openQr(row)}><Eye size={16} /></button>
                     <button type="button" className="icon-button" title="Imprimir" onClick={() => printQr(row)}><Printer size={16} /></button>
                     <button type="button" className="icon-button" title="Download" onClick={() => downloadQr(row)}><Download size={16} /></button>
@@ -290,6 +268,8 @@ function QrCodesPanel({ services, canManageQrCodes }) {
           </tbody>
         </table>
       </div>
+
+      <CommunicationPagination payload={payload} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
 
       {selectedQr ? (
         <div className="qr-modal-backdrop" role="presentation" onClick={() => setSelectedQr(null)}>
@@ -312,15 +292,10 @@ function QrCodesPanel({ services, canManageQrCodes }) {
 
 export default function Communication() {
   const { user } = useAuth();
-  const { data: services, loading: loadingServices, error: servicesError, reload: reloadServices } = useApi('/services', []);
-  const {
-    data: communicationLogs,
-    loading: loadingLogs,
-    error: logsError,
-    reload: reloadLogs,
-  } = useApi('/communication-logs', []);
-
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [stateFilter, setStateFilter] = useState('open');
   const [kindFilter, setKindFilter] = useState('all');
   const [eventFilter, setEventFilter] = useState('all');
@@ -332,44 +307,24 @@ export default function Communication() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('messages');
   const canManageQrCodes = hasPermission(user, PERMISSIONS.COMMUNICATION_MANAGE_QR_CODES);
+  const query = new window.URLSearchParams({ page: String(page), pageSize: String(pageSize), search: debouncedSearch, state: stateFilter, kind: kindFilter, eventId: eventFilter });
+  const { data: payload, previousData, loading, error, reload } = useCommunicationData(
+    activeTab === 'messages' ? `/communication/tasks?${query}` : null,
+    { poll: true },
+  );
 
   useEffect(() => {
-    const timer = window.setInterval(() => reloadLogs({ background: true }), 15000);
-    return () => window.clearInterval(timer);
-  }, [reloadLogs]);
+    if (search === debouncedSearch) return undefined;
+    const timer = window.setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search, debouncedSearch]);
 
-  const tasks = useMemo(
-    () => buildCommunicationCenter({ services, communicationLogs }),
-    [communicationLogs, services],
-  );
+  const tasks = payload?.items || [];
+  const summary = (payload || previousData)?.summary || communicationSummary([]);
+  const eventOptions = (payload || previousData)?.events || [];
+  const selectedTask = tasks.find((task) => task.id === selectedId) || tasks[0] || null;
 
-  const summary = useMemo(() => communicationSummary(tasks), [tasks]);
-
-  const eventOptions = useMemo(() => {
-    const options = new Map();
-    for (const task of tasks) {
-      if (task.serviceId) options.set(String(task.serviceId), task.eventName);
-    }
-    return [...options.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pt'));
-  }, [tasks]);
-
-  const filteredTasks = useMemo(() => tasks.filter((task) => {
-    if (!taskMatchesSearch(task, search)) return false;
-    if (kindFilter !== 'all' && task.kind !== kindFilter) return false;
-    if (eventFilter !== 'all' && String(task.serviceId) !== eventFilter) return false;
-    if (stateFilter === 'open') return !['confirmed', 'unavailable'].includes(task.state);
-    if (stateFilter !== 'all') return task.state === stateFilter;
-    return true;
-  }), [eventFilter, kindFilter, search, stateFilter, tasks]);
-
-  const selectedTask = useMemo(() => (
-    filteredTasks.find((task) => task.id === selectedId) || filteredTasks[0] || null
-  ), [filteredTasks, selectedId]);
-
-  const selectedTaskWithDraft = useMemo(
-    () => withCommunicationMessageDraft(selectedTask, messageDrafts),
-    [messageDrafts, selectedTask],
-  );
+  const selectedTaskWithDraft = withCommunicationMessageDraft(selectedTask, messageDrafts);
 
   useEffect(() => {
     if (selectedTask && selectedTask.id !== selectedId) {
@@ -420,10 +375,9 @@ export default function Communication() {
           method: 'PUT',
           body: JSON.stringify({ status: 'confirmed' }),
         });
-        reloadServices();
       }
 
-      reloadLogs();
+      reload();
       setNotice(status === 'confirmed' ? 'Colaborador marcado como confirmado.' : 'Estado atualizado.');
     } catch (error) {
       setNotice(error.message || 'Não foi possível atualizar o estado.');
@@ -454,7 +408,7 @@ export default function Communication() {
         method: 'PUT',
         body: JSON.stringify({ whatsappEnabled: enabled }),
       });
-      reloadServices();
+      reload();
     } catch (error) {
       setWhatsappOverrides((current) => ({ ...current, [assignmentId]: previous }));
       setNotice(error.message || 'Não foi possível guardar a preferência de WhatsApp.');
@@ -462,9 +416,6 @@ export default function Communication() {
       setUpdatingWhatsappId(null);
     }
   }
-
-  const loading = loadingServices || loadingLogs;
-  const error = servicesError || logsError;
 
   return (
     <div className="page communication-page">
@@ -483,12 +434,12 @@ export default function Communication() {
           <MessageSquareText size={16} /> Mensagens
         </button>
         <button type="button" className={activeTab === 'qr' ? 'active' : ''} onClick={() => setActiveTab('qr')}>
-          <QrCode size={16} /> QR Codes
+          <QrCode size={16} /> QR Codes / Link
         </button>
       </nav>
 
       {activeTab === 'qr' ? (
-        <QrCodesPanel services={services} canManageQrCodes={canManageQrCodes} />
+        <QrCodesPanel canManageQrCodes={canManageQrCodes} />
       ) : (
         <>
 
@@ -510,7 +461,7 @@ export default function Communication() {
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
-        <select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}>
+        <select aria-label="Estado da comunicação" value={stateFilter} onChange={(event) => { setStateFilter(event.target.value); setPage(1); }}>
           <option value="open">Apenas por resolver</option>
           <option value="all">Todos os estados</option>
           <option value="pending_contact">Por contactar</option>
@@ -526,20 +477,20 @@ export default function Communication() {
           <option value="confirmed">Confirmado</option>
           <option value="unavailable">Não disponível</option>
         </select>
-        <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}>
+        <select aria-label="Tipo de mensagem" value={kindFilter} onChange={(event) => { setKindFilter(event.target.value); setPage(1); }}>
           <option value="all">Todos os tipos</option>
           <option value="confirmation">Confirmações</option>
           <option value="reminder_24h">Lembretes 24h</option>
         </select>
-        <select value={eventFilter} onChange={(event) => setEventFilter(event.target.value)}>
+        <select aria-label="Evento da comunicação" value={eventFilter} onChange={(event) => { setEventFilter(event.target.value); setPage(1); }}>
           <option value="all">Todos os eventos</option>
-          {eventOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          {eventOptions.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
         </select>
       </section>
 
       <section className="communication-workspace">
         <div className="communication-list" aria-label="Lista de contactos">
-          {filteredTasks.length ? filteredTasks.map((task) => {
+          {tasks.length ? tasks.map((task) => {
             const whatsappEnabled = whatsappEnabledFor(task);
             return (
               <div
@@ -682,6 +633,7 @@ export default function Communication() {
           )}
         </aside>
       </section>
+      <CommunicationPagination payload={payload} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
         </>
       )}
     </div>

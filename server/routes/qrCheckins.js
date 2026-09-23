@@ -3,6 +3,7 @@ import os from 'node:os';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
 import { roundedBillableHours } from '../../src/utils/serviceFinance.js';
+import { readQrCodesPage } from '../services/qrCodesPage.js';
 import {
   QR_CHECK_ACTIONS,
   formatServerTime,
@@ -111,6 +112,10 @@ export async function ensureQrCodeForAssignment(assignmentOrId) {
 
   if (!existing) return createUniqueQrCode(baseData);
 
+  if (!shouldRegenerateToken(existing, assignment, event)
+    && !existing.revokedAt
+    && existing.expiresAt?.getTime() === expiresAt.getTime()) return existing;
+
   return prisma.qrCheckCode.update({
     where: { id: existing.id },
     data: {
@@ -136,7 +141,7 @@ function qrRowPayload(req, assignment, qrCode) {
     collaboratorFullName: collaborator.name || '',
     nif: collaborator.nif || '',
     role: assignment.role || '',
-    assignmentDate: assignment.assignmentDate,
+    assignmentDate: assignment.assignmentDate || assignment.event?.date || qrCode.eventDate,
     plannedCheckIn: assignment.plannedCheckIn,
     plannedCheckOut: assignment.plannedCheckOut,
     checkIn: assignment.checkIn,
@@ -267,36 +272,22 @@ qrPublicRouter.post('/:token/check-out', asyncHandler(async (req, res) => {
   res.json(publicPayload(req, updated));
 }));
 
+qrCodesRouter.get('/events', asyncHandler(async (_req, res) => {
+  const events = await prisma.event.findMany({
+    where: { assignments: { some: {} } },
+    select: { id: true, name: true, date: true, clientName: true, client: { select: { name: true } } },
+    orderBy: [{ date: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+  });
+  res.json(events.map((event) => ({ ...event, id: String(event.id), clientName: event.client?.name || event.clientName || '' })));
+}));
+
 qrCodesRouter.get('/events/:eventId', asyncHandler(async (req, res) => {
   const eventId = parseId(req.params.eventId);
   if (!eventId) return res.status(400).json({ message: 'ID inválido.' });
 
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    include: {
-      client: true,
-      assignments: {
-        include: {
-          collaborator: true,
-          qrCheckCode: true,
-        },
-      },
-    },
-  });
-
-  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
-
-  const assignments = event.assignments
-    .filter((assignment) => (
-      assignment.collaboratorId
-      && String(assignment.status || '').toLowerCase() !== 'cancelled'
-    ))
-    .sort((a, b) => (
-      String(a.assignmentDate || '').localeCompare(String(b.assignmentDate || ''))
-      || String(a.role || '').localeCompare(String(b.role || ''), 'pt')
-      || String(a.collaborator?.shortName || a.collaborator?.name || '').localeCompare(String(b.collaborator?.shortName || b.collaborator?.name || ''), 'pt')
-      || String(a.plannedCheckIn || '').localeCompare(String(b.plannedCheckIn || ''))
-    ));
+  const page = await readQrCodesPage(prisma, eventId, req.query);
+  if (!page) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  const { items: assignments, event, ...pagination } = page;
 
   const rows = [];
   for (const assignment of assignments) {
@@ -309,14 +300,8 @@ qrCodesRouter.get('/events/:eventId', asyncHandler(async (req, res) => {
   }
 
   res.json({
-    event: {
-      id: event.id,
-      name: event.name,
-    clientName: event.client?.name || event.clientName || '',
-      date: event.date,
-      endDate: event.endDate,
-      status: event.status,
-    },
+    ...pagination,
+    event,
     rows,
   });
 }));

@@ -1,5 +1,7 @@
 import { clearInterval, clearTimeout, setInterval, setTimeout } from 'node:timers';
 import { prisma } from '../prisma.js';
+import { eventStartInstant, reminderDayKey } from './eventTime.js';
+export { eventStartInstant, reminderDayKey } from './eventTime.js';
 import {
   normalizeWhatsAppRecipient,
   sendWhatsAppTemplateMessage,
@@ -18,64 +20,6 @@ function text(value) {
 
 function normalized(value) {
   return text(value).toLowerCase();
-}
-
-export function reminderDayKey(value) {
-  if (!value) return '';
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return '';
-    return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}-${String(value.getUTCDate()).padStart(2, '0')}`;
-  }
-  return text(value).slice(0, 10);
-}
-
-function timeParts(value) {
-  const match = text(value).match(/^(\d{1,2}):(\d{2})/);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
-  return { hours, minutes };
-}
-
-function zonedParts(date, timeZone) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-  return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
-}
-
-export function eventStartInstant(dayValue, timeValue, timeZone = 'Europe/Lisbon') {
-  const day = reminderDayKey(dayValue);
-  const time = timeParts(timeValue);
-  const match = day.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match || !time) return null;
-
-  const targetUtc = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), time.hours, time.minutes);
-  let instant = new Date(targetUtc);
-
-  // Two passes resolve the UTC offset, including daylight-saving transitions.
-  for (let pass = 0; pass < 2; pass += 1) {
-    const represented = zonedParts(instant, timeZone);
-    const representedUtc = Date.UTC(
-      represented.year,
-      represented.month - 1,
-      represented.day,
-      represented.hour,
-      represented.minute,
-      represented.second,
-    );
-    instant = new Date(instant.getTime() + (targetUtc - representedUtc));
-  }
-
-  return Number.isNaN(instant.getTime()) ? null : instant;
 }
 
 function cancelledDayKeys(event = {}) {

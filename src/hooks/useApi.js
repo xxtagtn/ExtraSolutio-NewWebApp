@@ -5,7 +5,7 @@ import { isSameApiData } from '../utils/apiDataEquality.js';
 
 export { invalidateApiCache };
 
-export function useApi(path, fallback = []) {
+export function useApi(path, fallback = [], { enabled = true } = {}) {
   const cached = readApiCache(path);
   const [data, setData] = useState(cached === undefined ? fallback : cached);
   const [loading, setLoading] = useState(cached === undefined);
@@ -13,6 +13,7 @@ export function useApi(path, fallback = []) {
   const activeRef = useRef(true);
 
   const load = useCallback(({ background = false } = {}) => {
+    if (!enabled) return () => {};
     let active = true;
     if (!background) {
       setLoading(readApiCache(path) === undefined);
@@ -36,9 +37,13 @@ export function useApi(path, fallback = []) {
     return () => {
       active = false;
     };
-  }, [path]);
+  }, [path, enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      activeRef.current = false;
+      return undefined;
+    }
     activeRef.current = true;
     const fresh = readApiCache(path);
     if (fresh !== undefined) {
@@ -50,12 +55,12 @@ export function useApi(path, fallback = []) {
       activeRef.current = false;
       cancel();
     };
-  }, [load, path]);
+  }, [load, path, enabled]);
 
   const reload = useCallback(({ background = false } = {}) => {
     if (!background) invalidateApiCache(path);
     return load({ background });
   }, [load, path]);
 
-  return { data, loading, error, reload };
+  return { data: enabled ? data : fallback, loading: enabled && loading, error: enabled ? error : '', reload };
 }

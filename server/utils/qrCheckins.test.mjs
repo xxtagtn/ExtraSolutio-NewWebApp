@@ -42,10 +42,32 @@ test('qrUsageWindow uses the assignment day and expires at the end of that day',
   const window = qrUsageWindow({
     event: { date: '2026-07-05T00:00:00.000Z', endDate: '2026-07-08T00:00:00.000Z' },
     assignment: { assignmentDate: '2026-07-06T00:00:00.000Z' },
+    timeZone: 'Europe/Lisbon',
   });
 
-  assert.equal(window.startsAt.toISOString(), '2026-07-06T00:00:00.000Z');
-  assert.equal(window.expiresAt.toISOString(), '2026-07-06T23:59:59.999Z');
+  assert.equal(window.startsAt.toISOString(), '2026-07-05T23:00:00.000Z');
+  assert.equal(window.expiresAt.toISOString(), '2026-07-06T22:59:59.999Z');
+});
+
+test('September 23 QR accepts Lisbon midnight even while the UTC server is on September 22', () => {
+  const input = { event: { date: '2026-09-01' }, assignment: { assignmentDate: new Date('2026-09-23T00:00:00Z') }, timeZone: 'Europe/Lisbon' };
+  assert.throws(() => validateQrUsage({ ...input, now: '2026-09-22T22:59:59.999Z' }), { code: 'QR_NOT_ACTIVE' });
+  assert.equal(validateQrUsage({ ...input, now: '2026-09-22T23:00:00.000Z' }), true);
+  assert.equal(validateQrUsage({ ...input, now: '2026-09-23T22:59:59.999Z' }), true);
+  assert.throws(() => validateQrUsage({ ...input, now: '2026-09-23T23:00:00.000Z' }), { code: 'QR_EXPIRED' });
+});
+
+test('QR windows follow 23-hour and 25-hour Lisbon days and winter time', () => {
+  for (const [day, startsAt, expiresAt] of [
+    ['2026-03-29', '2026-03-29T00:00:00.000Z', '2026-03-29T22:59:59.999Z'],
+    ['2026-10-25', '2026-10-24T23:00:00.000Z', '2026-10-25T23:59:59.999Z'],
+    ['2026-12-23', '2026-12-23T00:00:00.000Z', '2026-12-23T23:59:59.999Z'],
+  ]) {
+    const window = qrUsageWindow({ event: { date: day }, timeZone: 'Europe/Lisbon' });
+    assert.equal(window.startsAt.toISOString(), startsAt);
+    assert.equal(window.expiresAt.toISOString(), expiresAt);
+  }
+  assert.throws(() => qrUsageWindow({}), { code: 'QR_INVALID_DATE' });
 });
 
 test('validateQrUsage rejects an expired QR code', () => {
