@@ -2,32 +2,16 @@ import { Router } from 'express';
 import os from 'node:os';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
-import { roundedBillableHours } from '../../src/utils/serviceFinance.js';
 import { readQrCodesPage } from '../services/qrCodesPage.js';
+import { publicQrError as publicError, qrCheckoutProtection, readPublicQr, registerPublicQr } from '../services/qrAttendance.js';
 import {
   QR_CHECK_ACTIONS,
-  formatServerTime,
   generateQrToken,
   qrCodeStateForAssignment,
   qrUsageWindow,
   requestAuditMeta,
   resolveQrPublicBaseUrl,
-  validateQrUsage,
 } from '../utils/qrCheckins.js';
-
-const qrInclude = {
-  event: { include: { client: true } },
-  assignment: { include: { collaborator: true, event: { include: { client: true } } } },
-  collaborator: true,
-};
-
-function publicError(statusCode, message, code = 'QR_ERROR') {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  error.code = code;
-  error.expose = true;
-  return error;
-}
 
 function parseId(value) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -171,104 +155,31 @@ function publicPayload(req, qrCode) {
     checkIn: assignment.checkIn || '',
     checkOut: assignment.checkOut || '',
     completed: Boolean(assignment.checkIn && assignment.checkOut),
+    ...qrCheckoutProtection(qrCode),
     qrUrl: publicQrUrl(req, qrCode.token),
   };
-}
-
-async function loadQrCodeByToken(token) {
-  if (!token) throw publicError(404, 'QR Code inválido.', 'QR_INVALID');
-  const qrCode = await prisma.qrCheckCode.findUnique({
-    where: { token },
-    include: qrInclude,
-  });
-  if (!qrCode) throw publicError(404, 'QR Code inválido.', 'QR_INVALID');
-  if (qrCode.revokedAt) throw publicError(410, 'Este QR Code foi anulado.', 'QR_REVOKED');
-  return qrCode;
-}
-
-function validatePublicQr(qrCode) {
-  if (String(qrCode?.assignment?.status || '').toLowerCase() === 'cancelled') {
-    throw publicError(410, 'Este dia do evento foi cancelado.', 'QR_DAY_CANCELLED');
-  }
-  try {
-    validateQrUsage({
-      event: qrCode.event || qrCode.assignment?.event,
-      assignment: qrCode.assignment,
-      now: new Date(),
-    });
-  } catch (error) {
-    throw publicError(error.status || error.statusCode || 400, error.message, error.code || 'QR_INVALID');
-  }
-}
-
-async function registerQrAction(req, qrCode, action) {
-  const assignment = qrCode.assignment;
-  const now = new Date();
-  const serverTime = formatServerTime(now);
-  const audit = requestAuditMeta(req);
-  const updateData = {};
-
-  if (action === QR_CHECK_ACTIONS.checkIn) {
-    if (assignment.checkIn) throw publicError(409, 'Entrada já registada.', 'QR_CHECKIN_EXISTS');
-    updateData.checkIn = serverTime;
-  } else if (action === QR_CHECK_ACTIONS.checkOut) {
-    if (!assignment.checkIn) throw publicError(400, 'Regista primeiro a entrada.', 'QR_CHECKIN_REQUIRED');
-    if (assignment.checkOut) throw publicError(409, 'Saída já registada.', 'QR_CHECKOUT_EXISTS');
-    const hoursWorked = roundedBillableHours(assignment.checkIn, serverTime);
-    const hourlyRate = Number(assignment.hourlyRate || 0);
-    updateData.checkOut = serverTime;
-    updateData.hoursWorked = hoursWorked;
-    updateData.staffPayableHours = hoursWorked;
-    updateData.totalPay = Number((hoursWorked * hourlyRate).toFixed(2));
-  } else {
-    throw publicError(400, 'Ação inválida para este QR Code.', 'QR_ACTION_INVALID');
-  }
-
-  await prisma.$transaction([
-    prisma.eventAssignment.update({
-      where: { id: assignment.id },
-      data: updateData,
-    }),
-    prisma.qrCheckLog.create({
-      data: {
-        qrCodeId: qrCode.id,
-        eventId: qrCode.eventId,
-        assignmentId: qrCode.assignmentId,
-        collaboratorId: qrCode.collaboratorId,
-        action,
-        recordedAt: now,
-        ip: audit.ip,
-        userAgent: audit.userAgent,
-      },
-    }),
-  ]);
-
-  return prisma.qrCheckCode.findUnique({
-    where: { id: qrCode.id },
-    include: qrInclude,
-  });
 }
 
 export const qrPublicRouter = Router();
 export const qrCodesRouter = Router();
 
+qrPublicRouter.use((_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 qrPublicRouter.get('/:token', asyncHandler(async (req, res) => {
-  const qrCode = await loadQrCodeByToken(req.params.token);
-  validatePublicQr(qrCode);
+  const qrCode = await readPublicQr(prisma, req.params.token);
   res.json(publicPayload(req, qrCode));
 }));
 
 qrPublicRouter.post('/:token/check-in', asyncHandler(async (req, res) => {
-  const qrCode = await loadQrCodeByToken(req.params.token);
-  validatePublicQr(qrCode);
-  const updated = await registerQrAction(req, qrCode, QR_CHECK_ACTIONS.checkIn);
+  const updated = await registerPublicQr(prisma, req.params.token, QR_CHECK_ACTIONS.checkIn, { audit: requestAuditMeta(req) });
   res.json(publicPayload(req, updated));
 }));
 
 qrPublicRouter.post('/:token/check-out', asyncHandler(async (req, res) => {
-  const qrCode = await loadQrCodeByToken(req.params.token);
-  validatePublicQr(qrCode);
-  const updated = await registerQrAction(req, qrCode, QR_CHECK_ACTIONS.checkOut);
+  const updated = await registerPublicQr(prisma, req.params.token, QR_CHECK_ACTIONS.checkOut, { audit: requestAuditMeta(req) });
   res.json(publicPayload(req, updated));
 }));
 

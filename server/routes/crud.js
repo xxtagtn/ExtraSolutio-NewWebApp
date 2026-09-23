@@ -424,8 +424,9 @@ export function normalizeAssignment(input) {
     role: input.role,
     plannedCheckIn: input.plannedCheckIn === undefined ? undefined : input.plannedCheckIn,
     plannedCheckOut: input.plannedCheckOut === undefined ? undefined : input.plannedCheckOut,
-    checkIn: input.checkIn === undefined ? undefined : input.checkIn,
-    checkOut: input.checkOut === undefined ? undefined : input.checkOut,
+    // An explicitly cleared punch must survive compact(), which omits empty strings.
+    checkIn: input.checkIn === undefined ? undefined : input.checkIn || null,
+    checkOut: input.checkOut === undefined ? undefined : input.checkOut || null,
     clientCheckIn: input.clientCheckIn === undefined ? undefined : input.clientCheckIn,
     clientCheckOut: input.clientCheckOut === undefined ? undefined : input.clientCheckOut,
     validatedCheckIn: input.validatedCheckIn === undefined ? undefined : input.validatedCheckIn,

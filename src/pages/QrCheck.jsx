@@ -1,10 +1,11 @@
 import { CheckCircle2, Clock3, LogIn, LogOut, ShieldAlert } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { API_URL } from '../utils/api.js';
 
 async function publicQrApi(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   });
@@ -37,37 +38,76 @@ export default function QrCheck() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const pending = useRef(false);
+  const revision = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (pending.current) return;
+    const request = ++revision.current;
+    if (!silent) setLoading(true);
     try {
-      setPayload(await publicQrApi(`/qr-check/${encodeURIComponent(token)}`));
+      const next = await publicQrApi(`/qr-check/${encodeURIComponent(token)}`);
+      if (request !== revision.current) return;
+      setPayload(next);
+      setError('');
     } catch (err) {
+      if (request !== revision.current) return;
       setError(err.message || 'QR Code inválido.');
     } finally {
-      setLoading(false);
+      if (request === revision.current) setLoading(false);
     }
   }, [token]);
 
   useEffect(() => {
+    const requests = revision;
     load();
+    const refresh = () => {
+      if (document.visibilityState === 'visible') load({ silent: true });
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    const interval = window.setInterval(refresh, 15000);
+    return () => {
+      ++requests.current;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, [load]);
 
+  useEffect(() => {
+    if (!payload?.checkOutRetryAfterMs) return;
+    const timeout = window.setTimeout(() => load({ silent: true }), payload.checkOutRetryAfterMs + 50);
+    return () => window.clearTimeout(timeout);
+  }, [payload, load]);
+
   async function register(action) {
+    // React state updates alone do not serialize rapid taps or in-flight refreshes.
+    if (pending.current) return;
+    pending.current = true;
+    const request = ++revision.current;
     setSaving(true);
     setError('');
+    setActionError('');
+    let refreshNeeded = false;
     try {
       const next = await publicQrApi(`/qr-check/${encodeURIComponent(token)}/${action}`, { method: 'POST' });
-      setPayload(next);
+      if (request === revision.current) setPayload(next);
     } catch (err) {
-      setError(err.message || 'Não foi possível registar a hora.');
+      if (request === revision.current) {
+        setActionError(err.message || 'Não foi possível registar a hora.');
+        refreshNeeded = true;
+      }
     } finally {
+      pending.current = false;
       setSaving(false);
+      if (refreshNeeded) await load({ silent: true });
     }
   }
 
   const nextAction = payload?.state?.nextAction;
+  const checkoutBlocked = payload?.checkOutRetryAfterMs > 0;
 
   return (
     <main className="qr-check-page">
@@ -84,7 +124,7 @@ export default function QrCheck() {
             <ShieldAlert size={32} />
             <h1>Não foi possível validar</h1>
             <p>{error}</p>
-            <button type="button" className="secondary-button" onClick={load}>Tentar novamente</button>
+            <button type="button" className="secondary-button" onClick={() => load()}>Tentar novamente</button>
           </div>
         ) : (
           <>
@@ -127,11 +167,17 @@ export default function QrCheck() {
                 <LogIn size={20} /> Dar Entrada
               </button>
             ) : (
-              <button type="button" className="qr-check-command" disabled={saving} onClick={() => register('check-out')}>
+              <button type="button" className="qr-check-command" disabled={saving || checkoutBlocked} onClick={() => register('check-out')}>
                 <LogOut size={20} /> Dar Saída
               </button>
             )}
 
+            {checkoutBlocked && (
+              <p className="qr-check-footnote" role="status">
+                Entrada já registada. Podes dar saída a partir das {payload.checkOutAvailableTime}, 30 minutos após a entrada.
+              </p>
+            )}
+            {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
             <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
           </>
         )}

@@ -8,6 +8,22 @@ export const QR_CHECK_ACTIONS = Object.freeze({
   checkOut: 'check_out',
 });
 
+export const QR_CHECKOUT_DELAY_MS = 30 * 60 * 1000;
+
+export function qrCheckOutAvailableAt({ event = {}, assignment = {}, checkInLog, timeZone = process.env.APP_TIMEZONE || 'Europe/Lisbon' } = {}) {
+  if (!assignment.checkIn || assignment.checkOut) return null;
+  const enteredAt = eventStartInstant(assignment.assignmentDate || event.date, assignment.checkIn, timeZone);
+  if (!enteredAt) return null;
+
+  // Logs preserve history, never the current state. Use their seconds only when
+  // they match the entry still saved on this particular service day.
+  const recordedAt = dateFromValue(checkInLog?.recordedAt);
+  const { startsAt, expiresAt } = qrUsageWindow({ event, assignment, timeZone });
+  const matchesCurrentEntry = recordedAt && recordedAt >= startsAt && recordedAt <= expiresAt
+    && formatServerTime(recordedAt, timeZone) === assignment.checkIn;
+  return new Date((matchesCurrentEntry ? recordedAt : enteredAt).getTime() + QR_CHECKOUT_DELAY_MS);
+}
+
 export function generateQrToken(randomBytes = crypto.randomBytes) {
   return randomBytes(32).toString('base64url');
 }

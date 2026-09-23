@@ -3,11 +3,31 @@ import assert from 'node:assert/strict';
 import {
   formatServerTime,
   generateQrToken,
+  qrCheckOutAvailableAt,
   qrCodeStateForAssignment,
   qrUsageWindow,
   resolveQrPublicBaseUrl,
   validateQrUsage,
 } from './qrCheckins.js';
+
+test('checkout protection uses the saved entry and ignores missing entries and old-day logs', () => {
+  const input = { event: { date: '2026-09-23' }, timeZone: 'Europe/Lisbon' };
+  const oldLog = { recordedAt: '2026-09-22T10:00:45Z' };
+  assert.equal(qrCheckOutAvailableAt({ ...input, assignment: { checkIn: null }, checkInLog: oldLog }), null);
+  assert.equal(qrCheckOutAvailableAt({ ...input, assignment: { checkIn: '11:00', checkOut: '15:00' } }), null);
+  assert.equal(qrCheckOutAvailableAt({ ...input, assignment: { checkIn: '11:00' }, checkInLog: oldLog }).toISOString(), '2026-09-23T10:30:00.000Z');
+});
+
+test('checkout protection measures elapsed minutes across Lisbon daylight-saving changes', () => {
+  for (const [day, checkIn, recordedAt, expected] of [
+    ['2026-03-29', '00:50', '2026-03-29T00:50:30Z', '2026-03-29T01:20:30.000Z'],
+    ['2026-10-25', '01:50', '2026-10-25T00:50:30Z', '2026-10-25T01:20:30.000Z'],
+    ['2026-10-25', '01:50', '2026-10-25T01:50:30Z', '2026-10-25T02:20:30.000Z'],
+  ]) {
+    const available = qrCheckOutAvailableAt({ event: { date: day }, assignment: { checkIn }, checkInLog: { recordedAt }, timeZone: 'Europe/Lisbon' });
+    assert.equal(available.toISOString(), expected);
+  }
+});
 
 test('generateQrToken creates an opaque URL-safe token', () => {
   const bytes = Buffer.from('01234567890123456789012345678901');
