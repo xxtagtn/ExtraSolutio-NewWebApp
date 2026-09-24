@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Copy,
   ExternalLink,
@@ -12,7 +13,7 @@ import {
   UserCheck,
   UserX,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
 import CommunicationPagination from '../components/UI/CommunicationPagination.jsx';
@@ -206,9 +207,87 @@ function ReminderQrTools({ task, tools }) {
   );
 }
 
+function CommunicationTaskPreview({ task, mobile, canManageQrCodes, qrTools, onMessageChange, onCopy, onWhatsapp, onLog, whatsappEnabled, saving }) {
+  const [messageOpen, setMessageOpen] = useState(false);
+  const qrActions = canManageQrCodes && task.kind === 'reminder_24h'
+    ? <ReminderQrTools key={task.assignmentId} task={task} tools={qrTools} />
+    : null;
+  const messageId = `communication-message-${task.id}`;
+
+  return (
+    <>
+      {mobile ? (
+        <div className="communication-inline-tools">
+          <button type="button" className="secondary-button" aria-expanded={messageOpen} aria-controls={messageId} onClick={() => setMessageOpen((open) => !open)}>
+            <MessageSquareText size={18} /> Mensagem
+          </button>
+          {qrActions}
+        </div>
+      ) : (
+        <header>
+          <div>
+            <span>{kindLabels[task.kind] || task.kind}</span>
+            <h2>{task.collaboratorName}</h2>
+            <p>{task.eventName} · {formatTaskDate(task.date)}</p>
+          </div>
+          <Badge tone={stateTones[task.state] || 'neutral'}>{stateLabels[task.state] || task.state}</Badge>
+        </header>
+      )}
+
+      <div id={messageId} className="communication-message-content" hidden={mobile && !messageOpen}>
+        <dl className="communication-detail-grid">
+          <div><dt>Cliente</dt><dd>{task.clientName}</dd></div>
+          <div><dt>Função</dt><dd>{task.role || '-'}</dd></div>
+          <div><dt>Horário</dt><dd>{[task.startTime, task.endTime].filter(Boolean).join(' → ') || '-'}</dd></div>
+          <div><dt>Telefone</dt><dd>{task.rawPhone || '-'}</dd></div>
+        </dl>
+
+        <label className="communication-message-box">
+          <span>Mensagem editável</span>
+          <textarea value={task.message} onChange={(event) => onMessageChange(task.id, event.target.value)} rows={10} />
+        </label>
+
+        {!mobile && qrActions}
+
+        <div className="communication-action-grid">
+          <button type="button" className="secondary-button" onClick={() => onCopy(task)}><Copy size={16} /> Copiar</button>
+          <button type="button" className="secondary-button" onClick={() => onWhatsapp(task)} disabled={!task.whatsappUrl || !whatsappEnabled}>
+            <ExternalLink size={16} /> Abrir WhatsApp
+          </button>
+          <button type="button" className="secondary-button" onClick={() => onLog(task, 'sent', { sentAt: new Date().toISOString() })} disabled={saving}>
+            <Send size={16} /> Marcar enviado
+          </button>
+          <button type="button" className="secondary-button" onClick={() => onLog(task, 'responded', { respondedAt: new Date().toISOString() })} disabled={saving}>
+            <Phone size={16} /> Respondeu
+          </button>
+          <button type="button" className="command-button" onClick={() => onLog(task, 'confirmed', { respondedAt: new Date().toISOString(), response: 'Confirmado manualmente' })} disabled={saving}>
+            <CheckCircle2 size={16} /> Confirmado
+          </button>
+          <button type="button" className="secondary-button secondary-button--danger" onClick={() => onLog(task, 'unavailable', { respondedAt: new Date().toISOString(), response: 'Não disponível' })} disabled={saving}>
+            <UserX size={16} /> Não disponível
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function useMobileCommunication() {
+  const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 900px)').matches);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 900px)');
+    const update = () => setMobile(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  return mobile;
+}
+
 export default function Communication() {
   const { user } = useAuth();
   const qrTools = useCommunicationQrTools();
+  const mobile = useMobileCommunication();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -217,6 +296,8 @@ export default function Communication() {
   const [kindFilter, setKindFilter] = useState('all');
   const [eventFilter, setEventFilter] = useState('all');
   const [selectedId, setSelectedId] = useState('');
+  const [expandedId, setExpandedId] = useState('');
+  const expansionAnchor = useRef(null);
   const [messageDrafts, setMessageDrafts] = useState({});
   const [whatsappOverrides, setWhatsappOverrides] = useState({});
   const [updatingWhatsappId, setUpdatingWhatsappId] = useState(null);
@@ -224,7 +305,7 @@ export default function Communication() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('messages');
   const canManageQrCodes = hasPermission(user, PERMISSIONS.COMMUNICATION_MANAGE_QR_CODES);
-  const query = new window.URLSearchParams({ page: String(page), pageSize: String(pageSize), search: debouncedSearch, state: stateFilter, kind: kindFilter, eventId: eventFilter });
+  const query = new window.URLSearchParams({ page: String(page), pageSize: String(pageSize), search: debouncedSearch, state: stateFilter, kind: kindFilter, eventId: eventFilter }).toString();
   const { data: payload, previousData, loading, error, reload } = useCommunicationData(
     activeTab === 'messages' ? `/communication/tasks?${query}` : null,
     { poll: true },
@@ -239,7 +320,9 @@ export default function Communication() {
   const tasks = payload?.items || [];
   const summary = (payload || previousData)?.summary || communicationSummary([]);
   const eventOptions = (payload || previousData)?.events || [];
-  const selectedTask = tasks.find((task) => task.id === selectedId) || tasks[0] || null;
+  const selectedTask = mobile
+    ? tasks.find((task) => task.id === expandedId) || null
+    : tasks.find((task) => task.id === selectedId) || tasks[0] || null;
 
   const selectedTaskWithDraft = withCommunicationMessageDraft(selectedTask, messageDrafts);
 
@@ -249,11 +332,25 @@ export default function Communication() {
     }
   }, [selectedId, selectedTask]);
 
-  function updateSelectedMessage(value) {
-    if (!selectedTask) return;
+  useEffect(() => { setExpandedId(''); }, [query, activeTab, mobile]);
+
+  useLayoutEffect(() => {
+    const anchor = expansionAnchor.current;
+    expansionAnchor.current = null;
+    if (!anchor?.button.isConnected) return;
+    // Collapsing an earlier row must not move the newly tapped row out of view.
+    const offset = anchor.button.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(offset) > 1) window.scrollBy({ top: offset, behavior: 'instant' });
+  }, [expandedId]);
+
+  useEffect(() => {
+    if (payload && !payload.items.some((task) => task.id === expandedId)) setExpandedId('');
+  }, [payload, expandedId]);
+
+  function updateSelectedMessage(taskId, value) {
     setMessageDrafts((current) => ({
       ...current,
-      [selectedTask.id]: value,
+      [taskId]: value,
     }));
   }
 
@@ -334,6 +431,22 @@ export default function Communication() {
     }
   }
 
+  const taskPreview = selectedTaskWithDraft ? (
+    <CommunicationTaskPreview
+      key={selectedTaskWithDraft.id}
+      task={selectedTaskWithDraft}
+      mobile={mobile}
+      canManageQrCodes={canManageQrCodes}
+      qrTools={qrTools}
+      onMessageChange={updateSelectedMessage}
+      onCopy={copyMessage}
+      onWhatsapp={openWhatsapp}
+      onLog={createLog}
+      whatsappEnabled={whatsappEnabledFor(selectedTaskWithDraft)}
+      saving={saving}
+    />
+  ) : null;
+
   return (
     <div className="page communication-page">
       <div className="communication-head">
@@ -411,6 +524,8 @@ export default function Communication() {
         <div className="communication-list" aria-label="Lista de contactos">
           {tasks.length ? tasks.map((task) => {
             const whatsappEnabled = whatsappEnabledFor(task);
+            const expanded = mobile && expandedId === task.id;
+            const panelId = `communication-contact-${task.id}`;
             return (
               <div
                 key={task.id}
@@ -431,7 +546,16 @@ export default function Communication() {
                 <button
                   type="button"
                   className="communication-task"
-                  onClick={() => setSelectedId(task.id)}
+                  id={`${panelId}-toggle`}
+                  aria-expanded={mobile ? expanded : undefined}
+                  aria-controls={mobile ? panelId : undefined}
+                  onClick={(event) => {
+                    if (mobile && expandedId && expandedId !== task.id) {
+                      expansionAnchor.current = { button: event.currentTarget, top: event.currentTarget.getBoundingClientRect().top };
+                    }
+                    setSelectedId(task.id);
+                    if (mobile) setExpandedId((current) => current === task.id ? '' : task.id);
+                  }}
                 >
                   <span>
                     <strong>{task.collaboratorName}</strong>
@@ -442,7 +566,13 @@ export default function Communication() {
                     <small>{task.clientName} · {formatTaskDate(task.date)} · {[task.startTime, task.endTime].filter(Boolean).join(' → ')}</small>
                   </span>
                   <Badge tone={stateTones[task.state] || 'neutral'}>{stateLabels[task.state] || task.state}</Badge>
+                  {mobile && <ChevronDown size={18} className="communication-task-chevron" aria-hidden="true" />}
                 </button>
+                {expanded && (
+                  <section id={panelId} className="communication-preview communication-preview--inline" aria-labelledby={`${panelId}-toggle`}>
+                    {taskPreview}
+                  </section>
+                )}
               </div>
             );
           }) : (
@@ -455,106 +585,15 @@ export default function Communication() {
           )}
         </div>
 
-        <aside className="communication-preview">
-          {selectedTaskWithDraft ? (
-            <>
-              <header>
-                <div>
-                  <span>{kindLabels[selectedTaskWithDraft.kind] || selectedTaskWithDraft.kind}</span>
-                  <h2>{selectedTaskWithDraft.collaboratorName}</h2>
-                  <p>{selectedTaskWithDraft.eventName} · {formatTaskDate(selectedTaskWithDraft.date)}</p>
-                </div>
-                <Badge tone={stateTones[selectedTaskWithDraft.state] || 'neutral'}>
-                  {stateLabels[selectedTaskWithDraft.state] || selectedTaskWithDraft.state}
-                </Badge>
-              </header>
-
-              <dl className="communication-detail-grid">
-                <div>
-                  <dt>Cliente</dt>
-                  <dd>{selectedTaskWithDraft.clientName}</dd>
-                </div>
-                <div>
-                  <dt>Função</dt>
-                  <dd>{selectedTaskWithDraft.role || '-'}</dd>
-                </div>
-                <div>
-                  <dt>Horário</dt>
-                  <dd>{[selectedTaskWithDraft.startTime, selectedTaskWithDraft.endTime].filter(Boolean).join(' → ') || '-'}</dd>
-                </div>
-                <div>
-                  <dt>Telefone</dt>
-                  <dd>{selectedTaskWithDraft.rawPhone || '-'}</dd>
-                </div>
-              </dl>
-
-              <label className="communication-message-box">
-                <span>Mensagem editável</span>
-                <textarea
-                  value={selectedTaskWithDraft.message}
-                  onChange={(event) => updateSelectedMessage(event.target.value)}
-                  rows={10}
-                />
-              </label>
-
-              {canManageQrCodes && selectedTaskWithDraft.kind === 'reminder_24h' && (
-                <ReminderQrTools key={selectedTaskWithDraft.assignmentId} task={selectedTaskWithDraft} tools={qrTools} />
-              )}
-
-              <div className="communication-action-grid">
-                <button type="button" className="secondary-button" onClick={() => copyMessage(selectedTaskWithDraft)}>
-                  <Copy size={16} /> Copiar
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => openWhatsapp(selectedTaskWithDraft)}
-                  disabled={!selectedTaskWithDraft.whatsappUrl || !whatsappEnabledFor(selectedTaskWithDraft)}
-                >
-                  <ExternalLink size={16} /> Abrir WhatsApp
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => createLog(selectedTaskWithDraft, 'sent', { sentAt: new Date().toISOString() })}
-                  disabled={saving}
-                >
-                  <Send size={16} /> Marcar enviado
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => createLog(selectedTaskWithDraft, 'responded', { respondedAt: new Date().toISOString() })}
-                  disabled={saving}
-                >
-                  <Phone size={16} /> Respondeu
-                </button>
-                <button
-                  type="button"
-                  className="command-button"
-                  onClick={() => createLog(selectedTaskWithDraft, 'confirmed', { respondedAt: new Date().toISOString(), response: 'Confirmado manualmente' })}
-                  disabled={saving}
-                >
-                  <CheckCircle2 size={16} /> Confirmado
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button secondary-button--danger"
-                  onClick={() => createLog(selectedTaskWithDraft, 'unavailable', { respondedAt: new Date().toISOString(), response: 'Não disponível' })}
-                  disabled={saving}
-                >
-                  <UserX size={16} /> Não disponível
-                </button>
-              </div>
-            </>
-          ) : (
+        {!mobile && <aside className="communication-preview">
+          {taskPreview || (
             <EmptyState
               icon={MessageSquareText}
               title="Seleciona um contacto"
               description="Escolhe um colaborador na lista para copiar a mensagem, abrir WhatsApp ou registar o estado."
             />
           )}
-        </aside>
+        </aside>}
       </section>
       <CommunicationPagination payload={payload} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
         </>
