@@ -22,7 +22,7 @@ import EmptyState from '../components/UI/EmptyState.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import { useApi } from '../hooks/useApi.js';
-import { api } from '../utils/api.js';
+import { api, isSessionExpiredError } from '../utils/api.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { date, durationHours } from '../utils/formatters.js';
 import {
@@ -1385,7 +1385,7 @@ export default function TimeValidation() {
       }));
       reload();
     } catch (error) {
-      window.alert(error?.message || 'Não foi possível guardar esta validação.');
+      if (!isSessionExpiredError(error)) window.alert(error?.message || 'Não foi possível guardar esta validação.');
     } finally {
       setSavingId(null);
     }
@@ -1461,7 +1461,7 @@ export default function TimeValidation() {
       });
       reload();
     } catch (error) {
-      window.alert(error?.message || 'Não foi possível validar todos os colaboradores deste dia.');
+      if (!isSessionExpiredError(error)) window.alert(error?.message || 'Não foi possível validar todos os colaboradores deste dia.');
     } finally {
       setBulkValidatingEventId(null);
     }
@@ -1501,7 +1501,7 @@ export default function TimeValidation() {
       });
       reload();
     } catch (error) {
-      window.alert(error?.message || 'Não foi possível copiar os horários Staff para Cliente.');
+      if (!isSessionExpiredError(error)) window.alert(error?.message || 'Não foi possível copiar os horários Staff para Cliente.');
     } finally {
       setCopyingClientEventId(null);
     }
@@ -1522,7 +1522,7 @@ export default function TimeValidation() {
       }));
       await reload();
     } catch (error) {
-      window.alert(error?.message || 'Não foi possível reabrir esta validação.');
+      if (!isSessionExpiredError(error)) window.alert(error?.message || 'Não foi possível reabrir esta validação.');
     } finally {
       setSavingId(null);
     }
@@ -1577,7 +1577,7 @@ export default function TimeValidation() {
       setStage(targetStage);
       await reload();
     } catch (error) {
-      window.alert(error?.message || 'Não foi possível voltar a colocar este evento em validação.');
+      if (!isSessionExpiredError(error)) window.alert(error?.message || 'Não foi possível voltar a colocar este evento em validação.');
     } finally {
       setValidatingEventId(null);
     }

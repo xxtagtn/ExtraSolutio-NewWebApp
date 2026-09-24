@@ -19,7 +19,7 @@ import Card from '../components/UI/Card.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
-import { api } from '../utils/api.js';
+import { api, isSessionExpiredError } from '../utils/api.js';
 import {
   billingEventIdsForRow,
   billingPaymentDateForRow,
@@ -1648,7 +1648,7 @@ export default function Accounting() {
         else delete next[assignment.id];
         return next;
       });
-      window.alert(error?.message || 'Não foi possível alterar o estado do pagamento.');
+      if (!isSessionExpiredError(error)) window.alert(error?.message || 'Não foi possível alterar o estado do pagamento.');
     }
   }
 
@@ -1716,7 +1716,7 @@ export default function Accounting() {
         return next;
       });
       setSelectedStaffPaymentIds(selectedVisibleStaffPayments.map((assignment) => String(assignment.id)));
-      window.alert(error?.message || 'Não foi possível alterar os pagamentos selecionados.');
+      if (!isSessionExpiredError(error)) window.alert(error?.message || 'Não foi possível alterar os pagamentos selecionados.');
     } finally {
       setBulkUpdatingPayments(false);
     }

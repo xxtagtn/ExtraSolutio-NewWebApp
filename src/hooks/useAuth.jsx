@@ -1,10 +1,19 @@
-import { createContext, useContext, useState } from 'react';
-import { api, clearStoredAuth, getStoredAuth, setStoredAuth } from '../utils/api.js';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { api, clearStoredAuth, getStoredAuth, refreshStoredAuth, setStoredAuth } from '../utils/api.js';
+import { startSessionMonitor, subscribeAuth, validStoredAuth } from '../utils/authSession.js';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [auth, setAuth] = useState(() => getStoredAuth());
+  const [auth, setAuth] = useState(() => validStoredAuth());
+
+  useEffect(() => {
+    const synchronize = () => setAuth(getStoredAuth());
+    const unsubscribe = subscribeAuth(synchronize);
+    const stop = startSessionMonitor(refreshStoredAuth);
+    synchronize();
+    return () => { stop(); unsubscribe(); };
+  }, []);
 
   async function login(email, password) {
     const result = await api('/auth/login', {
@@ -12,7 +21,6 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ email, password }),
     });
     setStoredAuth(result);
-    setAuth(result);
     return result.user;
   }
 
@@ -22,9 +30,10 @@ export function AuthProvider({ children }) {
   }
 
   function updateUser(user) {
-    const nextAuth = { ...auth, user };
+    const current = validStoredAuth();
+    if (!current) return;
+    const nextAuth = { ...current, user };
     setStoredAuth(nextAuth);
-    setAuth(nextAuth);
   }
 
   const value = {
