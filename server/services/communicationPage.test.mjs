@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { PrismaClient } from '@prisma/client';
 import { readCommunicationPage } from './communicationPage.js';
-import { readQrCodesPage } from './qrCodesPage.js';
+import { readQrCodesPage, readRelevantQrEvents } from './qrCodesPage.js';
 import { readNotificationOverview } from './notificationOverview.js';
 import { buildCommunicationCenter, communicationSummary } from '../../src/utils/communicationCenter.js';
 import { buildLayoutNotifications, layoutPaymentReminders } from '../../src/utils/layoutNotifications.js';
@@ -118,11 +118,11 @@ test('a status change is reflected immediately and page size is capped', async (
 
 test('QR pages use each assignment day, keep global counters, and never write QR tokens', async () => {
   queries = [];
-  const first = await readQrCodesPage(db, 1, { page: 1, pageSize: 10 });
-  const second = await readQrCodesPage(db, 1, { page: 2, pageSize: 10 });
+  const first = await readQrCodesPage(db, 1, { page: 1, pageSize: 10 }, { now });
+  const second = await readQrCodesPage(db, 1, { page: 2, pageSize: 10 }, { now });
   assert.equal(first.items.length, 10);
-  assert.equal(first.total, 66);
-  assert.deepEqual(first.summary, { total: 66, entries: 5, completed: 5 });
+  assert.equal(first.total, 42);
+  assert.deepEqual(first.summary, { total: 42, entries: 3, completed: 3 });
   assert.deepEqual(second.summary, first.summary);
   assert.equal(second.items.some((row) => first.items.some((other) => row.id === other.id)), false);
   assert.ok(first.items.every((row) => row.status !== 'cancelled'));
@@ -150,7 +150,8 @@ test('lightweight notifications preserve the existing rules and enforce read per
   assert.equal(queries.length, 0);
 });
 
-test('QR endpoint generates only the page and reuses existing tokens without writes on refresh', async () => {
+test('QR endpoint generates only the page and reuses existing tokens without writes on refresh', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now });
   process.env.DATABASE_URL = datasourceUrl;
   const { qrCodesRouter } = await import('../routes/qrCheckins.js');
   const { prisma } = await import('../prisma.js');
@@ -161,7 +162,7 @@ test('QR endpoint generates only the page and reuses existing tokens without wri
   try {
     const first = await invoke(1);
     assert.equal(first.rows.length, 10);
-    assert.equal(first.summary.total, 66);
+    assert.equal(first.summary.total, 42);
     assert.equal(await db.qrCheckCode.count(), 10);
     const codes = await db.qrCheckCode.findMany({ orderBy: { id: 'asc' } });
     const refreshed = await invoke(1);
@@ -170,6 +171,73 @@ test('QR endpoint generates only the page and reuses existing tokens without wri
     const second = await invoke(2);
     assert.equal(second.rows.length, 10);
     assert.equal(await db.qrCheckCode.count(), 20);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
+test('QR visibility updates by individual actual/planned times before pagination, without touching historical data', async () => {
+  await db.event.create({ data: { id: 4, name: 'Individual schedules', date: new Date('2026-09-24'), startTime: '18:00', endTime: '23:00' } });
+  await db.eventAssignment.createMany({ data: [
+    { id: 200, eventId: 4, collaboratorId: 1, plannedCheckIn: '17:00', plannedCheckOut: '22:00' },
+    { id: 201, eventId: 4, collaboratorId: 2, plannedCheckIn: '19:00', plannedCheckOut: '23:00' },
+    { id: 202, eventId: 4, collaboratorId: 3, assignmentDate: new Date('2026-09-20'), plannedCheckIn: '18:00', plannedCheckOut: '23:00' },
+    { id: 203, eventId: 4, collaboratorId: 3, checkIn: '18:10', checkOut: '21:00' },
+  ] });
+  const before = {
+    assignments: await db.eventAssignment.findMany(), events: await db.event.findMany(),
+    codes: await db.qrCheckCode.findMany(), logs: await db.qrCheckLog.findMany(),
+  };
+  queries = [];
+  const atStart = await readQrCodesPage(db, 4, { page: 1, pageSize: 1 }, { now: eventStartInstant('2026-09-23', '18:00', 'Europe/Lisbon') });
+  assert.deepEqual(atStart.items.map((row) => row.id), [200]);
+  assert.equal(atStart.total, 1);
+  const afterEnd = { now: eventStartInstant('2026-09-25', '22:30', 'Europe/Lisbon') };
+  const page = await readQrCodesPage(db, 4, { page: 99, pageSize: 1 }, afterEnd);
+  assert.equal(page.page, 1);
+  assert.deepEqual(page.items.map((row) => row.id), [201]);
+  assert.equal(page.total, 1);
+  assert.ok((await readRelevantQrEvents(db, afterEnd)).some((row) => row.id === '4'));
+  const expired = { now: eventStartInstant('2026-09-25', '23:00', 'Europe/Lisbon') };
+  assert.equal((await readQrCodesPage(db, 4, {}, expired)).total, 0);
+  assert.equal((await readRelevantQrEvents(db, expired)).some((row) => row.id === '4'), false);
+  assert.ok(queries.every((sql) => !/\b(INSERT|UPDATE|DELETE)\b/.test(sql)));
+  assert.deepEqual({ assignments: await db.eventAssignment.findMany(), events: await db.event.findMany(), codes: await db.qrCheckCode.findMany(), logs: await db.qrCheckLog.findMany() }, before);
+});
+
+test('reminder and QR table resolve the same individual token, schedule and collaborator without duplicate codes', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now });
+  process.env.DATABASE_URL = datasourceUrl;
+  const { qrCodesRouter } = await import('../routes/qrCheckins.js');
+  const { prisma } = await import('../prisma.js');
+  const invoke = (path, params, query = {}) => new Promise((resolve, reject) => {
+    const route = qrCodesRouter.stack.find((layer) => layer.route?.path === path).route.stack[0].handle;
+    route({ params, query, protocol: 'https', get: () => 'es.example.test' }, { json: resolve }, reject);
+  });
+  try {
+    await db.eventAssignment.create({ data: { id: 300, eventId: 1, collaboratorId: 2, assignmentDate: new Date('2026-09-23'), plannedCheckIn: '11:00', plannedCheckOut: '17:00', status: 'confirmed', role: 'Mesa' } });
+    const task = (await readCommunicationPage(db, { kind: 'reminder_24h', state: 'all' }, { now })).items.find((row) => row.assignmentId === 300);
+    assert.ok(task);
+    const [reminder, concurrent] = await Promise.all([
+      invoke('/assignments/:assignmentId', { assignmentId: '300' }),
+      invoke('/assignments/:assignmentId', { assignmentId: '300' }),
+    ]);
+    assert.equal(reminder.qrUrl, concurrent.qrUrl);
+    assert.equal(await db.qrCheckCode.count({ where: { assignmentId: 300 } }), 1);
+    const saved = await db.qrCheckCode.findUnique({ where: { assignmentId: 300 } });
+    const page = await invoke('/events/:eventId', { eventId: '1' }, { pageSize: 100 });
+    const tableRow = page.rows.find((row) => row.assignmentId === 300);
+    assert.equal(tableRow.qrUrl, reminder.qrUrl);
+    assert.equal(tableRow.collaboratorId, task.collaboratorId);
+    assert.equal(tableRow.collaboratorName, task.collaboratorName);
+    assert.equal(tableRow.eventName, task.eventName);
+    assert.equal(tableRow.startTime, task.startTime);
+    assert.equal(tableRow.endTime, task.endTime);
+    assert.equal(tableRow.assignmentDate.toISOString().slice(0, 10), task.date);
+    assert.deepEqual(await db.qrCheckCode.findUnique({ where: { assignmentId: 300 } }), saved);
+    const other = await invoke('/assignments/:assignmentId', { assignmentId: '201' });
+    assert.notEqual(other.qrUrl, reminder.qrUrl);
+    assert.equal(other.assignmentId, 201);
   } finally {
     await prisma.$disconnect();
   }

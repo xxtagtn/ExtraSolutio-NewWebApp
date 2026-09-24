@@ -61,6 +61,10 @@ function assignmentEnd(assignment = {}, service = {}) {
   return text(assignment.plannedCheckOut || assignment.checkOut || service.endTime);
 }
 
+export function communicationAssignmentSchedule(assignment = {}, service = {}) {
+  return { date: assignmentDate(assignment, service), startTime: assignmentStart(assignment, service), endTime: assignmentEnd(assignment, service) };
+}
+
 function collaboratorDisplayName(collaborator = {}) {
   return text(collaborator.shortName) || text(collaborator.name) || 'Colaborador';
 }
@@ -176,9 +180,7 @@ export function buildCommunicationCenter(data = {}, options = {}) {
         role: text(assignment.role),
         phone: normalizePhoneForWaLink(collaborator.phone),
         rawPhone: text(collaborator.phone),
-        date: assignmentDate(assignment, service),
-        startTime: assignmentStart(assignment, service),
-        endTime: assignmentEnd(assignment, service),
+        ...communicationAssignmentSchedule(assignment, service),
         uniform: text(service.uniform),
         location: text(service.location),
         message,

@@ -22,9 +22,18 @@ export function useCommunicationData(path, { poll = false } = {}) {
 
   useEffect(() => {
     reload();
-    const timer = path && poll ? window.setInterval(() => reload({ background: true }), 15000) : null;
+    const refreshVisible = () => {
+      if (document.visibilityState === 'visible') reload({ background: true });
+    };
+    const timer = path && poll ? window.setInterval(refreshVisible, 15000) : null;
+    if (path && poll) {
+      window.addEventListener('focus', refreshVisible);
+      document.addEventListener('visibilitychange', refreshVisible);
+    }
     return () => {
       if (timer) window.clearInterval(timer);
+      window.removeEventListener('focus', refreshVisible);
+      document.removeEventListener('visibilitychange', refreshVisible);
       activeRequest.current?.abort();
       activeRequest.current = null;
     };

@@ -6649,6 +6649,7 @@ th {
 
 .communication-qr-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
 }
@@ -8575,6 +8576,41 @@ th {
   line-height: 1.35;
   overflow-wrap: break-word;
   word-break: normal;
+}
+
+.communication-reminder-qr {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.communication-qr-dialog {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  min-width: 0;
+  text-align: center;
+}
+
+.communication-qr-dialog p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.communication-qr-dialog img {
+  width: min(280px, 100%);
+  aspect-ratio: 1;
+}
+
+.communication-qr-dialog code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.communication-qr-dialog .form-actions {
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 .validation-table td.validation-event-cell .validation-work-location {

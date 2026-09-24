@@ -2,7 +2,8 @@ import { Router } from 'express';
 import os from 'node:os';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
-import { readQrCodesPage } from '../services/qrCodesPage.js';
+import { readQrCodesPage, readRelevantQrEvents } from '../services/qrCodesPage.js';
+import { communicationAssignmentSchedule } from '../../src/utils/communicationCenter.js';
 import { publicQrError as publicError, qrCheckoutProtection, readPublicQr, registerPublicQr } from '../services/qrAttendance.js';
 import {
   QR_CHECK_ACTIONS,
@@ -53,6 +54,8 @@ async function createUniqueQrCode(data) {
       });
     } catch (error) {
       if (error?.code !== 'P2002') throw error;
+      const existing = await prisma.qrCheckCode.findUnique({ where: { assignmentId: data.assignmentId } });
+      if (existing) return existing;
     }
   }
   throw publicError(500, 'Não foi possível gerar um QR Code único.', 'QR_TOKEN_COLLISION');
@@ -116,10 +119,16 @@ export async function ensureQrCodeForAssignmentId(assignmentId) {
 function qrRowPayload(req, assignment, qrCode) {
   const collaborator = assignment.collaborator || {};
   const state = qrCodeStateForAssignment(assignment);
+  const event = assignment.event || {};
+  const schedule = communicationAssignmentSchedule(assignment, event);
   return {
     id: qrCode.id,
     assignmentId: assignment.id,
     eventId: assignment.eventId,
+    eventName: event.name || '',
+    clientName: event.client?.name || event.clientName || '',
+    startTime: schedule.startTime,
+    endTime: schedule.endTime,
     collaboratorId: assignment.collaboratorId,
     collaboratorName: collaborator.shortName || collaborator.name || 'Colaborador',
     collaboratorFullName: collaborator.name || '',
@@ -163,6 +172,11 @@ function publicPayload(req, qrCode) {
 export const qrPublicRouter = Router();
 export const qrCodesRouter = Router();
 
+qrCodesRouter.use((_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 qrPublicRouter.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
@@ -184,12 +198,7 @@ qrPublicRouter.post('/:token/check-out', asyncHandler(async (req, res) => {
 }));
 
 qrCodesRouter.get('/events', asyncHandler(async (_req, res) => {
-  const events = await prisma.event.findMany({
-    where: { assignments: { some: {} } },
-    select: { id: true, name: true, date: true, clientName: true, client: { select: { name: true } } },
-    orderBy: [{ date: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-  });
-  res.json(events.map((event) => ({ ...event, id: String(event.id), clientName: event.client?.name || event.clientName || '' })));
+  res.json(await readRelevantQrEvents(prisma, { now: new Date() }));
 }));
 
 qrCodesRouter.get('/events/:eventId', asyncHandler(async (req, res) => {
@@ -207,7 +216,7 @@ qrCodesRouter.get('/events/:eventId', asyncHandler(async (req, res) => {
       event,
       qrCheckCode: assignment.qrCheckCode,
     });
-    rows.push(qrRowPayload(req, assignment, qrCode));
+    rows.push(qrRowPayload(req, { ...assignment, event }, qrCode));
   }
 
   res.json({

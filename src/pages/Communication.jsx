@@ -2,12 +2,9 @@ import {
   CheckCircle2,
   Clock3,
   Copy,
-  Download,
-  Eye,
   ExternalLink,
   MessageSquareText,
   Phone,
-  Printer,
   QrCode,
   RefreshCw,
   Search,
@@ -15,11 +12,11 @@ import {
   UserCheck,
   UserX,
 } from 'lucide-react';
-import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
 import CommunicationPagination from '../components/UI/CommunicationPagination.jsx';
+import { CommunicationQrActions, CommunicationQrDialog, useCommunicationQrTools } from '../components/Communication/CommunicationQrTools.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { useCommunicationData } from '../hooks/useCommunicationData.js';
 import { api } from '../utils/api.js';
@@ -90,93 +87,22 @@ const qrStateTones = {
   servico_concluido: 'success',
 };
 
-function QrCodesPanel({ canManageQrCodes }) {
+function QrCodesPanel({ canManageQrCodes, qrTools }) {
   const [eventId, setEventId] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [copyNotice, setCopyNotice] = useState('');
-  const [selectedQr, setSelectedQr] = useState(null);
-  const [qrImage, setQrImage] = useState('');
-  const { data: eventOptions, error: optionsError } = useCommunicationData(canManageQrCodes ? '/qr-codes/events' : null);
+  const { data: eventOptions, error: optionsError, reload: reloadEvents } = useCommunicationData(canManageQrCodes ? '/qr-codes/events' : null, { poll: true });
   const { data: payload, loading, error, reload: loadQrCodes } = useCommunicationData(
     canManageQrCodes && eventId ? `/qr-codes/events/${eventId}?page=${page}&pageSize=${pageSize}` : null,
     { poll: true },
   );
 
   useEffect(() => {
-    if (!eventId && eventOptions?.[0]?.id) setEventId(eventOptions[0].id);
-  }, [eventId, eventOptions]);
-
-  useEffect(() => {
-    if (!copyNotice) return undefined;
-    const timer = window.setTimeout(() => setCopyNotice(''), 3000);
-    return () => window.clearTimeout(timer);
-  }, [copyNotice]);
-
-  async function copyQrLink(row) {
-    try {
-      await window.navigator.clipboard.writeText(row.qrUrl);
-      setCopyNotice('Link copiado');
-    } catch {
-      setCopyNotice('Não foi possível copiar o link. Verifica a permissão da área de transferência.');
+    if (eventOptions && !eventOptions.some((event) => String(event.id) === String(eventId))) {
+      setEventId(eventOptions[0]?.id || '');
+      setPage(1);
     }
-  }
-
-  async function qrDataUrl(row) {
-    return QRCode.toDataURL(row.qrUrl, {
-      width: 900,
-      margin: 2,
-      errorCorrectionLevel: 'M',
-      color: {
-        dark: '#041012',
-        light: '#ffffff',
-      },
-    });
-  }
-
-  async function openQr(row) {
-    setQrImage('');
-    setSelectedQr(row);
-    setQrImage(await qrDataUrl(row));
-  }
-
-  async function downloadQr(row) {
-    const dataUrl = await qrDataUrl(row);
-    const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = `qr-${row.collaboratorName || 'colaborador'}-${row.assignmentId}.png`;
-    link.click();
-  }
-
-  async function printQr(row) {
-    const dataUrl = await qrDataUrl(row);
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
-    if (!printWindow) return;
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>QR Code - ${row.collaboratorName}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 32px; color: #111; }
-            .card { max-width: 420px; margin: 0 auto; text-align: center; border: 1px solid #ddd; border-radius: 14px; padding: 24px; }
-            img { width: 280px; height: 280px; }
-            h1 { font-size: 22px; margin: 16px 0 8px; }
-            p { margin: 4px 0; color: #444; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <img src="${dataUrl}" alt="QR Code" />
-            <h1>${row.collaboratorName}</h1>
-            <p>${payload?.event?.name || ''}</p>
-            <p>${formatTaskDate(row.assignmentDate)} · ${row.role || ''}</p>
-          </div>
-          <script>window.onload = () => { window.print(); window.close(); };</script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-  }
+  }, [eventId, eventOptions]);
 
   if (!canManageQrCodes) {
     return (
@@ -196,16 +122,15 @@ function QrCodesPanel({ canManageQrCodes }) {
           <select value={eventId} onChange={(event) => { setEventId(event.target.value); setPage(1); }}>
             {eventOptions?.length ? eventOptions.map((item) => (
               <option key={item.id} value={item.id}>{item.name} · {item.clientName} · {formatTaskDate(item.date)}</option>
-            )) : <option value="">Sem eventos com colaboradores</option>}
+            )) : <option value="">Sem serviços nesta janela</option>}
           </select>
         </label>
-        <button type="button" className="secondary-button" onClick={() => loadQrCodes()} disabled={!eventId || loading}>
+        <button type="button" className="secondary-button" onClick={() => { reloadEvents(); loadQrCodes(); }} disabled={loading}>
           <RefreshCw size={16} /> Atualizar
         </button>
       </div>
 
       {error || optionsError ? <p className="notice">{error || optionsError}</p> : null}
-      <span className="communication-copy-notice" role="status" aria-live="polite">{copyNotice}</span>
 
       <div className="communication-qr-summary">
         <article>
@@ -249,21 +174,17 @@ function QrCodesPanel({ canManageQrCodes }) {
                 <td data-label="Colaborador">
                   <strong>{row.collaboratorName}</strong>
                   <small>{row.role || 'Sem função'} · {formatTaskDate(row.assignmentDate)}</small>
+                  <small>{[row.startTime, row.endTime].filter(Boolean).join(' → ')}</small>
                 </td>
                 <td data-label="Estado"><Badge tone={qrStateTones[row.state?.key] || 'neutral'}>{row.state?.label || 'QR Gerado'}</Badge></td>
                 <td data-label="Entrada">{row.checkIn || '-'}</td>
                 <td data-label="Saída">{row.checkOut || '-'}</td>
                 <td data-label="Ações">
-                  <div className="communication-qr-actions">
-                    <button type="button" className="icon-button" title="Copiar Link" aria-label={`Copiar Link de ${row.collaboratorName}`} onClick={() => copyQrLink(row)}><Copy size={16} /></button>
-                    <button type="button" className="icon-button" title="Ver QR" onClick={() => openQr(row)}><Eye size={16} /></button>
-                    <button type="button" className="icon-button" title="Imprimir" onClick={() => printQr(row)}><Printer size={16} /></button>
-                    <button type="button" className="icon-button" title="Download" onClick={() => downloadQr(row)}><Download size={16} /></button>
-                  </div>
+                  <CommunicationQrActions row={row} tools={qrTools} compact />
                 </td>
               </tr>
             )) : (
-              <tr><td colSpan="5">Sem colaboradores atribuídos neste evento.</td></tr>
+              <tr><td colSpan="5">Sem serviços dentro da janela de 24 horas.</td></tr>
             )}
           </tbody>
         </table>
@@ -271,27 +192,23 @@ function QrCodesPanel({ canManageQrCodes }) {
 
       <CommunicationPagination payload={payload} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
 
-      {selectedQr ? (
-        <div className="qr-modal-backdrop" role="presentation" onClick={() => setSelectedQr(null)}>
-          <section className="qr-modal" role="dialog" aria-modal="true" aria-label="QR Code" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="icon-button qr-modal-close" onClick={() => setSelectedQr(null)}>×</button>
-            <h2>{selectedQr.collaboratorName}</h2>
-            <p>{payload?.event?.name} · {formatTaskDate(selectedQr.assignmentDate)}</p>
-            {qrImage ? <img src={qrImage} alt={`QR Code de ${selectedQr.collaboratorName}`} /> : null}
-            <code>{selectedQr.qrUrl}</code>
-            <div className="form-actions">
-              <button type="button" className="secondary-button" onClick={() => printQr(selectedQr)}><Printer size={16} /> Imprimir</button>
-              <button type="button" className="command-button" onClick={() => downloadQr(selectedQr)}><Download size={16} /> Download</button>
-            </div>
-          </section>
-        </div>
-      ) : null}
     </section>
+  );
+}
+
+function ReminderQrTools({ task, tools }) {
+  const { data, loading, error, reload } = useCommunicationData(`/qr-codes/assignments/${task.assignmentId}`, { poll: true });
+  return (
+    <div className="communication-reminder-qr" aria-label="Picagem do colaborador" aria-busy={loading}>
+      <CommunicationQrActions row={data} tools={tools} />
+      {error && <p className="notice">{error} <button type="button" className="icon-button" title="Tentar novamente" onClick={() => reload()}><RefreshCw size={16} /></button></p>}
+    </div>
   );
 }
 
 export default function Communication() {
   const { user } = useAuth();
+  const qrTools = useCommunicationQrTools();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -437,9 +354,11 @@ export default function Communication() {
           <QrCode size={16} /> QR Codes / Link
         </button>
       </nav>
+      {!qrTools.selected && <span className="communication-copy-notice" role="status" aria-live="polite">{qrTools.notice}</span>}
+      <CommunicationQrDialog tools={qrTools} />
 
       {activeTab === 'qr' ? (
-        <QrCodesPanel canManageQrCodes={canManageQrCodes} />
+        <QrCodesPanel canManageQrCodes={canManageQrCodes} qrTools={qrTools} />
       ) : (
         <>
 
@@ -577,6 +496,10 @@ export default function Communication() {
                   rows={10}
                 />
               </label>
+
+              {canManageQrCodes && selectedTaskWithDraft.kind === 'reminder_24h' && (
+                <ReminderQrTools key={selectedTaskWithDraft.assignmentId} task={selectedTaskWithDraft} tools={qrTools} />
+              )}
 
               <div className="communication-action-grid">
                 <button type="button" className="secondary-button" onClick={() => copyMessage(selectedTaskWithDraft)}>
