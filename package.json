@@ -11,6 +11,7 @@
     "dev:all": "npm run dev",
     "build": "vite build",
     "verify:pwa": "node scripts/verify-pwa-build.js",
+    "push:setup": "node scripts/setup-web-push.js",
     "preview": "vite preview",
     "lint": "eslint .",
     "db:generate": "prisma generate --schema prisma/sqlite/schema.prisma",
@@ -38,6 +39,7 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.1",
     "recharts": "^3.0.0",
+    "web-push": "3.6.7",
     "xlsx": "^0.18.5",
     "xlsx-js-style": "^1.2.0"
   },

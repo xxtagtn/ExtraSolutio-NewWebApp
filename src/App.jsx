@@ -1,5 +1,6 @@
 import { Suspense, lazy } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { pushReturnPath } from './utils/pushPermissions.js';
 import Layout from './components/Layout/Layout.jsx';
 import { useAuth } from './hooks/useAuth.jsx';
 import Login from './pages/Login.jsx';
@@ -23,7 +24,9 @@ const TimeValidation = lazy(() => import('./pages/TimeValidation.jsx'));
 
 function ProtectedRoute({ children }) {
   const { authenticated } = useAuth();
-  return authenticated ? children : <Navigate to="/login" replace />;
+  const location = useLocation();
+  const pushReturnTo = pushReturnPath(`${location.pathname}${location.search}`);
+  return authenticated ? children : <Navigate to="/login" replace state={pushReturnTo ? { pushReturnTo } : undefined} />;
 }
 
 function AccessDenied() {

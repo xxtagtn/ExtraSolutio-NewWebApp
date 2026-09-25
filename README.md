@@ -602,7 +602,43 @@ sudo journalctl -u esgestao-api -n 100 --no-pager | grep backup
 
 `MYSQLDUMP_PATH` deve apontar para o caminho real devolvido por `command -v mysqldump`.
 
-## 14. Notas importantes
+## 14. Notificações de picagens no telemóvel (Web Push)
+
+Opcional, desativado enquanto as chaves `WEB_PUSH_*` não estiverem configuradas. Não usa WhatsApp, templates Meta nem envios pagos de WhatsApp. Usa o servidor existente e os serviços push do browser.
+
+Depois de atualizar o código e fazer um backup, executar no servidor:
+
+```bash
+cd /var/www/esgestao.ddns.net
+sudo systemctl stop esgestao-api
+sudo -u esgestao -H npm ci
+sudo -u esgestao -H npm run db:deploy:mysql
+sudo -u esgestao -H npm run db:generate:mysql
+sudo -u esgestao -H npm run push:setup -- --subject https://esgestao.ddns.net
+sudo -u esgestao -H npm run build
+sudo systemctl start esgestao-api
+sudo systemctl status esgestao-api --no-pager
+```
+
+Se algum comando falhar, parar a sequência e corrigir antes de iniciar a API. Não usar `chmod 777`. A migração `20260925000000_attendance_push_notifications` cria apenas subscrições e uma fila técnica de envios; não altera picagens, horas, pagamentos ou histórico. Em desenvolvimento SQLite, usar `db:deploy` e `db:generate` em vez dos comandos MySQL.
+
+`push:setup` acrescenta as chaves ao `.env`, sem as mostrar nem substituir um par já configurado. Guardar estas chaves no backup seguro do servidor; a rotação exige reativação em cada dispositivo. Manter as chaves privadas fora de `VITE_*`, do Git e de screenshots. O servidor precisa de acesso HTTPS de saída aos serviços push (Google, Mozilla, Apple ou Windows).
+
+No telemóvel, abrir **https://esgestao.ddns.net**, atualizar/reabrir a app e entrar em **Perfil → Notificações de picagens → Ativar neste dispositivo**. Autorizar notificações, escolher **Entradas/Saídas**, guardar e usar **Testar notificação**. Cada dispositivo é ativado separadamente. No iPhone/iPad, exige iOS/iPadOS 16.4+ e app adicionada ao ecrã principal; abrir essa app para autorizar. Um endereço LAN em HTTP, como `http://192.168.1.65:5173`, não permite Web Push (localhost é exceção de desenvolvimento).
+
+Só recebem alertas utilizadores com ambas as permissões existentes `services.view` e `communication.manage_qr_codes` (administradores e perfis de operações com essas permissões). A autorização é novamente verificada no envio. O alerta contém nome, evento, turno e hora da picagem; pode aparecer no ecrã bloqueado. Tocar abre o serviço/dia correspondente, passando pelo login se a sessão tiver expirado.
+
+O processador verifica picagens confirmadas a cada 10 segundos. Não avisa sobre duplos cliques bloqueados, edições manuais ou registos anteriores à ativação. As falhas não bloqueiam as picagens. Há fila persistente, tentativas limitadas, proteção contra envios concorrentes e etiquetas estáveis para reduzir duplicados. Registos por processar com mais de 24h não geram alertas tardios; só metadados de envio com mais de 7 dias são eliminados. Serviços repartidos geram alertas separados por picagem/turno.
+
+O botão de teste confirma aceitação pelo serviço push, não a entrega física. O sistema operativo, rede, permissões e poupança de bateria podem atrasar ou impedir a entrega; a picagem guardada na aplicação continua a ser a fonte de verdade. Testar num dispositivo real após o deploy, com a app em segundo plano/fechada. Não é necessário manter a sessão de login ativa para receber; **Logout explícito** desativa as notificações nesse dispositivo, sem afetar outros dispositivos. Após novo login, reativar no Perfil.
+
+Para desativar só um dispositivo, usar **Desativar** no Perfil. Para suspender globalmente, esvaziar `WEB_PUSH_PRIVATE_KEY` no `.env` e reiniciar a API (guardar previamente a chave para poder retomar). Consultar logs sem expor chaves:
+
+```bash
+sudo journalctl -u esgestao-api --since "10 minutes ago" --no-pager | grep attendance-push
+```
+
+## 15. Notas importantes
 
 - O frontend é estático depois de `npm run build`; o processo Node só serve a API e os uploads.
 - O Apache deve ser o único serviço público da aplicação.

@@ -1,18 +1,21 @@
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { pushReturnPath } from '../utils/pushPermissions.js';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { DEFAULT_AUTHENTICATED_PATH } from '../utils/navigation.js';
 
 export default function Login() {
   const { authenticated, login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const destination = pushReturnPath(location.state?.pushReturnTo) || DEFAULT_AUTHENTICATED_PATH;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (authenticated) {
-    return <Navigate to={DEFAULT_AUTHENTICATED_PATH} replace />;
+    return <Navigate to={destination} replace />;
   }
 
   async function submit(event) {
@@ -22,7 +25,7 @@ export default function Login() {
 
     try {
       await login(email, password);
-      navigate(DEFAULT_AUTHENTICATED_PATH);
+      navigate(destination);
     } catch (err) {
       setError(err.message);
     } finally {

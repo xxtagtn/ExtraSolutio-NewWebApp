@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { api, clearStoredAuth, getStoredAuth, refreshStoredAuth, setStoredAuth } from '../utils/api.js';
 import { startSessionMonitor, subscribeAuth, validStoredAuth } from '../utils/authSession.js';
+import { detachPushOnLogout, synchronizePushAccount } from '../utils/pushNotifications.js';
 
 const AuthContext = createContext(null);
 
@@ -20,11 +21,13 @@ export function AuthProvider({ children }) {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
+    await synchronizePushAccount(result.user.id).catch(() => {});
     setStoredAuth(result);
     return result.user;
   }
 
   function logout() {
+    void detachPushOnLogout(getStoredAuth()?.token);
     clearStoredAuth();
     setAuth(null);
   }

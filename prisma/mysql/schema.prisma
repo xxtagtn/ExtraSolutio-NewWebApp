@@ -23,6 +23,7 @@ model User {
   createdAt             DateTime @default(now()) @db.DateTime(3)
   updatedAt             DateTime @updatedAt @db.DateTime(3)
   notificationDismissals NotificationDismissal[]
+  pushSubscriptions PushSubscription[]
   permissionAuditChanges PermissionAuditLog[] @relation("PermissionAuditActor")
   permissionAuditTargets PermissionAuditLog[] @relation("PermissionAuditTarget")
 
@@ -70,6 +71,45 @@ model NotificationDismissal {
 
   @@unique([userId, key], map: "NotificationDismissal_userId_key_key")
   @@index([userId], map: "NotificationDismissal_userId_idx")
+}
+
+model PushSubscription {
+  id Int @id @default(autoincrement())
+  userId Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpointHash String @unique @db.VarChar(64)
+  endpoint String @db.Text
+  p256dh String @db.VarChar(191)
+  auth String @db.VarChar(191)
+  notifyEntry Boolean @default(true)
+  notifyExit Boolean @default(true)
+  sinceLogId Int @default(0)
+  lastTestAt DateTime? @db.DateTime(3)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+  deliveries PushDelivery[]
+
+  @@index([userId])
+}
+
+model PushDelivery {
+  id Int @id @default(autoincrement())
+  subscriptionId Int
+  subscription PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  logId Int
+  log QrCheckLog @relation(fields: [logId], references: [id], onDelete: Cascade)
+  status String @default("pending") @db.VarChar(30)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @db.DateTime(3)
+  lockedUntil DateTime? @db.DateTime(3)
+  leaseId String? @db.VarChar(36)
+  sentAt DateTime? @db.DateTime(3)
+  lastError String? @db.VarChar(120)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+
+  @@unique([subscriptionId, logId])
+  @@index([logId])
+  @@index([status, nextAttemptAt])
 }
 
 model ImportMapping {
@@ -425,6 +465,7 @@ model QrCheckLog {
   ip             String?          @db.VarChar(191)
   userAgent      String?          @db.Text
   createdAt      DateTime         @default(now()) @db.DateTime(3)
+  pushDeliveries PushDelivery[]
 
   @@index([qrCodeId])
   @@index([eventId])

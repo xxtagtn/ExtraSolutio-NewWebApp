@@ -20,6 +20,7 @@ import { canViewFinancialData, canViewSensitiveCollaboratorData } from '../secur
 import { PERMISSIONS } from '../../src/utils/accessPermissions.js';
 import { requireAnyPermission, requirePermission } from '../security/permissions.js';
 import { usersRouter } from './users.js';
+import { createPushRouter } from './push.js';
 import { collaboratorsRouter } from './collaborators.js';
 import { notificationsRouter } from './notifications.js';
 import { communicationRouter } from './communication.js';
@@ -491,6 +492,7 @@ apiRouter.get('/health', (_req, res) => {
 apiRouter.use('/whatsapp', whatsappWebhookRouter);
 
 apiRouter.use(requireAuth);
+apiRouter.use('/push', createPushRouter(prisma));
 
 apiRouter.use('/users', usersRouter);
 apiRouter.use('/backups', backupsRouter);

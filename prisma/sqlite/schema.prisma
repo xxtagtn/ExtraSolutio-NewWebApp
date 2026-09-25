@@ -23,6 +23,7 @@ model User {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   notificationDismissals NotificationDismissal[]
+  pushSubscriptions PushSubscription[]
   permissionAuditChanges PermissionAuditLog[] @relation("PermissionAuditActor")
   permissionAuditTargets PermissionAuditLog[] @relation("PermissionAuditTarget")
 
@@ -70,6 +71,45 @@ model NotificationDismissal {
 
   @@unique([userId, key])
   @@index([userId])
+}
+
+model PushSubscription {
+  id Int @id @default(autoincrement())
+  userId Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpointHash String @unique
+  endpoint String
+  p256dh String
+  auth String
+  notifyEntry Boolean @default(true)
+  notifyExit Boolean @default(true)
+  sinceLogId Int @default(0)
+  lastTestAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deliveries PushDelivery[]
+
+  @@index([userId])
+}
+
+model PushDelivery {
+  id Int @id @default(autoincrement())
+  subscriptionId Int
+  subscription PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  logId Int
+  log QrCheckLog @relation(fields: [logId], references: [id], onDelete: Cascade)
+  status String @default("pending")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  lockedUntil DateTime?
+  leaseId String?
+  sentAt DateTime?
+  lastError String?
+  createdAt DateTime @default(now())
+
+  @@unique([subscriptionId, logId])
+  @@index([logId])
+  @@index([status, nextAttemptAt])
 }
 
 model ImportMapping {
@@ -425,6 +465,7 @@ model QrCheckLog {
   ip             String?
   userAgent      String?
   createdAt      DateTime         @default(now())
+  pushDeliveries PushDelivery[]
 
   @@index([qrCodeId])
   @@index([eventId])

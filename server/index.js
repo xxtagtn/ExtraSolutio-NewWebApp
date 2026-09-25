@@ -5,6 +5,8 @@ import express from 'express';
 import { apiRouter } from './routes/index.js';
 import { startBackupScheduler } from './utils/backupScheduler.js';
 import { startWhatsAppReminderScheduler } from './utils/whatsappReminderScheduler.js';
+import { startAttendancePushScheduler } from './services/attendancePush.js';
+import { prisma } from './prisma.js';
 
 const uploadsDir = fileURLToPath(new URL('../public/uploads', import.meta.url));
 
@@ -61,3 +63,4 @@ app.listen(port, () => {
 
 startBackupScheduler();
 startWhatsAppReminderScheduler();
+startAttendancePushScheduler(prisma);

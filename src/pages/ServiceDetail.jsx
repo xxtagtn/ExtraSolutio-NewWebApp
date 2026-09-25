@@ -497,13 +497,22 @@ export default function ServiceDetail() {
   }
 
   useEffect(() => {
+    const requestedDay = searchParams.get('push') === '1' ? searchParams.get('day') : '';
+    if (requestedDay && days.includes(requestedDay)) {
+      if (selectedDay !== requestedDay) setSelectedDay(requestedDay);
+      const nextParams = new window.URLSearchParams(searchParams);
+      nextParams.delete('day');
+      nextParams.delete('push');
+      setSearchParams(nextParams, { replace: true });
+      return;
+    }
     const nextDay = resolveSelectedTeamDay({
       isContinuous: Boolean(service?.isContinuous),
       days,
       selectedDay,
     });
     if (nextDay !== selectedDay) setSelectedDay(nextDay);
-  }, [days, selectedDay, service?.isContinuous]);
+  }, [days, selectedDay, service?.isContinuous, searchParams, setSearchParams]);
 
   useEffect(() => {
     setDayActionError('');

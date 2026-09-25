@@ -1,6 +1,8 @@
 import { Save, Upload, X } from 'lucide-react';
 import { useState } from 'react';
 import Card from '../components/UI/Card.jsx';
+import PushSettings from '../components/Profile/PushSettings.jsx';
+import { canReceiveAttendancePush } from '../utils/pushPermissions.js';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { api } from '../utils/api.js';
 import { createImageThumbnailDataUrl } from '../utils/imageThumbnails.js';
@@ -158,6 +160,7 @@ export default function Profile() {
           </form>
         </Card>
       </div>
+      {canReceiveAttendancePush(user) && <PushSettings key={user.id} userId={user.id} />}
     </div>
   );
 }
