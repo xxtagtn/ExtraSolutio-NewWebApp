@@ -18,6 +18,18 @@ O exemplo deste documento assume:
 - Node.js a executar a API localmente em `127.0.0.1:3001`.
 - MariaDB local, sem exposição pública da porta 3306.
 
+### Picagens por colaborador e dia
+
+Os novos links/QR Codes da Comunicação usam `/qr/day/<token>` e são iguais para todos os serviços do mesmo colaborador no mesmo dia, incluindo serviços em eventos diferentes. Cada entrada/saída continua registada na atribuição original. Após a saída, aparece o próximo serviço, sem registar automaticamente uma nova entrada. Horários sobrepostos ou em falta exigem seleção explícita do serviço.
+
+O link diário pode ser consultado nas 24 horas anteriores ao primeiro serviço, para acompanhar o lembrete. Antes do dia do serviço apresenta os horários e a data/hora de abertura das picagens, sem permitir registar entrada ou saída. A autorização de picagem mantém-se no servidor e o botão é atualizado automaticamente quando o dia começa no fuso da aplicação.
+
+A proteção de 30 minutos entre entrada e saída mantém-se por serviço. Uma proteção adicional de 2 segundos após a saída evita que um duplo toque registe a entrada seguinte. Alterações administrativas e cancelamentos são consultados novamente em cada picagem. Serviços noturnos permanecem acessíveis no dia seguinte; os restantes mantêm a validade até ao final do respetivo dia, no fuso `APP_TIMEZONE` (por omissão, `Europe/Lisbon`).
+
+Os links individuais antigos (`/qr/<token>`) continuam válidos com o comportamento anterior. Os links diários são assinados com o `JWT_SECRET` existente: manter este segredo estável entre reinícios/instâncias; a sua substituição invalida os links diários já distribuídos. Não é necessária uma migração da base de dados para esta funcionalidade. Publicar o frontend e reiniciar a API em conjunto.
+
+Testes específicos: `node --test server/services/qrDailyAttendance.test.mjs server/services/qrAttendance.test.mjs server/utils/qrDailyToken.test.mjs server/utils/qrCheckins.test.mjs`. O teste `tests/qr-daily.e2e.mjs` usa Playwright, Vite (`TEST_BASE_URL`) e uma base de dados temporária, sem modificar os dados da aplicação.
+
 ## 1. Pré-requisitos
 
 Servidor recomendado:

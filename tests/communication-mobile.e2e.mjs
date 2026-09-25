@@ -26,9 +26,11 @@ const rowFor = (task) => ({
   assignmentId: task.assignmentId, collaboratorName: task.collaboratorName,
   eventName: task.eventName, assignmentDate: task.date,
   startTime: task.startTime, endTime: task.endTime,
-  qrUrl: `https://example.test/qr/individual-${task.assignmentId}`,
+  qrScope: 'day',
+  qrUrl: linkFor(task.collaboratorId),
   state: { key: 'qr_generated', label: 'QR Gerado' },
 });
+const linkFor = (id) => `https://example.test/qr/day/test-${id}-2026-09-24`;
 
 async function setup(width, restricted = false) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] });
@@ -109,15 +111,16 @@ try {
     await first.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${output}/expanded-${width}.png` });
     await first.getByRole('button', { name: 'Copiar Link de Colaborador 01' }).click();
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'https://example.test/qr/individual-1');
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), linkFor(1));
     await first.getByRole('button', { name: 'Ver QR Code de Colaborador 01' }).click();
     const dialog = page.getByRole('dialog');
     await dialog.locator('img').waitFor();
-    assert.equal(await dialog.locator('code').innerText(), 'https://example.test/qr/individual-1');
-    const expectedImage = await QRCode.toDataURL('https://example.test/qr/individual-1', { width: 900, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#041012', light: '#ffffff' } });
+    assert.equal(await dialog.locator('code').innerText(), linkFor(1));
+    assert.match(await dialog.innerText(), /QR Code diário/);
+    const expectedImage = await QRCode.toDataURL(linkFor(1), { width: 900, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#041012', light: '#ffffff' } });
     const actualPixels = PNG.sync.read(Buffer.from((await dialog.locator('img').getAttribute('src')).split(',')[1], 'base64')).data;
     const expectedPixels = PNG.sync.read(Buffer.from(expectedImage.split(',')[1], 'base64')).data;
-    assert.ok(actualPixels.equals(expectedPixels), 'QR pixels must match the individual link');
+    assert.ok(actualPixels.equals(expectedPixels), 'QR pixels must match the collaborator daily link');
     await dialog.getByRole('button', { name: 'Fechar' }).click();
     await first.getByRole('button', { name: 'Mensagem', exact: true }).click();
     await first.locator('textarea').fill('Mensagem editada para o primeiro colaborador');
@@ -141,7 +144,7 @@ try {
     const rowBounds = await second.locator('.communication-task').boundingBox();
     assert.ok(rowBounds.y >= 0 && rowBounds.y < 900, `Tapped row is lost after switching: ${rowBounds.y}`);
     await second.getByRole('button', { name: /Copiar Link de Ana/ }).click();
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'https://example.test/qr/individual-2');
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), linkFor(2));
     await second.locator('.communication-task').click();
     assert.equal(await preview.count(), 0);
     const qrReads = requests.filter((path) => path.startsWith('/qr-codes/')).length;
@@ -176,7 +179,7 @@ try {
     assert.equal(await preview.count(), 0, 'Pagination resets the open row');
     await first.locator('.communication-task').click();
     await first.getByRole('button', { name: 'Copiar Link de Colaborador 26' }).click();
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'https://example.test/qr/individual-26');
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), linkFor(26));
     await assertLayout(page);
     await context.close();
     console.log(`PASS mobile ${width}px: accordion, actions, QR identity, drafts, polling, checkbox, filters, paging, layout`);
@@ -191,7 +194,7 @@ try {
     await preview.locator('textarea').fill('Desktop draft');
     await page.locator('.communication-task').nth(1).click();
     await preview.getByRole('button', { name: /Copiar Link de Ana/ }).click();
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'https://example.test/qr/individual-2');
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), linkFor(2));
     await page.locator('.communication-task').first().click();
     assert.equal(await preview.locator('textarea').inputValue(), 'Desktop draft');
     await page.screenshot({ path: `${output}/desktop-${width}.png`, fullPage: true });
@@ -212,7 +215,7 @@ try {
   await dynamic.page.locator('.communication-task').first().click();
   await dynamic.page.getByRole('button', { name: 'QR Codes / Link', exact: true }).click();
   await dynamic.page.locator('.communication-qr-table').getByRole('button', { name: 'Copiar Link de Colaborador 01' }).click();
-  assert.equal(await dynamic.page.evaluate(() => navigator.clipboard.readText()), 'https://example.test/qr/individual-1');
+  assert.equal(await dynamic.page.evaluate(() => navigator.clipboard.readText()), linkFor(1));
   await dynamic.page.getByRole('button', { name: 'Mensagens', exact: true }).click();
   await dynamic.page.locator('.communication-task').first().waitFor();
   assert.equal(await dynamic.page.locator('.communication-preview').count(), 0);
@@ -232,7 +235,7 @@ try {
   await filtered;
   await dynamic.page.locator('.communication-task').first().click();
   await dynamic.page.getByRole('button', { name: /Copiar Link de Ana/ }).click();
-  assert.equal(await dynamic.page.evaluate(() => navigator.clipboard.readText()), 'https://example.test/qr/individual-2');
+  assert.equal(await dynamic.page.evaluate(() => navigator.clipboard.readText()), linkFor(2));
   await dynamic.context.close();
   console.log('PASS QR tab, keyboard, dynamic removal and search');
 

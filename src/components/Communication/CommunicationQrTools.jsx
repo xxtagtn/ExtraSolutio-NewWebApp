@@ -59,7 +59,7 @@ export function useCommunicationQrTools() {
     try {
       const link = document.createElement('a');
       link.href = await qrDataUrl(row);
-      link.download = `qr-${row.collaboratorName || 'colaborador'}-${row.assignmentId}.png`;
+      link.download = `qr-${row.collaboratorName || 'colaborador'}-${row.qrScope === 'day' ? String(row.assignmentDate).slice(0, 10) : row.assignmentId}.png`;
       link.click();
     } catch {
       setNotice('Não foi possível descarregar o QR Code.');
@@ -97,7 +97,9 @@ export function useCommunicationQrTools() {
       img.onload = () => { printWindow.print(); printWindow.close(); };
       img.src = url;
       doc.body.appendChild(img);
-      for (const [tag, value] of [['h1', row.collaboratorName], ['p', row.eventName], ['p', `${qrDate(row)} · ${row.role || ''}`], ['p', [row.startTime, row.endTime].filter(Boolean).join(' → ')]]) {
+      const details = row.qrScope === 'day' ? [['p', `Serviços do dia · ${qrDate(row)}`]]
+        : [['p', row.eventName], ['p', `${qrDate(row)} · ${row.role || ''}`], ['p', [row.startTime, row.endTime].filter(Boolean).join(' → ')]];
+      for (const [tag, value] of [['h1', row.collaboratorName], ...details]) {
         const element = doc.createElement(tag);
         element.textContent = value || '';
         doc.body.appendChild(element);
@@ -134,10 +136,12 @@ export function CommunicationQrDialog({ tools }) {
   const row = tools.selected;
   if (!row) return null;
   return (
-    <Modal title={`QR Code · ${row.collaboratorName}`} onClose={tools.close}>
+    <Modal title={`QR Code${row.qrScope === 'day' ? ' diário' : ''} · ${row.collaboratorName}`} onClose={tools.close}>
       <div className="communication-qr-dialog">
-        <p>{row.eventName} · {qrDate(row)}</p>
-        <p>{[row.startTime, row.endTime].filter(Boolean).join(' → ')}</p>
+        {row.qrScope === 'day' ? <p>Serviços do dia · {qrDate(row)}</p> : <>
+          <p>{row.eventName} · {qrDate(row)}</p>
+          <p>{[row.startTime, row.endTime].filter(Boolean).join(' → ')}</p>
+        </>}
         {tools.image ? <img src={tools.image} alt={`QR Code de ${row.collaboratorName}`} /> : <p>A preparar QR Code...</p>}
         <code>{row.qrUrl}</code>
         <span role="status" aria-live="polite">{tools.notice}</span>

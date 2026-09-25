@@ -2,6 +2,7 @@ import { CheckCircle2, Clock3, LogIn, LogOut, ShieldAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { API_URL } from '../utils/api.js';
+import DailyQrServices from '../components/Communication/DailyQrServices.jsx';
 
 async function publicQrApi(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -32,8 +33,12 @@ function StateBadge({ state }) {
   return <span className={`qr-check-state qr-check-state--${key}`}>{state?.label || 'QR Gerado'}</span>;
 }
 
-export default function QrCheck() {
+export default function QrCheck({ daily = false }) {
   const { token } = useParams();
+  return <QrCheckPage key={`${daily}:${token}`} token={token} daily={daily} />;
+}
+
+function QrCheckPage({ token, daily }) {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -41,13 +46,14 @@ export default function QrCheck() {
   const [actionError, setActionError] = useState('');
   const pending = useRef(false);
   const revision = useRef(0);
+  const endpoint = `/qr-check/${daily ? 'day/' : ''}${encodeURIComponent(token)}`;
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (pending.current) return;
     const request = ++revision.current;
     if (!silent) setLoading(true);
     try {
-      const next = await publicQrApi(`/qr-check/${encodeURIComponent(token)}`);
+      const next = await publicQrApi(endpoint);
       if (request !== revision.current) return;
       setPayload(next);
       setError('');
@@ -57,7 +63,7 @@ export default function QrCheck() {
     } finally {
       if (request === revision.current) setLoading(false);
     }
-  }, [token]);
+  }, [endpoint]);
 
   useEffect(() => {
     const requests = revision;
@@ -77,12 +83,14 @@ export default function QrCheck() {
   }, [load]);
 
   useEffect(() => {
-    if (!payload?.checkOutRetryAfterMs) return;
-    const timeout = window.setTimeout(() => load({ silent: true }), payload.checkOutRetryAfterMs + 50);
+    const delays = [payload?.checkOutRetryAfterMs, payload?.switchRetryAfterMs, payload?.punchRetryAfterMs,
+      ...(payload?.services || []).map((service) => service.checkOutRetryAfterMs)].filter((value) => value > 0);
+    if (!delays.length) return;
+    const timeout = window.setTimeout(() => load({ silent: true }), Math.min(...delays) + 50);
     return () => window.clearTimeout(timeout);
   }, [payload, load]);
 
-  async function register(action) {
+  async function register(action, assignmentId) {
     // React state updates alone do not serialize rapid taps or in-flight refreshes.
     if (pending.current) return;
     pending.current = true;
@@ -92,7 +100,10 @@ export default function QrCheck() {
     setActionError('');
     let refreshNeeded = false;
     try {
-      const next = await publicQrApi(`/qr-check/${encodeURIComponent(token)}/${action}`, { method: 'POST' });
+      const next = await publicQrApi(`${endpoint}/${action}`, {
+        method: 'POST',
+        ...(daily ? { body: JSON.stringify({ assignmentId, revision: payload.revision }) } : {}),
+      });
       if (request === revision.current) setPayload(next);
     } catch (err) {
       if (request === revision.current) {
@@ -111,7 +122,7 @@ export default function QrCheck() {
 
   return (
     <main className="qr-check-page">
-      <section className="qr-check-card">
+      <section className={`qr-check-card${daily ? ' qr-check-card--daily' : ''}`}>
         <div className="qr-check-logo">ES</div>
         {loading ? (
           <div className="qr-check-empty">
@@ -126,6 +137,12 @@ export default function QrCheck() {
             <p>{error}</p>
             <button type="button" className="secondary-button" onClick={() => load()}>Tentar novamente</button>
           </div>
+        ) : daily ? (
+          <>
+            <DailyQrServices payload={payload} saving={saving} onRegister={register} />
+            {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
+            <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
+          </>
         ) : (
           <>
             <header className="qr-check-header">

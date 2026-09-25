@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { URL } from 'node:url';
 import { eventStartInstant } from './eventTime.js';
 import { eventDayKey } from '../../src/utils/eventCancelledDays.js';
+import { communicationQrWindow } from './communicationQrWindow.js';
 
 export const QR_CHECK_ACTIONS = Object.freeze({
   checkIn: 'check_in',
@@ -12,7 +13,8 @@ export const QR_CHECKOUT_DELAY_MS = 30 * 60 * 1000;
 
 export function qrCheckOutAvailableAt({ event = {}, assignment = {}, checkInLog, timeZone = process.env.APP_TIMEZONE || 'Europe/Lisbon' } = {}) {
   if (!assignment.checkIn || assignment.checkOut) return null;
-  const enteredAt = eventStartInstant(assignment.assignmentDate || event.date, assignment.checkIn, timeZone);
+  const enteredAt = communicationQrWindow({ ...assignment, checkOut: null }, event, timeZone)?.startsAt
+    || eventStartInstant(assignment.assignmentDate || event.date, assignment.checkIn, timeZone);
   if (!enteredAt) return null;
 
   // Logs preserve history, never the current state. Use their seconds only when
@@ -68,7 +70,11 @@ export function qrUsageWindow({ event = {}, assignment = {}, timeZone = process.
     error.status = 400;
     throw error;
   }
-  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const planned = communicationQrWindow({ ...assignment, checkIn: null, checkOut: null }, event, timeZone);
+  const midnightAfterStart = new Date(nextDay);
+  midnightAfterStart.setUTCDate(midnightAfterStart.getUTCDate() + 1);
+  const overnight = planned && planned.endsAt >= eventStartInstant(midnightAfterStart, '00:00', timeZone);
+  nextDay.setUTCDate(nextDay.getUTCDate() + (overnight ? 2 : 1));
   return {
     startsAt,
     expiresAt: new Date(eventStartInstant(nextDay, '00:00', timeZone).getTime() - 1),

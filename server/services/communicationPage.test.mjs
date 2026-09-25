@@ -18,6 +18,7 @@ const database = join(directory, 'test.db');
 const datasourceUrl = `file:${database.replaceAll('\\', '/')}`;
 const db = new PrismaClient({ datasourceUrl, log: [{ emit: 'event', level: 'query' }] });
 const now = new Date('2026-09-23T08:00:00Z');
+process.env.JWT_SECRET = 'communication-test-signing-key-not-for-production';
 let queries = [];
 db.$on('query', (query) => queries.push(query.query));
 
@@ -205,7 +206,7 @@ test('QR visibility updates by individual actual/planned times before pagination
   assert.deepEqual({ assignments: await db.eventAssignment.findMany(), events: await db.event.findMany(), codes: await db.qrCheckCode.findMany(), logs: await db.qrCheckLog.findMany() }, before);
 });
 
-test('reminder and QR table resolve the same individual token, schedule and collaborator without duplicate codes', async (t) => {
+test('reminder and QR table resolve the same daily link, schedule and collaborator without duplicate codes', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now });
   process.env.DATABASE_URL = datasourceUrl;
   const { qrCodesRouter } = await import('../routes/qrCheckins.js');
@@ -238,6 +239,11 @@ test('reminder and QR table resolve the same individual token, schedule and coll
     const other = await invoke('/assignments/:assignmentId', { assignmentId: '201' });
     assert.notEqual(other.qrUrl, reminder.qrUrl);
     assert.equal(other.assignmentId, 201);
+    await db.eventAssignment.create({ data: { id: 301, eventId: 2, collaboratorId: 2, assignmentDate: new Date('2026-09-23'), plannedCheckIn: '18:00', plannedCheckOut: '22:00', status: 'confirmed' } });
+    const secondService = await invoke('/assignments/:assignmentId', { assignmentId: '301' });
+    assert.equal(secondService.qrScope, 'day');
+    assert.equal(secondService.qrUrl, reminder.qrUrl);
+    assert.match(secondService.qrUrl, /\/qr\/day\/day1\./);
   } finally {
     await prisma.$disconnect();
   }

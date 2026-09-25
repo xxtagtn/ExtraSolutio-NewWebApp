@@ -51,11 +51,11 @@ export async function readPublicQr(client, token, { now = new Date() } = {}) {
   return qrCode;
 }
 
-export async function registerPublicQr(prisma, token, action, { now = new Date(), audit = {} } = {}) {
+export async function registerPublicQr(prisma, token, action, { now = new Date(), audit = {}, resolveQr, serializable = false } = {}) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
-        const qrCode = await readPublicQr(tx, token, { now });
+        const qrCode = resolveQr ? await resolveQr(tx) : await readPublicQr(tx, token, { now });
         const assignment = qrCode.assignment;
         const serverTime = formatServerTime(now);
         const data = {};
@@ -91,7 +91,7 @@ export async function registerPublicQr(prisma, token, action, { now = new Date()
             checkIn: assignment.checkIn,
             checkOut: assignment.checkOut,
             updatedAt: assignment.updatedAt,
-            qrCheckCode: { is: { token, revokedAt: null } },
+            qrCheckCode: { is: { token: qrCode.token, revokedAt: null } },
           },
           data,
         });
@@ -111,7 +111,7 @@ export async function registerPublicQr(prisma, token, action, { now = new Date()
           },
         });
         return tx.qrCheckCode.findUnique({ where: { id: qrCode.id }, include: qrInclude });
-      });
+      }, serializable ? { isolationLevel: 'Serializable' } : undefined);
     } catch (error) {
       // Retry transaction conflicts against fresh state, not the previous action's data.
       if (error.code !== 'P2034') throw error;

@@ -69,6 +69,16 @@ test('qrUsageWindow uses the assignment day and expires at the end of that day',
   assert.equal(window.expiresAt.toISOString(), '2026-07-06T22:59:59.999Z');
 });
 
+test('overnight services remain valid after midnight and late entries retain the 30-minute protection', () => {
+  const input = { event: { date: '2026-09-24', startTime: '22:00', endTime: '02:00' }, timeZone: 'Europe/Lisbon' };
+  assert.equal(qrUsageWindow(input).expiresAt.toISOString(), '2026-09-25T22:59:59.999Z');
+  assert.equal(validateQrUsage({ ...input, now: '2026-09-25T01:00:00Z' }), true);
+  assert.throws(() => validateQrUsage({ ...input, now: '2026-09-25T23:00:00Z' }), { code: 'QR_EXPIRED' });
+  assert.equal(qrCheckOutAvailableAt({ ...input, assignment: { checkIn: '00:15' } }).toISOString(), '2026-09-24T23:45:00.000Z');
+  const override = { ...input, assignment: { plannedCheckIn: '11:00', plannedCheckOut: '15:00' } };
+  assert.equal(qrUsageWindow(override).expiresAt.toISOString(), '2026-09-24T22:59:59.999Z');
+});
+
 test('September 23 QR accepts Lisbon midnight even while the UTC server is on September 22', () => {
   const input = { event: { date: '2026-09-01' }, assignment: { assignmentDate: new Date('2026-09-23T00:00:00Z') }, timeZone: 'Europe/Lisbon' };
   assert.throws(() => validateQrUsage({ ...input, now: '2026-09-22T22:59:59.999Z' }), { code: 'QR_NOT_ACTIVE' });

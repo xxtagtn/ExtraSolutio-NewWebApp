@@ -4,12 +4,13 @@ import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
 import { readQrCodesPage, readRelevantQrEvents } from '../services/qrCodesPage.js';
 import { communicationAssignmentSchedule } from '../../src/utils/communicationCenter.js';
-import { publicQrError as publicError, qrCheckoutProtection, readPublicQr, registerPublicQr } from '../services/qrAttendance.js';
+import { qrCheckoutProtection, readPublicQr, registerPublicQr } from '../services/qrAttendance.js';
+import { ensureAssignmentQr } from '../services/qrCodeGeneration.js';
+import { readDailyQr, registerDailyQr } from '../services/qrDailyAttendance.js';
+import { createDailyQrToken } from '../utils/qrDailyToken.js';
 import {
   QR_CHECK_ACTIONS,
-  generateQrToken,
   qrCodeStateForAssignment,
-  qrUsageWindow,
   requestAuditMeta,
   resolveQrPublicBaseUrl,
 } from '../utils/qrCheckins.js';
@@ -33,83 +34,8 @@ function publicQrUrl(req, token) {
   return `${publicBaseUrl(req)}/qr/${encodeURIComponent(token)}`;
 }
 
-function eventDateForQr(assignment, event) {
-  return assignment.assignmentDate || event.date || null;
-}
-
-function shouldRegenerateToken(existing, assignment, event) {
-  if (!existing) return true;
-  const nextDate = eventDateForQr(assignment, event);
-  return existing.eventId !== assignment.eventId
-    || existing.assignmentId !== assignment.id
-    || existing.collaboratorId !== assignment.collaboratorId
-    || String(existing.eventDate || '') !== String(nextDate || '');
-}
-
-async function createUniqueQrCode(data) {
-  for (let attempts = 0; attempts < 5; attempts += 1) {
-    try {
-      return await prisma.qrCheckCode.create({
-        data: { ...data, token: generateQrToken() },
-      });
-    } catch (error) {
-      if (error?.code !== 'P2002') throw error;
-      const existing = await prisma.qrCheckCode.findUnique({ where: { assignmentId: data.assignmentId } });
-      if (existing) return existing;
-    }
-  }
-  throw publicError(500, 'Não foi possível gerar um QR Code único.', 'QR_TOKEN_COLLISION');
-}
-
 export async function ensureQrCodeForAssignment(assignmentOrId) {
-  const id = typeof assignmentOrId === 'object' ? assignmentOrId?.id : assignmentOrId;
-  if (!id) return null;
-
-  const assignment = typeof assignmentOrId === 'object' && assignmentOrId?.event && assignmentOrId?.collaborator
-    ? assignmentOrId
-    : await prisma.eventAssignment.findUnique({
-      where: { id },
-      include: { event: true, collaborator: true, qrCheckCode: true },
-    });
-
-  if (
-    !assignment?.id
-    || !assignment.collaboratorId
-    || !assignment.eventId
-    || String(assignment.status || '').toLowerCase() === 'cancelled'
-  ) return null;
-
-  const event = assignment.event || await prisma.event.findUnique({ where: { id: assignment.eventId } });
-  if (!event) return null;
-
-  const { expiresAt } = qrUsageWindow({ event, assignment });
-  const eventDate = eventDateForQr(assignment, event);
-  const existing = assignment.qrCheckCode || await prisma.qrCheckCode.findUnique({
-    where: { assignmentId: assignment.id },
-  });
-
-  const baseData = {
-    eventId: assignment.eventId,
-    assignmentId: assignment.id,
-    collaboratorId: assignment.collaboratorId,
-    eventDate,
-    expiresAt,
-    revokedAt: null,
-  };
-
-  if (!existing) return createUniqueQrCode(baseData);
-
-  if (!shouldRegenerateToken(existing, assignment, event)
-    && !existing.revokedAt
-    && existing.expiresAt?.getTime() === expiresAt.getTime()) return existing;
-
-  return prisma.qrCheckCode.update({
-    where: { id: existing.id },
-    data: {
-      ...baseData,
-      ...(shouldRegenerateToken(existing, assignment, event) ? { token: generateQrToken() } : {}),
-    },
-  });
+  return ensureAssignmentQr(prisma, assignmentOrId);
 }
 
 export async function ensureQrCodeForAssignmentId(assignmentId) {
@@ -140,7 +66,8 @@ function qrRowPayload(req, assignment, qrCode) {
     checkIn: assignment.checkIn,
     checkOut: assignment.checkOut,
     state,
-    qrUrl: publicQrUrl(req, qrCode.token),
+    qrScope: 'day',
+    qrUrl: `${publicBaseUrl(req)}/qr/day/${createDailyQrToken(assignment.collaboratorId, schedule.date)}`,
     expiresAt: qrCode.expiresAt,
   };
 }
@@ -181,6 +108,16 @@ qrPublicRouter.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
 });
+
+qrPublicRouter.get('/day/:token', asyncHandler(async (req, res) => {
+  res.json(await readDailyQr(prisma, req.params.token));
+}));
+
+for (const [path, action] of [['check-in', QR_CHECK_ACTIONS.checkIn], ['check-out', QR_CHECK_ACTIONS.checkOut]]) {
+  qrPublicRouter.post(`/day/:token/${path}`, asyncHandler(async (req, res) => {
+    res.json(await registerDailyQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req) }));
+  }));
+}
 
 qrPublicRouter.get('/:token', asyncHandler(async (req, res) => {
   const qrCode = await readPublicQr(prisma, req.params.token);
