@@ -21,9 +21,11 @@ async function setup({ width = 390, allowed = true, configured = true, secure = 
     window.__permissionCalls = 0; window.__unsubscribes = 0;
     class NotificationMock {
       static permission = permission;
-      static async requestPermission() { window.__permissionCalls++; return NotificationMock.permission = permission === 'denied' ? 'denied' : 'granted'; }
+      static async requestPermission() { window.__permissionCalls++; return NotificationMock.permission = NotificationMock.permission === 'denied' ? 'denied' : 'granted'; }
     }
     Object.defineProperty(window, 'Notification', { value: NotificationMock, configurable: true });
+    window.__pushPermissionStatus = new EventTarget();
+    Object.defineProperty(navigator, 'permissions', { configurable: true, value: { async query() { return window.__pushPermissionStatus; } } });
     Object.defineProperty(window, 'PushManager', { value: class {}, configurable: true });
     const stored = JSON.parse(localStorage.getItem('test-push-sub') || 'null');
     function hydrate(value) { return value ? { ...value, toJSON() { return value; }, async unsubscribe() { window.__unsubscribes++; localStorage.removeItem('test-push-sub'); sub = null; return true; } } : null; }
@@ -38,6 +40,7 @@ async function setup({ width = 390, allowed = true, configured = true, secure = 
     Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { async getRegistration() { return registration; }, async register() { return registration; } } });
   }, { secure, permission });
   let device = null, testCount = 0, requests = [];
+  let serverConfigured = configured, configFailure = false;
   let currentUser = allowed ? user : { ...user, role: 'viewer', permissions: ['dashboard.view'] };
   await context.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/api', '');
@@ -48,7 +51,7 @@ async function setup({ width = 390, allowed = true, configured = true, secure = 
       return send({ user: currentUser, token: `header.${Buffer.from(JSON.stringify({ iat: now, exp: now + 14400 })).toString('base64url')}.signature` });
     }
     if (path.startsWith('/push')) requests.push({ path, method, body });
-    if (path === '/push/config') return send({ configured, publicKey: configured ? key : null });
+    if (path === '/push/config') return configFailure ? send({ message: 'Servidor temporariamente indisponível.' }, 503) : send({ configured: serverConfigured, publicKey: serverConfigured ? key : null });
     if (path === '/push/device') {
       if (method === 'PUT') device = { id: 1, notifyEntry: body.notifyEntry, notifyExit: body.notifyExit };
       if (method === 'DELETE') device = null;
@@ -67,10 +70,42 @@ async function setup({ width = 390, allowed = true, configured = true, secure = 
   };
   const profile = async () => { await page.goto(`${base}/profile`); await page.getByRole('heading', { name: 'Notificações de picagens' }).waitFor(); };
   await page.goto(`${base}/login`);
-  return { context, page, login, profile, tests: () => testCount, device: () => device, requests, changeUser: (value) => { currentUser = value; } };
+  return { context, page, login, profile, tests: () => testCount, device: () => device, requests, changeUser: (value) => { currentUser = value; }, configureServer: (value) => { serverConfigured = value; }, failConfig: (value) => { configFailure = value; } };
 }
 
 try {
+  const recovered = await setup({ permission: 'denied' }); await recovered.login(); await recovered.profile();
+  await recovered.page.getByText('Notificações bloqueadas nas definições deste browser/dispositivo.').waitFor();
+  await recovered.page.evaluate(() => { Notification.permission = 'granted'; window.dispatchEvent(new Event('focus')); });
+  await recovered.page.waitForFunction(() => ![...document.querySelectorAll('.push-settings button')].find((button) => button.textContent.includes('Ativar neste dispositivo'))?.disabled, { timeout: 3000 });
+  await recovered.page.getByRole('button', { name: 'Ativar neste dispositivo' }).click();
+  await recovered.page.getByText('Notificações ativas neste dispositivo.', { exact: true }).waitFor();
+  await recovered.context.close();
+  console.log('PASS return from OS settings refreshes permission without reload');
+
+  const changed = await setup({ permission: 'denied' }); await changed.login(); await changed.profile();
+  await changed.page.getByText('Notificações bloqueadas nas definições deste browser/dispositivo.').waitFor();
+  await changed.page.evaluate(() => { Notification.permission = 'granted'; window.__pushPermissionStatus.dispatchEvent(new Event('change')); });
+  await changed.page.waitForFunction(() => ![...document.querySelectorAll('.push-settings button')].find((button) => button.textContent.includes('Ativar neste dispositivo'))?.disabled);
+  assert.equal(await changed.page.evaluate(() => window.__permissionCalls), 0);
+  await changed.context.close();
+  console.log('PASS permission change refreshes without prompting automatically');
+
+  const configuredLater = await setup({ configured: false }); await configuredLater.login(); await configuredLater.profile();
+  await configuredLater.page.getByText('Notificações ainda não configuradas no servidor.').waitFor();
+  configuredLater.configureServer(true);
+  await configuredLater.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await configuredLater.page.waitForFunction(() => ![...document.querySelectorAll('.push-settings button')].find((button) => button.textContent.includes('Ativar neste dispositivo'))?.disabled);
+  configuredLater.failConfig(true);
+  await configuredLater.page.getByRole('button', { name: 'Voltar a verificar' }).click();
+  await configuredLater.page.getByText('Servidor temporariamente indisponível.').waitFor();
+  configuredLater.failConfig(false);
+  await configuredLater.page.getByRole('button', { name: 'Voltar a verificar' }).click();
+  await configuredLater.page.waitForFunction(() => ![...document.querySelectorAll('.push-settings button')].find((button) => button.textContent.includes('Ativar neste dispositivo'))?.disabled);
+  assert.equal(await configuredLater.page.getByText('Servidor temporariamente indisponível.').count(), 0);
+  await configuredLater.context.close();
+  console.log('PASS server setup is refreshed on return and transient errors can be retried');
+
   const s = await setup(); await s.login(); await s.profile();
   assert.equal(await s.page.evaluate(() => window.__permissionCalls), 0);
   await s.page.getByRole('button', { name: 'Ativar neste dispositivo' }).click();
