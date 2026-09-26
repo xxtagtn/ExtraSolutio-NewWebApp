@@ -2,8 +2,19 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
 import { readNotificationOverview } from '../services/notificationOverview.js';
+import { readAttendanceAttention } from '../services/attendanceAttention.js';
+import { requirePermission } from '../security/permissions.js';
+import { PERMISSIONS } from '../../src/utils/accessPermissions.js';
 
 export const notificationsRouter = Router();
+
+notificationsRouter.get('/attendance-attention',
+  requirePermission(PERMISSIONS.DASHBOARD_VIEW),
+  requirePermission(PERMISSIONS.SERVICES_VIEW),
+  asyncHandler(async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await readAttendanceAttention(prisma));
+  }));
 
 notificationsRouter.get('/overview', asyncHandler(async (req, res) => {
   res.json(await readNotificationOverview(prisma, req.user));

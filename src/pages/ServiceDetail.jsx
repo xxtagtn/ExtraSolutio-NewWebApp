@@ -497,7 +497,7 @@ export default function ServiceDetail() {
   }
 
   useEffect(() => {
-    const requestedDay = searchParams.get('push') === '1' ? searchParams.get('day') : '';
+    const requestedDay = searchParams.get('day');
     if (requestedDay && days.includes(requestedDay)) {
       if (selectedDay !== requestedDay) setSelectedDay(requestedDay);
       const nextParams = new window.URLSearchParams(searchParams);

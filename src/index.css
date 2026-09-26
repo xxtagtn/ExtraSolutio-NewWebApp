@@ -5816,6 +5816,168 @@ th {
   gap: 16px;
 }
 
+.command-attendance-panel {
+  min-width: 0;
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
+}
+
+.command-attendance-title,
+.command-attendance-controls,
+.command-attendance-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.command-attendance-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.command-attendance-panel--collapsed .command-attendance-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 0;
+}
+
+.command-attendance-title > .badge {
+  flex-shrink: 0;
+}
+
+.command-attendance-toggle {
+  grid-column: -2 / -1;
+  grid-row: 1;
+}
+
+.command-attendance-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.command-attendance-header p {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.command-attendance-controls select {
+  width: 180px;
+  max-width: 100%;
+}
+
+.command-attendance-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.command-attendance-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.75fr) minmax(0, 3fr);
+  align-items: center;
+  gap: 16px;
+  padding: 14px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.command-attendance-services {
+  min-width: 0;
+}
+
+.command-attendance-service {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 1fr) minmax(140px, 0.8fr) 18px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.command-attendance-service + .command-attendance-service {
+  border-top: 1px dashed var(--line);
+}
+
+.command-attendance-service:hover {
+  background: rgba(20, 184, 166, 0.06);
+}
+
+.command-attendance-person,
+.command-attendance-service-info,
+.command-attendance-times {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.command-attendance-service-info span,
+.command-attendance-row small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.command-attendance-row .badge {
+  width: fit-content;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.command-attendance-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.command-attendance-empty svg,
+.command-attendance-header h2 svg {
+  flex-shrink: 0;
+}
+
+.command-attendance-empty {
+  color: var(--muted);
+}
+
+.command-attendance-more {
+  margin-top: 12px;
+}
+
+@media (max-width: 700px) {
+  .command-attendance-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .command-attendance-controls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 1000px) {
+  .command-attendance-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .command-attendance-service {
+    grid-template-columns: minmax(0, 1fr) 18px;
+    gap: 10px;
+  }
+
+  .command-attendance-service > svg {
+    grid-column: 2;
+    grid-row: 1 / 4;
+  }
+
+  .command-attendance-times,
+  .command-attendance-row .badge {
+    grid-column: 1;
+  }
+}
+
 .command-dashboard-head {
   display: flex;
   align-items: start;

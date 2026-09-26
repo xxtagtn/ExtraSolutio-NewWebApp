@@ -16,6 +16,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
+import AttendanceAttentionPanel from '../components/Dashboard/AttendanceAttentionPanel.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { buildDashboardCommandCenter } from '../utils/dashboardCommandCenter.js';
 import { date, money } from '../utils/formatters.js';
@@ -248,6 +249,8 @@ export default function PendingActions() {
           tone="success"
         />
       </section>
+
+      <AttendanceAttentionPanel search={search} />
 
       <section className="command-main-grid">
         <TimelinePanel
