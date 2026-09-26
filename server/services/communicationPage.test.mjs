@@ -133,6 +133,23 @@ test('QR pages use each assignment day, keep global counters, and never write QR
   assert.equal(await readQrCodesPage(db, 999), null);
 });
 
+test('grouped QR pagination keeps every service of a collaborator/day on the same page', async () => {
+  const first = await readQrCodesPage(db, 1, { page: 1, pageSize: 1, groupBy: 'collaboratorDay' }, { now });
+  const second = await readQrCodesPage(db, 1, { page: 2, pageSize: 1, groupBy: 'collaboratorDay' }, { now });
+  const all = await readQrCodesPage(db, 1, { pageSize: 100 }, { now });
+  assert.equal(first.total, 2);
+  assert.equal(first.totalPages, 2);
+  assert.equal(first.items.length, 21);
+  assert.equal(second.items.length, 21);
+  assert.equal(new Set(first.items.map((row) => `${row.collaboratorId}:${row.assignmentDate.toISOString()}`)).size, 1);
+  assert.deepEqual(first.summary, all.summary);
+  assert.deepEqual(second.summary, all.summary);
+  assert.deepEqual([...first.items, ...second.items].map((row) => row.id).sort((a, b) => a - b), all.items.map((row) => row.id).sort((a, b) => a - b));
+  const last = await readQrCodesPage(db, 1, { page: 99, pageSize: 1, groupBy: 'collaboratorDay' }, { now });
+  assert.equal(last.page, 2);
+  assert.deepEqual(last.items, second.items);
+});
+
 test('lightweight notifications preserve the existing rules and enforce read permissions', async () => {
   const overview = await readNotificationOverview(db, { role: 'admin' }, { now });
   const inputs = JSON.parse(JSON.stringify({

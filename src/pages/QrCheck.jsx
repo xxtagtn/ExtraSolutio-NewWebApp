@@ -123,7 +123,9 @@ function QrCheckPage({ token, daily }) {
   return (
     <main className="qr-check-page">
       <section className={`qr-check-card${daily ? ' qr-check-card--daily' : ''}`}>
-        <div className="qr-check-logo">ES</div>
+        <div className="qr-check-logo">
+          <img src="/logo.png" alt="ExtraSolutio" />
+        </div>
         {loading ? (
           <div className="qr-check-empty">
             <Clock3 size={28} />

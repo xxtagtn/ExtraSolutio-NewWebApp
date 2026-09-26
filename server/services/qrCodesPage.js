@@ -1,4 +1,5 @@
 import { eventDayKey } from '../../src/utils/eventCancelledDays.js';
+import { groupQrRowsByCollaboratorDay } from '../../src/utils/communicationQrGroups.js';
 import { buildPaginatedPayload } from '../utils/listQuery.js';
 import { communicationPagination } from './communicationPage.js';
 import { communicationQrCandidateWhere, isCommunicationQrRelevant } from '../utils/communicationQrWindow.js';
@@ -47,10 +48,14 @@ export async function readQrCodesPage(db, eventId, query = {}, options = {}) {
     || String(a.plannedCheckIn || '').localeCompare(String(b.plannedCheckIn || ''))
     || a.id - b.id
   ));
-  const { page, pageSize, skip } = communicationPagination(query, eligible.length);
-  const ids = eligible.slice(skip, skip + pageSize).map((row) => row.id);
+  // Keep all services of a displayed collaborator/day together across pages.
+  const groups = query.groupBy === 'collaboratorDay'
+    ? groupQrRowsByCollaboratorDay(eligible, event.date)
+    : eligible.map((row) => ({ rows: [row] }));
+  const { page, pageSize, skip } = communicationPagination(query, groups.length);
+  const ids = groups.slice(skip, skip + pageSize).flatMap((group) => group.rows.map((row) => row.id));
   const assignments = ids.length ? await db.eventAssignment.findMany({
-    where: { id: { in: ids } }, take: pageSize,
+    where: { id: { in: ids } }, take: ids.length,
     select: {
       id: true, eventId: true, collaboratorId: true, status: true, assignmentDate: true,
       role: true, plannedCheckIn: true, plannedCheckOut: true, checkIn: true, checkOut: true,
@@ -59,7 +64,7 @@ export async function readQrCodesPage(db, eventId, query = {}, options = {}) {
   }) : [];
   const byId = new Map(assignments.map((assignment) => [assignment.id, assignment]));
   return {
-    ...buildPaginatedPayload({ items: ids.map((id) => byId.get(id)).filter(Boolean), total: eligible.length, page, pageSize }),
+    ...buildPaginatedPayload({ items: ids.map((id) => byId.get(id)).filter(Boolean), total: groups.length, page, pageSize }),
     event: { ...event, clientName: event.client?.name || event.clientName || '' },
     summary: {
       total: eligible.length,

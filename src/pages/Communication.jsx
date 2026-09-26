@@ -23,6 +23,7 @@ import { useCommunicationData } from '../hooks/useCommunicationData.js';
 import { api } from '../utils/api.js';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { communicationSummary } from '../utils/communicationCenter.js';
+import { groupQrRowsByCollaboratorDay } from '../utils/communicationQrGroups.js';
 import { withCommunicationMessageDraft } from '../utils/communicationMessageDrafts.js';
 import { date } from '../utils/formatters.js';
 
@@ -94,7 +95,7 @@ function QrCodesPanel({ canManageQrCodes, qrTools }) {
   const [pageSize, setPageSize] = useState(25);
   const { data: eventOptions, error: optionsError, reload: reloadEvents } = useCommunicationData(canManageQrCodes ? '/qr-codes/events' : null, { poll: true });
   const { data: payload, loading, error, reload: loadQrCodes } = useCommunicationData(
-    canManageQrCodes && eventId ? `/qr-codes/events/${eventId}?page=${page}&pageSize=${pageSize}` : null,
+    canManageQrCodes && eventId ? `/qr-codes/events/${eventId}?page=${page}&pageSize=${pageSize}&groupBy=collaboratorDay` : null,
     { poll: true },
   );
 
@@ -161,31 +162,39 @@ function QrCodesPanel({ canManageQrCodes, qrTools }) {
           <thead>
             <tr>
               <th>Colaborador</th>
-              <th>Estado</th>
-              <th>Entrada</th>
-              <th>Saída</th>
+              <th>Serviços / Picagens</th>
               <th>Ações</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="5">A carregar QR Codes...</td></tr>
-            ) : (payload?.rows || []).length ? payload.rows.map((row) => (
-              <tr key={row.assignmentId}>
+              <tr><td colSpan="3">A carregar QR Codes...</td></tr>
+            ) : (payload?.rows || []).length ? groupQrRowsByCollaboratorDay(payload.rows, payload.event?.date).map((group) => (
+              <tr key={group.key}>
                 <td data-label="Colaborador">
-                  <strong>{row.collaboratorName}</strong>
-                  <small>{row.role || 'Sem função'} · {formatTaskDate(row.assignmentDate)}</small>
-                  <small>{[row.startTime, row.endTime].filter(Boolean).join(' → ')}</small>
+                  <strong>{group.rows[0].collaboratorName}</strong>
+                  <small>{formatTaskDate(group.rows[0].assignmentDate)}</small>
                 </td>
-                <td data-label="Estado"><Badge tone={qrStateTones[row.state?.key] || 'neutral'}>{row.state?.label || 'QR Gerado'}</Badge></td>
-                <td data-label="Entrada">{row.checkIn || '-'}</td>
-                <td data-label="Saída">{row.checkOut || '-'}</td>
+                <td data-label="Serviços / Picagens">
+                  <div className="communication-qr-services">
+                    {[...group.rows].sort((a, b) => String(a.startTime || '').localeCompare(String(b.startTime || '')) || a.assignmentId - b.assignmentId).map((row) => (
+                      <div className="communication-qr-service" key={row.assignmentId}>
+                        <div className="communication-qr-service__header">
+                          <span className="communication-qr-service__schedule"><Clock3 size={15} aria-hidden="true" />{[row.startTime, row.endTime].filter(Boolean).join(' → ') || 'Sem horário'}</span>
+                          <Badge tone={qrStateTones[row.state?.key] || 'neutral'}>{row.state?.label || 'QR Gerado'}</Badge>
+                        </div>
+                        <small>{row.role || 'Sem função'}</small>
+                        <small>Entrada: {row.checkIn || '-'} · Saída: {row.checkOut || '-'}</small>
+                      </div>
+                    ))}
+                  </div>
+                </td>
                 <td data-label="Ações">
-                  <CommunicationQrActions row={row} tools={qrTools} compact />
+                  <CommunicationQrActions row={group.rows[0]} tools={qrTools} compact />
                 </td>
               </tr>
             )) : (
-              <tr><td colSpan="5">Sem serviços dentro da janela de 24 horas.</td></tr>
+              <tr><td colSpan="3">Sem serviços dentro da janela de 24 horas.</td></tr>
             )}
           </tbody>
         </table>

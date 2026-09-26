@@ -1786,7 +1786,7 @@ export default function Services() {
                   <h3>Dados principais</h3>
                   <div className="form-grid">
                     <label>Evento / Serviço
-                      <input value={form.name} required onChange={(event) => setForm({ ...form, name: event.target.value })} />
+                      <input value={form.name} required placeholder="Ex: Jantar de gala" onChange={(event) => setForm({ ...form, name: event.target.value })} />
                     </label>
                     <label>Referência interna (opcional)
                       <input
@@ -1824,7 +1824,7 @@ export default function Services() {
                         <span>Evento contínuo</span>
                       </label>
                       <label>Nº de Convidados/Participantes
-                        <input type="number" min="0" value={form.guestsCount} onChange={(event) => setForm({ ...form, guestsCount: event.target.value })} />
+                        <input type="number" min="0" placeholder="Ex: 120" value={form.guestsCount} onChange={(event) => setForm({ ...form, guestsCount: event.target.value })} />
                       </label>
                     </div>
                     {form.isContinuous ? <p className="muted">Duracao: {eventDays} dia(s). Os calculos usam o horario previsto repetido por dia.</p> : null}
@@ -1894,7 +1894,7 @@ export default function Services() {
                       </p>
                     </div> : <p className="span-2 muted">Sem cliente registado. O nome livre será usado apenas para identificar este evento.</p>}
                     <label className="span-2">Local do evento
-                      <input value={form.useDefaultLocation ? (selectedClient?.address || form.location) : form.location} readOnly={form.useDefaultLocation} onChange={(event) => setForm({ ...form, location: event.target.value })} />
+                      <input value={form.useDefaultLocation ? (selectedClient?.address || form.location) : form.location} placeholder="Ex: Centro de Congressos de Lisboa" readOnly={form.useDefaultLocation} onChange={(event) => setForm({ ...form, location: event.target.value })} />
                     </label>
                     <div className="span-2 service-work-location-opt-in">
                       <label className="check-inline service-check">
@@ -1987,10 +1987,10 @@ export default function Services() {
                       ) : null}
                     </div>
                     <label>Contacto no Local - Nome
-                      <input value={form.onsiteContactName} onChange={(event) => setForm({ ...form, onsiteContactName: event.target.value })} />
+                      <input value={form.onsiteContactName} placeholder="Ex: João Silva" onChange={(event) => setForm({ ...form, onsiteContactName: event.target.value })} />
                     </label>
                     <label>Contacto no Local - Telefone
-                      <input value={form.onsiteContactPhone} onChange={(event) => setForm({ ...form, onsiteContactPhone: event.target.value })} />
+                      <input value={form.onsiteContactPhone} placeholder="Ex: 912 345 678" onChange={(event) => setForm({ ...form, onsiteContactPhone: event.target.value })} />
                     </label>
                   </div>
                 </section>
@@ -2021,6 +2021,7 @@ export default function Services() {
                           <input
                             type="number"
                             min="1"
+                            placeholder="Ex: 4"
                             value={form.travelPeople}
                             onChange={(event) => setForm({ ...form, travelPeople: event.target.value })}
                           />
@@ -2044,7 +2045,7 @@ export default function Services() {
                           <div className="service-travel-car-row" key={car.id || index}>
                             <input
                               aria-label="Nome da viatura"
-                              placeholder={`Carro ${index + 1}`}
+                              placeholder={`Ex: Carro ${index + 1}`}
                               value={car.label || ''}
                               onChange={(event) => updateTravelCar(index, { label: event.target.value })}
                             />
@@ -2053,7 +2054,7 @@ export default function Services() {
                               type="number"
                               min="0"
                               step="any"
-                              placeholder="KM"
+                              placeholder="Quilómetros"
                               value={car.km ?? ''}
                               onChange={(event) => updateTravelCar(index, { km: event.target.value })}
                             />
@@ -2062,7 +2063,7 @@ export default function Services() {
                               type="number"
                               min="0"
                               step="any"
-                              placeholder="€/KM"
+                              placeholder="Preço p/km"
                               value={car.kmRate ?? ''}
                               onChange={(event) => updateTravelCar(index, { kmRate: event.target.value })}
                             />
@@ -2071,7 +2072,7 @@ export default function Services() {
                               type="number"
                               min="0"
                               step="any"
-                              placeholder="Duração"
+                              placeholder="Horas trajeto"
                               value={car.durationHours ?? ''}
                               onChange={(event) => updateTravelCar(index, { durationHours: event.target.value })}
                             />
@@ -2080,7 +2081,7 @@ export default function Services() {
                               type="number"
                               min="0"
                               step="1"
-                              placeholder="Pessoas"
+                              placeholder="Nº pessoas"
                               value={car.travelPeople ?? ''}
                               onChange={(event) => updateTravelCar(index, { travelPeople: event.target.value })}
                             />
@@ -2088,7 +2089,7 @@ export default function Services() {
                               aria-label="Valor por hora da deslocação do staff"
                               type="text"
                               inputMode="decimal"
-                              placeholder="Valor/h staff"
+                              placeholder="Ex: 10,50 €"
                               value={car.travelStaffHourlyRate ?? ''}
                               onChange={(event) => updateTravelCar(index, { travelStaffHourlyRate: event.target.value })}
                               onFocus={(event) => {
@@ -2117,7 +2118,7 @@ export default function Services() {
                           <input
                             type="text"
                             value={form.travelManualAmount}
-                            placeholder="Ex: 35,00€"
+                            placeholder="Ex: 35,00 €"
                             onChange={(event) => setForm({ ...form, travelManualAmount: event.target.value })}
                             onBlur={(event) => setForm({ ...form, travelManualAmount: formatMoneyInline(event.target.value) })}
                           />
@@ -2128,7 +2129,7 @@ export default function Services() {
                       <p className="muted span-2">Valor calculado da deslocação: <strong>{formatMoneyInline(travelExpenseAmount) || '0,00€'}</strong></p>
                     ) : null}
                     <label className="span-2">Descrição
-                      <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+                      <textarea value={form.description} placeholder="Ex: Informações adicionais sobre o serviço" onChange={(event) => setForm({ ...form, description: event.target.value })} />
                     </label>
                   </div>
                 </section>
@@ -2145,11 +2146,11 @@ export default function Services() {
                       return (
                         <div key={role} className="service-role-requirement-row">
                           <strong>{role}</strong>
-                          <input type="number" min="0" placeholder="Nº" value={item.qty || ''} onChange={(event) => updateRoleRequirement(role, { qty: event.target.value })} />
+                          <input type="number" min="0" placeholder="Ex: 4" value={item.qty || ''} onChange={(event) => updateRoleRequirement(role, { qty: event.target.value })} />
                           <label className="service-role-rate-field">
                             <input
                               type="text"
-                              placeholder="Valor/h cliente"
+                              placeholder="Ex: 14,00 €/h"
                               value={item.agreedRate || ''}
                               onChange={(event) => updateRoleRequirement(role, { agreedRate: event.target.value })}
                               onBlur={(event) => {
