@@ -300,4 +300,5 @@ test('groups existing billed hours and role-rate subtotals by day', () => {
   ]);
   assert.equal(summary.billableHours, 22);
   assert.equal(summary.scheduleCount, 4);
+  assert.equal(summary.days[1].entries[0].clientRate, 14);
 });

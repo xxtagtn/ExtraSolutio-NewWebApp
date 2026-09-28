@@ -32,7 +32,7 @@ import {
   filterServicesByPeriod,
   splitClientBillingRows,
 } from '../utils/clientBilling.js';
-import { externalCostsTotals } from '../utils/externalCosts.js';
+import { externalCostsTotals, normalizeExternalCosts } from '../utils/externalCosts.js';
 import { eventTaxAmount } from '../utils/eventTax.js';
 import { buildFinanceEventDescriptors } from '../utils/financeEventIdentity.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
@@ -40,7 +40,10 @@ import { date, durationHours, money } from '../utils/formatters.js';
 import { decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
 import { staffAssignmentPaymentTotal } from '../utils/staffPayment.js';
 import StaffTravelSummary from '../components/StaffTravelSummary.jsx';
-import { buildClientFinancialSummary } from '../utils/clientFinancialSummary.js';
+import {
+  buildClientEventReconciliation,
+  buildClientFinancialSummary,
+} from '../utils/clientFinancialSummary.js';
 import { paginateItems } from '../utils/pagination.js';
 import {
   calculateFinancialMargin,
@@ -252,6 +255,39 @@ function assignmentWorkDateTimestamp(assignment) {
   const value = assignmentWorkDateValue(assignment);
   const parsed = new Date(value || 0);
   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function clientRateGroupsForDay(day = {}) {
+  const groups = new Map();
+  for (const entry of day.entries || []) {
+    const role = String(entry.role || '-').trim() || '-';
+    const rate = num(entry.clientRate);
+    const key = `${role.toLocaleLowerCase('pt-PT')}|${rate}`;
+    const group = groups.get(key) || {
+      role,
+      rate,
+      hours: 0,
+      value: 0,
+      priced: true,
+      assignments: 0,
+    };
+    group.hours += num(entry.billableHours);
+    group.value += num(entry.billableValue);
+    group.priced = group.priced && Boolean(entry.hasBillableRate && rate > 0);
+    group.assignments += 1;
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((left, right) => (
+    left.role.localeCompare(right.role, 'pt-PT', { sensitivity: 'base' })
+    || left.rate - right.rate
+  ));
+}
+
+function signedMoney(value) {
+  const amount = num(value);
+  if (amount > 0) return `+${money.format(amount)}`;
+  if (amount < 0) return `−${money.format(Math.abs(amount))}`;
+  return money.format(0);
 }
 
 function eventStaffCost(event) {
@@ -553,6 +589,17 @@ function ClientFinancialEventTable({
     scheduleGroups: [],
     days: [],
   };
+  const selectedReconciliation = selectedEvent
+    ? buildClientEventReconciliation(selectedEvent, selectedOperationalSummary)
+    : null;
+  const selectedExternalCosts = selectedEvent
+    ? normalizeExternalCosts(selectedEvent.externalCosts)
+    : [];
+  const showEventTax = Boolean(
+    selectedReconciliation?.tax > 0
+    || num(selectedEvent?.vatRateSnapshot) > 0,
+  );
+  const minimumHoursSnapshot = num(selectedEvent?.minimumHoursSnapshot);
 
   return (
     <div className="finance-client-event-table">
@@ -592,7 +639,7 @@ function ClientFinancialEventTable({
       ))}
       {!events.length && !standaloneInvoices.length ? <p className="muted finance-client-empty">Sem eventos ou faturas no período selecionado.</p> : null}
       {selectedEvent ? (
-        <Modal title="Resumo do Evento/Serviço" onClose={() => setSelectedEvent(null)}>
+        <Modal title="Resumo do Evento/Serviço" size="wide" onClose={() => setSelectedEvent(null)}>
           <div className="finance-event-summary">
             <div className="finance-event-summary__heading">
               <div>
@@ -661,10 +708,38 @@ function ClientFinancialEventTable({
                             <li key={entry.key}>
                               <strong>{entry.collaboratorName}</strong>
                               <span>{entry.role} · {entry.label}</span>
-                              <small>{durationHours(entry.billableHours)} faturadas</small>
+                              <small>
+                                {entry.hasBillableRate && entry.clientRate > 0
+                                  ? `${durationHours(entry.billableHours)} × ${money.format(entry.clientRate)}/h = ${money.format(entry.billableValue)}`
+                                  : `${durationHours(entry.billableHours)} faturadas · tarifa por configurar`}
+                              </small>
                             </li>
                           ))}
                         </ul>
+                        {day.entries.length ? (
+                          <div className="finance-event-day-pricing">
+                            <strong>Horas e tarifas por função</strong>
+                            <ul>
+                              {clientRateGroupsForDay(day).map((group) => (
+                                <li key={`${group.role}-${group.rate}`}>
+                                  <span>
+                                    {group.role}
+                                    {group.priced
+                                      ? ` · ${durationHours(group.hours)} × ${money.format(group.rate)}/h`
+                                      : ` · ${durationHours(group.hours)} · tarifa por configurar`}
+                                  </span>
+                                  <strong>{group.priced ? money.format(group.value) : '-'}</strong>
+                                </li>
+                              ))}
+                            </ul>
+                            {minimumHoursSnapshot > 0 ? (
+                              <p>
+                                Mínimo contratual: {durationHours(minimumHoursSnapshot)} por serviço.
+                                As horas faturáveis acima já respeitam este mínimo quando aplicável.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     </details>
                   ))}
@@ -678,6 +753,144 @@ function ClientFinancialEventTable({
                 <span>Total horas faturadas <strong>{durationHours(selectedOperationalSummary.billableHours)}</strong></span>
               </footer>
             </section>
+
+            <details className="finance-event-reconciliation" aria-labelledby="finance-event-reconciliation-title" open>
+              <summary className="finance-event-reconciliation__heading">
+                <div>
+                  <span className="finance-event-summary__eyebrow">Reconciliação financeira</span>
+                  <h4 id="finance-event-reconciliation-title">Composição do total do evento</h4>
+                  <p>Valores apresentados conforme a origem e o âmbito em que estão registados.</p>
+                </div>
+                <Badge tone="info">Total atual</Badge>
+                <ChevronDown size={16} aria-hidden="true" />
+              </summary>
+
+              <div className="finance-event-reconciliation__grid">
+                <div className="finance-event-reconciliation__components">
+                  <div className="finance-event-reconciliation__component">
+                    <div>
+                      <strong>Serviços detalhados por dia</strong>
+                      <small>
+                        {selectedReconciliation.dailyPricingComplete
+                          ? 'Soma dos subtotais diários, agrupados por função e tarifa.'
+                          : 'Soma das tarifas identificáveis nos horários; qualquer diferença fica discriminada abaixo.'}
+                      </small>
+                    </div>
+                    <strong>{money.format(selectedReconciliation.dailyServiceSubtotal)}</strong>
+                  </div>
+
+                  {selectedEvent.travelExpenseEnabled ? (
+                    <div className="finance-event-reconciliation__component">
+                      <div>
+                        <strong>Deslocação faturável ao cliente</strong>
+                        <small>Valor do evento; separado da compensação de deslocação do staff.</small>
+                        <span className="finance-event-reconciliation__scope">Evento</span>
+                      </div>
+                      <strong>{signedMoney(selectedReconciliation.travel)}</strong>
+                    </div>
+                  ) : null}
+
+                  {selectedExternalCosts.length || selectedReconciliation.externalCharge > 0 ? (
+                    <div className="finance-event-reconciliation__component">
+                      <div>
+                        <strong>Extras faturáveis</strong>
+                        {selectedExternalCosts.length ? (
+                          <small>
+                            {selectedExternalCosts.map((cost) => (
+                              `${cost.type || cost.description || 'Extra'}: ${money.format(cost.chargeAmount)}`
+                            )).join(' · ')}
+                          </small>
+                        ) : <small>Extras associados ao evento.</small>}
+                        <span className="finance-event-reconciliation__scope">Evento</span>
+                      </div>
+                      <strong>{signedMoney(selectedReconciliation.externalCharge)}</strong>
+                    </div>
+                  ) : null}
+
+                  {showEventTax ? (
+                    <div className="finance-event-reconciliation__component">
+                      <div>
+                        <strong>IVA / impostos</strong>
+                        <small>Valor registado para o evento e extras, conforme a configuração fiscal.</small>
+                        <span className="finance-event-reconciliation__scope">Evento</span>
+                      </div>
+                      <strong>{signedMoney(selectedReconciliation.tax)}</strong>
+                    </div>
+                  ) : null}
+
+                  {Math.abs(selectedReconciliation.adjustment) >= 0.01 ? (
+                    <div className="finance-event-reconciliation__component">
+                      <div>
+                        <strong>Ajuste de faturação</strong>
+                        <small>Diferença aplicada ao valor apresentado no Financeiro.</small>
+                        <span className="finance-event-reconciliation__scope">Evento</span>
+                      </div>
+                      <strong className={selectedReconciliation.adjustment < 0 ? 'is-negative' : ''}>
+                        {signedMoney(selectedReconciliation.adjustment)}
+                      </strong>
+                    </div>
+                  ) : null}
+
+                  {Math.abs(selectedReconciliation.undiscriminated) >= 0.01 ? (
+                    <div className="finance-event-reconciliation__component finance-event-reconciliation__component--unmapped">
+                      <div>
+                        <strong>Valor sem detalhe nestas linhas</strong>
+                        <small>
+                          Diferença necessária para reconciliar os componentes visíveis com o total guardado.
+                          Pode refletir necessidades ainda sem atribuição, funções/tarifas em falta ou totais históricos sem decomposição.
+                        </small>
+                      </div>
+                      <strong className={selectedReconciliation.undiscriminated < 0 ? 'is-negative' : ''}>
+                        {signedMoney(selectedReconciliation.undiscriminated)}
+                      </strong>
+                    </div>
+                  ) : null}
+                </div>
+
+                <aside className="finance-event-reconciliation__total">
+                  <strong>Reconciliação</strong>
+                  <div>
+                    <span>Serviços por dia</span>
+                    <strong>{money.format(selectedReconciliation.dailyServiceSubtotal)}</strong>
+                  </div>
+                  {selectedEvent.travelExpenseEnabled ? (
+                    <div><span>Deslocação</span><strong>{signedMoney(selectedReconciliation.travel)}</strong></div>
+                  ) : null}
+                  {selectedExternalCosts.length || selectedReconciliation.externalCharge > 0 ? (
+                    <div><span>Extras</span><strong>{signedMoney(selectedReconciliation.externalCharge)}</strong></div>
+                  ) : null}
+                  {showEventTax ? (
+                    <div><span>IVA / impostos</span><strong>{signedMoney(selectedReconciliation.tax)}</strong></div>
+                  ) : null}
+                  {Math.abs(selectedReconciliation.adjustment) >= 0.01 ? (
+                    <div>
+                      <span>Ajuste</span>
+                      <strong className={selectedReconciliation.adjustment < 0 ? 'is-negative' : ''}>
+                        {signedMoney(selectedReconciliation.adjustment)}
+                      </strong>
+                    </div>
+                  ) : null}
+                  {Math.abs(selectedReconciliation.undiscriminated) >= 0.01 ? (
+                    <div>
+                      <span>Sem detalhe</span>
+                      <strong className={selectedReconciliation.undiscriminated < 0 ? 'is-negative' : ''}>
+                        {signedMoney(selectedReconciliation.undiscriminated)}
+                      </strong>
+                    </div>
+                  ) : null}
+                  <div className="finance-event-reconciliation__grand-total">
+                    <span>Total do evento</span>
+                    <strong>{money.format(selectedReconciliation.total)}</strong>
+                  </div>
+                </aside>
+              </div>
+
+              <p className="finance-event-reconciliation__note">
+                <span aria-hidden="true">i</span>
+                Deslocações, extras e ajustes sem uma data própria mantêm-se ao nível do evento;
+                não são distribuídos artificialmente pelos dias.
+              </p>
+            </details>
 
             <footer className="finance-event-summary__actions">
               <button className="secondary-button" type="button" onClick={() => setSelectedEvent(null)}>Fechar</button>

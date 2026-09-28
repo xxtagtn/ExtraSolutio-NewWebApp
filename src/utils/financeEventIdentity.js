@@ -143,6 +143,7 @@ export function financeEventOperationalSummary(event = {}) {
       end: schedule.end,
       label: schedule.label,
       billableHours: assignmentBillableHours,
+      clientRate,
       billableValue: assignmentBillableValue,
       hasBillableRate: assignmentBillableHours <= 0 || clientRate > 0,
     });

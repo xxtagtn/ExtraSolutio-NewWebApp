@@ -1,0 +1,459 @@
+# Page Dependency Trees
+
+## /dashboard
+Entry: `src/pages/PendingActions.jsx`
+Dependencies:
+- src/pages/PendingActions.jsx
+  - src\components\UI\Badge.jsx
+  - src\components\UI\EmptyState.jsx
+  - src\components\Dashboard\AttendanceAttentionPanel.jsx
+- src\components\UI\Badge.jsx (shared dependency)
+    - src\hooks\useAuth.jsx
+      - src\utils\api.js
+        - src\utils\apiCache.js
+        - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+      - src\utils\pushNotifications.js
+- src\utils\api.js (shared dependency)
+    - src\hooks\useCommunicationData.js
+- src\utils\api.js (shared dependency)
+    - src\utils\accessPermissions.js
+    - src\utils\formatters.js
+    - src\utils\communicationQrGroups.js
+      - src\utils\eventCancelledDays.js
+  - src\hooks\useApi.js
+- src\utils\api.js (shared dependency)
+- src\utils\apiCache.js (shared dependency)
+    - src\utils\apiDataEquality.js
+  - src\utils\dashboardCommandCenter.js
+    - src\utils\financeReadiness.js
+    - src\utils\serviceFinance.js
+- src\utils\eventCancelledDays.js (shared dependency)
+- src\utils\formatters.js (shared dependency)
+  - src\utils\pendingActions.js
+- src\utils\financeReadiness.js (shared dependency)
+- src\utils\serviceFinance.js (shared dependency)
+    - src\utils\staffPayment.js
+- src\utils\serviceFinance.js (shared dependency)
+      - src\utils\staffTravel.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+        - src\utils\eventFinancialRules.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+        - src\utils\travelCalculator.js
+- src\utils\serviceFinance.js (shared dependency)
+    - src\utils\prepaymentPolicy.js
+- src\utils\serviceFinance.js (shared dependency)
+      - src\utils\clientRules.js
+    - shared\invoiceLifecycle.js
+- src\utils\eventCancelledDays.js (shared dependency)
+
+## /finance
+Entry: `src/pages/Accounting.jsx`
+Dependencies:
+- src/pages/Accounting.jsx
+  - src\components\UI\Badge.jsx
+  - src\components\UI\Card.jsx
+  - src\components\UI\Modal.jsx
+    - src\components\UI\IconButton.jsx
+  - src\components\UI\Stats.jsx
+  - src\hooks\useApi.js
+    - src\utils\api.js
+      - src\utils\apiCache.js
+      - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\apiCache.js (shared dependency)
+    - src\utils\apiDataEquality.js
+- src\utils\api.js (shared dependency)
+  - src\utils\clientBilling.js
+    - shared\invoiceLifecycle.js
+  - src\utils\externalCosts.js
+    - src\utils\serviceFinance.js
+  - src\utils\eventTax.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\externalCosts.js (shared dependency)
+  - src\utils\financeEventIdentity.js
+- src\utils\serviceFinance.js (shared dependency)
+    - src\utils\eventFinancialRules.js
+- src\utils\serviceFinance.js (shared dependency)
+      - src\utils\eventCancelledDays.js
+  - src\utils\financeReadiness.js
+  - src\utils\formatters.js
+- src\utils\serviceFinance.js (shared dependency)
+  - src\utils\staffPayment.js
+- src\utils\serviceFinance.js (shared dependency)
+    - src\utils\staffTravel.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+- src\utils\eventFinancialRules.js (shared dependency)
+      - src\utils\travelCalculator.js
+- src\utils\serviceFinance.js (shared dependency)
+  - src\components\StaffTravelSummary.jsx
+- src\utils\staffTravel.js (shared dependency)
+- src\utils\staffPayment.js (shared dependency)
+    - src\components\Finance\staffTravel.css
+  - src\utils\clientFinancialSummary.js
+- shared\invoiceLifecycle.js (shared dependency)
+  - src\utils\pagination.js
+- src\utils\eventFinancialRules.js (shared dependency)
+  - src\utils\serviceStatus.js
+    - src\utils\hourValidationStatus.js
+    - src\utils\serviceRequirements.js
+- src\utils\eventCancelledDays.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+  - src\utils\staffAdvances.js
+- src\utils\serviceFinance.js (shared dependency)
+- shared\invoiceLifecycle.js (shared dependency)
+  - src\utils\staffPaymentBulk.js
+- src\utils\serviceFinance.js (shared dependency)
+  - src\utils\deepLinks.js
+    - src\utils\staffPaymentWorkflow.js
+- src\utils\staffPayment.js (shared dependency)
+  - src\utils\staffPaymentNotes.js
+- src\utils\staffPaymentWorkflow.js (shared dependency)
+
+## /services
+Entry: `src/pages/Services.jsx`
+Dependencies:
+- src/pages/Services.jsx
+  - src\components\UI\Badge.jsx
+  - src\components\UI\Card.jsx
+  - src\components\Finance\ExternalCostsEditor.jsx
+    - src\utils\externalCosts.js
+      - src\utils\serviceFinance.js
+    - src\utils\formatters.js
+  - src\components\Finance\StaffTravelAutomaticSummary.jsx
+    - src\utils\eventCancelledDays.js
+    - src\utils\eventFinancialRules.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+    - src\utils\travelCalculator.js
+- src\utils\serviceFinance.js (shared dependency)
+    - src\utils\staffTravel.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+- src\utils\eventFinancialRules.js (shared dependency)
+- src\utils\travelCalculator.js (shared dependency)
+    - src\components\Finance\staffTravel.css
+- src\utils\staffTravel.js (shared dependency)
+  - src\components\UI\Modal.jsx
+    - src\components\UI\IconButton.jsx
+  - src\components\UI\SourceBadge.jsx
+  - src\components\UI\TimeInput.jsx
+    - src\utils\timeInput.js
+  - src\components\UI\ToastProvider.jsx
+  - src\hooks\useApi.js
+    - src\utils\api.js
+      - src\utils\apiCache.js
+      - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\apiCache.js (shared dependency)
+    - src\utils\apiDataEquality.js
+- src\utils\api.js (shared dependency)
+  - src\utils\assignmentOverlap.js
+  - src\utils\eventRevenue.js
+- src\utils\serviceFinance.js (shared dependency)
+  - src\utils\eventFinancialImpact.js
+- src\utils\eventCancelledDays.js (shared dependency)
+- src\utils\eventFinancialRules.js (shared dependency)
+    - src\utils\serviceRequirements.js
+- src\utils\eventCancelledDays.js (shared dependency)
+  - src\utils\eventScheduleInheritance.js
+- src\utils\eventFinancialRules.js (shared dependency)
+- src\utils\externalCosts.js (shared dependency)
+- src\utils\formatters.js (shared dependency)
+  - src\utils\prepaymentPolicy.js
+- src\utils\serviceFinance.js (shared dependency)
+    - src\utils\clientRules.js
+- src\utils\clientRules.js (shared dependency)
+  - src\utils\collaboratorSearch.js
+  - src\utils\formDirty.js
+  - src\utils\serviceAssignmentDrafts.js
+  - src\utils\serviceDetail.js
+- src\utils\serviceAssignmentDrafts.js (shared dependency)
+    - src\utils\hourValidationStatus.js
+- src\utils\serviceRequirements.js (shared dependency)
+- src\utils\serviceFinance.js (shared dependency)
+  - src\utils\staffAdvances.js
+- src\utils\serviceFinance.js (shared dependency)
+  - src\utils\staffPayment.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\staffTravel.js (shared dependency)
+  - src\utils\serviceStatus.js
+- src\utils\hourValidationStatus.js (shared dependency)
+- src\utils\serviceRequirements.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+  - src\utils\serviceTemplateForm.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\travelCalculator.js (shared dependency)
+- src\utils\serviceRequirements.js (shared dependency)
+- src\utils\travelCalculator.js (shared dependency)
+
+## /services/:serviceId
+Entry: `src/pages/ServiceDetail.jsx`
+Dependencies:
+- src/pages/ServiceDetail.jsx
+  - src\components\UI\Badge.jsx
+  - src\components\UI\Card.jsx
+  - src\components\UI\EmptyState.jsx
+  - src\components\UI\TimeInput.jsx
+    - src\utils\timeInput.js
+  - src\components\UI\ToastProvider.jsx
+  - src\hooks\useApi.js
+    - src\utils\api.js
+      - src\utils\apiCache.js
+      - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\apiCache.js (shared dependency)
+    - src\utils\apiDataEquality.js
+- src\utils\api.js (shared dependency)
+  - src\utils\collaboratorSearch.js
+  - src\utils\collaboratorRoles.js
+  - src\utils\deepLinks.js
+    - src\utils\staffPaymentWorkflow.js
+  - src\utils\eventFinancialRules.js
+    - src\utils\serviceFinance.js
+    - src\utils\eventCancelledDays.js
+  - src\utils\externalCosts.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+  - src\utils\eventTax.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\externalCosts.js (shared dependency)
+  - src\utils\eventFinancialImpact.js
+- src\utils\eventCancelledDays.js (shared dependency)
+- src\utils\eventFinancialRules.js (shared dependency)
+    - src\utils\serviceRequirements.js
+- src\utils\eventCancelledDays.js (shared dependency)
+  - src\utils\eventAttendanceExcel.js
+  - src\utils\formatters.js
+  - src\utils\serviceDetail.js
+    - src\utils\serviceAssignmentDrafts.js
+    - src\utils\hourValidationStatus.js
+- src\utils\serviceRequirements.js (shared dependency)
+  - src\utils\serviceStatus.js
+- src\utils\hourValidationStatus.js (shared dependency)
+- src\utils\serviceRequirements.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+  - src\utils\staffAdvances.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\serviceFinance.js (shared dependency)
+
+## /communication
+Entry: `src/pages/Communication.jsx`
+Dependencies:
+- src/pages/Communication.jsx
+  - src\components\UI\Badge.jsx
+  - src\components\UI\EmptyState.jsx
+  - src\components\UI\CommunicationPagination.jsx
+  - src\components\Communication\CommunicationQrTools.jsx
+    - src\components\UI\Modal.jsx
+      - src\components\UI\IconButton.jsx
+    - src\utils\formatters.js
+  - src\hooks\useAuth.jsx
+    - src\utils\api.js
+      - src\utils\apiCache.js
+      - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+    - src\utils\pushNotifications.js
+- src\utils\api.js (shared dependency)
+  - src\hooks\useCommunicationData.js
+- src\utils\api.js (shared dependency)
+- src\utils\api.js (shared dependency)
+  - src\utils\accessPermissions.js
+  - src\utils\communicationCenter.js
+    - src\utils\eventCancelledDays.js
+  - src\utils\communicationQrGroups.js
+- src\utils\eventCancelledDays.js (shared dependency)
+  - src\utils\communicationMessageDrafts.js
+- src\utils\communicationCenter.js (shared dependency)
+- src\utils\formatters.js (shared dependency)
+
+## /time-validation
+Entry: `src/pages/TimeValidation.jsx`
+Dependencies:
+- src/pages/TimeValidation.jsx
+  - src\components\StaffTravelSummary.jsx
+    - src\utils\staffTravel.js
+      - src\utils\serviceFinance.js
+      - src\utils\eventCancelledDays.js
+      - src\utils\eventFinancialRules.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+      - src\utils\travelCalculator.js
+- src\utils\serviceFinance.js (shared dependency)
+    - src\utils\staffPayment.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\staffTravel.js (shared dependency)
+    - src\components\Finance\staffTravel.css
+  - src\components\UI\Badge.jsx
+  - src\components\UI\EmptyState.jsx
+  - src\components\UI\Modal.jsx
+    - src\components\UI\IconButton.jsx
+  - src\components\UI\TimeInput.jsx
+    - src\utils\timeInput.js
+  - src\hooks\useApi.js
+    - src\utils\api.js
+      - src\utils\apiCache.js
+      - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\apiCache.js (shared dependency)
+    - src\utils\apiDataEquality.js
+- src\utils\api.js (shared dependency)
+  - src\utils\collaboratorRoles.js
+  - src\utils\formatters.js
+  - src\utils\hourValidationBulk.js
+    - src\utils\hourValidationStatus.js
+- src\utils\hourValidationStatus.js (shared dependency)
+- src\utils\serviceFinance.js (shared dependency)
+  - src\utils\serviceStatus.js
+- src\utils\hourValidationStatus.js (shared dependency)
+    - src\utils\serviceRequirements.js
+- src\utils\eventCancelledDays.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+- src\utils\eventFinancialRules.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+  - src\utils\staffSchedulePdf.js
+    - src\utils\timeValidationFilters.js
+- src\utils\timeInput.js (shared dependency)
+- src\utils\formatters.js (shared dependency)
+  - src\utils\timeTolerance.js
+- src\utils\serviceFinance.js (shared dependency)
+  - src\utils\timeValidationImportUi.js
+- src\utils\timeValidationFilters.js (shared dependency)
+  - src\utils\timeValidationWorkflow.js
+- src\utils\timeValidationFilters.js (shared dependency)
+- src\utils\hourValidationStatus.js (shared dependency)
+
+## /collaborators
+Entry: `src/pages/Collaborators.jsx`
+Dependencies:
+- src/pages/Collaborators.jsx
+  - src\components\UI\Badge.jsx
+  - src\components\UI\Card.jsx
+  - src\components\UI\IconButton.jsx
+  - src\components\UI\Modal.jsx
+- src\components\UI\IconButton.jsx (shared dependency)
+  - src\components\UI\ToastProvider.jsx
+  - src\hooks\useApi.js
+    - src\utils\api.js
+      - src\utils\apiCache.js
+      - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\apiCache.js (shared dependency)
+    - src\utils\apiDataEquality.js
+- src\utils\api.js (shared dependency)
+  - src\utils\collaboratorName.js
+  - src\utils\collaboratorFilters.js
+  - src\utils\collaboratorDetails.js
+  - src\utils\collaboratorRoles.js
+  - src\utils\documentExpiry.js
+  - src\utils\documentTypes.js
+  - src\utils\deepLinks.js
+    - src\utils\staffPaymentWorkflow.js
+  - src\utils\formDirty.js
+  - src\utils\formatters.js
+  - src\utils\imageThumbnails.js
+  - src\utils\pagination.js
+  - src\utils\eventCancelledDays.js
+
+## /clients
+Entry: `src/pages/Clients.jsx`
+Dependencies:
+- src/pages/Clients.jsx
+  - src\components\UI\Card.jsx
+  - src\components\UI\Badge.jsx
+  - src\components\UI\IconButton.jsx
+  - src\components\UI\Modal.jsx
+- src\components\UI\IconButton.jsx (shared dependency)
+  - src\components\UI\ToastProvider.jsx
+  - src\hooks\useApi.js
+    - src\utils\api.js
+      - src\utils\apiCache.js
+      - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\apiCache.js (shared dependency)
+    - src\utils\apiDataEquality.js
+- src\utils\api.js (shared dependency)
+  - src\utils\formDirty.js
+  - src\utils\deepLinks.js
+    - src\utils\staffPaymentWorkflow.js
+
+## /calendar
+Entry: `src/pages/Calendar.jsx`
+Dependencies:
+- src/pages/Calendar.jsx
+  - src\hooks\useApi.js
+    - src\utils\api.js
+      - src\utils\apiCache.js
+      - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\apiCache.js (shared dependency)
+    - src\utils\apiDataEquality.js
+- src\utils\api.js (shared dependency)
+  - src\utils\birthdays.js
+  - src\utils\calendarDates.js
+  - src\utils\eventCancelledDays.js
+  - src\utils\serviceStatus.js
+    - src\utils\hourValidationStatus.js
+    - src\utils\serviceRequirements.js
+- src\utils\eventCancelledDays.js (shared dependency)
+- src\utils\eventCancelledDays.js (shared dependency)
+
+## /budgets
+Entry: `src/pages/Budgets.jsx`
+Dependencies:
+- src/pages/Budgets.jsx
+  - src\components\UI\Badge.jsx
+  - src\components\UI\Card.jsx
+  - src\components\UI\Modal.jsx
+    - src\components\UI\IconButton.jsx
+  - src\components\UI\SourceBadge.jsx
+  - src\components\UI\TimeInput.jsx
+    - src\utils\timeInput.js
+  - src\components\Finance\ExternalCostsEditor.jsx
+    - src\utils\externalCosts.js
+      - src\utils\serviceFinance.js
+    - src\utils\formatters.js
+  - src\hooks\useApi.js
+    - src\utils\api.js
+      - src\utils\apiCache.js
+      - src\utils\authSession.js
+- src\utils\apiCache.js (shared dependency)
+- src\utils\authSession.js (shared dependency)
+- src\utils\apiCache.js (shared dependency)
+    - src\utils\apiDataEquality.js
+- src\utils\api.js (shared dependency)
+  - src\utils\budgetConversion.js
+- src\utils\serviceFinance.js (shared dependency)
+    - src\utils\travelCalculator.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\externalCosts.js (shared dependency)
+  - src\utils\budgetComposition.js
+- src\utils\externalCosts.js (shared dependency)
+  - src\utils\budgetCategoryDates.js
+  - src\utils\budgetPipeline.js
+  - src\utils\budgetFormState.js
+  - src\utils\budgetTotals.js
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\travelCalculator.js (shared dependency)
+- src\utils\externalCosts.js (shared dependency)
+  - src\utils\clientRules.js
+  - src\utils\collaboratorRoles.js
+- src\utils\externalCosts.js (shared dependency)
+  - src\utils\formDirty.js
+- src\utils\formatters.js (shared dependency)
+- src\utils\serviceFinance.js (shared dependency)
+- src\utils\travelCalculator.js (shared dependency)

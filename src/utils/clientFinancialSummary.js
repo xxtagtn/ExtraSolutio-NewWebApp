@@ -3,6 +3,8 @@ import {
   invoiceIsIssued,
   invoiceIsPaid,
 } from '../../shared/invoiceLifecycle.js';
+import { externalCostsTotals } from './externalCosts.js';
+import { eventTaxAmount } from './eventTax.js';
 
 const CLOSED_INVOICE_STATUSES = new Set(['cancelled', 'void']);
 
@@ -49,6 +51,38 @@ function clientNameFor(event) {
 
 function eventRevenue(event) {
   return numberValue(event?.financial?.revenue ?? event?.totalRevenue ?? event?.revenue);
+}
+
+function roundMoney(value) {
+  return Number(value.toFixed(2));
+}
+
+export function buildClientEventReconciliation(event = {}, operationalSummary = {}) {
+  const revenue = eventRevenue(event);
+  const total = numberValue(event?.displayValue ?? revenue);
+  const adjustment = roundMoney(total - revenue);
+  const days = Array.isArray(operationalSummary.days) ? operationalSummary.days : [];
+  const dailyServiceSubtotal = roundMoney(days.reduce(
+    (sum, day) => sum + numberValue(day.billableValue),
+    0,
+  ));
+  const travel = event?.travelExpenseEnabled ? numberValue(event.travelExpenseAmount) : 0;
+  const external = externalCostsTotals(event.externalCosts);
+  const tax = eventTaxAmount(event);
+  const itemizedSubtotal = dailyServiceSubtotal + travel + external.chargeAmount + tax + adjustment;
+  const undiscriminated = roundMoney(total - itemizedSubtotal);
+
+  return {
+    revenue: roundMoney(revenue),
+    total: roundMoney(total),
+    dailyServiceSubtotal,
+    travel: roundMoney(travel),
+    externalCharge: external.chargeAmount,
+    tax,
+    adjustment,
+    undiscriminated,
+    dailyPricingComplete: days.length > 0 && days.every((day) => day.pricingComplete),
+  };
 }
 
 function eventBillingState(event) {

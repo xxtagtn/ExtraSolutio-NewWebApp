@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildClientFinancialSummary } from './clientFinancialSummary.js';
+import {
+  buildClientEventReconciliation,
+  buildClientFinancialSummary,
+} from './clientFinancialSummary.js';
 
 test('consolidates a client and counts a multi-event invoice only once', () => {
   const rows = buildClientFinancialSummary({
@@ -63,4 +66,51 @@ test('applies an event billing adjustment before an invoice is issued', () => {
   assert.equal(rows[0].pendingBilling, 115);
   assert.equal(rows[0].total, 115);
   assert.equal(rows[0].events[0].displayValue, 115);
+});
+
+test('reconciles daily service detail with event travel, extras, tax, and applied adjustment', () => {
+  const breakdown = buildClientEventReconciliation({
+    totalRevenue: 1000,
+    displayValue: 1030,
+    billingAdjustment: 30,
+    travelExpenseEnabled: true,
+    travelExpenseAmount: 100,
+    externalCosts: [{ type: 'Material', costAmount: 50, marginPercent: 20, vatType: 'exempt' }],
+    taxAmount: 40,
+  }, {
+    days: [{ billableValue: 700, pricingComplete: true }],
+  });
+
+  assert.deepEqual(breakdown, {
+    revenue: 1000,
+    total: 1030,
+    dailyServiceSubtotal: 700,
+    travel: 100,
+    externalCharge: 60,
+    tax: 40,
+    adjustment: 30,
+    undiscriminated: 100,
+    dailyPricingComplete: true,
+  });
+  assert.equal(
+    breakdown.dailyServiceSubtotal + breakdown.travel + breakdown.externalCharge
+      + breakdown.tax + breakdown.adjustment + breakdown.undiscriminated,
+    breakdown.total,
+  );
+});
+
+test('does not count disabled travel or an adjustment already excluded from the displayed total', () => {
+  const breakdown = buildClientEventReconciliation({
+    totalRevenue: 500,
+    displayValue: 500,
+    billingAdjustment: 25,
+    travelExpenseEnabled: false,
+    travelExpenseAmount: 90,
+  }, {
+    days: [{ billableValue: 500, pricingComplete: true }],
+  });
+
+  assert.equal(breakdown.travel, 0);
+  assert.equal(breakdown.adjustment, 0);
+  assert.equal(breakdown.undiscriminated, 0);
 });

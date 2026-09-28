@@ -1,3 +1,38 @@
+# Theme
+
+## Compact Token Summary
+
+- Framework: React 18, Vite, React Router 6.
+- Styling: global CSS in `src/index.css`, semantic component classes, CSS variables.
+- Palette: dark canvas `#0b1013`, panel `#11181c`, elevated panel `#172126`, border `#26343a`, text `#eef5f3`, muted `#a9bac0`, teal accent `#14b8a6`, amber accent `#f59e0b`, danger `#ef4444`, success `#22c55e`.
+- Typography: Inter with system sans-serif fallbacks; compact labels and tabular numeric values in operational tables.
+- Layout: dense admin workspace, sidebar + topbar, modal dialogs; responsive layouts at mobile breakpoints.
+- Corners: mostly 6–8px; subtle 1px borders; no decorative gradients.
+
+## Raw Theme Sources
+
+### CSS Variables
+
+```css
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --bg: #0b1013;
+  --panel: #11181c;
+  --panel-2: #172126;
+  --line: #26343a;
+  --text: #eef5f3;
+  --muted: #a9bac0;
+  --accent: #14b8a6;
+  --accent-2: #f59e0b;
+  --danger: #ef4444;
+  --success: #22c55e;
+}
+```
+
+### Complete Global CSS: `src/index.css`
+
+```css
 :root {
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -511,246 +546,6 @@
   margin-left: 5px;
 }
 
-.finance-event-day-pricing {
-  border-top: 1px solid var(--line);
-  display: grid;
-  gap: 8px;
-  padding-top: 10px;
-}
-
-.finance-event-day-pricing > strong {
-  font-size: 0.82rem;
-}
-
-.finance-event-day-pricing ul {
-  display: grid;
-  gap: 6px 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.finance-event-day-pricing li {
-  align-items: center;
-  background: rgba(148, 163, 184, 0.045);
-  border-radius: 5px;
-  display: flex;
-  font-size: 0.76rem;
-  gap: 10px;
-  justify-content: space-between;
-  min-width: 0;
-  padding: 8px 9px;
-}
-
-.finance-event-day-pricing li span {
-  color: var(--muted);
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.finance-event-day-pricing li strong {
-  white-space: nowrap;
-}
-
-.finance-event-day-pricing p {
-  background: color-mix(in srgb, var(--accent-2) 10%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--accent-2) 35%, var(--line));
-  border-radius: 5px;
-  color: var(--muted);
-  font-size: 0.74rem;
-  line-height: 1.45;
-  margin: 0;
-  padding: 8px 10px;
-}
-
-.finance-event-reconciliation {
-  background: color-mix(in srgb, var(--panel) 75%, black 25%);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  display: grid;
-  gap: 12px;
-  overflow: hidden;
-}
-
-.finance-event-reconciliation__heading {
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-  display: flex;
-  gap: 14px;
-  justify-content: space-between;
-  list-style: none;
-  padding: 12px 14px;
-}
-
-.finance-event-reconciliation__heading::-webkit-details-marker {
-  display: none;
-}
-
-.finance-event-reconciliation__heading::marker {
-  content: '';
-}
-
-.finance-event-reconciliation__heading > svg {
-  color: var(--muted);
-  flex: 0 0 auto;
-  transition: transform 140ms ease;
-}
-
-.finance-event-reconciliation[open] .finance-event-reconciliation__heading > svg {
-  transform: rotate(180deg);
-}
-
-.finance-event-reconciliation__heading h4 {
-  margin: 3px 0 0;
-}
-
-.finance-event-reconciliation__heading p {
-  color: var(--muted);
-  font-size: 0.76rem;
-  margin: 5px 0 0;
-}
-
-.finance-event-reconciliation__grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1.35fr) minmax(230px, 0.8fr);
-  padding: 0 14px;
-}
-
-.finance-event-reconciliation__components {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.finance-event-reconciliation__component {
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  min-width: 0;
-  padding: 10px 12px;
-}
-
-.finance-event-reconciliation__component:last-child {
-  border-bottom: 0;
-}
-
-.finance-event-reconciliation__component > div {
-  min-width: 0;
-}
-
-.finance-event-reconciliation__component > div > strong {
-  display: block;
-  font-size: 0.82rem;
-}
-
-.finance-event-reconciliation__component small {
-  color: var(--muted);
-  display: block;
-  font-size: 0.72rem;
-  line-height: 1.45;
-  margin-top: 4px;
-  overflow-wrap: anywhere;
-}
-
-.finance-event-reconciliation__component > strong {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.finance-event-reconciliation__scope {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--muted);
-  display: inline-block;
-  font-size: 0.64rem;
-  margin-top: 5px;
-  padding: 2px 7px;
-}
-
-.finance-event-reconciliation__component--unmapped {
-  background: color-mix(in srgb, var(--accent-2) 8%, var(--panel));
-}
-
-.finance-event-reconciliation .is-negative {
-  color: #f6bd91;
-}
-
-.finance-event-reconciliation__total {
-  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
-  border-radius: 6px;
-  display: grid;
-  gap: 9px;
-  min-width: 0;
-  padding: 12px;
-}
-
-.finance-event-reconciliation__total > strong {
-  font-size: 0.84rem;
-}
-
-.finance-event-reconciliation__total > div {
-  align-items: baseline;
-  display: flex;
-  font-size: 0.76rem;
-  gap: 8px;
-  justify-content: space-between;
-}
-
-.finance-event-reconciliation__total > div > span {
-  color: var(--muted);
-}
-
-.finance-event-reconciliation__total > div > strong {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.finance-event-reconciliation__total .finance-event-reconciliation__grand-total {
-  border-top: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
-  margin-top: 2px;
-  padding-top: 11px;
-}
-
-.finance-event-reconciliation__grand-total > span {
-  font-size: 0.72rem;
-}
-
-.finance-event-reconciliation__grand-total > strong {
-  color: var(--accent);
-  font-size: 1.18rem;
-}
-
-.finance-event-reconciliation__note {
-  color: var(--muted);
-  display: flex;
-  font-size: 0.72rem;
-  gap: 8px;
-  line-height: 1.45;
-  margin: 0;
-  padding: 0 14px 12px;
-}
-
-.finance-event-reconciliation__note > span {
-  align-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
-  border-radius: 50%;
-  color: var(--accent);
-  display: inline-flex;
-  flex: 0 0 16px;
-  font-size: 0.65rem;
-  height: 16px;
-  justify-content: center;
-}
-
 .finance-event-summary__actions {
   border-top: 1px solid var(--line);
   display: flex;
@@ -887,59 +682,18 @@
   .finance-event-day-entries li {
     align-items: start;
     gap: 4px;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .finance-event-day-entries li > strong,
-  .finance-event-day-entries li > span,
-  .finance-event-day-entries li > small {
+  .finance-event-day-entries li > span {
     grid-column: 1;
   }
 
   .finance-event-day-entries li > small {
-    grid-row: auto;
-    overflow-wrap: anywhere;
-    text-align: left;
-    white-space: normal;
-  }
-
-  .finance-event-day-pricing ul {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .finance-event-reconciliation__heading {
-    align-items: flex-start;
-  }
-
-  .finance-event-reconciliation__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .finance-event-reconciliation__component {
-    gap: 6px 10px;
-  }
-
-  .finance-event-reconciliation__component > div {
-    grid-column: 1;
-  }
-
-  .finance-event-reconciliation__component > strong {
     grid-column: 2;
     grid-row: 1 / span 2;
-    align-self: center;
-    font-size: 0.82rem;
-  }
-
-  .finance-event-reconciliation__component small {
-    max-width: 100%;
-  }
-
-  .finance-event-reconciliation__total {
-    padding: 11px;
-  }
-
-  .finance-event-reconciliation__grand-total > strong {
-    font-size: 1.1rem;
+    text-align: right;
   }
 
   .finance-event-schedules__totals {
@@ -15940,3 +15694,5 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     font-size: 1rem;
   }
 }
+
+```
