@@ -2186,25 +2186,43 @@ export default function TimeValidation() {
                           {eventRows.map((row) => (
                             <tr key={row.id} className={`validation-row validation-row--${row.tone}`}>
                               <td>
-                                <strong>{row.collaboratorName || '-'}</strong>
-                                <small>{row.collaboratorFilterIdentity.nif || '-'}</small>
-                              </td>
-                              <td>{row.workDateLabel}</td>
-                              <td>{row.assignment.role || '-'}</td>
-                              <td>{timePairLabel(row.plannedCheckIn, row.plannedCheckOut)}</td>
-                              <td>
-                                <strong>{timePairLabel(row.assignment.checkIn, row.assignment.checkOut)}</strong>
-                                <small>{durationHours(staffColumnHours(row.assignment))}</small>
-                                <StaffTravelSummary assignment={row.assignment} event={row.event} compact="inline" />
+                                <div className="validation-history-cell-content">
+                                  <strong>{row.collaboratorName || '-'}</strong>
+                                  <small>{row.collaboratorFilterIdentity.nif || '-'}</small>
+                                </div>
                               </td>
                               <td>
-                                <strong>{timePairLabel(row.assignment.clientCheckIn, row.assignment.clientCheckOut)}</strong>
-                                <small>{durationHours(clientColumnHours(row.assignment))}</small>
+                                <div className="validation-history-cell-content">{row.workDateLabel}</div>
+                              </td>
+                              <td>
+                                <div className="validation-history-cell-content">{row.assignment.role || '-'}</div>
+                              </td>
+                              <td>
+                                <div className="validation-history-cell-content">
+                                  {timePairLabel(row.plannedCheckIn, row.plannedCheckOut)}
+                                </div>
+                              </td>
+                              <td>
+                                <div className="validation-history-cell-content">
+                                  <strong>{timePairLabel(row.assignment.checkIn, row.assignment.checkOut)}</strong>
+                                  <small>{durationHours(staffColumnHours(row.assignment))}</small>
+                                  <StaffTravelSummary assignment={row.assignment} event={row.event} compact="inline" />
+                                </div>
+                              </td>
+                              <td>
+                                <div className="validation-history-cell-content">
+                                  <strong>{timePairLabel(row.assignment.clientCheckIn, row.assignment.clientCheckOut)}</strong>
+                                  <small>{durationHours(clientColumnHours(row.assignment))}</small>
+                                </div>
                               </td>
                               <td className="validation-difference-cell">
-                                <ValidationDifferenceBadge row={row} />
+                                <div className="validation-history-cell-content">
+                                  <ValidationDifferenceBadge row={row} />
+                                </div>
                               </td>
-                              <td>{row.assignment.validationNotes || '-'}</td>
+                              <td>
+                                <div className="validation-history-cell-content">{row.assignment.validationNotes || '-'}</div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>

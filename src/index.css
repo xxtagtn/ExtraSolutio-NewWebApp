@@ -12582,6 +12582,100 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     border: 0;
   }
 
+  .validation-history-details {
+    min-width: 0;
+  }
+
+  .validation-history-details .table-wrap {
+    max-width: 100%;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .validation-history-table,
+  .validation-history-table thead,
+  .validation-history-table tbody,
+  .validation-history-table tr,
+  .validation-history-table th,
+  .validation-history-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .validation-history-table {
+    min-width: 0;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0 10px;
+    overflow: visible;
+  }
+
+  .validation-history-table thead {
+    display: none;
+  }
+
+  .validation-history-table .validation-row {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    background: rgba(10, 16, 19, 0.84);
+  }
+
+  .validation-history-table .validation-row td,
+  .validation-history-table td.validation-difference-cell {
+    display: grid;
+    grid-template-columns: minmax(88px, 0.38fr) minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .validation-history-table .validation-row td::before {
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.35;
+    text-transform: uppercase;
+    overflow-wrap: normal;
+  }
+
+  .validation-history-table .validation-row td:nth-child(1)::before { content: "Colaborador"; }
+  .validation-history-table .validation-row td:nth-child(2)::before { content: "Data"; }
+  .validation-history-table .validation-row td:nth-child(3)::before { content: "Função"; }
+  .validation-history-table .validation-row td:nth-child(4)::before { content: "Previsto"; }
+  .validation-history-table .validation-row td:nth-child(5)::before { content: "Staff"; }
+  .validation-history-table .validation-row td:nth-child(6)::before { content: "Cliente"; }
+  .validation-history-table .validation-row td:nth-child(7)::before { content: "Diferença"; }
+  .validation-history-table .validation-row td:nth-child(8)::before { content: "Notas"; }
+
+  .validation-history-cell-content {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    overflow-wrap: anywhere;
+  }
+
+  .validation-history-cell-content > strong,
+  .validation-history-cell-content > small {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .validation-history-table .validation-row td.validation-difference-cell {
+    text-align: left;
+  }
+
   .validation-table .validation-row td.validation-difference-cell,
   .validation-history-table td.validation-difference-cell {
     width: 100%;
@@ -12672,6 +12766,16 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     background: rgba(10, 16, 19, 0.86);
   }
 
+  .finance-staff-payment-table tbody tr.finance-row-advance:not(.finance-row-selected):not(.finance-row-payment--attention):not(.finance-row-vat) > td {
+    background: transparent;
+  }
+
+  .finance-staff-payment-table tbody tr > td:nth-child(n) {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
   .finance-staff-payment-table td {
     display: grid;
     grid-template-columns: minmax(92px, 0.38fr) minmax(0, 1fr);
@@ -12683,10 +12787,14 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   }
 
   .finance-staff-payment-table td::before {
+    min-width: 0;
     color: var(--muted);
     font-size: 0.72rem;
     font-weight: 700;
+    line-height: 1.3;
     text-transform: uppercase;
+    white-space: normal;
+    overflow-wrap: normal;
   }
 
   .finance-staff-payment-table td:nth-child(1)::before { content: "Selecionar"; }
@@ -12717,8 +12825,15 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
 
   .finance-staff-actions {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
+  }
+
+  .finance-staff-actions > * {
+    min-width: 0;
+    min-height: 42px;
+    padding-inline: 6px;
+    white-space: normal;
   }
 
   .finance-bulk-toolbar {
@@ -12818,13 +12933,58 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   }
 
   .finance-staff-payment-table td {
+    grid-template-columns: minmax(88px, 0.38fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .finance-staff-payment-table tbody tr > td:nth-child(n) {
+    white-space: normal;
+  }
+
+  .finance-staff-payment-table td:nth-child(2),
+  .finance-staff-payment-table td:nth-child(3) {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .finance-staff-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .finance-staff-payment-table td:nth-child(13) {
+    align-items: start;
   }
 
   .data-table td {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .finance-cost-table td {
+    grid-template-columns: minmax(96px, 0.4fr) minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    overflow-wrap: anywhere;
+  }
+
+  .finance-cost-table td::before {
+    min-width: 0;
+    overflow-wrap: normal;
+  }
+
+  .finance-staff-payment-table td {
+    grid-template-columns: minmax(100px, 0.42fr) minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .finance-staff-payment-table .finance-client-schedule {
+    white-space: normal;
+  }
+
+  .finance-staff-payment-table .finance-staff-payment-control,
+  .finance-staff-payment-table .finance-advance-cell,
+  .finance-staff-payment-table .finance-pay-total {
+    min-width: 0;
   }
 }
 

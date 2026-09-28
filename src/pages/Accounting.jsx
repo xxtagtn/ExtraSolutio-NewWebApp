@@ -2620,7 +2620,7 @@ export default function Accounting() {
 
           <Card title="Custos por Colaborador">
             <div className="table-wrap">
-              <table>
+              <table className="data-table finance-cost-table">
                 <thead>
                   <tr>
                     <th>Colaborador</th>
@@ -2634,12 +2634,12 @@ export default function Accounting() {
                 <tbody>
                   {staffCostPagination.items.map((row) => (
                     <tr key={row.id}>
-                      <td>{row.name}</td>
-                      <td>{row.nif}</td>
-                      <td>{row.events}</td>
-                      <td>{durationHours(row.hours)}</td>
-                      <td>{money.format(row.total)}</td>
-                      <td>{money.format(row.unpaid)}</td>
+                      <td data-label="Colaborador">{row.name}</td>
+                      <td data-label="NIF">{row.nif}</td>
+                      <td data-label="Serviços">{row.events}</td>
+                      <td data-label="Horas">{durationHours(row.hours)}</td>
+                      <td data-label="Total">{money.format(row.total)}</td>
+                      <td data-label="Por pagar">{money.format(row.unpaid)}</td>
                     </tr>
                   ))}
                 </tbody>

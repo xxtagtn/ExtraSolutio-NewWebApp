@@ -19,7 +19,7 @@ const assignment = { id: 1, eventId: 30, collaboratorId: 10, collaborator, role:
   validationStatus: 'validated', clientSynced: true, paymentStatus: 'unpaid' };
 
 try {
-  for (const [name, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }]]) {
+  for (const [name, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }], ['mobile-compact', { width: 360, height: 780 }]]) {
     let service = { id: 30, name: 'Salvaterra QA', date: '2026-09-27T00:00:00.000Z', clientId: 2, client,
       eventType: 'Catering', startTime: '08:30', endTime: '22:30', status: 'to_validate_client', statusMode: 'manual',
       requiredRoles: [{ role: 'Emp.Mesa', qty: 1, agreedRate: 14 }], assignments: [structuredClone(assignment)],
@@ -106,10 +106,37 @@ try {
     assert.equal(await validationTravelSummary.locator('small').count(), 1);
     assert.match(await validationTravelSummary.innerText(), /Desloc\./);
     assert.doesNotMatch(await validationTravelSummary.innerText(), /Total staff/);
+    const historyRow = page.locator('.validation-history-table tbody tr.validation-row').first();
+    if (viewport.width <= 760) {
+      assert.equal(await historyRow.evaluate((element) => getComputedStyle(element).display), 'grid',
+        'Mobile validation history should render as readable cards');
+      const historyBounds = await historyRow.evaluate((element) => {
+        const details = element.closest('.validation-history-details');
+        return { scrollWidth: details.scrollWidth, clientWidth: details.clientWidth };
+      });
+      assert.ok(historyBounds.scrollWidth <= historyBounds.clientWidth + 1,
+        `Mobile validation history overflows horizontally: ${JSON.stringify(historyBounds)}`);
+    }
+    await validationTravelSummary.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(tmpdir(), `staff-travel-validation-${name}.png`) });
     await page.goto(`${baseUrl}/finance?area=staff&assignmentId=1`);
     const travelSummary = page.locator('.finance-staff-payment-table .staff-travel-summary').first();
     await travelSummary.waitFor();
+    const costRow = page.locator('.finance-cost-table tbody tr').first();
+    if (viewport.width <= 760) {
+      assert.equal(await costRow.evaluate((element) => getComputedStyle(element).display), 'grid',
+        'Mobile collaborator costs should render as labeled cards');
+      const costLayout = await costRow.evaluate((element) => ({
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+        firstLabel: getComputedStyle(element.querySelector('td'), '::before').content,
+      }));
+      assert.ok(costLayout.scrollWidth <= costLayout.clientWidth + 1,
+        `Mobile collaborator costs overflow horizontally: ${JSON.stringify(costLayout)}`);
+      assert.match(costLayout.firstLabel, /Colaborador/);
+      await costRow.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(tmpdir(), `staff-travel-finance-costs-${name}.png`) });
+    }
     const travelBounds = await travelSummary.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       const cell = element.closest('td').getBoundingClientRect();
@@ -118,6 +145,28 @@ try {
     assert.ok(travelBounds.summaryLeft >= travelBounds.cellLeft - 1 && travelBounds.summaryRight <= travelBounds.cellRight + 1,
       `Staff travel summary overflows the Hours column: ${JSON.stringify(travelBounds)}`);
     const payment = page.locator('tr').filter({ has: page.locator('.staff-travel-summary') }).first();
+    if (viewport.width <= 760) {
+      assert.equal(await payment.evaluate((element) => getComputedStyle(element.querySelector('td:nth-child(6)')).gridTemplateColumns.split(' ').length), 2,
+        'Mobile finance cells should keep labels aligned beside values');
+      assert.equal(await payment.evaluate((element) => getComputedStyle(element.querySelector('.finance-staff-actions')).gridTemplateColumns.split(' ').length), 2,
+        'Mobile finance actions should use two compact columns');
+      assert.equal(await payment.evaluate((element) => getComputedStyle(element.querySelector('.finance-client-schedule')).whiteSpace), 'normal',
+        'Mobile client hours should wrap cleanly beside their label');
+      const advanceHighlight = await payment.evaluate((element) => {
+        const wasSelected = element.classList.contains('finance-row-selected');
+        element.classList.remove('finance-row-selected');
+        element.classList.add('finance-row-advance');
+        const cell = getComputedStyle(element.querySelector('td:nth-child(4)')).backgroundColor;
+        const card = getComputedStyle(element).backgroundColor;
+        element.classList.remove('finance-row-advance');
+        if (wasSelected) element.classList.add('finance-row-selected');
+        return { cell, card };
+      });
+      assert.equal(advanceHighlight.cell, 'rgba(0, 0, 0, 0)',
+        'Mobile advance rows should not tint every individual field');
+      assert.notEqual(advanceHighlight.card, 'rgba(0, 0, 0, 0)',
+        'Mobile advance rows should keep a uniform card background');
+    }
     assert.match(await payment.innerText(), /150,00/);
     assert.match(await payment.innerText(), /14:00h/);
     await payment.scrollIntoViewIfNeeded();
