@@ -385,71 +385,72 @@
   padding: 0 14px;
 }
 
-.finance-event-schedule-row {
+.finance-event-day-row {
   border-bottom: 1px solid var(--line);
   display: block;
 }
 
-.finance-event-schedule-row:last-child {
+.finance-event-day-row:last-child {
   border-bottom: 0;
 }
 
-.finance-event-schedule-summary {
+.finance-event-day-summary {
   align-items: center;
   cursor: pointer;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(130px, 1fr) minmax(130px, 0.9fr) auto 20px;
+  grid-template-columns: minmax(170px, 1fr) minmax(140px, 0.8fr) minmax(140px, 0.8fr) 20px;
   list-style: none;
-  min-height: 46px;
-  padding: 8px 0;
+  min-height: 58px;
+  padding: 9px 0;
 }
 
-.finance-event-schedule-summary::-webkit-details-marker {
+.finance-event-day-summary::-webkit-details-marker {
   display: none;
 }
 
-.finance-event-schedule-summary::marker {
+.finance-event-day-summary::marker {
   content: '';
 }
 
-.finance-event-schedule-summary > svg {
+.finance-event-day-summary > svg {
   color: var(--muted);
   transition: transform 140ms ease;
 }
 
-.finance-event-schedule-row[open] .finance-event-schedule-summary > svg {
+.finance-event-day-row[open] .finance-event-day-summary > svg {
   transform: rotate(180deg);
 }
 
-.finance-event-schedule-summary > span {
+.finance-event-day-summary > span {
   font-variant-numeric: tabular-nums;
 }
 
-.finance-event-schedule-summary > small {
-  color: var(--muted);
-  text-align: right;
-  white-space: nowrap;
+.finance-event-day-summary__date,
+.finance-event-day-summary__value {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
-.finance-event-schedule-details {
+.finance-event-day-summary__date small,
+.finance-event-day-summary__value small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.finance-event-day-summary__value strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.finance-event-day-details {
   border-top: 1px solid var(--line);
   display: grid;
   gap: 12px;
   padding: 12px 0 14px;
 }
 
-.finance-event-schedule-day {
-  min-width: 0;
-}
-
-.finance-event-schedule-day h5 {
-  color: var(--text);
-  font-size: 0.82rem;
-  margin: 0 0 7px;
-}
-
-.finance-event-schedule-entries {
+.finance-event-day-entries {
   display: grid;
   gap: 6px;
   list-style: none;
@@ -457,7 +458,7 @@
   padding: 0;
 }
 
-.finance-event-schedule-entries li {
+.finance-event-day-entries li {
   align-items: center;
   background: rgba(148, 163, 184, 0.045);
   border-radius: 6px;
@@ -468,18 +469,18 @@
   padding: 8px 10px;
 }
 
-.finance-event-schedule-entries li > strong,
-.finance-event-schedule-entries li > span {
+.finance-event-day-entries li > strong,
+.finance-event-day-entries li > span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.finance-event-schedule-entries li > span {
+.finance-event-day-entries li > span {
   color: var(--muted);
   font-size: 0.8rem;
 }
 
-.finance-event-schedule-entries li > small {
+.finance-event-day-entries li > small {
   color: var(--muted);
   white-space: nowrap;
 }
@@ -621,44 +622,40 @@
     align-items: flex-start;
   }
 
-  .finance-event-schedule-row {
+  .finance-event-day-row {
     min-width: 0;
   }
 
-  .finance-event-schedule-summary {
+  .finance-event-day-summary {
     gap: 4px 10px;
     grid-template-columns: minmax(0, 1fr) 20px;
   }
 
-  .finance-event-schedule-summary > strong,
-  .finance-event-schedule-summary > span,
-  .finance-event-schedule-summary > small {
+  .finance-event-day-summary__date,
+  .finance-event-day-summary > span,
+  .finance-event-day-summary__value {
     grid-column: 1;
     text-align: left;
   }
 
-  .finance-event-schedule-summary > svg {
+  .finance-event-day-summary > svg {
     grid-column: 2;
     grid-row: 1 / span 3;
     justify-self: end;
   }
 
-  .finance-event-schedule-summary > small {
-    white-space: normal;
-  }
-
-  .finance-event-schedule-entries li {
+  .finance-event-day-entries li {
     align-items: start;
     gap: 4px;
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .finance-event-schedule-entries li > strong,
-  .finance-event-schedule-entries li > span {
+  .finance-event-day-entries li > strong,
+  .finance-event-day-entries li > span {
     grid-column: 1;
   }
 
-  .finance-event-schedule-entries li > small {
+  .finance-event-day-entries li > small {
     grid-column: 2;
     grid-row: 1 / span 2;
     text-align: right;

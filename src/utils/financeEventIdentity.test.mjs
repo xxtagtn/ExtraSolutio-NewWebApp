@@ -223,3 +223,81 @@ test('orders schedule groups by work date, then by start time, without changing 
   assert.equal(summary.scheduleCount, 3);
   assert.equal(summary.billableHours, 12);
 });
+
+test('groups existing billed hours and role-rate subtotals by day', () => {
+  const summary = financeEventOperationalSummary({
+    date: '2026-09-01',
+    minimumHoursSnapshot: 5,
+    requiredRoles: [
+      { role: 'Emp. Mesa', agreedRate: 14 },
+      { role: 'Bar', agreedRate: 10 },
+    ],
+    assignments: [
+      {
+        id: 1,
+        assignmentDate: '2026-09-02',
+        collaboratorId: 10,
+        collaborator: { name: 'Miriam Peçanha Oliveira' },
+        role: 'Emp. Mesa',
+        clientCheckIn: '08:00',
+        clientCheckOut: '11:00',
+        status: 'confirmed',
+      },
+      {
+        id: 2,
+        assignmentDate: '2026-09-01',
+        collaboratorId: 11,
+        collaborator: { name: 'Ana Carolina Ravenna' },
+        role: 'Emp. Mesa',
+        clientCheckIn: '09:00',
+        clientCheckOut: '16:00',
+        status: 'confirmed',
+      },
+      {
+        id: 3,
+        assignmentDate: '2026-09-01',
+        collaboratorId: 12,
+        collaborator: { name: 'Diego Garcia Bem' },
+        role: 'Bar',
+        clientCheckIn: '07:00',
+        clientCheckOut: '10:00',
+        status: 'confirmed',
+      },
+      {
+        id: 4,
+        assignmentDate: '2026-09-01',
+        collaboratorId: 11,
+        collaborator: { name: 'Ana Carolina Ravenna' },
+        role: 'Emp. Mesa',
+        clientCheckIn: '18:00',
+        clientCheckOut: '19:00',
+        status: 'confirmed',
+      },
+    ],
+  });
+
+  assert.deepEqual(summary.days.map((day) => ({
+    workDate: day.workDate,
+    collaboratorCount: day.collaboratorCount,
+    assignmentCount: day.assignmentCount,
+    billableHours: day.billableHours,
+    billableValue: day.billableValue,
+  })), [
+    {
+      workDate: '2026-09-01',
+      collaboratorCount: 2,
+      assignmentCount: 3,
+      billableHours: 17,
+      billableValue: 218,
+    },
+    {
+      workDate: '2026-09-02',
+      collaboratorCount: 1,
+      assignmentCount: 1,
+      billableHours: 5,
+      billableValue: 70,
+    },
+  ]);
+  assert.equal(summary.billableHours, 22);
+  assert.equal(summary.scheduleCount, 4);
+});

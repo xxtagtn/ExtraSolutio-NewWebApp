@@ -551,6 +551,7 @@ function ClientFinancialEventTable({
     collaboratorCount: 0,
     billableHours: 0,
     scheduleGroups: [],
+    days: [],
   };
 
   return (
@@ -624,47 +625,46 @@ function ClientFinancialEventTable({
               <div className="finance-event-schedules__heading">
                 <div>
                   <span className="finance-event-summary__eyebrow">Resumo dos horários</span>
-                  <h4>Grupos utilizados na faturação</h4>
+                  <h4>Resumo por dia</h4>
                 </div>
                 <Badge tone="info">
-                  {selectedOperationalSummary.scheduleCount} {selectedOperationalSummary.scheduleCount === 1 ? 'horário' : 'horários'}
+                  {selectedOperationalSummary.days.length} {selectedOperationalSummary.days.length === 1 ? 'dia' : 'dias'}
                 </Badge>
               </div>
 
-              {selectedOperationalSummary.scheduleGroups.length ? (
+              {selectedOperationalSummary.days.length ? (
                 <div className="finance-event-schedules__list">
-                  {selectedOperationalSummary.scheduleGroups.map((group, groupIndex) => (
-                    <details key={group.key} className="finance-event-schedule-row">
+                  {selectedOperationalSummary.days.map((day, dayIndex) => (
+                    <details key={day.workDate || 'undated'} className="finance-event-day-row">
                       <summary
-                        className="finance-event-schedule-summary"
-                        aria-controls={`finance-event-schedule-${selectedEvent.id}-${groupIndex}`}
+                        className="finance-event-day-summary"
+                        aria-controls={`finance-event-day-${selectedEvent.id}-${dayIndex}`}
                       >
-                        <strong>
-                          {group.collaboratorCount} {group.collaboratorCount === 1 ? 'colaborador' : 'colaboradores'}
-                        </strong>
-                        <span>{group.label}</span>
-                        <small>{durationHours(group.billableHours)} faturadas</small>
+                        <div className="finance-event-day-summary__date">
+                          <strong>
+                            {day.workDate
+                              ? date.format(new Date(`${day.workDate}T12:00:00`))
+                              : 'Data não registada'}
+                          </strong>
+                          <small>{day.collaboratorCount} {day.collaboratorCount === 1 ? 'colaborador' : 'colaboradores'}</small>
+                        </div>
+                        <span>{durationHours(day.billableHours)} faturadas</span>
+                        <div className="finance-event-day-summary__value">
+                          <small>Valor dos serviços</small>
+                          <strong>{day.pricingComplete ? money.format(day.billableValue) : '-'}</strong>
+                        </div>
                         <ChevronDown size={16} aria-hidden="true" />
                       </summary>
-                      <div id={`finance-event-schedule-${selectedEvent.id}-${groupIndex}`} className="finance-event-schedule-details">
-                        {(group.dayGroups || []).map((dayGroup) => (
-                          <section key={dayGroup.workDate || 'undated'} className="finance-event-schedule-day">
-                            <h5>
-                              {dayGroup.workDate
-                                ? date.format(new Date(`${dayGroup.workDate}T12:00:00`))
-                                : 'Data não registada'}
-                            </h5>
-                            <ul className="finance-event-schedule-entries">
-                              {dayGroup.entries.map((entry) => (
-                                <li key={entry.key}>
-                                  <strong>{entry.collaboratorName}</strong>
-                                  <span>{entry.role} · {entry.label}</span>
-                                  <small>{durationHours(entry.billableHours)} faturadas</small>
-                                </li>
-                              ))}
-                            </ul>
-                          </section>
-                        ))}
+                      <div id={`finance-event-day-${selectedEvent.id}-${dayIndex}`} className="finance-event-day-details">
+                        <ul className="finance-event-day-entries">
+                          {day.entries.map((entry) => (
+                            <li key={entry.key}>
+                              <strong>{entry.collaboratorName}</strong>
+                              <span>{entry.role} · {entry.label}</span>
+                              <small>{durationHours(entry.billableHours)} faturadas</small>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     </details>
                   ))}
