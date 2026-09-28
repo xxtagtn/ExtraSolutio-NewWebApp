@@ -1,3 +1,4 @@
+import StaffTravelSummary from '../components/StaffTravelSummary.jsx';
 import {
   AlertTriangle,
   ArrowDown,
@@ -2029,6 +2030,7 @@ export default function TimeValidation() {
                                   onChange={(value) => updateDraft(row, { checkOut: value })}
                                 />
                                 <small>Total: {durationHours(staffColumnHours(row.assignment))}</small>
+                                <StaffTravelSummary assignment={row.assignment} event={row.event} compact="inline" />
                                 {stage === TIME_VALIDATION_STAGE.staffPending ? (
                                   <button className="validation-copy-button" type="button" onClick={() => copyPlannedToStaff(row)}>
                                     <Copy size={12} />
@@ -2193,6 +2195,7 @@ export default function TimeValidation() {
                               <td>
                                 <strong>{timePairLabel(row.assignment.checkIn, row.assignment.checkOut)}</strong>
                                 <small>{durationHours(staffColumnHours(row.assignment))}</small>
+                                <StaffTravelSummary assignment={row.assignment} event={row.event} compact="inline" />
                               </td>
                               <td>
                                 <strong>{timePairLabel(row.assignment.clientCheckIn, row.assignment.clientCheckOut)}</strong>

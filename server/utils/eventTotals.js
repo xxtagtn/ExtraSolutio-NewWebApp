@@ -21,6 +21,7 @@ import {
 } from '../../src/utils/eventFinancialRules.js';
 import { staffCarAdvancesTotal } from '../../src/utils/staffAdvances.js';
 import { staffPaymentTotal } from '../../src/utils/staffPayment.js';
+import { staffTravelCompensation } from '../../src/utils/staffTravel.js';
 
 function numberValue(value) {
   return decimalValue(value) || 0;
@@ -134,7 +135,7 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
     if (staffHours > 0 && staffRate <= 0 && explicitStaffTotal <= 0) staffPricingComplete = false;
     assignmentRevenue += clientHours * clientRate;
     assignmentCost += staffPaymentTotal(
-      baseStaffCost,
+      baseStaffCost + staffTravelCompensation(assignment, event, billableAssignments).amount,
       Boolean(assignment.collaborator?.includeVat),
       assignment.paymentAdjustment,
     ) + staffCarAdvancesTotal(assignment.advancePayments);

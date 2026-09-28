@@ -5,6 +5,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import ExternalCostsEditor from '../components/Finance/ExternalCostsEditor.jsx';
+import StaffTravelAutomaticSummary from '../components/Finance/StaffTravelAutomaticSummary.jsx';
+import { normalizeStaffTravel, staffTravelCompensation, travelConfiguration } from '../utils/staffTravel.js';
 import Modal from '../components/UI/Modal.jsx';
 import SourceBadge from '../components/UI/SourceBadge.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
@@ -174,6 +176,7 @@ function emptyForm() {
     durationHours: 0,
     travelStaffHourlyRate: '',
     travelCars: [emptyTravelCar()],
+    staffTravel: [],
     split5050: false,
     travelManualAmount: '',
     description: '',
@@ -420,6 +423,8 @@ function toForm(row) {
       hourlyRate: formatMoneyInline(item.hourlyRate),
       workLocationId: item.workLocationId ? String(item.workLocationId) : '',
       validationStatus,
+      paymentStatus: item.paymentStatus,
+      paymentAdjustment: item.paymentAdjustment,
       validationNotes: item.validationNotes || '',
       clientSynced: Boolean(item.clientSynced),
       advancePayments: normalizeStaffAdvances(item.advancePayments).map((advance) => ({
@@ -470,6 +475,7 @@ function toForm(row) {
       ? ''
       : formatMoneyInline(row.travelStaffHourlyRate),
     travelCars: travelCarsFromSource(row),
+    staffTravel: normalizeStaffTravel(row.travelCars),
     split5050: Boolean(row.split5050),
     travelManualAmount: savedTravelType === 'manual' ? formatMoneyInline(row.travelManualAmount || savedTravelAmount) : '',
     description: row.description || '',
@@ -700,7 +706,6 @@ export default function Services() {
       const realClientHours = formAssignmentClientRealHours(assignment);
       const clientHours = formAssignmentClientHours(assignment);
       const staffHours = formAssignmentStaffHours(assignment);
-      if (!assignment.role || (!clientHours && !staffHours)) continue;
       const clientRate = clientRateForAssignment(assignment, {
         requiredRoles: form.requiredRoles,
         rateHistory: form.rateHistory,
@@ -708,7 +713,13 @@ export default function Services() {
       });
       const collaboratorRate = assignmentStaffRate(assignment, collaboratorsById, clientRate);
       const collaborator = collaboratorsById.get(String(assignment.collaboratorId));
-      const baseStaffCost = staffHours * collaboratorRate;
+      const travelStaffCost = staffTravelCompensation(
+        { ...assignment, hourlyRate: collaboratorRate },
+        { date: form.date, status: form.status, split5050: form.split5050, travelCars: travelConfiguration(form.travelCars, form.staffTravel || []) },
+        form.assignments,
+      ).amount;
+      if (!clientHours && !staffHours && !travelStaffCost) continue;
+      const baseStaffCost = staffHours * collaboratorRate + travelStaffCost;
       expectedRevenue += clientHours * clientRate;
       totalRevenue += clientHours * clientRate;
       totalCost += staffPaymentTotal(
@@ -774,7 +785,7 @@ export default function Services() {
       realHours: Number(realHours.toFixed(2)),
       billableHours: Number(billableHours.toFixed(2)),
     };
-  }, [form.requiredRoles, form.rateHistory, form.assignments, form.externalCosts, form.isContinuous, form.date, form.endDate, form.startTime, form.endTime, eventDays, minimumHoursSnapshot, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, selectedClient, form.totalRevenue, form.taxAmount, form.vatRateSnapshot]);
+  }, [form.requiredRoles, form.rateHistory, form.assignments, form.externalCosts, form.isContinuous, form.date, form.endDate, form.startTime, form.endTime, eventDays, minimumHoursSnapshot, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, selectedClient, form.totalRevenue, form.taxAmount, form.vatRateSnapshot, form.travelCars, form.staffTravel, form.split5050, form.status]);
   const prepaymentSummary = buildPrepaymentSummary({
     total: financials.totalRevenue || financials.expectedRevenue || 0,
     serviceDate: form.date,
@@ -1332,7 +1343,7 @@ export default function Services() {
         billingStatus: form.billingStatus,
         client: selectedClient,
       });
-      const travelCars = form.travelType === 'kilometers' ? cleanTravelCarsForPayload(form.travelCars) : [];
+      const travelCars = cleanTravelCarsForPayload(form.travelCars);
       const firstTravelCar = travelCars[0] || {};
       const payload = {
         ...form,
@@ -1363,7 +1374,7 @@ export default function Services() {
         kmRate: form.travelType === 'kilometers' ? (firstTravelCar.kmRate || null) : (form.kmRate || null),
         durationHours: form.travelType === 'kilometers' ? (firstTravelCar.durationHours || null) : (form.durationHours || null),
         travelStaffHourlyRate: form.travelType === 'kilometers' ? (firstTravelCar.travelStaffHourlyRate || 0) : (parseMoney(form.travelStaffHourlyRate) || 0),
-        travelCars,
+        travelCars: travelConfiguration(travelCars, form.staffTravel || []),
         split5050: Boolean(form.split5050),
         travelManualAmount: form.travelType === 'manual' ? (parseMoney(form.travelManualAmount) || 0) : 0,
         signaledAmount: ['partial70', 'paid'].includes(form.billingStatus) ? prepaymentForPayload.signaledAmount : 0,
@@ -2128,6 +2139,11 @@ export default function Services() {
                     {form.travelType !== 'none' ? (
                       <p className="muted span-2">Valor calculado da deslocação: <strong>{formatMoneyInline(travelExpenseAmount) || '0,00€'}</strong></p>
                     ) : null}
+                    <StaffTravelAutomaticSummary
+                      event={{ ...form, assignments: form.assignments, travelCars: travelConfiguration(form.travelCars, form.staffTravel || []) }}
+                      assignments={form.assignments || []}
+                      onSplitChange={(split5050) => setForm((current) => ({ ...current, split5050 }))}
+                    />
                     <label className="span-2">Descrição
                       <textarea value={form.description} placeholder="Ex: Informações adicionais sobre o serviço" onChange={(event) => setForm({ ...form, description: event.target.value })} />
                     </label>
@@ -2203,6 +2219,11 @@ export default function Services() {
                       const totalRoleCost = workedAssignments.reduce(
                         (sum, item) => sum
                           + assignmentStaffCost(item, formAssignmentStaffHours(item), collaboratorsById, clientRoleRate)
+                          + staffTravelCompensation(
+                            { ...item, hourlyRate: assignmentStaffRate(item, collaboratorsById, clientRoleRate) },
+                            { ...form, travelCars: travelConfiguration(form.travelCars, form.staffTravel || []) },
+                            form.assignments,
+                          ).amount
                           + staffCarAdvancesTotal(item.advancePayments),
                         0,
                       );

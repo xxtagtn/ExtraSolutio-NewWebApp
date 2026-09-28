@@ -1,4 +1,9 @@
 import { Router } from 'express';
+import {
+  assertPaidStaffTravelUnchanged,
+  assertStaffTravelConfiguration,
+  persistPaidStaffTravelSnapshot,
+} from '../utils/staffTravelProtection.js';
 import { prisma } from '../prisma.js';
 import {
   createCrudRouter,
@@ -313,6 +318,7 @@ function normalizeWorkLocationInputs(value) {
 
 async function normalizeServiceCreate(input) {
   const data = normalizeEvent(input);
+  assertStaffTravelConfiguration({}, data, []);
   const client = data.clientId ? await prisma.client.findUnique({
     where: { id: data.clientId },
     select: { minimumHours: true, roleRates: true },
@@ -375,6 +381,17 @@ async function normalizeAssignmentCreate(input) {
 async function normalizeAssignmentUpdate(input, existing) {
   const data = normalizeAssignment(input);
   const merged = { ...existing, ...data };
+  const travelChanged = ['eventId', 'collaboratorId', 'assignmentDate', 'status', 'hourlyRate'].some((field) => (
+    data[field] !== undefined && String(data[field] ?? '') !== String(existing?.[field] ?? '')
+  ));
+  if (travelChanged && existing) {
+    const event = await prisma.event.findUnique({ where: { id: existing.eventId }, include: { assignments: true } });
+    const sameEvent = Number(merged.eventId) === Number(existing.eventId);
+    assertPaidStaffTravelUnchanged(existing, merged, event || {}, sameEvent ? event || {} : {});
+    if (sameEvent) {
+      assertStaffTravelConfiguration(event, event, event.assignments.map((row) => row.id === existing.id ? merged : row));
+    }
+  }
   if (hasAssignmentRevenueImpact(input)) {
     await assertEventRevenueEditable(prisma, existing?.eventId);
     if (Number(merged.eventId) !== Number(existing?.eventId)) {
@@ -395,6 +412,7 @@ async function updateServiceWithRangeReconciliation({ id, data, existing, includ
   const reconciled = reconcileEventRangeData(existing, data);
   return prisma.$transaction(async (tx) => {
     const assignments = await tx.eventAssignment.findMany({ where: { eventId: id } });
+    assertStaffTravelConfiguration(existing, reconciled.nextEvent, assignments);
     const { removable, blocking } = partitionAssignmentsOutsideEventRange(
       assignments,
       reconciled.nextEvent,
@@ -840,6 +858,9 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   },
   afterUpdate: async ({ id, row, existing }) => {
     await ensureQrCodeForAssignmentId(id);
+    if (existing?.paymentStatus !== 'paid' && row.paymentStatus === 'paid') {
+      await persistPaidStaffTravelSnapshot(prisma, row);
+    }
     await synchronizeEventAfterAssignmentMutation(row.eventId, {
       recalculateTotals: true,
     });
@@ -857,6 +878,10 @@ apiRouter.use('/assignments', createCrudRouter(prisma.eventAssignment, [
   },
   beforeDelete: async ({ existing }) => {
     await assertEventRevenueEditable(prisma, existing?.eventId);
+    if (existing?.paymentStatus === 'paid') {
+      const event = await prisma.event.findUnique({ where: { id: existing.eventId } });
+      assertPaidStaffTravelUnchanged(existing, null, event || {});
+    }
   },
 }));
 

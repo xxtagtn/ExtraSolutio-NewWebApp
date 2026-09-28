@@ -17,6 +17,7 @@ function parseTravelCars(value) {
 
 export function normalizeTravelCars(value) {
   return parseTravelCars(value)
+    .filter((item) => item?.kind !== 'staff_compensation')
     .map((item, index) => ({
       id: String(item?.id || `car-${index + 1}`),
       label: String(item?.label || item?.name || '').trim(),

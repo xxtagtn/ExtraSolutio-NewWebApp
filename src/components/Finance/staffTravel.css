@@ -1,0 +1,33 @@
+.staff-travel-auto-summary { min-width: 0; border-top: 1px solid var(--border, #304347); padding-top: 12px; }
+.staff-travel-auto-summary h4 { margin: 0 0 8px; }
+.staff-travel-auto-summary p { margin: 6px 0; }
+.staff-travel-auto-summary__split { margin-top: 8px; }
+.staff-travel-summary small { display: block; }
+.finance-staff-payment-table td:nth-child(6) .staff-travel-summary {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+.finance-staff-payment-table td:nth-child(6) .staff-travel-summary small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.staff-travel-summary--compact small {
+  color: var(--muted, #9fb1b7);
+  font-size: 0.68rem;
+}
+.staff-travel-summary--inline {
+  min-width: 0;
+  max-width: 100%;
+}
+.staff-travel-summary--inline small {
+  line-height: 1.15;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .staff-travel-auto-summary { overflow-wrap: anywhere; }
+}

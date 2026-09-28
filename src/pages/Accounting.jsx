@@ -38,6 +38,8 @@ import { buildFinanceEventDescriptors } from '../utils/financeEventIdentity.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
+import { staffAssignmentPaymentTotal } from '../utils/staffPayment.js';
+import StaffTravelSummary from '../components/StaffTravelSummary.jsx';
 import { buildClientFinancialSummary } from '../utils/clientFinancialSummary.js';
 import { paginateItems } from '../utils/pagination.js';
 import {
@@ -63,7 +65,6 @@ import {
   nextStaffPaymentMonth,
   staffPaymentRequiresAttention,
   staffPaymentTiming,
-  staffPaymentTotal,
   validatedClientScheduleLabel,
 } from '../utils/staffPayment.js';
 import { hasPaymentNotes, normalizePaymentNotes } from '../utils/staffPaymentNotes.js';
@@ -205,19 +206,8 @@ function assignmentHours(assignment) {
   return staffPaymentHours(assignment);
 }
 
-function assignmentBasePay(assignment) {
-  const hours = assignmentHours(assignment);
-  const hourlyRate = num(assignment.hourlyRate);
-  if (hours > 0 && hourlyRate > 0) return hours * hourlyRate;
-  const explicit = num(assignment.totalPay);
-  if (explicit > 0) return explicit;
-  return hours * hourlyRate;
-}
-
 function assignmentPayWithVat(assignment) {
-  const base = assignmentBasePay(assignment);
-  const includesVat = Boolean(assignment?.collaborator?.includeVat);
-  return staffPaymentTotal(base, includesVat, assignment.paymentAdjustment);
+  return staffAssignmentPaymentTotal(assignment);
 }
 
 function assignmentAdvances(assignment) {
@@ -265,7 +255,7 @@ function assignmentWorkDateTimestamp(assignment) {
 }
 
 function eventStaffCost(event) {
-  const total = billableAssignments(event).reduce((sum, assignment) => sum + assignmentStaffCostTotal(assignment), 0);
+  const total = billableAssignments(event).reduce((sum, assignment) => sum + assignmentStaffCostTotal({ ...assignment, event }), 0);
   if (total > 0) return total;
   return Math.max(0, num(event.totalCost) - externalCostsTotals(event.externalCosts).costAmount);
 }
@@ -2882,7 +2872,7 @@ export default function Accounting() {
                       <td>{assignment.event.name}</td>
                       <td>{assignmentWorkDateValue(assignment) ? date.format(new Date(assignmentWorkDateValue(assignment))) : '-'}</td>
                       <td className="finance-client-schedule">{validatedClientScheduleLabel(assignment)}</td>
-                      <td>{durationHours(assignmentHours(assignment))}</td>
+                      <td>{durationHours(assignmentHours(assignment))}<StaffTravelSummary assignment={assignment} compact /></td>
                       <td>{money.format(num(assignment.hourlyRate))}</td>
                       <td>
                         <input

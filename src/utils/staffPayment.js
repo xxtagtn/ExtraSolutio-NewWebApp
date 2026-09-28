@@ -1,8 +1,23 @@
-import { decimalValue } from './serviceFinance.js';
+import { decimalValue, staffPaymentHours } from './serviceFinance.js';
+import { staffTravelCompensation } from './staffTravel.js';
 
 const COLLABORATOR_VAT_RATE = 0.23;
 const STAFF_PAYMENT_START_DAY = 8;
 const STAFF_PAYMENT_END_DAY = 14;
+
+export function staffAssignmentPaymentTotal(assignment, event = assignment.event || {}, assignments = event.assignments) {
+  const hours = staffPaymentHours(assignment);
+  const rate = decimalValue(assignment.hourlyRate) || 0;
+  const explicit = decimalValue(assignment.totalPay) || 0;
+  const serviceAmount = hours > 0 && rate > 0
+    ? hours * rate
+    : (explicit > 0 ? explicit : hours * rate);
+  return staffPaymentTotal(
+    serviceAmount + staffTravelCompensation(assignment, event, assignments).amount,
+    Boolean(assignment.collaborator?.includeVat),
+    assignment.paymentAdjustment,
+  );
+}
 
 export function staffPaymentTotal(baseAmount, includesVat = false, adjustment = 0) {
   const base = decimalValue(baseAmount) || 0;

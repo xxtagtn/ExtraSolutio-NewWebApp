@@ -6,6 +6,7 @@ import {
 import { normalizeExternalCosts } from '../../src/utils/externalCosts.js';
 import { normalizeAssignmentDrafts } from '../../src/utils/serviceAssignmentDrafts.js';
 import { normalizeTravelCars } from '../../src/utils/travelCalculator.js';
+import { travelConfiguration } from '../../src/utils/staffTravel.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { pick, toDate, asyncHandler } from '../utils/http.js';
 import { buildPaginatedPayload, parsePaginationQuery } from '../utils/listQuery.js';
@@ -234,7 +235,7 @@ export function normalizeEvent(input) {
     durationHours: parseDecimal(input.durationHours),
     travelStaffHourlyRate: parseDecimal(input.travelStaffHourlyRate),
     travelManualAmount: parseDecimal(input.travelManualAmount),
-    travelCars: normalizeTravelCarsForStorage(input.travelCars),
+    travelCars: input.travelCars === undefined ? undefined : JSON.stringify(travelConfiguration(input.travelCars)),
     assignmentDrafts: normalizeAssignmentDraftsForStorage(input.assignmentDrafts),
     signaledAmount: parseDecimal(input.signaledAmount),
     paidAmount: parseDecimal(input.paidAmount),

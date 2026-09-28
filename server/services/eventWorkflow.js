@@ -11,6 +11,8 @@ import {
 } from '../../src/utils/eventCancelledDays.js';
 import { isBillableEventAssignment } from '../../src/utils/eventFinancialRules.js';
 import { calculateEventTotals } from '../utils/eventTotals.js';
+import { assertPaidStaffTravelUnchanged } from '../utils/staffTravelProtection.js';
+import { normalizeStaffTravel, staffTravelHoursConfigured } from '../../src/utils/staffTravel.js';
 import {
   eventRevenueIsLocked,
   issuedInvoiceForEvent,
@@ -321,6 +323,12 @@ export async function setManualEventStatus(prisma, eventId, status, {
       status: nextStatus,
       statusMode: EVENT_WORKFLOW_MODE.manual,
     };
+    for (const assignment of event.assignments) {
+      assertPaidStaffTravelUnchanged(assignment, assignment, event, { ...event, ...data });
+    }
+    if (staffTravelHoursConfigured(event) || normalizeStaffTravel(event.travelCars).length) {
+      data.totalCost = calculateEventTotals({ ...event, ...data }, event.assignments).totalCost;
+    }
     if (notes !== undefined) data.notes = notes;
     return client.event.update({ where: { id }, data, include: { assignments: true } });
   });
