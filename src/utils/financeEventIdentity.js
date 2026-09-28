@@ -117,25 +117,55 @@ export function financeEventOperationalSummary(event = {}) {
     const group = scheduleGroups.get(schedule.key) || {
       ...schedule,
       collaboratorKeys: new Set(),
+      entries: [],
       assignmentCount: 0,
       billableHours: 0,
     };
     group.collaboratorKeys.add(personKey);
     group.assignmentCount += 1;
     group.billableHours += assignmentBillableHours;
+    group.entries.push({
+      key: `${String(assignment?.id ?? personKey)}|${index}`,
+      workDate: dateKey(assignment?.assignmentDate || event?.date),
+      collaboratorName: cleanText(
+        assignment?.collaborator?.name
+        || assignment?.collaborator?.shortName
+        || assignment?.collaboratorName,
+      ) || '-',
+      role: cleanText(assignment?.role) || '-',
+      start: schedule.start,
+      end: schedule.end,
+      label: schedule.label,
+      billableHours: assignmentBillableHours,
+    });
     scheduleGroups.set(schedule.key, group);
   });
 
   const groups = [...scheduleGroups.values()]
-    .map((group) => ({
-      key: group.key,
-      start: group.start,
-      end: group.end,
-      label: group.label,
-      collaboratorCount: group.collaboratorKeys.size,
-      assignmentCount: group.assignmentCount,
-      billableHours: Number(group.billableHours.toFixed(2)),
-    }))
+    .map((group) => {
+      const entries = group.entries.sort((left, right) => (
+        (left.workDate || '9999-99-99').localeCompare(right.workDate || '9999-99-99')
+        || left.collaboratorName.localeCompare(right.collaboratorName, 'pt-PT')
+        || left.role.localeCompare(right.role, 'pt-PT')
+      ));
+      const dayGroups = new Map();
+      entries.forEach((entry) => {
+        const day = dayGroups.get(entry.workDate) || [];
+        day.push(entry);
+        dayGroups.set(entry.workDate, day);
+      });
+
+      return {
+        key: group.key,
+        start: group.start,
+        end: group.end,
+        label: group.label,
+        collaboratorCount: group.collaboratorKeys.size,
+        assignmentCount: group.assignmentCount,
+        billableHours: Number(group.billableHours.toFixed(2)),
+        dayGroups: [...dayGroups].map(([workDate, dayEntries]) => ({ workDate, entries: dayEntries })),
+      };
+    })
     .sort((left, right) => (
       left.key === 'unscheduled'
         ? 1

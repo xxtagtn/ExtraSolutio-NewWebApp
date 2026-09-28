@@ -633,14 +633,40 @@ function ClientFinancialEventTable({
 
               {selectedOperationalSummary.scheduleGroups.length ? (
                 <div className="finance-event-schedules__list">
-                  {selectedOperationalSummary.scheduleGroups.map((group) => (
-                    <div key={group.key} className="finance-event-schedule-row">
-                      <strong>
-                        {group.collaboratorCount} {group.collaboratorCount === 1 ? 'colaborador' : 'colaboradores'}
-                      </strong>
-                      <span>{group.label}</span>
-                      <small>{durationHours(group.billableHours)} faturadas</small>
-                    </div>
+                  {selectedOperationalSummary.scheduleGroups.map((group, groupIndex) => (
+                    <details key={group.key} className="finance-event-schedule-row">
+                      <summary
+                        className="finance-event-schedule-summary"
+                        aria-controls={`finance-event-schedule-${selectedEvent.id}-${groupIndex}`}
+                      >
+                        <strong>
+                          {group.collaboratorCount} {group.collaboratorCount === 1 ? 'colaborador' : 'colaboradores'}
+                        </strong>
+                        <span>{group.label}</span>
+                        <small>{durationHours(group.billableHours)} faturadas</small>
+                        <ChevronDown size={16} aria-hidden="true" />
+                      </summary>
+                      <div id={`finance-event-schedule-${selectedEvent.id}-${groupIndex}`} className="finance-event-schedule-details">
+                        {(group.dayGroups || []).map((dayGroup) => (
+                          <section key={dayGroup.workDate || 'undated'} className="finance-event-schedule-day">
+                            <h5>
+                              {dayGroup.workDate
+                                ? date.format(new Date(`${dayGroup.workDate}T12:00:00`))
+                                : 'Data não registada'}
+                            </h5>
+                            <ul className="finance-event-schedule-entries">
+                              {dayGroup.entries.map((entry) => (
+                                <li key={entry.key}>
+                                  <strong>{entry.collaboratorName}</strong>
+                                  <span>{entry.role} · {entry.label}</span>
+                                  <small>{durationHours(entry.billableHours)} faturadas</small>
+                                </li>
+                              ))}
+                            </ul>
+                          </section>
+                        ))}
+                      </div>
+                    </details>
                   ))}
                 </div>
               ) : (

@@ -171,6 +171,34 @@ try {
     assert.match(await payment.innerText(), /14:00h/);
     await payment.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(tmpdir(), `staff-travel-finance-${name}.png`) });
+    await page.goto(`${baseUrl}/finance?area=clients&eventId=30&month=2026-09`);
+    const clientSummaryRow = page.locator('.finance-client-financial-table .finance-client-summary-row').first();
+    await clientSummaryRow.waitFor({ timeout: 10000 });
+    await clientSummaryRow.click();
+    const eventSummaryTrigger = page.locator('.finance-client-event-row--clickable .finance-client-event-name').first();
+    await eventSummaryTrigger.waitFor({ timeout: 10000 }).catch(async (error) => {
+      console.error('Client finance:', (await page.locator('body').innerText()).slice(-4500), errors);
+      throw error;
+    });
+    await eventSummaryTrigger.click();
+    const eventSummaryDialog = page.getByRole('dialog', { name: 'Resumo do Evento/Serviço' });
+    await eventSummaryDialog.waitFor({ timeout: 5000 }).catch(async (error) => {
+      console.error('Event summary:', (await page.locator('body').innerText()).slice(-3000), errors);
+      throw error;
+    });
+    const scheduleSummary = eventSummaryDialog.locator('.finance-event-schedule-summary').first();
+    assert.match(await scheduleSummary.innerText(), /1 colaborador/);
+    assert.match(await scheduleSummary.innerText(), /08:30 - 22:30/);
+    assert.match(await scheduleSummary.innerText(), /14:00h faturadas/);
+    await scheduleSummary.click();
+    const scheduleDetails = eventSummaryDialog.locator('.finance-event-schedule-details');
+    await scheduleDetails.waitFor();
+    assert.match(await scheduleDetails.innerText(), /27\/09\/2026/);
+    assert.match(await scheduleDetails.innerText(), /Ana QA/);
+    assert.match(await scheduleDetails.innerText(), /Emp\.Mesa/);
+    assert.match(await scheduleDetails.innerText(), /08:30 - 22:30/);
+    assert.match(await scheduleDetails.innerText(), /14:00h faturadas/);
+    await page.screenshot({ path: join(tmpdir(), `staff-travel-finance-client-summary-${name}.png`) });
     service.status = 'to_validate_staff';
     service.assignments[0].checkIn = '';
     service.assignments[0].checkOut = '';

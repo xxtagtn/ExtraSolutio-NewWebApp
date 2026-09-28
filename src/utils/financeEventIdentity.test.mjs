@@ -96,3 +96,81 @@ test('uses distinct collaborators while retaining every turn in billed hours', (
   assert.equal(summary.billableHours, 15);
   assert.equal(summary.scheduleGroups[1].collaboratorCount, 2);
 });
+
+test('retains the source assignments and groups schedule details by work day', () => {
+  const summary = financeEventOperationalSummary({
+    date: '2026-09-01',
+    minimumHoursSnapshot: 0,
+    assignments: [
+      {
+        id: 1,
+        assignmentDate: '2026-09-01',
+        collaboratorId: 10,
+        collaborator: { name: 'Miriam Peçanha Oliveira' },
+        role: 'Emp. Mesa',
+        clientCheckIn: '08:00',
+        clientCheckOut: '13:30',
+        status: 'confirmed',
+      },
+      {
+        id: 2,
+        assignmentDate: '2026-09-01',
+        collaboratorId: 11,
+        collaborator: { name: 'Ana Carolina Ravenna' },
+        role: 'Bar',
+        clientCheckIn: '08:00',
+        clientCheckOut: '13:30',
+        status: 'confirmed',
+      },
+      {
+        id: 3,
+        assignmentDate: '2026-09-02',
+        collaboratorId: 10,
+        collaborator: { name: 'Miriam Peçanha Oliveira' },
+        role: 'Emp. Mesa',
+        clientCheckIn: '08:00',
+        clientCheckOut: '13:30',
+        status: 'confirmed',
+      },
+      {
+        id: 4,
+        assignmentDate: '2026-09-02',
+        collaboratorId: 12,
+        collaborator: { name: 'Não faturável' },
+        role: 'Bar',
+        clientCheckIn: '08:00',
+        clientCheckOut: '13:30',
+        status: 'cancelled',
+      },
+    ],
+  });
+
+  const group = summary.scheduleGroups[0];
+  assert.equal(group.label, '08:00 - 13:30');
+  assert.equal(group.collaboratorCount, 2);
+  assert.equal(group.assignmentCount, 3);
+  assert.equal(group.billableHours, 16.5);
+  assert.deepEqual(group.dayGroups.map((day) => ({
+    workDate: day.workDate,
+    entries: day.entries.map((entry) => ({
+      collaboratorName: entry.collaboratorName,
+      role: entry.role,
+      label: entry.label,
+      billableHours: entry.billableHours,
+    })),
+  })), [
+    {
+      workDate: '2026-09-01',
+      entries: [
+        { collaboratorName: 'Ana Carolina Ravenna', role: 'Bar', label: '08:00 - 13:30', billableHours: 5.5 },
+        { collaboratorName: 'Miriam Peçanha Oliveira', role: 'Emp. Mesa', label: '08:00 - 13:30', billableHours: 5.5 },
+      ],
+    },
+    {
+      workDate: '2026-09-02',
+      entries: [
+        { collaboratorName: 'Miriam Peçanha Oliveira', role: 'Emp. Mesa', label: '08:00 - 13:30', billableHours: 5.5 },
+      ],
+    },
+  ]);
+});
