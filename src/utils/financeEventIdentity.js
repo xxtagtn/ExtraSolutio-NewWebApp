@@ -171,7 +171,11 @@ export function financeEventOperationalSummary(event = {}) {
         ? 1
         : right.key === 'unscheduled'
           ? -1
-          : left.key.localeCompare(right.key, 'pt-PT')
+          : (left.dayGroups.find((day) => day.workDate)?.workDate || '9999-99-99')
+            .localeCompare(right.dayGroups.find((day) => day.workDate)?.workDate || '9999-99-99')
+            || left.start.localeCompare(right.start, 'pt-PT')
+            || left.end.localeCompare(right.end, 'pt-PT')
+            || left.key.localeCompare(right.key, 'pt-PT')
     ));
 
   return {

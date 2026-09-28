@@ -174,3 +174,52 @@ test('retains the source assignments and groups schedule details by work day', (
     },
   ]);
 });
+
+test('orders schedule groups by work date, then by start time, without changing totals', () => {
+  const summary = financeEventOperationalSummary({
+    minimumHoursSnapshot: 0,
+    assignments: [
+      {
+        id: 1,
+        assignmentDate: '2026-09-02',
+        collaboratorId: 10,
+        collaborator: { name: 'Miriam Peçanha Oliveira' },
+        clientCheckIn: '08:00',
+        clientCheckOut: '12:00',
+        status: 'confirmed',
+      },
+      {
+        id: 2,
+        assignmentDate: '2026-09-01',
+        collaboratorId: 11,
+        collaborator: { name: 'Ana Carolina Ravenna' },
+        clientCheckIn: '09:00',
+        clientCheckOut: '13:00',
+        status: 'confirmed',
+      },
+      {
+        id: 3,
+        assignmentDate: '2026-09-01',
+        collaboratorId: 12,
+        collaborator: { name: 'Diego Garcia Bem' },
+        clientCheckIn: '07:00',
+        clientCheckOut: '11:00',
+        status: 'confirmed',
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    summary.scheduleGroups.map((group) => ({
+      date: group.dayGroups[0].workDate,
+      label: group.label,
+    })),
+    [
+      { date: '2026-09-01', label: '07:00 - 11:00' },
+      { date: '2026-09-01', label: '09:00 - 13:00' },
+      { date: '2026-09-02', label: '08:00 - 12:00' },
+    ],
+  );
+  assert.equal(summary.scheduleCount, 3);
+  assert.equal(summary.billableHours, 12);
+});
