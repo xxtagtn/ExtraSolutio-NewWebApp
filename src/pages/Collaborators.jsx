@@ -7,7 +7,9 @@ import IconButton from '../components/UI/IconButton.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { useAuth } from '../hooks/useAuth.jsx';
 import { api } from '../utils/api.js';
+import { hasAnyPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { computeShortName } from '../utils/collaboratorName.js';
 import { filterCollaborators } from '../utils/collaboratorFilters.js';
 import {
@@ -37,6 +39,22 @@ function pageNumbersFor(currentPage, totalPages) {
   const start = Math.max(1, safeCurrent - 2);
   const end = Math.min(safeTotal, start + 4);
   return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+function formatGenderPercent(count, total) {
+  if (!total) return '0%';
+  const percent = (Number(count || 0) / Number(total)) * 100;
+  return `${new Intl.NumberFormat('pt-PT', { maximumFractionDigits: 1 }).format(percent)}%`;
+}
+
+function genderSummaryDescription(summary) {
+  return [
+    `${summary.women} ${summary.women === 1 ? 'mulher' : 'mulheres'}`,
+    `${summary.men} ${summary.men === 1 ? 'homem' : 'homens'}`,
+    summary.other ? `${summary.other} com outra indicação` : '',
+    summary.preferNot ? `${summary.preferNot} prefere não indicar` : '',
+    summary.unspecified ? `${summary.unspecified} sem indicação` : '',
+  ].filter(Boolean).join(', ');
 }
 
 function emptyForm() {
@@ -165,6 +183,7 @@ function LazyCollaboratorPhoto({
 
 export default function Collaborators() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
   const [nameFilter, setNameFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -190,6 +209,14 @@ export default function Collaborators() {
     pageSize,
     totalPages: 1,
   });
+  const canViewGenderSummary = hasAnyPermission(user, [
+    PERMISSIONS.COLLABORATORS_VIEW_SENSITIVE,
+    PERMISSIONS.CLIENTS_VIEW_SENSITIVE,
+  ]) || ['management', 'finance'].includes(String(user?.role || '').toLowerCase());
+  const {
+    data: genderSummary,
+    reload: reloadGenderSummary,
+  } = useApi('/collaborators/gender-summary', null, { enabled: canViewGenderSummary });
   const { data: services } = useApi('/services', []);
   const { data: catalogRoles } = useApi('/collaborators/roles', []);
   const [formOpen, setFormOpen] = useState(false);
@@ -546,6 +573,7 @@ export default function Collaborators() {
       }
       closeForm(true);
       reload();
+      reloadGenderSummary();
       toast.success(editing ? 'Colaborador atualizado.' : 'Colaborador criado.');
     } catch (err) {
       setFormError(err.message);
@@ -565,6 +593,7 @@ export default function Collaborators() {
       });
       toast.success(`Colaborador "${row.shortName || row.name}" eliminado.`);
       reload();
+      reloadGenderSummary();
     } catch (err) {
       toast.error(err?.message || 'Não foi possível eliminar o colaborador.');
     }
@@ -589,6 +618,57 @@ export default function Collaborators() {
   return (
     <div className="page">
       <Card title="Colaboradores" action={<button className="command-button" type="button" onClick={openCreate}><Plus size={17} />Novo Colaborador</button>}>
+        {canViewGenderSummary && Number(genderSummary?.total) > 0 ? (
+          <section className="collaborator-gender-summary" aria-label="Distribuição dos colaboradores ativos">
+            <div className="collaborator-gender-summary__total">
+              <strong>Distribuição</strong>
+              <span>{genderSummary.total} ativos</span>
+            </div>
+            <div
+              className="collaborator-gender-summary__bar"
+              role="img"
+              aria-label={genderSummaryDescription(genderSummary)}
+            >
+              {genderSummary.women > 0 ? <span className="collaborator-gender-summary__segment--women" style={{ width: `${(genderSummary.women / genderSummary.total) * 100}%` }} /> : null}
+              {genderSummary.men > 0 ? <span className="collaborator-gender-summary__segment--men" style={{ width: `${(genderSummary.men / genderSummary.total) * 100}%` }} /> : null}
+              {genderSummary.other > 0 ? <span className="collaborator-gender-summary__segment--other" style={{ width: `${(genderSummary.other / genderSummary.total) * 100}%` }} /> : null}
+              {genderSummary.preferNot > 0 ? <span className="collaborator-gender-summary__segment--prefer-not" style={{ width: `${(genderSummary.preferNot / genderSummary.total) * 100}%` }} /> : null}
+              {genderSummary.unspecified > 0 ? <span className="collaborator-gender-summary__segment--unspecified" style={{ width: `${(genderSummary.unspecified / genderSummary.total) * 100}%` }} /> : null}
+            </div>
+            <div className="collaborator-gender-summary__legend">
+              {genderSummary.women > 0 ? (
+                <span className="collaborator-gender-summary__item collaborator-gender-summary__item--women">
+                  <i aria-hidden="true" /><strong>{genderSummary.women} {genderSummary.women === 1 ? 'mulher' : 'mulheres'}</strong>
+                  <small>{formatGenderPercent(genderSummary.women, genderSummary.total)}</small>
+                </span>
+              ) : null}
+              {genderSummary.men > 0 ? (
+                <span className="collaborator-gender-summary__item collaborator-gender-summary__item--men">
+                  <i aria-hidden="true" /><strong>{genderSummary.men} {genderSummary.men === 1 ? 'homem' : 'homens'}</strong>
+                  <small>{formatGenderPercent(genderSummary.men, genderSummary.total)}</small>
+                </span>
+              ) : null}
+              {genderSummary.other > 0 ? (
+                <span className="collaborator-gender-summary__item collaborator-gender-summary__item--other">
+                  <i aria-hidden="true" /><strong>{genderSummary.other} outra indicação</strong>
+                  <small>{formatGenderPercent(genderSummary.other, genderSummary.total)}</small>
+                </span>
+              ) : null}
+              {genderSummary.preferNot > 0 ? (
+                <span className="collaborator-gender-summary__item collaborator-gender-summary__item--prefer-not">
+                  <i aria-hidden="true" /><strong>{genderSummary.preferNot} prefere não indicar</strong>
+                  <small>{formatGenderPercent(genderSummary.preferNot, genderSummary.total)}</small>
+                </span>
+              ) : null}
+              {genderSummary.unspecified > 0 ? (
+                <span className="collaborator-gender-summary__item collaborator-gender-summary__item--unspecified">
+                  <i aria-hidden="true" /><strong>{genderSummary.unspecified} sem indicação</strong>
+                  <small>{formatGenderPercent(genderSummary.unspecified, genderSummary.total)}</small>
+                </span>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
         <div className="filters collab-filters">
           <input className="form-control" placeholder="Pesquisar por nome..." value={nameFilter} onChange={(event) => setNameFilter(event.target.value)} />
           <select className="form-control" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>

@@ -9,6 +9,7 @@ import { buildPaginatedPayload, parsePaginationQuery } from '../utils/listQuery.
 import { deleteStoredPhoto, parsePhotoDataUri, resolvePhotoForStorage, resolvePhotoThumbForStorage } from '../utils/photoStorage.js';
 import { computeShortName } from '../../src/utils/collaboratorName.js';
 import { collaboratorRoleOptions } from '../../src/utils/collaboratorRoles.js';
+import { buildCollaboratorGenderSummary } from '../../src/utils/collaboratorGenderSummary.js';
 
 export const collaboratorsRouter = Router();
 
@@ -217,6 +218,20 @@ collaboratorsRouter.get('/roles', asyncHandler(async (_req, res) => {
   const dynamic = rows.map((row) => row.role).filter(Boolean);
   const merged = [...new Set([...ALLOWED_ROLES, ...dynamic])].sort((a, b) => a.localeCompare(b));
   res.json(merged);
+}));
+
+collaboratorsRouter.get('/gender-summary', asyncHandler(async (req, res) => {
+  if (!canViewSensitiveCollaboratorData(req.user)) {
+    return res.status(403).json({ message: 'Sem permissão para consultar esta informação.' });
+  }
+
+  const groups = await prisma.collaborator.groupBy({
+    by: ['gender'],
+    where: { status: 'active' },
+    _count: { id: true },
+  });
+
+  res.json(buildCollaboratorGenderSummary(groups));
 }));
 
 collaboratorsRouter.get('/:id/photo', asyncHandler(async (req, res) => {
