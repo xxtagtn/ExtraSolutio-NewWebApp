@@ -247,7 +247,7 @@ function CommunicationTaskPreview({ task, mobile, canManageQrCodes, qrTools, onM
         <dl className="communication-detail-grid">
           <div><dt>Cliente</dt><dd>{task.clientName}</dd></div>
           <div><dt>Função</dt><dd>{task.role || '-'}</dd></div>
-          <div><dt>Horário</dt><dd>{[task.startTime, task.endTime].filter(Boolean).join(' → ') || '-'}</dd></div>
+          <div><dt>Horário</dt><dd>{task.scheduleLabel || [task.startTime, task.endTime].filter(Boolean).join(' → ') || '-'}</dd></div>
           <div><dt>Telefone</dt><dd>{task.rawPhone || '-'}</dd></div>
         </dl>
 
@@ -379,26 +379,29 @@ export default function Communication() {
     setSaving(true);
     setNotice('');
     try {
-      await api('/communication-logs', {
-        method: 'POST',
-        body: JSON.stringify({
-          eventId: task.serviceId,
-          assignmentId: task.assignmentId,
-          collaboratorId: task.collaboratorId,
-          type: task.kind,
-          channel: 'manual_whatsapp',
-          status,
-          message: task.message,
-          ...extra,
-        }),
-      });
-
-      if (status === 'confirmed') {
-        await api(`/assignments/${task.assignmentId}`, {
-          method: 'PUT',
-          body: JSON.stringify({ status: 'confirmed' }),
+      const assignmentTasks = task.assignmentTasks?.length ? task.assignmentTasks : [task];
+      await Promise.all(assignmentTasks.map(async (assignmentTask) => {
+        await api('/communication-logs', {
+          method: 'POST',
+          body: JSON.stringify({
+            eventId: assignmentTask.serviceId,
+            assignmentId: assignmentTask.assignmentId,
+            collaboratorId: assignmentTask.collaboratorId,
+            type: assignmentTask.kind,
+            channel: 'manual_whatsapp',
+            status,
+            message: task.message,
+            ...extra,
+          }),
         });
-      }
+
+        if (status === 'confirmed') {
+          await api(`/assignments/${assignmentTask.assignmentId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ status: 'confirmed' }),
+          });
+        }
+      }));
 
       reload();
       setNotice(status === 'confirmed' ? 'Colaborador marcado como confirmado.' : 'Estado atualizado.');
@@ -416,24 +419,36 @@ export default function Communication() {
 
   function whatsappEnabledFor(task) {
     if (!task) return false;
-    return whatsappOverrides[task.assignmentId] ?? task.whatsappEnabled !== false;
+    const assignmentTasks = task.assignmentTasks?.length ? task.assignmentTasks : [task];
+    return assignmentTasks.every((assignmentTask) => (
+      whatsappOverrides[assignmentTask.assignmentId] ?? assignmentTask.whatsappEnabled !== false
+    ));
   }
 
   async function updateWhatsappPreference(task, enabled) {
     if (!task?.assignmentId) return;
-    const assignmentId = task.assignmentId;
-    const previous = whatsappEnabledFor(task);
-    setWhatsappOverrides((current) => ({ ...current, [assignmentId]: enabled }));
-    setUpdatingWhatsappId(assignmentId);
+    const assignmentTasks = task.assignmentTasks?.length ? task.assignmentTasks : [task];
+    const assignmentIds = assignmentTasks.map((assignmentTask) => assignmentTask.assignmentId);
+    setWhatsappOverrides((current) => {
+      const next = { ...current };
+      assignmentIds.forEach((assignmentId) => { next[assignmentId] = enabled; });
+      return next;
+    });
+    setUpdatingWhatsappId(task.id);
     setNotice('');
     try {
-      await api(`/assignments/${assignmentId}`, {
+      await Promise.all(assignmentIds.map((assignmentId) => api(`/assignments/${assignmentId}`, {
         method: 'PUT',
         body: JSON.stringify({ whatsappEnabled: enabled }),
-      });
+      })));
       reload();
     } catch (error) {
-      setWhatsappOverrides((current) => ({ ...current, [assignmentId]: previous }));
+      setWhatsappOverrides((current) => {
+        const next = { ...current };
+        assignmentIds.forEach((assignmentId) => { delete next[assignmentId]; });
+        return next;
+      });
+      reload();
       setNotice(error.message || 'Não foi possível guardar a preferência de WhatsApp.');
     } finally {
       setUpdatingWhatsappId(null);
@@ -533,6 +548,7 @@ export default function Communication() {
         <div className="communication-list" aria-label="Lista de contactos">
           {tasks.length ? tasks.map((task) => {
             const whatsappEnabled = whatsappEnabledFor(task);
+            const assignmentTasks = task.assignmentTasks?.length ? task.assignmentTasks : [task];
             const expanded = mobile && expandedId === task.id;
             const panelId = `communication-contact-${task.id}`;
             return (
@@ -547,8 +563,8 @@ export default function Communication() {
                   <input
                     type="checkbox"
                     checked={whatsappEnabled}
-                    disabled={updatingWhatsappId === task.assignmentId}
-                    aria-label={`Enviar mensagem WhatsApp a ${task.collaboratorName}`}
+                    disabled={updatingWhatsappId === task.id}
+                    aria-label={`Enviar lembrete WhatsApp a ${task.collaboratorName} para ${assignmentTasks.length} ${assignmentTasks.length === 1 ? 'serviço' : 'serviços'} neste dia`}
                     onChange={(event) => updateWhatsappPreference(task, event.target.checked)}
                   />
                 </label>
@@ -572,7 +588,7 @@ export default function Communication() {
                   </span>
                   <span>
                     <b>{task.eventName}</b>
-                    <small>{task.clientName} · {formatTaskDate(task.date)} · {[task.startTime, task.endTime].filter(Boolean).join(' → ')}</small>
+                    <small>{task.clientName} · {formatTaskDate(task.date)} · {task.scheduleLabel || [task.startTime, task.endTime].filter(Boolean).join(' → ')}</small>
                   </span>
                   <Badge tone={stateTones[task.state] || 'neutral'}>{stateLabels[task.state] || task.state}</Badge>
                   {mobile && <ChevronDown size={18} className="communication-task-chevron" aria-hidden="true" />}

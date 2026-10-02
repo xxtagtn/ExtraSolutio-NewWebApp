@@ -196,6 +196,86 @@ export function buildCommunicationCenter(data = {}, options = {}) {
   });
 }
 
+function uniqueTaskValues(tasks, property) {
+  return [...new Set(tasks.map((task) => text(task[property])).filter(Boolean))];
+}
+
+function taskScheduleLabel(task) {
+  return [task.startTime, task.endTime].filter(Boolean).join(' → ') || 'Horário a confirmar';
+}
+
+function buildDailyReminderMessage(tasks) {
+  const first = tasks[0];
+  return [
+    `Olá ${first.collaboratorName}, lembramos que tens ${tasks.length === 1 ? 'um serviço confirmado' : 'serviços confirmados'} nesse dia:`,
+    `Data: ${formatDatePt(first.date)}`,
+    ...tasks.map((task) => [
+      `• ${task.eventName}${task.role ? ` · ${task.role}` : ''}`,
+      `  Horário: ${taskScheduleLabel(task)}`,
+      task.clientName ? `  Cliente: ${task.clientName}` : '',
+      task.location ? `  Local: ${task.location}` : '',
+    ].filter(Boolean).join('\n')),
+    'Informa a equipa ExtraSolutio, caso não consigas.',
+  ].join('\n\n');
+}
+
+export function groupDailyReminderTasks(tasks = []) {
+  const groups = new Map();
+
+  for (const task of tasks) {
+    const key = task.kind === 'reminder_24h' && task.collaboratorId && task.date
+      ? `${task.kind}:${task.collaboratorId}:${task.date}`
+      : `task:${task.id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(task);
+  }
+
+  return [...groups.values()].map((rows) => {
+    const assignmentTasks = [...rows].sort((left, right) => (
+      String(left.startTime || '').localeCompare(String(right.startTime || ''))
+      || Number(left.assignmentId || 0) - Number(right.assignmentId || 0)
+    ));
+    const first = assignmentTasks[0];
+    if (assignmentTasks.length === 1 || first.kind !== 'reminder_24h') {
+      return {
+        ...first,
+        assignmentTasks,
+        assignmentIds: assignmentTasks.map((task) => task.assignmentId),
+        scheduleLabel: taskScheduleLabel(first),
+        serviceIds: [...new Set(assignmentTasks.map((task) => task.serviceId))],
+      };
+    }
+
+    const latestLogTask = assignmentTasks
+      .filter((task) => task.latestLog)
+      .sort((left, right) => (
+        new Date(right.latestLog.createdAt || 0).getTime()
+        - new Date(left.latestLog.createdAt || 0).getTime()
+      ))[0];
+    const message = buildDailyReminderMessage(assignmentTasks);
+    return {
+      ...first,
+      id: `reminder_24h-day-${first.collaboratorId}-${first.date}`,
+      state: latestLogTask?.state || first.state,
+      latestLog: latestLogTask?.latestLog || null,
+      eventName: uniqueTaskValues(assignmentTasks, 'eventName').join(' · '),
+      clientName: uniqueTaskValues(assignmentTasks, 'clientName').join(' · '),
+      role: uniqueTaskValues(assignmentTasks, 'role').join(' · '),
+      location: uniqueTaskValues(assignmentTasks, 'location').join(' · '),
+      scheduleLabel: assignmentTasks.map(taskScheduleLabel).join(' · '),
+      whatsappEnabled: assignmentTasks.every((task) => task.whatsappEnabled),
+      assignmentTasks,
+      assignmentIds: assignmentTasks.map((task) => task.assignmentId),
+      serviceIds: [...new Set(assignmentTasks.map((task) => task.serviceId))],
+      message,
+      whatsappUrl: whatsappManualUrl(first.rawPhone || first.phone, message),
+    };
+  }).sort((left, right) => {
+    const byDate = `${left.date || ''} ${left.startTime || ''}`.localeCompare(`${right.date || ''} ${right.startTime || ''}`);
+    return byDate || left.collaboratorName.localeCompare(right.collaboratorName, 'pt');
+  });
+}
+
 export function communicationSummary(tasks = []) {
   return tasks.reduce((summary, task) => {
     const state = task.state || '';

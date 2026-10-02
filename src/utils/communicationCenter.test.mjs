@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildCommunicationCenter,
   communicationSummary,
+  groupDailyReminderTasks,
   normalizePhoneForWaLink,
 } from './communicationCenter.js';
 
@@ -141,6 +142,48 @@ test('creates reminder tasks for confirmed shifts in the next 24 hours', () => {
   assert.equal(tasks[0].state, 'ready');
   assert.match(tasks[0].message, /lembramos que tens serviço/);
   assert.match(tasks[0].message, /Informa a equipa ExtraSolutio, caso não consigas\./);
+});
+
+test('groups same collaborator reminder shifts on the same day into one task and message', () => {
+  const tasks = buildCommunicationCenter({
+    services: [
+      {
+        id: 41,
+        name: 'Embaixada',
+        date: '2026-07-03',
+        startTime: '09:00',
+        endTime: '13:00',
+        assignments: [{
+          id: 411,
+          collaboratorId: 14,
+          role: 'Emp. Mesa',
+          status: 'confirmed',
+          collaborator: { id: 14, name: 'Miriam Costa', phone: '912345678' },
+        }],
+      },
+      {
+        id: 42,
+        name: 'Embaixada',
+        date: '2026-07-03',
+        startTime: '16:00',
+        endTime: '20:00',
+        assignments: [{
+          id: 421,
+          collaboratorId: 14,
+          role: 'Emp. Mesa',
+          status: 'confirmed',
+          collaborator: { id: 14, name: 'Miriam Costa', phone: '912345678' },
+        }],
+      },
+    ],
+  }, { today });
+
+  const grouped = groupDailyReminderTasks(tasks);
+  assert.equal(grouped.length, 1);
+  assert.deepEqual(grouped[0].assignmentIds, [411, 421]);
+  assert.equal(grouped[0].scheduleLabel, '09:00 → 13:00 · 16:00 → 20:00');
+  assert.match(grouped[0].message, /09:00 → 13:00/);
+  assert.match(grouped[0].message, /16:00 → 20:00/);
 });
 
 test('summarizes communication workload by state', () => {

@@ -1,4 +1,4 @@
-import { buildCommunicationCenter, communicationSummary } from '../../src/utils/communicationCenter.js';
+import { buildCommunicationCenter, communicationSummary, groupDailyReminderTasks } from '../../src/utils/communicationCenter.js';
 import { eventStartInstant } from '../utils/eventTime.js';
 import { buildPaginatedPayload, parsePaginationQuery } from '../utils/listQuery.js';
 
@@ -20,11 +20,14 @@ function tasksFromAssignments(assignments, options) {
 }
 
 function matchesFilters(task, query) {
+  const assignmentTasks = task.assignmentTasks || [task];
   const search = String(query.search || '').trim().toLowerCase();
-  if (search && ![task.collaboratorName, task.eventName, task.clientName, task.role, task.rawPhone, task.phone]
-    .join(' ').toLowerCase().includes(search)) return false;
+  if (search && !assignmentTasks.some((item) => (
+    [item.collaboratorName, item.eventName, item.clientName, item.role, item.rawPhone, item.phone]
+      .join(' ').toLowerCase().includes(search)
+  ))) return false;
   if (query.kind && query.kind !== 'all' && task.kind !== query.kind) return false;
-  if (query.eventId && query.eventId !== 'all' && String(task.serviceId) !== String(query.eventId)) return false;
+  if (query.eventId && query.eventId !== 'all' && !assignmentTasks.some((item) => String(item.serviceId) === String(query.eventId))) return false;
   const state = query.state || 'open';
   if (state === 'open') return !['confirmed', 'unavailable'].includes(task.state);
   return state === 'all' || state === task.state;
@@ -53,14 +56,15 @@ export async function readCommunicationPage(db, query = {}, { now = new Date(), 
       },
     },
   })));
-  const tasks = tasksFromAssignments(groups.flat(), { ...options, includeMessage: false });
+  const tasks = groupDailyReminderTasks(tasksFromAssignments(groups.flat(), { ...options, includeMessage: false }));
   const filtered = tasks.filter((task) => matchesFilters(task, query));
   const { page, pageSize, skip } = communicationPagination(query, filtered.length);
   const pageTasks = filtered.slice(skip, skip + pageSize);
-  const ids = pageTasks.map((task) => task.assignmentId);
-  const logIds = pageTasks.flatMap((task) => task.latestLog ? [task.latestLog.id] : []);
+  const assignmentTasks = pageTasks.flatMap((task) => task.assignmentTasks || [task]);
+  const ids = assignmentTasks.map((task) => task.assignmentId);
+  const logIds = assignmentTasks.flatMap((task) => task.latestLog ? [task.latestLog.id] : []);
   const details = ids.length ? await db.eventAssignment.findMany({
-    where: { id: { in: ids } }, take: pageSize,
+    where: { id: { in: ids } },
     select: {
       ...assignmentSelect,
       event: { select: { ...eventSelect, uniform: true, location: true } },
@@ -71,12 +75,20 @@ export async function readCommunicationPage(db, query = {}, { now = new Date(), 
     },
   }) : [];
   const itemsById = new Map(tasksFromAssignments(details, options).map((task) => [task.id, task]));
+  const hydratedTasks = assignmentTasks
+    .map((task) => itemsById.get(task.id))
+    .filter(Boolean);
+  const pageItems = groupDailyReminderTasks(hydratedTasks);
   const events = new Map();
   for (const task of tasks) {
-    if (!events.has(task.serviceId)) events.set(task.serviceId, { id: String(task.serviceId), name: task.eventName });
+    for (const assignmentTask of task.assignmentTasks || [task]) {
+      if (!events.has(assignmentTask.serviceId)) {
+        events.set(assignmentTask.serviceId, { id: String(assignmentTask.serviceId), name: assignmentTask.eventName });
+      }
+    }
   }
   return {
-    ...buildPaginatedPayload({ items: pageTasks.map((task) => itemsById.get(task.id)).filter(Boolean), total: filtered.length, page, pageSize }),
+    ...buildPaginatedPayload({ items: pageItems, total: filtered.length, page, pageSize }),
     summary: communicationSummary(tasks),
     events: [...events.values()],
   };

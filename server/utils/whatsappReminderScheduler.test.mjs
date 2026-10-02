@@ -50,8 +50,8 @@ test('accepts only confirmed opted-in assignments inside the next 24 hours', () 
   }), { now }).reason, 'day_cancelled');
 });
 
-test('uses one dedupe key per assignment and service day', () => {
-  assert.equal(reminderDedupeKey(assignment()), 'whatsapp_reminder_24h:501:2026-08-20');
+test('uses one dedupe key per collaborator and service day', () => {
+  assert.equal(reminderDedupeKey(assignment()), 'whatsapp_reminder_24h:collaborator:5:2026-08-20');
 });
 
 test('builds approved template variables in the configured order', () => {
@@ -83,6 +83,7 @@ test('sends once and records the provider message id', async () => {
   const db = {
     eventAssignment: { findMany: async () => [candidate] },
     communicationLog: {
+      findFirst: async () => null,
       create: async ({ data }) => {
         createdLogs.push(data);
         return { id: 900, ...data };
@@ -105,10 +106,71 @@ test('sends once and records the provider message id', async () => {
   });
 
   assert.deepEqual(result, { checked: 1, sent: 1, skipped: 0, failed: 0 });
-  assert.equal(createdLogs[0].dedupeKey, 'whatsapp_reminder_24h:501:2026-08-20');
+  assert.equal(createdLogs[0].dedupeKey, 'whatsapp_reminder_24h:collaborator:5:2026-08-20');
   assert.equal(sentMessages.length, 1);
   assert.equal(updatedLogs[0].status, 'accepted');
   assert.match(updatedLogs[0].response, /wamid\.test/);
+});
+
+test('sends one automatic reminder containing all confirmed shifts for a collaborator on that day', async () => {
+  const first = assignment();
+  const second = assignment({
+    id: 502,
+    plannedCheckIn: '20:00',
+    plannedCheckOut: '22:00',
+  });
+  const createdLogs = [];
+  const sentMessages = [];
+  const result = await processWhatsAppReminders({
+    db: {
+      eventAssignment: { findMany: async () => [first, second] },
+      communicationLog: {
+        findFirst: async () => null,
+        create: async ({ data }) => { createdLogs.push(data); return { id: 901, ...data }; },
+        update: async () => {},
+      },
+    },
+    now: new Date('2026-08-19T17:00:00.000Z'),
+    env: { WHATSAPP_REMINDER_TEMPLATE_FIELDS: 'event,date,start,end' },
+    sendMessage: async ({ message }) => {
+      sentMessages.push(message);
+      return { messages: [{ id: 'wamid.daily' }] };
+    },
+  });
+
+  assert.deepEqual(result, { checked: 2, sent: 1, skipped: 1, failed: 0 });
+  assert.equal(createdLogs.length, 1);
+  assert.equal(createdLogs[0].dedupeKey, 'whatsapp_reminder_24h:collaborator:5:2026-08-20');
+  assert.match(createdLogs[0].message, /18:00 → 23:00/);
+  assert.match(createdLogs[0].message, /20:00 → 22:00/);
+  assert.equal(sentMessages.length, 1);
+  assert.deepEqual(sentMessages[0].components[0].parameters.map((item) => item.text), [
+    'Jantar Institucional', '20/08/2026', '18:00', '23:00; 20:00 → 22:00',
+  ]);
+});
+
+test('does not send a second daily reminder when an earlier same-day shift already has an automatic log', async () => {
+  let sends = 0;
+  const result = await processWhatsAppReminders({
+    db: {
+      eventAssignment: {
+        findMany: async () => [
+          assignment({ plannedCheckIn: '09:00', plannedCheckOut: '13:00' }),
+          assignment({ id: 502, plannedCheckIn: '17:00', plannedCheckOut: '22:00' }),
+        ],
+      },
+      communicationLog: {
+        findFirst: async () => ({ id: 800 }),
+        create: async ({ data }) => ({ id: 901, ...data }),
+        update: async () => {},
+      },
+    },
+    now: new Date('2026-08-20T09:00:00.000Z'),
+    sendMessage: async () => { sends += 1; return {}; },
+  });
+
+  assert.deepEqual(result, { checked: 2, sent: 0, skipped: 2, failed: 0 });
+  assert.equal(sends, 0);
 });
 
 test('skips an already reserved reminder without sending again', async () => {
@@ -118,6 +180,7 @@ test('skips an already reserved reminder without sending again', async () => {
     db: {
       eventAssignment: { findMany: async () => [assignment()] },
       communicationLog: {
+      findFirst: async () => null,
         create: async () => { throw duplicate; },
         update: async () => {},
       },

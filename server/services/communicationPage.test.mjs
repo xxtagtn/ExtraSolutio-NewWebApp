@@ -93,6 +93,32 @@ test('server pages preserve all current communication rules and hydrate only req
   assert.equal(actual.find((row) => row.assignmentId === 71).state, 'scheduled');
 });
 
+test('communication page paginates same-day reminders as one collaborator row', async () => {
+  await db.event.create({ data: {
+    id: 40, name: 'Segundo Serviço', clientName: 'Cliente C', date: new Date('2026-09-24'),
+  } });
+  await db.eventAssignment.createMany({ data: [
+    { id: 380, eventId: 2, collaboratorId: 1, status: 'confirmed', whatsappEnabled: true, assignmentDate: new Date('2026-09-24'), plannedCheckIn: '09:00', plannedCheckOut: '13:00', role: 'Emp. Mesa' },
+    { id: 381, eventId: 2, collaboratorId: 1, status: 'confirmed', whatsappEnabled: true, assignmentDate: new Date('2026-09-24'), plannedCheckIn: '16:00', plannedCheckOut: '20:00', role: 'Emp. Mesa' },
+    { id: 382, eventId: 40, collaboratorId: 1, status: 'confirmed', whatsappEnabled: true, assignmentDate: new Date('2026-09-24'), plannedCheckIn: '20:30', plannedCheckOut: '23:30', role: 'Bar' },
+  ] });
+
+  try {
+    const result = await readCommunicationPage(db, {
+      kind: 'reminder_24h', state: 'all', eventId: '2', search: 'Joao Costa', pageSize: 1,
+    }, { now });
+    assert.equal(result.total, 1);
+    assert.equal(result.items.length, 1);
+    assert.deepEqual(result.items[0].assignmentIds, [380, 381, 382]);
+    assert.match(result.items[0].scheduleLabel, /09:00 → 13:00 · 16:00 → 20:00 · 20:30 → 23:30/);
+    assert.match(result.items[0].message, /20:30 → 23:30/);
+    assert.ok(result.events.some((event) => event.id === '40'));
+  } finally {
+    await db.eventAssignment.deleteMany({ where: { id: { in: [380, 381, 382] } } });
+    await db.event.delete({ where: { id: 40 } });
+  }
+});
+
 test('filters apply before pagination, including empty results and clearing filters', async () => {
   const result = await readCommunicationPage(db, { page: 2, pageSize: 10, search: 'Ana Silva', eventId: '1', kind: 'confirmation', state: 'open' }, { now });
   assert.equal(result.total, 21);

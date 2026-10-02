@@ -47,7 +47,7 @@ function assignmentEnd(assignment = {}) {
 }
 
 export function reminderDedupeKey(assignment = {}) {
-  return `whatsapp_reminder_24h:${assignment.id}:${assignmentDay(assignment)}`;
+  return `whatsapp_reminder_24h:collaborator:${assignment.collaboratorId}:${assignmentDay(assignment)}`;
 }
 
 export function evaluateReminderCandidate(assignment = {}, {
@@ -87,31 +87,37 @@ function eventName(assignment = {}) {
 }
 
 export function buildReminderText(assignment = {}) {
-  const start = assignmentStart(assignment);
-  const end = assignmentEnd(assignment);
+  const groupAssignments = assignment.groupAssignments || [assignment];
   return [
-    `Olá ${collaboratorName(assignment)}, lembramos que tens um serviço confirmado amanhã.`,
-    `Evento: ${eventName(assignment)}`,
+    `Olá ${collaboratorName(assignment)}, lembramos que tens ${groupAssignments.length === 1 ? 'um serviço confirmado' : 'serviços confirmados'} nesse dia.`,
     `Data: ${formatDatePt(assignmentDay(assignment))}`,
-    `Horário: ${[start, end].filter(Boolean).join(' → ')}`,
-    `Local: ${text(assignment.event?.location) || 'A confirmar'}`,
+    ...groupAssignments.map((item) => [
+      `Evento: ${eventName(item)}`,
+      `Horário: ${[assignmentStart(item), assignmentEnd(item)].filter(Boolean).join(' → ') || 'A confirmar'}`,
+      `Função: ${text(item.role) || 'A confirmar'}`,
+      `Local: ${text(item.event?.location) || 'A confirmar'}`,
+    ].join('\n')),
     'Informa a equipa ExtraSolutio, caso não consigas.',
-  ].join('\n');
+  ].join('\n\n');
 }
 
 function templateFieldValue(field, assignment) {
-  const start = assignmentStart(assignment);
-  const end = assignmentEnd(assignment);
+  const groupAssignments = assignment.groupAssignments || [assignment];
+  const start = assignmentStart(groupAssignments[0] || assignment);
+  const end = assignmentEnd(groupAssignments[0] || assignment);
+  const uniqueValues = (getValue) => [...new Set(groupAssignments.map(getValue).map(text).filter(Boolean))].join(' · ');
   const values = {
     collaborator: collaboratorName(assignment),
-    event: eventName(assignment),
+    event: uniqueValues((item) => eventName(item)),
     date: formatDatePt(assignmentDay(assignment)),
     start: start || 'A confirmar',
-    end: end || 'A confirmar',
-    schedule: [start, end].filter(Boolean).join(' → ') || 'A confirmar',
-    location: text(assignment.event?.location) || 'A confirmar',
-    role: text(assignment.role) || 'A confirmar',
-    client: text(assignment.event?.client?.name || assignment.event?.clientName) || 'A confirmar',
+    end: groupAssignments.length > 1
+      ? ([end, ...groupAssignments.slice(1).map((item) => [assignmentStart(item), assignmentEnd(item)].filter(Boolean).join(' → '))].filter(Boolean).join('; ') || 'A confirmar')
+      : end || 'A confirmar',
+    schedule: groupAssignments.map((item) => [assignmentStart(item), assignmentEnd(item)].filter(Boolean).join(' → ')).filter(Boolean).join('; ') || 'A confirmar',
+    location: uniqueValues((item) => item.event?.location) || 'A confirmar',
+    role: uniqueValues((item) => item.role) || 'A confirmar',
+    client: uniqueValues((item) => item.event?.client?.name || item.event?.clientName) || 'A confirmar',
   };
   return values[field] || '';
 }
@@ -137,6 +143,40 @@ export function buildReminderTemplateMessage(assignment = {}, env = process.env)
   };
 }
 
+function groupableConfirmedAssignment(assignment, timing) {
+  const decision = evaluateReminderCandidate({ ...assignment, whatsappEnabled: true }, timing);
+  if (!['due', 'too_early', 'already_started'].includes(decision.reason)) return null;
+  if (!decision.startsAt) return null;
+  return {
+    day: assignmentDay(assignment),
+    startsAt: decision.startsAt,
+    upcoming: decision.reason !== 'already_started',
+  };
+}
+
+function reminderGroupKey(assignment, day) {
+  return `${assignment.collaboratorId}:${day}`;
+}
+
+function groupReminderAssignments(assignments, timing) {
+  const groups = new Map();
+  for (const assignment of assignments) {
+    const schedule = groupableConfirmedAssignment(assignment, timing);
+    if (!schedule) continue;
+    const key = reminderGroupKey(assignment, schedule.day);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ assignment, ...schedule });
+  }
+
+  return [...groups.values()].map((rows) => {
+    const ordered = rows.sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
+    return {
+      assignments: ordered.filter((row) => row.upcoming).map((row) => row.assignment),
+      relatedAssignments: ordered.map((row) => row.assignment),
+    };
+  });
+}
+
 function providerResponse(result) {
   return JSON.stringify({
     messageId: result?.messages?.[0]?.id || null,
@@ -157,7 +197,6 @@ export async function processWhatsAppReminders({
   const until = new Date(from.getTime() + (3 * DAY_MS));
   const candidates = await db.eventAssignment.findMany({
     where: {
-      whatsappEnabled: true,
       OR: [
         { assignmentDate: { gte: from, lt: until } },
         { assignmentDate: null, event: { date: { gte: from, lt: until } } },
@@ -170,17 +209,40 @@ export async function processWhatsAppReminders({
   });
 
   const summary = { checked: candidates.length, sent: 0, skipped: 0, failed: 0 };
+  const groups = groupReminderAssignments(candidates, { now, timeZone });
+  const groupedCount = groups.reduce((sum, group) => sum + group.relatedAssignments.length, 0);
+  summary.skipped += candidates.length - groupedCount;
 
-  for (const assignment of candidates) {
-    const decision = evaluateReminderCandidate(assignment, { now, timeZone });
-    if (!decision.eligible) {
-      summary.skipped += 1;
+  for (const { assignments, relatedAssignments } of groups) {
+    if (!assignments.length) {
+      summary.skipped += relatedAssignments.length;
+      continue;
+    }
+    const dueAssignments = assignments.filter((assignment) => (
+      evaluateReminderCandidate(assignment, { now, timeZone }).eligible
+    ));
+    if (!dueAssignments.length || assignments.some((assignment) => assignment.whatsappEnabled !== true)) {
+      summary.skipped += relatedAssignments.length;
       continue;
     }
 
+    const assignment = assignments[0];
+    const groupedAssignment = { ...assignment, groupAssignments: assignments };
     const dedupeKey = reminderDedupeKey(assignment);
     let log;
     try {
+      const previousAutomaticReminder = await db.communicationLog.findFirst({
+        where: {
+          assignmentId: { in: relatedAssignments.map((item) => item.id) },
+          type: 'reminder_24h',
+          channel: 'automatic_whatsapp',
+        },
+        select: { id: true },
+      });
+      if (previousAutomaticReminder) {
+        summary.skipped += relatedAssignments.length;
+        continue;
+      }
       log = await db.communicationLog.create({
         data: {
           eventId: assignment.eventId,
@@ -189,25 +251,26 @@ export async function processWhatsAppReminders({
           type: 'reminder_24h',
           channel: 'automatic_whatsapp',
           status: 'sending',
-          message: buildReminderText(assignment),
+          message: buildReminderText(groupedAssignment),
           dedupeKey,
         },
       });
     } catch (error) {
       if (error?.code === 'P2002') {
-        summary.skipped += 1;
+        summary.skipped += relatedAssignments.length;
         continue;
       }
       throw error;
     }
 
     try {
-      const result = await sendMessage({ message: buildReminderTemplateMessage(assignment, env) });
+      const result = await sendMessage({ message: buildReminderTemplateMessage(groupedAssignment, env) });
       await db.communicationLog.update({
         where: { id: log.id },
         data: { status: 'accepted', sentAt: new Date(), response: providerResponse(result) },
       });
       summary.sent += 1;
+      summary.skipped += relatedAssignments.length - 1;
     } catch (error) {
       await db.communicationLog.update({
         where: { id: log.id },
@@ -215,6 +278,7 @@ export async function processWhatsAppReminders({
       });
       logger.error?.(`[whatsapp-reminder] Falha no envio da atribuição ${assignment.id}.`, error?.message || error);
       summary.failed += 1;
+      summary.skipped += relatedAssignments.length - 1;
     }
   }
 
