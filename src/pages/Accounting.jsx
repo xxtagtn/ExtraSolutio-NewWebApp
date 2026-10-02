@@ -501,24 +501,21 @@ function ClientFinancialEventTable({
     ].filter(Boolean);
 
     const openEventSummary = () => setSelectedEvent(event);
-    const handleEventKeyDown = (keyboardEvent) => {
-      if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') return;
-      keyboardEvent.preventDefault();
-      openEventSummary();
-    };
 
     return (
       <article
         key={`event-${event.id}`}
-        className="finance-client-event-row finance-client-event-row--clickable"
-        role="button"
-        tabIndex="0"
-        aria-label={`Ver resumo de ${event.name || 'Evento/Serviço'}`}
-        onClick={openEventSummary}
-        onKeyDown={handleEventKeyDown}
+        className="finance-client-event-row"
       >
         <div className="finance-client-event-name">
-          <strong>{event.name || 'Evento/Serviço'}</strong>
+          <button
+            className="finance-client-event-open"
+            type="button"
+            aria-label={`Ver resumo de ${event.name || 'Evento/Serviço'}`}
+            onClick={openEventSummary}
+          >
+            {event.name || 'Evento/Serviço'}
+          </button>
           {event.serviceReference ? (
             <span className="finance-client-event-reference">Ref. interna: {event.serviceReference}</span>
           ) : null}
@@ -697,7 +694,7 @@ function ClientFinancialEventTable({
                         </div>
                         <span>{durationHours(day.billableHours)} faturadas</span>
                         <div className="finance-event-day-summary__value">
-                          <small>Valor dos serviços</small>
+                          <small>Serviços a cobrar</small>
                           <strong>{day.pricingComplete ? money.format(day.billableValue) : '-'}</strong>
                         </div>
                         <ChevronDown size={16} aria-hidden="true" />
