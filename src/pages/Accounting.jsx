@@ -1579,12 +1579,6 @@ export default function Accounting() {
     }
   }, [staffCollaboratorOptions, staffFilters.collaboratorId]);
 
-  useEffect(() => {
-    if (staffFilters.date && !selectedPaymentWorkflowEntries.some((assignment) => assignmentWorkDateInputValue(assignment) === staffFilters.date)) {
-      setStaffFilters((prev) => ({ ...prev, date: '' }));
-    }
-  }, [selectedPaymentWorkflowEntries, staffFilters.date]);
-
   const filteredStaffEntries = useMemo(() => selectedPaymentStaffEntries
     .filter((assignment) => {
       if (staffFilters.eventId !== 'all' && String(assignment.event.id) !== staffFilters.eventId) return false;
