@@ -251,6 +251,11 @@ function assignmentWorkDateInputValue(assignment) {
   return dateInputValue(assignmentWorkDateValue(assignment));
 }
 
+function staffFilterPeriodMatches(assignment, period, workDate) {
+  return paymentMonthMatches(assignment, period)
+    || Boolean(workDate && assignmentWorkDateInputValue(assignment) === workDate);
+}
+
 function assignmentWorkDateTimestamp(assignment) {
   const value = assignmentWorkDateValue(assignment);
   const parsed = new Date(value || 0);
@@ -1498,19 +1503,23 @@ export default function Accounting() {
     .filter((assignment) => paymentMonthMatches(assignment, selectedMonth)),
   [allPaymentWorkflowEntries, selectedMonth]);
 
+  const staffFilterWorkflowEntries = useMemo(() => allPaymentWorkflowEntries
+    .filter((assignment) => staffFilterPeriodMatches(assignment, selectedMonth, staffFilters.date)),
+  [allPaymentWorkflowEntries, selectedMonth, staffFilters.date]);
+
   const staffEventOptions = useMemo(
-    () => [...new Map(selectedPaymentWorkflowEntries.map((assignment) => [String(assignment.event.id), assignment.event])).values()]
+    () => [...new Map(staffFilterWorkflowEntries.map((assignment) => [String(assignment.event.id), assignment.event])).values()]
       .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
       .map((event) => ({
         id: String(event.id),
         label: `${event.date ? date.format(new Date(event.date)) : '-'} · ${event.name}`,
       })),
-    [selectedPaymentWorkflowEntries],
+    [staffFilterWorkflowEntries],
   );
 
   const staffCollaboratorOptions = useMemo(() => {
     const map = new Map();
-    for (const assignment of selectedPaymentWorkflowEntries) {
+    for (const assignment of staffFilterWorkflowEntries) {
       if (!assignment.collaboratorId || map.has(String(assignment.collaboratorId))) continue;
       map.set(String(assignment.collaboratorId), {
         id: String(assignment.collaboratorId),
@@ -1518,7 +1527,7 @@ export default function Accounting() {
       });
     }
     return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt'));
-  }, [selectedPaymentWorkflowEntries]);
+  }, [staffFilterWorkflowEntries]);
 
   useEffect(() => {
     const area = searchParams.get('area');
@@ -1579,23 +1588,24 @@ export default function Accounting() {
     }
   }, [staffCollaboratorOptions, staffFilters.collaboratorId]);
 
-  const filteredStaffEntries = useMemo(() => selectedPaymentStaffEntries
+  const filteredStaffEntries = useMemo(() => allPaymentStaffEntries
     .filter((assignment) => {
+      if (!staffFilterPeriodMatches(assignment, selectedMonth, staffFilters.date)) return false;
       if (staffFilters.eventId !== 'all' && String(assignment.event.id) !== staffFilters.eventId) return false;
       if (staffFilters.date && assignmentWorkDateInputValue(assignment) !== staffFilters.date) return false;
       if (staffFilters.collaboratorId !== 'all' && String(assignment.collaboratorId) !== staffFilters.collaboratorId) return false;
       return true;
     }),
-  [selectedPaymentStaffEntries, staffFilters]);
+  [allPaymentStaffEntries, selectedMonth, staffFilters]);
 
-  const filteredPaymentWorkflowEntries = useMemo(() => selectedPaymentWorkflowEntries
+  const filteredPaymentWorkflowEntries = useMemo(() => staffFilterWorkflowEntries
     .filter((assignment) => {
       if (staffFilters.eventId !== 'all' && String(assignment.event.id) !== staffFilters.eventId) return false;
       if (staffFilters.date && assignmentWorkDateInputValue(assignment) !== staffFilters.date) return false;
       if (staffFilters.collaboratorId !== 'all' && String(assignment.collaboratorId) !== staffFilters.collaboratorId) return false;
       return true;
     }),
-  [selectedPaymentWorkflowEntries, staffFilters]);
+  [staffFilterWorkflowEntries, staffFilters]);
 
   const currentStaffCollaboratorCount = useMemo(() => {
     const ids = new Set();
