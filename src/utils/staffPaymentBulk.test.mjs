@@ -42,3 +42,16 @@ test('bulk non-paid update clears payment date', () => {
     paymentAdjustment: 0,
   });
 });
+
+test('new staff payment states remain non-paid and clear any payment date', () => {
+  for (const paymentStatus of ['penhorado', 'ganho']) {
+    assert.deepEqual(buildStaffPaymentStatusPayload({
+      paymentStatus,
+      paymentDate: '2026-06-16',
+    }, '2026-06-16'), {
+      paymentStatus,
+      paymentDate: null,
+      paymentAdjustment: 0,
+    });
+  }
+});

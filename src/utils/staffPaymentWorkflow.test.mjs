@@ -9,7 +9,14 @@ test('maps existing payment states to their workflow tabs', () => {
   assert.equal(staffPaymentWorkflowTab({ _financeReady: true, paymentStatus: 'unpaid' }), 'unpaid');
   assert.equal(staffPaymentWorkflowTab({ _financeReady: true, paymentStatus: 'validated_es' }), 'validated_es');
   assert.equal(staffPaymentWorkflowTab({ _financeReady: true, paymentStatus: 'awaiting_data' }), 'awaiting_data');
+  assert.equal(staffPaymentWorkflowTab({ _financeReady: true, paymentStatus: 'penhorado' }), 'penhorado');
+  assert.equal(staffPaymentWorkflowTab({ _financeReady: true, paymentStatus: 'ganho' }), 'ganho');
   assert.equal(staffPaymentWorkflowTab({ _financeReady: true, paymentStatus: 'paid' }), 'paid');
+});
+
+test('preserves the new payment states before finance validation', () => {
+  assert.equal(staffPaymentWorkflowTab({ _financeReady: false, paymentStatus: 'penhorado' }), 'penhorado');
+  assert.equal(staffPaymentWorkflowTab({ _financeReady: false, paymentStatus: 'ganho' }), 'ganho');
 });
 
 test('keeps non-ready assignments in the derived awaiting validation phase', () => {

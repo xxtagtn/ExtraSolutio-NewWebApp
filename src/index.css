@@ -5992,6 +5992,16 @@ th {
   border-color: rgba(245, 158, 11, 0.45);
 }
 
+.payment-state--penhorado {
+  color: #fdba74;
+  border-color: rgba(251, 146, 60, 0.55);
+}
+
+.payment-state--ganho {
+  color: #5eead4;
+  border-color: rgba(20, 184, 166, 0.5);
+}
+
 .payment-state--validated_es {
   color: #7dd3fc;
   border-color: rgba(14, 165, 233, 0.45);

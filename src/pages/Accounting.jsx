@@ -90,6 +90,8 @@ const PAYMENT_STATUS = [
   { value: 'validated_es', label: 'Validado ES' },
   { value: 'paid', label: 'Pago' },
   { value: 'awaiting_data', label: 'Aguardar por RV' },
+  { value: 'penhorado', label: 'Penhorado' },
+  { value: 'ganho', label: 'Ganho' },
 ];
 
 const BILLING_STATUS = [
