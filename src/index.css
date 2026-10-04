@@ -15393,11 +15393,17 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
 }
 
 .finance-payment-tools {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
+  display: grid;
   gap: 14px;
   margin: 12px 0 4px;
+}
+
+.finance-payment-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.65fr);
+  align-items: end;
+  gap: 12px;
+  min-width: 0;
 }
 
 .finance-payment-search {
@@ -15409,6 +15415,25 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
 }
 
 .finance-payment-search .form-control {
+  width: 100%;
+}
+
+.finance-payment-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.finance-payment-filter {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.finance-payment-filter select {
   width: 100%;
 }
 
@@ -15448,10 +15473,20 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     align-items: stretch;
   }
 
+  .finance-payment-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .finance-payment-search,
   .finance-payment-info {
     width: 100%;
     max-width: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .finance-payment-filters {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

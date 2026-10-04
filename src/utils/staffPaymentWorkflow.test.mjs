@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  staffPaymentFiltersMatch,
   staffPaymentSearchMatches,
   staffPaymentWorkflowTab,
 } from './staffPaymentWorkflow.js';
@@ -40,4 +41,13 @@ test('searches collaborators by name, short name or nif without accents', () => 
   assert.equal(staffPaymentSearchMatches(assignment, 'pecanha'), true);
   assert.equal(staffPaymentSearchMatches(assignment, '326077405'), true);
   assert.equal(staffPaymentSearchMatches(assignment, 'Ana'), false);
+});
+
+test('filters payment rows by event and collaborator independently', () => {
+  const assignment = { event: { id: 21 }, collaboratorId: 8 };
+
+  assert.equal(staffPaymentFiltersMatch(assignment, { eventId: '21', collaboratorId: '8' }), true);
+  assert.equal(staffPaymentFiltersMatch(assignment, { eventId: '22', collaboratorId: '8' }), false);
+  assert.equal(staffPaymentFiltersMatch(assignment, { eventId: 'all', collaboratorId: '9' }), false);
+  assert.equal(staffPaymentFiltersMatch(assignment, { eventId: 'all', collaboratorId: 'all' }), true);
 });

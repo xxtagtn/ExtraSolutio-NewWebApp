@@ -37,3 +37,8 @@ export function staffPaymentSearchMatches(assignment, search) {
     assignment?.collaborator?.nif,
   ].some((value) => normalized(value).includes(query));
 }
+
+export function staffPaymentFiltersMatch(assignment, filters = {}) {
+  return (filters.eventId === 'all' || String(assignment?.event?.id) === String(filters.eventId))
+    && (filters.collaboratorId === 'all' || String(assignment?.collaboratorId) === String(filters.collaboratorId));
+}

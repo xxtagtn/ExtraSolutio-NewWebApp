@@ -11,6 +11,7 @@ export async function updateAssignmentsInBulk({
   include,
   normalizeUpdate,
   synchronizeEvent,
+  afterUpdate,
 }) {
   if (!Array.isArray(updates) || !updates.length) {
     throw httpError('Indica pelo menos uma linha para atualizar.', 400);
@@ -60,6 +61,7 @@ export async function updateAssignmentsInBulk({
         include,
       });
       result.push(row);
+      await afterUpdate?.({ row, existing: item.existing, client: tx });
       const eventId = Number(row.eventId);
       if (Number.isInteger(eventId) && eventId > 0) eventIds.add(eventId);
     }

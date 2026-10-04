@@ -820,6 +820,11 @@ apiRouter.put('/assignments/bulk', assignmentsWrite, asyncHandler(async (req, re
     synchronizeEvent: (eventId, client) => synchronizeEventWorkflow(client, eventId, {
       recalculateTotals: true,
     }),
+    afterUpdate: ({ row, existing, client }) => {
+      if (existing?.paymentStatus !== 'paid' && row.paymentStatus === 'paid') {
+        return persistPaidStaffTravelSnapshot(client, row);
+      }
+    },
   });
   res.json(rows.map((row) => maskAssignmentForRole(row, req.user)));
 }));

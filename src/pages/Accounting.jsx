@@ -72,6 +72,7 @@ import {
 } from '../utils/staffPayment.js';
 import { hasPaymentNotes, normalizePaymentNotes } from '../utils/staffPaymentNotes.js';
 import {
+  staffPaymentFiltersMatch,
   STAFF_PAYMENT_WORKFLOW_TABS,
   staffPaymentSearchMatches,
   staffPaymentWorkflowTab,
@@ -1097,6 +1098,7 @@ export default function Accounting() {
   const [archiveMonth, setArchiveMonth] = useState(() => `${new Date().getFullYear()}-00`);
   const [archiveClientId, setArchiveClientId] = useState('all');
   const [staffFilters, setStaffFilters] = useState({ eventId: 'all', collaboratorId: 'all', date: '' });
+  const [staffPaymentFilters, setStaffPaymentFilters] = useState({ eventId: 'all', collaboratorId: 'all' });
   const [staffPaymentTab, setStaffPaymentTab] = useState('unpaid');
   const [staffPaymentSearch, setStaffPaymentSearch] = useState('');
   const [staffPaymentPage, setStaffPaymentPage] = useState(1);
@@ -1668,13 +1670,14 @@ export default function Accounting() {
     .sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)), [selectedPaymentStaffEntries]);
 
   const paymentWorkflowEntries = useMemo(() => filteredPaymentWorkflowEntries
+    .filter((assignment) => staffPaymentFiltersMatch(assignment, staffPaymentFilters))
     .map((assignment) => ({
       ...assignment,
       paymentStatus: staffPaymentDrafts[assignment.id]?.paymentStatus || assignment.paymentStatus || 'unpaid',
       paymentDate: staffPaymentDrafts[assignment.id]?.paymentDate ?? assignment.paymentDate,
     }))
     .sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)),
-  [filteredPaymentWorkflowEntries, staffPaymentDrafts]);
+  [filteredPaymentWorkflowEntries, staffPaymentDrafts, staffPaymentFilters]);
 
   const staffPaymentTabCounts = useMemo(() => {
     const counts = Object.fromEntries(STAFF_PAYMENT_WORKFLOW_TABS.map((tab) => [tab.id, 0]));
@@ -1717,7 +1720,7 @@ export default function Accounting() {
 
   useEffect(() => {
     setStaffPaymentPage(1);
-  }, [selectedMonth, staffFilters.collaboratorId, staffFilters.date, staffFilters.eventId, staffPaymentSearch, staffPaymentTab]);
+  }, [selectedMonth, staffFilters.collaboratorId, staffFilters.date, staffFilters.eventId, staffPaymentFilters.collaboratorId, staffPaymentFilters.eventId, staffPaymentSearch, staffPaymentTab]);
 
   useEffect(() => {
     if (staffPaymentPage !== staffPaymentPagination.currentPage) {
@@ -1924,18 +1927,22 @@ export default function Accounting() {
     setSelectedStaffPaymentIds([]);
     setBulkUpdatingPayments(true);
     try {
-      await Promise.all(selectedVisibleStaffPayments.map((assignment) => {
+      const updates = selectedVisibleStaffPayments.map((assignment) => {
         const draft = paymentDraftFor(assignment);
-        return api(`/assignments/${assignment.id}`, {
-          method: 'PUT',
-          body: JSON.stringify(buildStaffPaymentStatusPayload({
+        return {
+          id: assignment.id,
+          data: buildStaffPaymentStatusPayload({
             paymentStatus: bulkPaymentStatus,
             paymentDate,
             paymentAdjustment: draft.paymentAdjustment,
             paymentDeferredMonth: assignment.paymentDeferredMonth || null,
-          }, todayIso())),
-        });
-      }));
+          }, todayIso()),
+        };
+      });
+      await api('/assignments/bulk', {
+        method: 'PUT',
+        body: JSON.stringify({ updates }),
+      });
       reload({ background: true });
     } catch (error) {
       setStaffPaymentDrafts((prev) => {
@@ -2973,16 +2980,40 @@ export default function Accounting() {
               ))}
             </div>
             <div className="finance-payment-tools">
-              <label className="finance-payment-search">
-                <span>Pesquisar no separador</span>
-                <input
-                  className="form-control"
-                  type="search"
-                  value={staffPaymentSearch}
-                  placeholder="Nome ou NIF do colaborador"
-                  onChange={(event) => setStaffPaymentSearch(event.target.value)}
-                />
-              </label>
+              <div className="finance-payment-controls">
+                <label className="finance-payment-search">
+                  <span>Pesquisar no separador</span>
+                  <input
+                    className="form-control"
+                    type="search"
+                    value={staffPaymentSearch}
+                    placeholder="Nome ou NIF do colaborador"
+                    onChange={(event) => setStaffPaymentSearch(event.target.value)}
+                  />
+                </label>
+                <div className="finance-payment-filters">
+                  <label className="finance-payment-filter">Eventos/Serviços
+                    <select
+                      className="form-control"
+                      value={staffPaymentFilters.eventId}
+                      onChange={(event) => setStaffPaymentFilters((prev) => ({ ...prev, eventId: event.target.value }))}
+                    >
+                      <option value="all">Todos os eventos/serviços</option>
+                      {staffEventOptions.map((event) => <option key={event.id} value={event.id}>{event.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="finance-payment-filter">Colaboradores
+                    <select
+                      className="form-control"
+                      value={staffPaymentFilters.collaboratorId}
+                      onChange={(event) => setStaffPaymentFilters((prev) => ({ ...prev, collaboratorId: event.target.value }))}
+                    >
+                      <option value="all">Todos os colaboradores</option>
+                      {staffCollaboratorOptions.map((collaborator) => <option key={collaborator.id} value={collaborator.id}>{collaborator.label}</option>)}
+                    </select>
+                  </label>
+                </div>
+              </div>
               {staffPaymentTab === 'awaiting_validation' ? (
                 <p className="finance-payment-info">
                   Estes registos aguardam a validação das horas e ainda não podem ser processados para pagamento.
