@@ -64,6 +64,11 @@ import {
 import { buildStaffPaymentStatusPayload } from '../utils/staffPaymentBulk.js';
 import { staffPaymentLinkSelection } from '../utils/deepLinks.js';
 import {
+  createStaffPaymentGroupSnapshot,
+  groupStaffPaymentEntries,
+  restoreStaffPaymentSnapshotGroups,
+} from '../utils/staffPaymentGroups.js';
+import {
   assignmentWorkDateValue,
   nextStaffPaymentMonth,
   staffPaymentRequiresAttention,
@@ -72,7 +77,7 @@ import {
 } from '../utils/staffPayment.js';
 import { hasPaymentNotes, normalizePaymentNotes } from '../utils/staffPaymentNotes.js';
 import {
-  staffPaymentFiltersMatch,
+  countStaffPaymentTabs,
   STAFF_PAYMENT_WORKFLOW_TABS,
   staffPaymentSearchMatches,
   staffPaymentWorkflowTab,
@@ -93,6 +98,11 @@ const PAYMENT_STATUS = [
   { value: 'awaiting_data', label: 'Aguardar por RV' },
   { value: 'penhorado', label: 'Penhorado' },
   { value: 'ganho', label: 'Ganho' },
+];
+
+const STAFF_PAYMENT_TABS = [
+  { id: 'all', label: 'Todos os serviços', countBy: 'services' },
+  ...STAFF_PAYMENT_WORKFLOW_TABS,
 ];
 
 const BILLING_STATUS = [
@@ -1098,11 +1108,12 @@ export default function Accounting() {
   const [archiveMonth, setArchiveMonth] = useState(() => `${new Date().getFullYear()}-00`);
   const [archiveClientId, setArchiveClientId] = useState('all');
   const [staffFilters, setStaffFilters] = useState({ eventId: 'all', collaboratorId: 'all', date: '' });
-  const [staffPaymentFilters, setStaffPaymentFilters] = useState({ eventId: 'all', collaboratorId: 'all' });
   const [staffPaymentTab, setStaffPaymentTab] = useState('unpaid');
   const [staffPaymentSearch, setStaffPaymentSearch] = useState('');
   const [staffPaymentPage, setStaffPaymentPage] = useState(1);
   const [staffPaymentPageSize, setStaffPaymentPageSize] = useState('10');
+  const [expandedStaffPaymentGroupKey, setExpandedStaffPaymentGroupKey] = useState(null);
+  const [staffPaymentPresentationSnapshot, setStaffPaymentPresentationSnapshot] = useState(null);
   const [pendingStaffAssignmentLink, setPendingStaffAssignmentLink] = useState('');
   const [staffPaymentDrafts, setStaffPaymentDrafts] = useState({});
   const [selectedStaffPaymentIds, setSelectedStaffPaymentIds] = useState([]);
@@ -1611,6 +1622,48 @@ export default function Accounting() {
     }),
   [staffFilterWorkflowEntries, staffFilters]);
 
+  const filteredForecastPaymentStaffEntries = useMemo(
+    () => filteredPaymentWorkflowEntries.filter((assignment) => assignment._financeReady === false),
+    [filteredPaymentWorkflowEntries],
+  );
+
+  const filteredReadyStaffUnpaidEntries = useMemo(
+    () => filteredStaffEntries.filter((assignment) => assignment.paymentStatus !== 'paid'),
+    [filteredStaffEntries],
+  );
+
+  const filteredReadyStaffCollaboratorCount = useMemo(() => {
+    const ids = new Set(filteredStaffEntries
+      .map((assignment) => assignment.collaboratorId)
+      .filter((id) => id !== null && id !== undefined && id !== '')
+      .map(String));
+    return ids.size;
+  }, [filteredStaffEntries]);
+
+  const filteredReadyStaffEventCount = useMemo(() => new Set(
+    filteredStaffEntries
+      .map((assignment) => assignment.event?.id)
+      .filter((id) => id !== null && id !== undefined && id !== '')
+      .map(String),
+  ).size, [filteredStaffEntries]);
+
+  const filteredForecastStaffEventCount = useMemo(() => new Set(
+    filteredForecastPaymentStaffEntries
+      .map((assignment) => assignment.event?.id)
+      .filter((id) => id !== null && id !== undefined && id !== '')
+      .map(String),
+  ).size, [filteredForecastPaymentStaffEntries]);
+
+  const filteredForecastStaffTotal = useMemo(
+    () => filteredForecastPaymentStaffEntries.reduce((sum, assignment) => sum + assignmentOutstandingPay(assignment), 0),
+    [filteredForecastPaymentStaffEntries],
+  );
+
+  const filteredReadyStaffTotal = useMemo(
+    () => filteredReadyStaffUnpaidEntries.reduce((sum, assignment) => sum + assignmentOutstandingPay(assignment), 0),
+    [filteredReadyStaffUnpaidEntries],
+  );
+
   const currentStaffCollaboratorCount = useMemo(() => {
     const ids = new Set();
     for (const assignment of selectedPaymentStaffEntries) {
@@ -1670,38 +1723,95 @@ export default function Accounting() {
     .sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)), [selectedPaymentStaffEntries]);
 
   const paymentWorkflowEntries = useMemo(() => filteredPaymentWorkflowEntries
-    .filter((assignment) => staffPaymentFiltersMatch(assignment, staffPaymentFilters))
     .map((assignment) => ({
       ...assignment,
       paymentStatus: staffPaymentDrafts[assignment.id]?.paymentStatus || assignment.paymentStatus || 'unpaid',
       paymentDate: staffPaymentDrafts[assignment.id]?.paymentDate ?? assignment.paymentDate,
     }))
     .sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)),
-  [filteredPaymentWorkflowEntries, staffPaymentDrafts, staffPaymentFilters]);
+  [filteredPaymentWorkflowEntries, staffPaymentDrafts]);
 
-  const staffPaymentTabCounts = useMemo(() => {
-    const counts = Object.fromEntries(STAFF_PAYMENT_WORKFLOW_TABS.map((tab) => [tab.id, 0]));
-    for (const assignment of paymentWorkflowEntries) {
-      const tab = staffPaymentWorkflowTab(assignment);
-      counts[tab] = (counts[tab] || 0) + 1;
-    }
-    return counts;
-  }, [paymentWorkflowEntries]);
-
-  const visibleStaffPayments = useMemo(() => paymentWorkflowEntries
-    .filter((assignment) => staffPaymentWorkflowTab(assignment) === staffPaymentTab)
+  const searchedPaymentWorkflowEntries = useMemo(() => paymentWorkflowEntries
     .filter((assignment) => staffPaymentSearchMatches(assignment, staffPaymentSearch)),
-  [paymentWorkflowEntries, staffPaymentSearch, staffPaymentTab]);
+  [paymentWorkflowEntries, staffPaymentSearch]);
+
+  const staffPaymentTabCounts = useMemo(
+    () => countStaffPaymentTabs(searchedPaymentWorkflowEntries, STAFF_PAYMENT_TABS),
+    [searchedPaymentWorkflowEntries],
+  );
+
+  const staffPaymentPresentationScopeKey = JSON.stringify([
+    activeArea,
+    selectedMonth,
+    staffFilters.eventId,
+    staffFilters.collaboratorId,
+    staffFilters.date,
+    staffPaymentSearch,
+    staffPaymentTab,
+  ]);
+  const visibleStaffPayments = useMemo(() => searchedPaymentWorkflowEntries
+    .filter((assignment) => staffPaymentTab === 'all' || staffPaymentWorkflowTab(assignment) === staffPaymentTab),
+  [searchedPaymentWorkflowEntries, staffPaymentTab]);
+  const staffPaymentGroupsForDisplay = useMemo(() => {
+    if (staffPaymentPresentationSnapshot?.scopeKey !== staffPaymentPresentationScopeKey) {
+      return groupStaffPaymentEntries(visibleStaffPayments);
+    }
+    return restoreStaffPaymentSnapshotGroups(
+      searchedPaymentWorkflowEntries,
+      staffPaymentPresentationSnapshot.groups,
+      (assignment) => staffPaymentTab === 'all' || staffPaymentWorkflowTab(assignment) === staffPaymentTab,
+    );
+  }, [
+    searchedPaymentWorkflowEntries,
+    staffPaymentPresentationScopeKey,
+    staffPaymentPresentationSnapshot,
+    staffPaymentTab,
+    visibleStaffPayments,
+  ]);
+  const visibleStaffPaymentGroups = useMemo(() => staffPaymentGroupsForDisplay.map((group) => {
+    const summary = {
+      ...group,
+      hours: 0,
+      total: 0,
+      adjustments: 0,
+      paid: 0,
+      outstanding: 0,
+      statusCounts: new Map(),
+    };
+    for (const assignment of group.assignments) {
+      const adjustment = staffPaymentDrafts[assignment.id]?.paymentAdjustment
+        ?? adjustmentInputValue(assignment.paymentAdjustment);
+      const grossTotal = assignmentPayWithVat({ ...assignment, paymentAdjustment: adjustment });
+      const advances = assignmentAdvances(assignment);
+      const outstanding = staffPaymentRemaining(grossTotal, advances);
+      const status = staffPaymentWorkflowTab(assignment);
+      summary.hours += assignmentHours(assignment);
+      summary.total += outstanding;
+      summary.adjustments += decimalValue(adjustment) || 0;
+      if (assignment.paymentStatus === 'paid') summary.paid += outstanding;
+      else summary.outstanding += outstanding;
+      summary.statusCounts.set(status, (summary.statusCounts.get(status) || 0) + 1);
+    }
+    return summary;
+  }), [staffPaymentGroupsForDisplay, staffPaymentDrafts]);
   const staffPaymentPagination = useMemo(() => {
     const pageSize = staffPaymentPageSize === 'all'
-      ? Math.max(visibleStaffPayments.length, 1)
+      ? Math.max(visibleStaffPaymentGroups.length, 1)
       : Number(staffPaymentPageSize);
-    return paginateItems(visibleStaffPayments, staffPaymentPage, pageSize);
-  }, [staffPaymentPage, staffPaymentPageSize, visibleStaffPayments]);
+    return paginateItems(visibleStaffPaymentGroups, staffPaymentPage, pageSize);
+  }, [staffPaymentPage, staffPaymentPageSize, visibleStaffPaymentGroups]);
   const staffPaymentTabActionable = staffPaymentTab !== 'awaiting_validation';
   const visibleStaffPaymentIds = useMemo(
-    () => (staffPaymentTabActionable ? visibleStaffPayments.map((assignment) => String(assignment.id)) : []),
+    () => (staffPaymentTabActionable
+      ? visibleStaffPayments
+        .filter((assignment) => staffPaymentWorkflowTab(assignment) !== 'awaiting_validation')
+        .map((assignment) => String(assignment.id))
+      : []),
     [staffPaymentTabActionable, visibleStaffPayments],
+  );
+  const visibleStaffPaymentIdSet = useMemo(
+    () => new Set(visibleStaffPaymentIds),
+    [visibleStaffPaymentIds],
   );
   const selectedStaffPaymentIdSet = useMemo(
     () => new Set(selectedStaffPaymentIds),
@@ -1720,9 +1830,12 @@ export default function Accounting() {
 
   useEffect(() => {
     setStaffPaymentPage(1);
-  }, [selectedMonth, staffFilters.collaboratorId, staffFilters.date, staffFilters.eventId, staffPaymentFilters.collaboratorId, staffPaymentFilters.eventId, staffPaymentSearch, staffPaymentTab]);
+    setExpandedStaffPaymentGroupKey(null);
+    setStaffPaymentPresentationSnapshot(null);
+  }, [activeArea, selectedMonth, staffFilters.collaboratorId, staffFilters.date, staffFilters.eventId, staffPaymentSearch, staffPaymentTab]);
 
   useEffect(() => {
+    setExpandedStaffPaymentGroupKey(null);
     if (staffPaymentPage !== staffPaymentPagination.currentPage) {
       setStaffPaymentPage(staffPaymentPagination.currentPage);
     }
@@ -1859,13 +1972,22 @@ export default function Accounting() {
     }));
   }
 
+  function preserveStaffPaymentListPosition() {
+    const snapshot = {
+      scopeKey: staffPaymentPresentationScopeKey,
+      groups: createStaffPaymentGroupSnapshot(visibleStaffPaymentGroups),
+    };
+    setStaffPaymentPresentationSnapshot((current) => (
+      current?.scopeKey === snapshot.scopeKey ? current : snapshot
+    ));
+  }
+
   async function changePaymentStatus(assignment, paymentStatus) {
     const assignmentId = String(assignment.id);
-    const previousDraft = staffPaymentDrafts[assignment.id];
     const draft = paymentDraftFor(assignment);
     const paymentDate = paymentStatus === 'paid' ? (draft.paymentDate || todayIso()) : '';
 
-    updatePaymentDraft(assignment.id, { paymentStatus, paymentDate });
+    if (draft.paymentStatus !== paymentStatus) preserveStaffPaymentListPosition();
     setSelectedStaffPaymentIds((prev) => prev.filter((id) => id !== assignmentId));
 
     try {
@@ -1876,13 +1998,8 @@ export default function Accounting() {
         draft.paymentAdjustment,
         assignment.paymentDeferredMonth || null,
       );
+      updatePaymentDraft(assignment.id, { paymentStatus, paymentDate });
     } catch (error) {
-      setStaffPaymentDrafts((prev) => {
-        const next = { ...prev };
-        if (previousDraft) next[assignment.id] = previousDraft;
-        else delete next[assignment.id];
-        return next;
-      });
       if (!isSessionExpiredError(error)) window.alert(error?.message || 'Não foi possível alterar o estado do pagamento.');
     }
   }
@@ -1905,25 +2022,24 @@ export default function Accounting() {
     setSelectedStaffPaymentIds(checked ? visibleStaffPaymentIds : []);
   }
 
+  function toggleStaffPaymentGroupSelection(group, checked) {
+    const groupIds = group.assignments
+      .map((assignment) => String(assignment.id))
+      .filter((id) => visibleStaffPaymentIdSet.has(id));
+    setSelectedStaffPaymentIds((prev) => {
+      const next = new Set(prev);
+      for (const id of groupIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return [...next];
+    });
+  }
+
   async function applyBulkPaymentStatus() {
     if (!selectedVisibleStaffPayments.length || bulkUpdatingPayments) return;
+    preserveStaffPaymentListPosition();
     const paymentDate = bulkPaymentStatus === 'paid' ? (bulkPaymentDate || todayIso()) : '';
-    const previousDrafts = Object.fromEntries(selectedVisibleStaffPayments.map((assignment) => [
-      assignment.id,
-      staffPaymentDrafts[assignment.id],
-    ]));
-
-    setStaffPaymentDrafts((prev) => {
-      const next = { ...prev };
-      for (const assignment of selectedVisibleStaffPayments) {
-        next[assignment.id] = {
-          ...(next[assignment.id] || {}),
-          paymentStatus: bulkPaymentStatus,
-          paymentDate,
-        };
-      }
-      return next;
-    });
     setSelectedStaffPaymentIds([]);
     setBulkUpdatingPayments(true);
     try {
@@ -1943,17 +2059,19 @@ export default function Accounting() {
         method: 'PUT',
         body: JSON.stringify({ updates }),
       });
-      reload({ background: true });
-    } catch (error) {
       setStaffPaymentDrafts((prev) => {
         const next = { ...prev };
         for (const assignment of selectedVisibleStaffPayments) {
-          const previous = previousDrafts[assignment.id];
-          if (previous) next[assignment.id] = previous;
-          else delete next[assignment.id];
+          next[assignment.id] = {
+            ...(next[assignment.id] || {}),
+            paymentStatus: bulkPaymentStatus,
+            paymentDate,
+          };
         }
         return next;
       });
+      reload({ background: true });
+    } catch (error) {
       setSelectedStaffPaymentIds(selectedVisibleStaffPayments.map((assignment) => String(assignment.id)));
       if (!isSessionExpiredError(error)) window.alert(error?.message || 'Não foi possível alterar os pagamentos selecionados.');
     } finally {
@@ -2171,7 +2289,7 @@ export default function Accounting() {
   };
 
   const forecastStaffPreviewRows = topItems(
-    [...forecastPaymentStaffEntries].sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)),
+    [...filteredForecastPaymentStaffEntries].sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)),
     5,
   );
 
@@ -2799,11 +2917,11 @@ export default function Accounting() {
                   <small>Previsão Staff</small>
                   <h2>Não processável</h2>
                 </div>
-                <Badge tone="warning">{forecastPaymentStaffEntries.length} registo(s)</Badge>
+                <Badge tone="warning">{filteredForecastPaymentStaffEntries.length} registo(s)</Badge>
               </header>
               <div className="finance-readiness-metrics">
-                <div><span>Total previsto</span><strong>{money.format(forecastFinanceSummary.staffPayments)}</strong></div>
-                <div><span>Eventos</span><strong>{forecastFinanceSummary.events}</strong></div>
+                <div><span>Total previsto</span><strong>{money.format(filteredForecastStaffTotal)}</strong></div>
+                <div><span>Eventos</span><strong>{filteredForecastStaffEventCount}</strong></div>
               </div>
               <div className="finance-readiness-list">
                 {forecastStaffPreviewRows.map((assignment) => (
@@ -2826,46 +2944,15 @@ export default function Accounting() {
                   <small>Pagamentos prontos</small>
                   <h2>Validado</h2>
                 </div>
-                <Badge tone="success">{selectedPaymentStaffEntries.length} registo(s)</Badge>
+                <Badge tone="success">{filteredStaffEntries.length} registo(s)</Badge>
               </header>
               <div className="finance-readiness-metrics">
-                <div><span>A pagar</span><strong>{money.format(readyFinanceSummary.staffPayments)}</strong></div>
-                <div><span>Colaboradores</span><strong>{currentStaffCollaboratorCount}</strong></div>
+                <div><span>A pagar</span><strong>{money.format(filteredReadyStaffTotal)}</strong></div>
+                <div><span>Colaboradores</span><strong>{filteredReadyStaffCollaboratorCount}</strong></div>
               </div>
-              <p className="muted">Só estes registos entram na tabela de pagamentos e nas ações em massa.</p>
+              <p className="muted">{filteredReadyStaffEventCount} evento(s) · Só registos validados entram nas ações em massa.</p>
             </section>
           </div>
-
-          <Card title="Filtros de Staff" className="finance-span-2">
-            <div className="finance-filter-grid">
-              <label>Evento/Serviço
-                <select value={staffFilters.eventId} onChange={(event) => setStaffFilters((prev) => ({ ...prev, eventId: event.target.value }))}>
-                  <option value="all">Todos os eventos/serviços</option>
-                  {staffEventOptions.map((event) => <option key={event.id} value={event.id}>{event.label}</option>)}
-                </select>
-              </label>
-              <label>Colaborador
-                <select value={staffFilters.collaboratorId} onChange={(event) => setStaffFilters((prev) => ({ ...prev, collaboratorId: event.target.value }))}>
-                  <option value="all">Todos os colaboradores</option>
-                  {staffCollaboratorOptions.map((collaborator) => <option key={collaborator.id} value={collaborator.id}>{collaborator.label}</option>)}
-                </select>
-              </label>
-              <label>Data
-                <input
-                  type="date"
-                  value={staffFilters.date}
-                  onChange={(event) => {
-                    const nextDate = event.target.value;
-                    setStaffFilters((prev) => ({ ...prev, date: nextDate }));
-                    if (nextDate) setSelectedMonth(nextDate.slice(0, 7));
-                  }}
-                />
-              </label>
-              <button className="secondary-button" type="button" onClick={() => setStaffFilters({ eventId: 'all', collaboratorId: 'all', date: '' })}>
-                Limpar filtros
-              </button>
-            </div>
-          </Card>
 
           <Card title="Custos por Colaborador">
             <div className="table-wrap">
@@ -2962,7 +3049,7 @@ export default function Accounting() {
 
           <Card title="Pagamentos de Staff" className="finance-span-2">
             <div className="service-tabs budget-tabs finance-tabs finance-payment-tabs" role="tablist" aria-label="Estado dos pagamentos de staff">
-              {STAFF_PAYMENT_WORKFLOW_TABS.map((tab) => (
+              {STAFF_PAYMENT_TABS.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
@@ -2995,8 +3082,8 @@ export default function Accounting() {
                   <label className="finance-payment-filter">Eventos/Serviços
                     <select
                       className="form-control"
-                      value={staffPaymentFilters.eventId}
-                      onChange={(event) => setStaffPaymentFilters((prev) => ({ ...prev, eventId: event.target.value }))}
+                      value={staffFilters.eventId}
+                      onChange={(event) => setStaffFilters((prev) => ({ ...prev, eventId: event.target.value }))}
                     >
                       <option value="all">Todos os eventos/serviços</option>
                       {staffEventOptions.map((event) => <option key={event.id} value={event.id}>{event.label}</option>)}
@@ -3005,18 +3092,42 @@ export default function Accounting() {
                   <label className="finance-payment-filter">Colaboradores
                     <select
                       className="form-control"
-                      value={staffPaymentFilters.collaboratorId}
-                      onChange={(event) => setStaffPaymentFilters((prev) => ({ ...prev, collaboratorId: event.target.value }))}
+                      value={staffFilters.collaboratorId}
+                      onChange={(event) => setStaffFilters((prev) => ({ ...prev, collaboratorId: event.target.value }))}
                     >
                       <option value="all">Todos os colaboradores</option>
                       {staffCollaboratorOptions.map((collaborator) => <option key={collaborator.id} value={collaborator.id}>{collaborator.label}</option>)}
                     </select>
                   </label>
+                  <label className="finance-payment-filter">Data
+                    <input
+                      className="form-control"
+                      type="date"
+                      value={staffFilters.date}
+                      onChange={(event) => {
+                        const nextDate = event.target.value;
+                        setStaffFilters((prev) => ({ ...prev, date: nextDate }));
+                        if (nextDate) setSelectedMonth(nextDate.slice(0, 7));
+                      }}
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setStaffFilters({ eventId: 'all', collaboratorId: 'all', date: '' })}
+                  >
+                    Limpar filtros
+                  </button>
                 </div>
               </div>
               {staffPaymentTab === 'awaiting_validation' ? (
                 <p className="finance-payment-info">
                   Estes registos aguardam a validação das horas e ainda não podem ser processados para pagamento.
+                </p>
+              ) : null}
+              {staffPaymentTab !== 'awaiting_validation' && visibleStaffPayments.length > 0 && !visibleStaffPaymentIds.length ? (
+                <p className="finance-payment-info">
+                  Todos os registos apresentados aguardam validação das horas. Valide-os primeiro para os poder selecionar e alterar em massa.
                 </p>
               ) : null}
             </div>
@@ -3026,9 +3137,10 @@ export default function Accounting() {
                   type="checkbox"
                   checked={allVisibleStaffPaymentsSelected}
                   disabled={!visibleStaffPaymentIds.length || bulkUpdatingPayments}
+                  title={!visibleStaffPaymentIds.length ? 'Os registos apresentados aguardam validação das horas.' : undefined}
                   onChange={(event) => toggleAllVisibleStaffPayments(event.target.checked)}
                 />
-                <span>Selecionar todos</span>
+                <span>{staffPaymentTab === 'all' ? 'Selecionar todos os elegíveis' : 'Selecionar todos'}</span>
               </label>
               <span className="muted">{selectedVisibleStaffPayments.length} selecionado(s)</span>
               <select
@@ -3069,43 +3181,132 @@ export default function Accounting() {
               ) : null}
             </div> : null}
             <div className="table-wrap">
-              <table className="finance-staff-payment-table">
+              <table className="finance-staff-payment-groups">
                 <thead>
                   <tr>
                     <th>
                       <input
                         type="checkbox"
-                        aria-label="Selecionar todos os pagamentos visíveis"
+                        aria-label="Selecionar todos os pagamentos processáveis visíveis"
                         checked={allVisibleStaffPaymentsSelected}
                         disabled={!staffPaymentTabActionable || !visibleStaffPaymentIds.length || bulkUpdatingPayments}
+                        title={!visibleStaffPaymentIds.length ? 'Os registos apresentados aguardam validação das horas.' : undefined}
                         onChange={(event) => toggleAllVisibleStaffPayments(event.target.checked)}
                       />
                     </th>
                     <th>Colaborador</th>
-                    <th>Evento</th>
-                    <th>Data</th>
-                    <th>Horário Cliente</th>
+                    <th>Serviços</th>
                     <th>Horas</th>
-                    <th>Valor/h</th>
                     <th>Ajustes</th>
-                    <th>Adiant.</th>
-                    <th>Carro</th>
-                    <th>A pagar</th>
-                    <th>Estado</th>
-                    {staffPaymentTab === 'unpaid' ? <th>Ação</th> : null}
+                    <th>Total</th>
+                    <th>Já pago</th>
+                    <th>Por pagar</th>
+                    <th>Detalhes</th>
                   </tr>
                 </thead>
                 <tbody>
-              {staffPaymentPagination.items.map((assignment) => (
-                    (() => {
+                  {staffPaymentPagination.items.map((group) => {
+                    const groupIds = group.assignments
+                      .map((assignment) => String(assignment.id))
+                      .filter((id) => visibleStaffPaymentIdSet.has(id));
+                    const groupSelected = groupIds.length > 0 && groupIds.every((id) => selectedStaffPaymentIdSet.has(id));
+                    const groupExpanded = expandedStaffPaymentGroupKey === group.key;
+                    const groupName = group.collaborator?.shortName || group.collaborator?.name || '-';
+                    const groupStatuses = [...group.statusCounts.entries()].map(([status, count]) => ({
+                      status,
+                      count,
+                      label: status === 'awaiting_validation'
+                        ? 'Aguardar validação'
+                        : PAYMENT_STATUS.find((item) => item.value === status)?.label || status,
+                    }));
+                    return (
+                      <Fragment key={group.key}>
+                        <tr className="finance-staff-payment-group-row">
+                          <td>
+                            <input
+                              type="checkbox"
+                              aria-label={`Selecionar ${groupIds.length} serviços processáveis de ${groupName}`}
+                              checked={groupSelected}
+                              disabled={!staffPaymentTabActionable || !groupIds.length || bulkUpdatingPayments}
+                              title={!groupIds.length ? 'Este colaborador só tem serviços a aguardar validação das horas.' : undefined}
+                              onChange={(event) => toggleStaffPaymentGroupSelection(group, event.target.checked)}
+                            />
+                          </td>
+                          <td className="finance-payment-group-collaborator">
+                            <div className="finance-payment-group-title">
+                              <strong>{groupName}</strong>
+                              {group.collaborator?.includeVat ? <Badge tone="warning">IVA 23%</Badge> : null}
+                            </div>
+                            <div className="finance-payment-group-statuses">
+                              {groupStatuses.map(({ status, count, label }) => (
+                                <span key={status} className={`finance-payment-group-status finance-payment-group-status--${status}`}>
+                                  {count} {label}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="finance-payment-group-mobile-metrics">
+                              <span><small>Serviços</small><strong>{group.assignments.length}</strong></span>
+                              <span><small>Horas</small><strong>{durationHours(group.hours)}</strong></span>
+                              <span><small>Ajustes</small><strong>{money.format(Number(group.adjustments.toFixed(2)))}</strong></span>
+                              <span><small>Total</small><strong>{money.format(Number(group.total.toFixed(2)))}</strong></span>
+                              <span><small>Já pago</small><strong>{money.format(Number(group.paid.toFixed(2)))}</strong></span>
+                              <span><small>Por pagar</small><strong>{money.format(Number(group.outstanding.toFixed(2)))}</strong></span>
+                            </div>
+                          </td>
+                          <td>{group.assignments.length}</td>
+                          <td>{durationHours(group.hours)}</td>
+                          <td>{money.format(Number(group.adjustments.toFixed(2)))}</td>
+                          <td><strong>{money.format(Number(group.total.toFixed(2)))}</strong></td>
+                          <td>{money.format(Number(group.paid.toFixed(2)))}</td>
+                          <td><strong>{money.format(Number(group.outstanding.toFixed(2)))}</strong></td>
+                          <td>
+                            <button
+                              type="button"
+                              className="finance-payment-group-toggle"
+                              aria-expanded={groupExpanded}
+                              aria-label={`${groupExpanded ? 'Ocultar' : 'Consultar'} serviços de ${groupName}`}
+                              onClick={() => setExpandedStaffPaymentGroupKey(groupExpanded ? null : group.key)}
+                            >
+                              <span>{groupExpanded ? 'Fechar' : 'Abrir'}</span>
+                              <ChevronDown size={16} className={groupExpanded ? 'is-expanded' : ''} />
+                            </button>
+                          </td>
+                        </tr>
+                        {groupExpanded ? (
+                          <tr className="finance-staff-payment-group-details">
+                            <td colSpan={9}>
+                              <div className="table-wrap finance-payment-detail-wrap">
+                                <table className="finance-staff-payment-table finance-staff-payment-detail-table">
+                                  <thead>
+                                    <tr>
+                                      <th aria-label="Selecionar pagamentos" />
+                                      <th>Colaborador</th>
+                                      <th>Evento</th>
+                                      <th>Data</th>
+                                      <th>Horário Cliente</th>
+                                      <th>Horas</th>
+                                      <th>Valor/h</th>
+                                      <th>Ajustes</th>
+                                      <th>Adiant.</th>
+                                      <th>Carro</th>
+                                      <th>A pagar</th>
+                                      <th>Estado</th>
+                                      {staffPaymentTab === 'unpaid' || staffPaymentTab === 'all' ? <th>Ação</th> : null}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {group.assignments.map((assignment) => {
                       const draft = paymentDraftFor(assignment);
                       const paymentNotes = paymentNotesOverrides[assignment.id] ?? assignment.paymentNotes ?? '';
                       const paymentAssignment = { ...assignment, paymentStatus: draft.paymentStatus || assignment.paymentStatus };
                       const workflowTab = staffPaymentWorkflowTab(paymentAssignment);
                       const awaitingValidation = workflowTab === 'awaiting_validation';
+                      const showPaymentActions = workflowTab === 'unpaid'
+                        && (staffPaymentTab === 'unpaid' || staffPaymentTab === 'all');
                       const timing = staffPaymentTiming(paymentAssignment);
                       const paymentRequiresAttention = !awaitingValidation && staffPaymentRequiresAttention(paymentAssignment);
                       const rowSelected = selectedStaffPaymentIdSet.has(String(assignment.id));
+                      const selectableInCurrentTab = visibleStaffPaymentIdSet.has(String(assignment.id));
                       const advances = assignmentAdvances(assignment);
                       const advanceTotal = staffAdvancesTotal(advances);
                       const carAdvanceTotal = staffCarAdvancesTotal(advances);
@@ -3120,7 +3321,12 @@ export default function Accounting() {
                           type="checkbox"
                           aria-label={`Selecionar pagamento de ${assignment.collaborator?.shortName || assignment.collaborator?.name || 'colaborador'}`}
                           checked={rowSelected}
-                          disabled={awaitingValidation || bulkUpdatingPayments || updatingAssignmentId === assignment.id}
+                          disabled={awaitingValidation || !selectableInCurrentTab || bulkUpdatingPayments || updatingAssignmentId === assignment.id}
+                          title={awaitingValidation
+                            ? 'Valide as horas antes de selecionar este serviço para pagamento.'
+                            : !selectableInCurrentTab
+                              ? 'Este serviço já não pertence ao separador atual.'
+                              : undefined}
                           onChange={(event) => toggleStaffPaymentSelection(assignment.id, event.target.checked)}
                         />
                       </td>
@@ -3211,46 +3417,56 @@ export default function Accounting() {
                           />
                         </div>}
                       </td>
-                      {staffPaymentTab === 'unpaid' ? (
+                      {staffPaymentTab === 'unpaid' || staffPaymentTab === 'all' ? (
                         <td>
-                          <div className="finance-staff-actions">
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
-                              onClick={() => confirmMoveToPaid(assignment)}
-                            >
-                              Mover para pagos
-                            </button>
-                            {timing.deferred ? (
+                          {showPaymentActions ? (
+                            <div className="finance-staff-actions">
                               <button
                                 type="button"
                                 className="secondary-button"
                                 disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
-                                onClick={() => resetPaymentMonth(assignment)}
+                                onClick={() => confirmMoveToPaid(assignment)}
                               >
-                                Repor mês normal
+                                Mover para pagos
                               </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="secondary-button"
-                                disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
-                                onClick={() => deferPaymentToNextMonth(assignment)}
-                              >
-                                Adiar mês
-                              </button>
-                            )}
-                          </div>
+                              {timing.deferred ? (
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
+                                  onClick={() => resetPaymentMonth(assignment)}
+                                >
+                                  Repor mês normal
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
+                                  onClick={() => deferPaymentToNextMonth(assignment)}
+                                >
+                                  Adiar mês
+                                </button>
+                              )}
+                            </div>
+                          ) : '—'}
                         </td>
                       ) : null}
                     </tr>
                       );
-                    })()
-                  ))}
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
-              {!visibleStaffPayments.length ? (
+              {!visibleStaffPaymentGroups.length ? (
                 <p className="muted">
                   {staffPaymentSearch.trim()
                     ? 'Sem colaboradores correspondentes neste separador.'
@@ -3261,7 +3477,7 @@ export default function Accounting() {
             {staffPaymentPagination.totalItems ? (
               <footer className="collab-pagination finance-payment-pagination">
                 <span className="collab-pagination__summary">
-                  A mostrar {staffPaymentPagination.startItem}-{staffPaymentPagination.endItem} de {staffPaymentPagination.totalItems}
+                  A mostrar {staffPaymentPagination.startItem}-{staffPaymentPagination.endItem} de {staffPaymentPagination.totalItems} colaboradores
                 </span>
                 <label className="collab-pagination__size">
                   <span>Por página</span>

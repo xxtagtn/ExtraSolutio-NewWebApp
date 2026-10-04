@@ -1,11 +1,11 @@
 export const STAFF_PAYMENT_WORKFLOW_TABS = [
-  { id: 'unpaid', label: 'Colaboradores por Pagar' },
-  { id: 'awaiting_validation', label: 'Aguardar Validação' },
-  { id: 'validated_es', label: 'Validado ES' },
-  { id: 'awaiting_data', label: 'Aguardar RV' },
-  { id: 'penhorado', label: 'Penhorado' },
-  { id: 'ganho', label: 'Ganho' },
-  { id: 'paid', label: 'Colaboradores Pagos' },
+  { id: 'unpaid', label: 'Colaboradores por Pagar', countBy: 'collaborators' },
+  { id: 'awaiting_validation', label: 'Aguardar Validação', countBy: 'services' },
+  { id: 'validated_es', label: 'Validado ES', countBy: 'services' },
+  { id: 'awaiting_data', label: 'Aguardar RV', countBy: 'services' },
+  { id: 'penhorado', label: 'Penhorado', countBy: 'services' },
+  { id: 'ganho', label: 'Ganho', countBy: 'services' },
+  { id: 'paid', label: 'Colaboradores Pagos', countBy: 'collaborators' },
 ];
 
 function normalized(value) {
@@ -25,6 +25,40 @@ export function staffPaymentWorkflowTab(assignment) {
   if (paymentStatus === 'ganho') return 'ganho';
   if (assignment?._financeReady === false) return 'awaiting_validation';
   return 'unpaid';
+}
+
+export function countStaffPaymentTabs(assignments, tabs) {
+  const counts = Object.fromEntries(tabs.map((tab) => [tab.id, 0]));
+  const tabsById = new Map(tabs.map((tab) => [tab.id, tab]));
+  const collaboratorIdsByTab = new Map();
+
+  for (const assignment of assignments) {
+    const tabId = staffPaymentWorkflowTab(assignment);
+    const tab = tabsById.get(tabId);
+    if (tab) {
+      if (tab.countBy === 'collaborators') {
+        const sourceId = assignment?.collaboratorId;
+        const collaboratorId = sourceId === null || sourceId === undefined || sourceId === ''
+          ? assignment?.collaborator?.id
+          : sourceId;
+        if (collaboratorId !== null && collaboratorId !== undefined && collaboratorId !== '') {
+          const ids = collaboratorIdsByTab.get(tabId) || new Set();
+          ids.add(String(collaboratorId));
+          collaboratorIdsByTab.set(tabId, ids);
+        }
+      } else {
+        counts[tabId] += 1;
+      }
+    }
+
+    if (tabsById.has('all')) counts.all += 1;
+  }
+
+  for (const [tabId, collaboratorIds] of collaboratorIdsByTab) {
+    counts[tabId] = collaboratorIds.size;
+  }
+
+  return counts;
 }
 
 export function staffPaymentSearchMatches(assignment, search) {
