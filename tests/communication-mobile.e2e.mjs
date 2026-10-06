@@ -26,11 +26,13 @@ const rowFor = (task) => ({
   assignmentId: task.assignmentId, collaboratorName: task.collaboratorName,
   eventName: task.eventName, assignmentDate: task.date,
   startTime: task.startTime, endTime: task.endTime,
-  qrScope: 'day',
+  qrScope: 'month',
+  expiresAt: '2026-10-14T22:59:59.999Z',
+  punchExpiresAt: '2026-09-30T22:59:59.999Z',
   qrUrl: linkFor(task.collaboratorId),
   state: { key: 'qr_generated', label: 'QR Gerado' },
 });
-const linkFor = (id) => `https://example.test/qr/day/test-${id}-2026-09-24`;
+const linkFor = (id) => `https://example.test/qr/month/test-${id}-2026-09`;
 
 async function setup(width, restricted = false) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] });
@@ -66,6 +68,13 @@ async function setup(width, restricted = false) {
       return send({ items: filtered.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total: filtered.length, totalPages: Math.ceil(filtered.length / pageSize), summary: communicationSummary(filtered), events: [{ id: 10, name: 'Restaurante Luz Chakall' }] });
     }
     if (path.startsWith('/qr-codes/assignments/')) return send(rowFor(tasks.find((task) => task.assignmentId === Number(path.split('/').at(-1)))));
+    if (path === '/qr-codes/monthly/events') return send([{ id: '10', name: 'Restaurante Luz Chakall' }]);
+    if (path === '/qr-codes/monthly') {
+      const groups = tasks.map((task) => ({ ...rowFor(task), collaboratorId: task.collaboratorId, services: [rowFor(task)] }));
+      return send({ items: groups, total: groups.length, totalPages: 1,
+        expiresAt: groups[0].expiresAt, punchExpiresAt: groups[0].punchExpiresAt,
+        summary: { total: groups.length, services: groups.length, entries: 0, completed: 0 } });
+    }
     if (path === '/qr-codes/events') return send([{ id: '10', name: 'Restaurante Luz Chakall' }]);
     if (path.startsWith('/qr-codes/events/')) return send({ rows: tasks.map(rowFor), event: { name: 'Restaurante Luz Chakall' }, total: 32, totalPages: 1 });
     throw new Error(`Unexpected request: ${path}`);
@@ -116,11 +125,11 @@ try {
     const dialog = page.getByRole('dialog');
     await dialog.locator('img').waitFor();
     assert.equal(await dialog.locator('code').innerText(), linkFor(1));
-    assert.match(await dialog.innerText(), /QR Code diário/);
+    assert.match(await dialog.innerText(), /QR Code mensal/);
     const expectedImage = await QRCode.toDataURL(linkFor(1), { width: 900, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#041012', light: '#ffffff' } });
     const actualPixels = PNG.sync.read(Buffer.from((await dialog.locator('img').getAttribute('src')).split(',')[1], 'base64')).data;
     const expectedPixels = PNG.sync.read(Buffer.from(expectedImage.split(',')[1], 'base64')).data;
-    assert.ok(actualPixels.equals(expectedPixels), 'QR pixels must match the collaborator daily link');
+    assert.ok(actualPixels.equals(expectedPixels), 'QR pixels must match the collaborator monthly link');
     await dialog.getByRole('button', { name: 'Fechar' }).click();
     await first.getByRole('button', { name: 'Mensagem', exact: true }).click();
     await first.locator('textarea').fill('Mensagem editada para o primeiro colaborador');

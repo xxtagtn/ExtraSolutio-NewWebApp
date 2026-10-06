@@ -214,14 +214,16 @@ test('overnight checkout and after-midnight entry work without exposing the foll
   await punch(late, 'check_in', '00:15:00', { date: '2026-09-25' });
   await assert.rejects(punch(late, 'check_out', '00:44:59', { date: '2026-09-25' }), { code: 'QR_CHECKOUT_TOO_EARLY' });
   await punch(late, 'check_out', '00:45:00', { date: '2026-09-25' });
-  await assert.rejects(read(f, '00:00:00', '2026-09-26'), { code: 'QR_EXPIRED' });
+  assert.equal((await read(f, '00:00:00', '2026-09-26')).readOnly, true);
+  await assert.rejects(punch(f, 'check_in', '00:00:00', { date: '2026-09-26' }), { code: 'QR_EXPIRED' });
 });
 
 test('date restrictions, invalid links and assignment spoofing do not write anything', async () => {
   const f = await fixture();
   const other = await fixture();
   await assert.rejects(punch(f, 'check_in', '23:59:59', { date: '2026-09-23' }), { code: 'QR_NOT_ACTIVE' });
-  await assert.rejects(read(f, '00:00:00', '2026-09-25'), { code: 'QR_EXPIRED' });
+  assert.equal((await read(f, '00:00:00', '2026-09-25')).readOnly, true);
+  await assert.rejects(punch(f, 'check_in', '00:00:00', { date: '2026-09-25' }), { code: 'QR_EXPIRED' });
   await assert.rejects(readDailyQr(db, 'invalid'), { code: 'QR_INVALID' });
   await assert.rejects(punch(f, 'check_in', '09:00:00', { id: other.rows[0].id }), { code: 'QR_SERVICE_REQUIRED' });
   assert.equal((await logs(f)).length, 0);
@@ -304,6 +306,32 @@ test('service changes, removal and daily work locations are read afresh without 
   await assert.rejects(read(f), { code: 'QR_DAY_EMPTY' });
 });
 
+test('daily consultation retains split shifts, incomplete punches and validation without writes or cross-day access', async () => {
+  const f = await fixture({ continuous: true, sameEvent: false });
+  await edit(f.rows[0], { checkIn: '09:02', checkOut: '12:05', validationStatus: 'validated', validatedCheckIn: '09:00', validatedCheckOut: '12:00' });
+  await edit(f.rows[1], { checkIn: '15:00' });
+  const nextDay = await db.eventAssignment.create({ data: { eventId: f.event.id, collaboratorId: f.collaborator.id, assignmentDate: new Date('2026-09-25'), status: 'confirmed' } });
+  const other = await fixture();
+  const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
+  const state = await readDailyQr(db, f.token, { now: new Date('2026-10-25T23:59:59.999Z') });
+  assert.equal(state.readOnly, true);
+  assert.equal(state.total, 2);
+  assert.deepEqual(state.candidateIds, []);
+  assert.deepEqual(state.services.map((row) => row.assignmentId), f.rows.map((row) => row.id));
+  assert.equal(state.services[0].checkIn, '09:02');
+  assert.equal(state.services[0].validatedCheckIn, '09:00');
+  assert.equal(state.services[1].checkOut, '');
+  assert.ok(state.services.every((row) => row.assignmentId !== nextDay.id && row.assignmentId !== other.rows[0].id));
+  assert.doesNotMatch(JSON.stringify(state), /totalPay|hourlyRate|paymentStatus|nif|phone/);
+  for (const action of ['check_in', 'check_out']) {
+    await assert.rejects(registerDailyQr(db, f.token, action, { assignmentId: f.rows[1].id, revision: state.revision }, { now: new Date('2026-10-25T12:00:00Z') }), { code: 'QR_EXPIRED' });
+  }
+  await assert.rejects(readDailyQr(db, f.token, { now: new Date('2026-10-26T00:00:00Z') }), { code: 'QR_EXPIRED' });
+  assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
+  assert.equal((await logs(f)).length, 0);
+  assert.equal(await db.qrCheckCode.count({ where: { collaboratorId: f.collaborator.id } }), 0);
+});
+
 test('public HTTP routes accept signed daily links, enforce request revisions and retain legacy routes', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: at('09:00:00') });
   process.env.DATABASE_URL = datasourceUrl;
@@ -334,6 +362,23 @@ test('public HTTP routes accept signed daily links, enforce request revisions an
     const empty = await fetch(`${url}/day/${f.token}/check-out`, { method: 'POST' });
     assert.equal(empty.status, 409);
     assert.equal((await logs(f)).length, 1);
+    const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
+    t.mock.timers.setTime(new Date('2026-10-25T23:59:59.999Z').getTime());
+    const consultation = await fetch(`${url}/day/${f.token}`);
+    assert.equal(consultation.status, 200);
+    const historical = await consultation.json();
+    assert.equal(historical.readOnly, true);
+    assert.equal(historical.services[0].checkIn, '09:00');
+    assert.equal((await fetch(`${url}/${qr.token}`)).status, 200);
+    for (const action of ['check-in', 'check-out']) {
+      assert.equal((await send(action)).status, 410);
+      assert.equal((await fetch(`${url}/${qr.token}/${action}`, { method: 'POST' })).status, 410);
+    }
+    assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
+    assert.equal((await logs(f)).length, 1);
+    t.mock.timers.setTime(new Date('2026-10-26T00:00:00Z').getTime());
+    assert.equal((await fetch(`${url}/day/${f.token}`)).status, 410);
+    assert.equal((await fetch(`${url}/${qr.token}`)).status, 410);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await prisma.$disconnect();

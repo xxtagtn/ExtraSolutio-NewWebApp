@@ -199,6 +199,7 @@ test('normalizes empty event collaborator rows as assignment drafts', () => {
       plannedCheckIn: '11:30',
       plannedCheckOut: '16:00',
       hourlyRate: '',
+      workLocationId: '',
       status: 'pending_confirmation',
       clientSynced: false,
       isDriver: false,
@@ -220,12 +221,26 @@ test('normalizes budget kilometer cars for persistence', () => {
 });
 
 test('normalizes client minimum hours as an optional decimal', () => {
-  assert.equal(normalizeClient({ minimumHours: '4,5' }).minimumHours, 4.5);
-  assert.equal(normalizeClient({ minimumHours: '' }).minimumHours, 0);
+  const conditions = { billingMethod: 'per_event', paymentTerm: 'immediate' };
+  assert.equal(normalizeClient({ ...conditions, minimumHours: '4,5' }).minimumHours, 4.5);
+  assert.equal(normalizeClient({ ...conditions, minimumHours: '' }).minimumHours, 0);
+});
+
+test('client normalization requires billing conditions and preserves them on partial updates', () => {
+  assert.throws(() => normalizeClient({ minimumHours: '4,5' }), { statusCode: 400 });
+  assert.throws(() => normalizeClient({ billingMethod: 'per_event' }), { statusCode: 400 });
+  assert.throws(() => normalizeClient({ paymentTerm: 'immediate' }), { statusCode: 400 });
+  const conditions = { billingMethod: 'per_event', paymentTerm: 'days_30' };
+  const payload = normalizeClient({ minimumHours: '4,5' }, conditions);
+  assert.equal(payload.billingMethod, conditions.billingMethod);
+  assert.equal(payload.paymentTerm, conditions.paymentTerm);
+  assert.equal(payload.minimumHours, 4.5);
+  assert.throws(() => normalizeClient({ billingMethod: 'per_event', paymentTerm: 'custom', paymentTermDays: -1 }), { statusCode: 400 });
 });
 
 test('normalizes client role rates and marks the change date when values change', () => {
   const previous = {
+    billingMethod: 'per_event', paymentTerm: 'immediate',
     roleRates: JSON.stringify([{ role: 'Barman', rate: 10 }]),
   };
   const payload = normalizeClient({
@@ -243,6 +258,7 @@ test('normalizes client role rates and marks the change date when values change'
 
 test('normalizes client operational defaults and prepayment rule', () => {
   const payload = normalizeClient({
+    billingMethod: 'per_event', paymentTerm: 'immediate',
     defaultUniform: 'Camisa Preta',
     defaultOnsiteContactName: 'Paulo Martins',
     defaultOnsiteContactPhone: '912345678',
@@ -259,6 +275,7 @@ test('normalizes client operational defaults and prepayment rule', () => {
 
 test('does not change client role rate date when rates are unchanged', () => {
   const previous = {
+    billingMethod: 'per_event', paymentTerm: 'immediate',
     roleRates: JSON.stringify([{ role: 'Barman', rate: 12.5 }]),
     roleRatesUpdatedAt: new Date('2026-06-01T00:00:00.000Z'),
   };

@@ -7338,6 +7338,15 @@ th {
   min-width: 0;
 }
 
+.communication-month-services { min-width: 0; }
+.communication-month-services summary { cursor: pointer; padding: 8px 0; color: var(--muted); }
+.communication-month-services .communication-qr-services { display: grid; grid-template-columns: minmax(0, 1fr); padding-top: 10px; }
+.communication-month-services .communication-qr-service__schedule { white-space: normal; overflow-wrap: anywhere; }
+.communication-month-services .communication-qr-service small { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .communication-month-services .communication-qr-service__header { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+}
+
 .communication-qr-service {
   min-width: 0;
   max-width: 100%;

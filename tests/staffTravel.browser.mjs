@@ -120,6 +120,7 @@ try {
     await validationTravelSummary.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(tmpdir(), `staff-travel-validation-${name}.png`) });
     await page.goto(`${baseUrl}/finance?area=staff&assignmentId=1`);
+    await page.getByRole('button', { name: 'Consultar serviços de Ana QA' }).click();
     const travelSummary = page.locator('.finance-staff-payment-table .staff-travel-summary').first();
     await travelSummary.waitFor();
     const costRow = page.locator('.finance-cost-table tbody tr').first();
@@ -144,12 +145,17 @@ try {
     });
     assert.ok(travelBounds.summaryLeft >= travelBounds.cellLeft - 1 && travelBounds.summaryRight <= travelBounds.cellRight + 1,
       `Staff travel summary overflows the Hours column: ${JSON.stringify(travelBounds)}`);
-    const payment = page.locator('tr').filter({ has: page.locator('.staff-travel-summary') }).first();
+    const payment = page.locator('.finance-staff-payment-detail-table tbody tr').filter({ has: page.locator('.staff-travel-summary') }).first();
     if (viewport.width <= 760) {
       assert.equal(await payment.evaluate((element) => getComputedStyle(element.querySelector('td:nth-child(6)')).gridTemplateColumns.split(' ').length), 2,
         'Mobile finance cells should keep labels aligned beside values');
-      assert.equal(await payment.evaluate((element) => getComputedStyle(element.querySelector('.finance-staff-actions')).gridTemplateColumns.split(' ').length), 2,
-        'Mobile finance actions should use two compact columns');
+      const actions = payment.locator('.finance-staff-actions .secondary-button');
+      assert.equal(await actions.count(), 2, 'Both payment actions remain available inside the expanded group');
+      assert.equal(await actions.evaluateAll((buttons) => buttons.some((button) => {
+        const bounds = button.getBoundingClientRect();
+        const parent = button.parentElement.getBoundingClientRect();
+        return button.scrollWidth > button.clientWidth + 1 || bounds.left < parent.left - 1 || bounds.right > parent.right + 1;
+      })), false, 'Mobile payment actions remain readable and contained');
       assert.equal(await payment.evaluate((element) => getComputedStyle(element.querySelector('.finance-client-schedule')).whiteSpace), 'normal',
         'Mobile client hours should wrap cleanly beside their label');
       const advanceHighlight = await payment.evaluate((element) => {
@@ -175,11 +181,14 @@ try {
     const clientSummaryRow = page.locator('.finance-client-financial-table .finance-client-summary-row').first();
     await clientSummaryRow.waitFor({ timeout: 10000 });
     await clientSummaryRow.click();
-    const eventSummaryTrigger = page.locator('.finance-client-event-row--clickable .finance-client-event-name').first();
+    const eventSummaryTrigger = page.getByRole('button', { name: 'Ver resumo de Salvaterra QA' });
     await eventSummaryTrigger.waitFor({ timeout: 10000 }).catch(async (error) => {
       console.error('Client finance:', (await page.locator('body').innerText()).slice(-4500), errors);
       throw error;
     });
+    await page.locator('.finance-client-event-adjustment input').first().click();
+    assert.equal(await page.getByRole('dialog', { name: 'Resumo do Evento/Serviço' }).count(), 0,
+      'Focusing a financial adjustment must not open the event summary');
     await eventSummaryTrigger.click();
     const eventSummaryDialog = page.getByRole('dialog', { name: 'Resumo do Evento/Serviço' });
     await eventSummaryDialog.waitFor({ timeout: 5000 }).catch(async (error) => {
@@ -198,7 +207,7 @@ try {
     assert.match(await dayDetails.innerText(), /Ana QA/);
     assert.match(await dayDetails.innerText(), /Emp\.Mesa/);
     assert.match(await dayDetails.innerText(), /08:30 - 22:30/);
-    assert.match(await dayDetails.innerText(), /14:00h faturadas/);
+    assert.match(await dayDetails.innerText(), /14:00h × 14,00\s*€\/h = 196,00\s*€/);
     await page.screenshot({ path: join(tmpdir(), `staff-travel-finance-client-summary-${name}.png`) });
     service.status = 'to_validate_staff';
     service.assignments[0].checkIn = '';

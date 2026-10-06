@@ -14,6 +14,7 @@ import {
   ArrowRight,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
@@ -22,13 +23,18 @@ import {
   TrendingUp,
   UsersRound,
   WalletCards,
+  X,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../hooks/useApi.js';
+import { useAuth } from '../hooks/useAuth.jsx';
+import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { buildBalanceOverview, buildClientBalanceSeries } from '../utils/balanceMetrics.js';
+import { balanceChartWindow, balanceMonthComparison, buildBalanceAttention, buildBalanceForecast } from '../utils/balanceOverviewPresentation.js';
 import { availableFinancialYears } from '../utils/dashboardMetrics.js';
 import { date, money } from '../utils/formatters.js';
 import { SERVICE_STATUS, statusLabel } from '../utils/serviceStatus.js';
+import './balanceOverview.css';
 
 const monthOptions = [
   ['', 'Todos os meses'],
@@ -87,13 +93,10 @@ function formatDelta(value) {
   return `${sign}${formatPercent(value)}`;
 }
 
-function deltaFor(series, month, field) {
-  if (!month) return 0;
-  const monthIndex = Math.max(0, Number(month || 0) - 1);
-  const current = series[monthIndex]?.[field] || 0;
-  const previous = series[monthIndex - 1]?.[field] || 0;
-  if (!previous) return current > 0 ? 100 : 0;
-  return ((current - previous) / previous) * 100;
+function comparisonLabel(series, month, field) {
+  const delta = balanceMonthComparison(series, month, field);
+  return delta === null ? (month ? 'No período selecionado' : 'Total do ano selecionado')
+    : `${formatDelta(delta)} vs. ${selectedMonthName(Number(month) - 1).toLowerCase()}`;
 }
 
 function statusTone(status) {
@@ -115,16 +118,33 @@ function clientStateLabel(state) {
   return 'Regularizado';
 }
 
-function KpiCard({ icon: Icon, label, value, detail, tone = 'accent' }) {
+function KpiCard({ icon: Icon, label, value, detail, tone = 'accent', onClick, expanded }) {
+  const Element = onClick ? 'button' : 'article';
   return (
-    <article className={`balance-kpi balance-kpi--${tone}`}>
+    <Element className={`balance-kpi balance-kpi--${tone}`} {...(onClick ? {
+      type: 'button', onClick, 'aria-expanded': expanded, 'aria-controls': 'balance-margin-detail',
+    } : {})}>
       <span className="balance-kpi__icon"><Icon size={22} /></span>
       <div>
         <span>{label}</span>
         <strong>{value}</strong>
-        {detail ? <small>{detail}</small> : null}
+        {detail ? <small>{detail}{onClick ? <ChevronDown size={13} /> : null}</small> : null}
       </div>
-    </article>
+    </Element>
+  );
+}
+
+function FinancialDetailList({ rows, empty }) {
+  return (
+    <div className="balance-detail-list">
+      {rows.map((row) => (
+        <Link key={row.key} to={row.to}>
+          <span><strong>{row.title}</strong><small>{row.subtitle}{row.date ? ` · ${date.format(new Date(row.date))}` : ''}</small></span>
+          <b>{money.format(row.amount)}</b><ArrowRight size={15} />
+        </Link>
+      ))}
+      {!rows.length ? <p>{empty}</p> : null}
+    </div>
   );
 }
 
@@ -212,22 +232,28 @@ function EventsTable({ rows, loading }) {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const canViewBudgets = hasPermission(user, PERMISSIONS.BUDGETS_VIEW);
   const { data: services, loading: loadingServices, error: servicesError } = useApi('/services', []);
   const { data: clients, loading: loadingClients, error: clientsError } = useApi('/clients', []);
-  const { data: invoices } = useApi('/invoices', []);
+  const { data: invoices, loading: loadingInvoices, error: invoicesError } = useApi('/invoices', []);
+  const { data: budgets, loading: loadingBudgets, error: budgetsError } = useApi('/budgets', [], { enabled: canViewBudgets });
   const { data: transactions } = useApi('/transactions', []);
   const initialPeriod = useMemo(() => currentPeriod(), []);
   const [selectedMonth, setSelectedMonth] = useState(initialPeriod.month);
   const [selectedYear, setSelectedYear] = useState(initialPeriod.year);
   const [selectedClientId, setSelectedClientId] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
-  const [activeSection, setActiveSection] = useState('clients');
+  const [activeSection, setActiveSection] = useState('overview');
   const [activeClientKey, setActiveClientKey] = useState('');
+  const [marginOpen, setMarginOpen] = useState(true);
+  const [activeAttention, setActiveAttention] = useState('');
 
   const yearOptions = useMemo(
-    () => Array.from(new Set([initialPeriod.year, ...availableFinancialYears(services, invoices, transactions)]))
+    () => Array.from(new Set([initialPeriod.year, ...availableFinancialYears(services, invoices, transactions,
+      budgets.map((budget) => ({ date: budget.eventDate })))]))
       .sort((a, b) => Number(b) - Number(a)),
-    [initialPeriod.year, invoices, services, transactions],
+    [budgets, initialPeriod.year, invoices, services, transactions],
   );
 
   const period = useMemo(() => ({
@@ -241,6 +267,17 @@ export default function Dashboard() {
     () => buildBalanceOverview({ services, invoices, period }),
     [invoices, period, services],
   );
+  const attention = useMemo(() => buildBalanceAttention({ eventRows: overview.eventRows, invoices, clients }),
+    [clients, invoices, overview.eventRows]);
+  const forecast = useMemo(() => buildBalanceForecast({ eventRows: overview.eventRows, budgets, period }),
+    [budgets, overview.eventRows, period]);
+  const chartSeries = balanceChartWindow(overview.monthlySeries, selectedMonth);
+  const periodLabel = `${selectedMonth ? selectedMonthName(selectedMonth) : 'Ano de'} ${selectedYear}`;
+  const attentionItems = [
+    { key: 'overdue', label: 'Clientes em atraso', icon: AlertCircle },
+    { key: 'staff', label: 'Staff por pagar', icon: UsersRound },
+    { key: 'unbilled', label: 'Serviços por faturar', icon: WalletCards },
+  ];
 
   useEffect(() => {
     if (overview.clientRows.some((row) => row.key === activeClientKey)) return;
@@ -257,8 +294,9 @@ export default function Dashboard() {
     ? (overview.kpis.realMargin / overview.kpis.validatedRevenue) * 100
     : 0;
   const totalEvents = overview.eventRows.length;
-  const loading = loadingServices || loadingClients;
-  const error = servicesError || clientsError;
+  const loading = loadingServices || loadingClients || loadingInvoices;
+  const error = servicesError || clientsError || invoicesError;
+  const financialValue = (value) => loading || error ? '—' : money.format(value);
   const clientAttentionRows = [
     ...overview.clientRows.filter((row) => row.overdueDays > 0).slice(0, 2),
     ...overview.clientRows.filter((row) => row.marginPct < 20 && row.revenue > 0).slice(0, 2),
@@ -279,6 +317,7 @@ export default function Dashboard() {
           <h1>Balancete</h1>
           <p>Resumo financeiro por período</p>
         </div>
+        <span className="balance-period-label"><CalendarDays size={20} />{periodLabel}</span>
       </header>
 
       {error ? <p className="notice">{error}</p> : null}
@@ -286,13 +325,13 @@ export default function Dashboard() {
       <section className="balance-filter-panel" aria-label="Filtros do Balancete">
         <label>
           <span>Mês</span>
-          <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
+          <select aria-label="Mês" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
             {monthOptions.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
           </select>
         </label>
         <label>
           <span>Ano</span>
-          <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)}>
+          <select aria-label="Ano" value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)}>
             {yearOptions.length ? yearOptions.map((year) => (
               <option key={year} value={year}>{year}</option>
             )) : <option value={selectedYear}>{selectedYear}</option>}
@@ -300,14 +339,14 @@ export default function Dashboard() {
         </label>
         <label>
           <span>Cliente</span>
-          <select value={selectedClientId} onChange={(event) => setSelectedClientId(event.target.value)}>
+          <select aria-label="Cliente" value={selectedClientId} onChange={(event) => setSelectedClientId(event.target.value)}>
             <option value="all">Todos os clientes</option>
             {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
           </select>
         </label>
         <label>
           <span>Estado</span>
-          <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
+          <select aria-label="Estado" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
             {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
@@ -320,57 +359,72 @@ export default function Dashboard() {
       <BalanceTabs active={activeSection} onChange={setActiveSection} />
 
       {activeSection === 'overview' ? (
-        <>
+        <div className="balance-overview" aria-busy={loading}>
           <section className="balance-kpi-grid">
             <KpiCard
               icon={CircleDollarSign}
-              label="Receita validada"
-              value={money.format(overview.kpis.validatedRevenue)}
-              detail={selectedMonth
-                ? `vs. ${selectedMonthName(Number(selectedMonth) - 1 || 12).toLowerCase()} ${formatDelta(deltaFor(overview.monthlySeries, selectedMonth, 'receita'))}`
-                : 'Total do ano selecionado'}
+              label="Receita do período"
+              value={loading || error ? '—' : money.format(overview.kpis.validatedRevenue)}
+              detail={loading || error ? 'No período selecionado' : comparisonLabel(overview.monthlySeries, selectedMonth, 'receita')}
               tone="revenue"
             />
             <KpiCard
               icon={UsersRound}
-              label="Staff a pagar"
-              value={money.format(overview.kpis.staffToPay)}
-              detail={selectedMonth
-                ? `vs. ${selectedMonthName(Number(selectedMonth) - 1 || 12).toLowerCase()} ${formatDelta(deltaFor(overview.monthlySeries, selectedMonth, 'staff'))}`
-                : 'Total do ano selecionado'}
+              label="Custo do staff"
+              value={loading || error ? '—' : money.format(overview.kpis.staffToPay)}
+              detail={loading || error ? 'No período selecionado' : comparisonLabel(overview.monthlySeries, selectedMonth, 'staff')}
               tone="staff"
             />
             <KpiCard
               icon={TrendingUp}
-              label="Margem real"
-              value={money.format(overview.kpis.realMargin)}
-              detail={selectedMonth
-                ? `vs. ${selectedMonthName(Number(selectedMonth) - 1 || 12).toLowerCase()} ${formatDelta(deltaFor(overview.monthlySeries, selectedMonth, 'margem'))}`
-                : 'Total do ano selecionado'}
+              label="Margem do período"
+              value={loading || error ? '—' : money.format(overview.kpis.realMargin)}
+              detail={`${loading || error ? '—' : formatPercent(marginPercent)} · Composição`}
+              onClick={() => setMarginOpen((open) => !open)}
+              expanded={marginOpen}
               tone="margin"
             />
             <KpiCard
               icon={WalletCards}
               label="Por receber"
-              value={money.format(overview.kpis.receivable)}
-              detail={`${overview.alerts.clientsOpen.count} cliente(s) com valor em aberto`}
+              value={loading || error ? '—' : money.format(overview.kpis.receivable)}
+              detail={loading || error ? 'A consultar faturas' : `${overview.alerts.clientsOpen.count} cliente(s) com valor em aberto`}
               tone="receivable"
             />
             <KpiCard
               icon={CheckCircle2}
               label="Eventos finalizados"
-              value={overview.kpis.finalizedEvents}
-              detail={`${totalEvents} evento(s) no período`}
+              value={loading || error ? '—' : overview.kpis.finalizedEvents}
+              detail={loading || error ? 'No período selecionado' : `${totalEvents} evento(s) no período`}
               tone="finalized"
             />
           </section>
 
-          <section className="balance-main-grid">
+          <section className="balance-attention-strip" aria-label="A acompanhar">
+            <h2><AlertCircle size={21} />A acompanhar</h2>
+            {attentionItems.map(({ key, label, icon: Icon }) => (
+              <button type="button" key={key} className={`balance-attention-item balance-attention-item--${key}`}
+                aria-expanded={activeAttention === key} aria-controls="balance-attention-detail"
+                disabled={loading || Boolean(error)} onClick={() => setActiveAttention((active) => active === key ? '' : key)}>
+                <Icon size={22} /><span><small>{label}</small><strong>{loading || error ? '—' : money.format(attention[key].amount)}</strong></span><ChevronRight size={17} />
+              </button>
+            ))}
+          </section>
+          {activeAttention ? (
+            <section className="balance-attention-detail" id="balance-attention-detail">
+              <header><div><h2>{attentionItems.find((item) => item.key === activeAttention)?.label}</h2>
+                <small>Eventos do período selecionado{activeAttention !== 'overdue' ? ' · concluídos/validados' : ''}</small></div>
+                <button className="icon-button" type="button" aria-label="Fechar pendências" onClick={() => setActiveAttention('')}><X size={17} /></button></header>
+              <FinancialDetailList rows={attention[activeAttention].rows} empty="Sem pendências para estes filtros." />
+            </section>
+          ) : null}
+
+          <section className={`balance-main-grid balance-main-grid--minimal ${marginOpen ? '' : 'balance-main-grid--wide'}`}>
             <article className="balance-panel balance-chart-panel">
               <header>
                 <div>
                   <h2>Evolução mensal</h2>
-                  <small>{selectedYear}</small>
+                  <small>{selectedMonth ? `${chartSeries[0]?.month} – ${chartSeries.at(-1)?.month} ${selectedYear}` : selectedYear}</small>
                 </div>
                 <div className="balance-chart-legend">
                   <span><i className="legend-revenue" />Receita</span>
@@ -380,10 +434,10 @@ export default function Dashboard() {
               </header>
               <div className="balance-chart">
                 <ResponsiveContainer width="100%" height={250}>
-                  <ComposedChart data={overview.monthlySeries} margin={{ top: 10, right: 8, left: 2, bottom: 0 }}>
+                  <ComposedChart data={chartSeries} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid stroke="rgba(148, 163, 184, 0.14)" vertical={false} />
-                    <XAxis dataKey="month" stroke="#8da0aa" tickLine={false} axisLine={false} />
-                    <YAxis stroke="#8da0aa" tickLine={false} axisLine={false} tickFormatter={(value) => `${Number(value) / 1000}k €`} />
+                    <XAxis dataKey="month" stroke="#8da0aa" tickLine={false} axisLine={false} minTickGap={16} tick={{ fontSize: 12 }} />
+                    <YAxis width={48} stroke="#8da0aa" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} tickFormatter={(value) => `${Number(value) / 1000}k €`} />
                     <Tooltip
                       cursor={{ fill: 'rgba(148, 163, 184, 0.08)' }}
                       contentStyle={{ background: '#11181c', border: '1px solid #26343a', borderRadius: 8 }}
@@ -396,14 +450,41 @@ export default function Dashboard() {
                 </ResponsiveContainer>
               </div>
               <footer className="balance-chart-summary">
-                <div><span>Total receita</span><strong>{money.format(overview.kpis.validatedRevenue)}</strong></div>
-                <div><span>Total staff</span><strong>{money.format(overview.kpis.staffToPay)}</strong></div>
-                <div><span>Margem real</span><strong>{money.format(overview.kpis.realMargin)}</strong></div>
-                <div><span>Margem %</span><strong>{formatPercent(marginPercent)}</strong></div>
+                <div><span>Receita</span><strong>{financialValue(overview.kpis.validatedRevenue)}</strong></div>
+                <div><span>Custos</span><strong>{financialValue(overview.kpis.staffToPay + overview.kpis.externalCosts + overview.kpis.taxCosts)}</strong></div>
+                <div><span>Margem</span><strong>{financialValue(overview.kpis.realMargin)}</strong></div>
               </footer>
             </article>
 
-            <article className="balance-panel balance-alert-panel">
+            {marginOpen ? <aside className="balance-margin-detail" id="balance-margin-detail">
+              <header><div><h2>Composição da margem</h2><small>{periodLabel}</small></div>
+                <button type="button" className="icon-button" aria-label="Fechar composição da margem" onClick={() => setMarginOpen(false)}><X size={18} /></button></header>
+              <dl>
+                <div><dt>Receita do período</dt><dd>{financialValue(overview.kpis.validatedRevenue)}</dd></div>
+                <div><dt>Custo do staff</dt><dd>{financialValue(-overview.kpis.staffToPay || 0)}</dd></div>
+                <div><dt>Custos externos</dt><dd>{financialValue(-overview.kpis.externalCosts || 0)}</dd></div>
+                <div><dt>Impostos considerados</dt><dd>{financialValue(-overview.kpis.taxCosts || 0)}</dd></div>
+                <div className="balance-margin-total"><dt>Margem do período</dt><dd>{financialValue(overview.kpis.realMargin)}</dd></div>
+                <div><dt>Margem sobre a receita</dt><dd>{loading || error ? '—' : formatPercent(marginPercent)}</dd></div>
+              </dl>
+            </aside> : null}
+          </section>
+
+          <details className="balance-forecast">
+            <summary><CalendarDays size={20} /><strong>Previsões do período</strong>
+              <span>Confirmado: <b>{financialValue(forecast.confirmed.amount)}</b></span>
+              {canViewBudgets ? <span>Em análise: <b>{loadingBudgets || budgetsError ? '—' : money.format(forecast.budgets.amount)}</b></span> : null}
+              <ChevronDown size={18} /></summary>
+            <div className="balance-forecast-body">
+              <section><h2>Eventos confirmados</h2><FinancialDetailList rows={forecast.confirmed.rows} empty="Sem eventos confirmados para estes filtros." /></section>
+              {canViewBudgets ? <section><h2>Orçamentos em análise</h2>{budgetsError ? <p className="notice">{budgetsError}</p> : loadingBudgets ? <p>A carregar...</p>
+                : <FinancialDetailList rows={forecast.budgets.rows} empty={selectedStatus !== 'all' ? 'Selecione Todos os estados para consultar orçamentos.' : 'Sem orçamentos em análise para estes filtros.'} />}</section> : null}
+            </div>
+          </details>
+
+          <details className="balance-management-alerts">
+            <summary>Alertas de gestão <ChevronDown size={16} /></summary>
+            <article className="balance-alert-panel">
               <header><h2>Alertas de gestão</h2></header>
               <div className="balance-alert-list">
                 <AlertItem
@@ -435,8 +516,8 @@ export default function Dashboard() {
                 />
               </div>
             </article>
-          </section>
-        </>
+          </details>
+        </div>
       ) : null}
 
       {activeSection === 'clients' ? (

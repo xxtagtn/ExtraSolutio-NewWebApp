@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { PrismaClient } from '@prisma/client';
 import { createCrudRouter, normalizeAssignment } from '../routes/crud.js';
 import { updateAssignmentsInBulk } from './assignmentBulkUpdate.js';
-import { readPublicQr, registerPublicQr, qrCheckoutProtection } from './qrAttendance.js';
+import { readPublicQr, readPublicQrForConsultation, registerPublicQr, qrCheckoutProtection } from './qrAttendance.js';
 import { qrCodeStateForAssignment } from '../utils/qrCheckins.js';
 import { roundedBillableHours } from '../../src/utils/serviceFinance.js';
 
@@ -224,4 +224,41 @@ test('normalization distinguishes explicit clearing from omitted fields', () => 
   assert.deepEqual(normalizeAssignment({ checkIn: '', checkOut: '' }), { checkIn: null, checkOut: null });
   assert.deepEqual(normalizeAssignment({ checkIn: null }), { checkIn: null });
   assert.deepEqual(normalizeAssignment({}), {});
+});
+
+test('legacy token supports 31-day read-only consultation but both writes stay expired', async () => {
+  const qr = await fixture({ checkIn: '11:00', checkOut: '15:02', validatedCheckIn: '11:00', validatedCheckOut: '15:00', validationStatus: 'validated' });
+  const before = await db.qrCheckCode.findUnique({ where: { id: qr.id }, include: { assignment: true } });
+  const history = await logs(qr);
+  for (const now of [new Date('2026-09-24T12:00:00Z'), new Date('2026-10-24T22:59:59.999Z')]) {
+    const result = await readPublicQrForConsultation(db, qr.token, { now });
+    assert.equal(result.access.readOnly, true);
+    assert.equal(result.qrCode.token, qr.token);
+    assert.equal(result.qrCode.assignment.checkOut, '15:02');
+    for (const action of ['check_in', 'check_out']) {
+      await assert.rejects(registerPublicQr(db, qr.token, action, { now }), { code: 'QR_EXPIRED' });
+      await assert.rejects(registerPublicQr(db, qr.token, action, { now,
+        resolveQr: async (tx) => (await readPublicQrForConsultation(tx, qr.token, { now })).qrCode,
+      }), { code: 'QR_EXPIRED' });
+    }
+  }
+  await assert.rejects(readPublicQrForConsultation(db, qr.token, { now: new Date('2026-10-24T23:00:00Z') }), { code: 'QR_EXPIRED' });
+  assert.deepEqual(await db.qrCheckCode.findUnique({ where: { id: qr.id }, include: { assignment: true } }), before);
+  assert.deepEqual(await logs(qr), history);
+});
+
+test('consultation does not invent missing punches and rejects revoked/cancelled/reassigned tokens', async () => {
+  const now = new Date('2026-09-26T12:00:00Z');
+  const qr = await fixture({ checkIn: '11:00' });
+  assert.equal((await readPublicQrForConsultation(db, qr.token, { now })).qrCode.assignment.checkOut, null);
+  await db.qrCheckCode.update({ where: { id: qr.id }, data: { revokedAt: now } });
+  await assert.rejects(readPublicQrForConsultation(db, qr.token, { now }), { code: 'QR_REVOKED' });
+  const cancelled = await fixture({ status: 'cancelled' });
+  await assert.rejects(readPublicQrForConsultation(db, cancelled.token, { now }), { code: 'QR_DAY_CANCELLED' });
+  const changed = await fixture();
+  const other = await db.collaborator.create({ data: { name: 'Other person', email: 'other-qr@example.test' } });
+  await edit(changed, { collaboratorId: other.id });
+  await assert.rejects(readPublicQrForConsultation(db, changed.token, { now }), { code: 'QR_INVALID' });
+  await assert.rejects(readPublicQrForConsultation(db, 'invalid', { now }), { code: 'QR_INVALID' });
+  assert.equal((await logs(qr)).length, 0);
 });

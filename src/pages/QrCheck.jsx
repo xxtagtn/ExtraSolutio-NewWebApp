@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { API_URL } from '../utils/api.js';
 import DailyQrServices from '../components/Communication/DailyQrServices.jsx';
+import MonthlyQrServices from '../components/Communication/MonthlyQrServices.jsx';
+import QrConsultationSummary, { QrSummaryCopyButton } from '../components/Communication/QrConsultationSummary.jsx';
 
 async function publicQrApi(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -33,12 +35,12 @@ function StateBadge({ state }) {
   return <span className={`qr-check-state qr-check-state--${key}`}>{state?.label || 'QR Gerado'}</span>;
 }
 
-export default function QrCheck({ daily = false }) {
+export default function QrCheck({ daily = false, monthly = false }) {
   const { token } = useParams();
-  return <QrCheckPage key={`${daily}:${token}`} token={token} daily={daily} />;
+  return <QrCheckPage key={`${monthly}:${daily}:${token}`} token={token} daily={daily} monthly={monthly} />;
 }
 
-function QrCheckPage({ token, daily }) {
+function QrCheckPage({ token, daily, monthly }) {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,7 +48,7 @@ function QrCheckPage({ token, daily }) {
   const [actionError, setActionError] = useState('');
   const pending = useRef(false);
   const revision = useRef(0);
-  const endpoint = `/qr-check/${daily ? 'day/' : ''}${encodeURIComponent(token)}`;
+  const endpoint = `/qr-check/${monthly ? 'month/' : daily ? 'day/' : ''}${encodeURIComponent(token)}`;
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (pending.current) return;
@@ -84,6 +86,8 @@ function QrCheckPage({ token, daily }) {
 
   useEffect(() => {
     const delays = [payload?.checkOutRetryAfterMs, payload?.switchRetryAfterMs, payload?.punchRetryAfterMs,
+      payload?.active?.switchRetryAfterMs, payload?.active?.punchRetryAfterMs,
+      ...(payload?.active?.services || []).map((service) => service.checkOutRetryAfterMs),
       ...(payload?.services || []).map((service) => service.checkOutRetryAfterMs)].filter((value) => value > 0);
     if (!delays.length) return;
     const timeout = window.setTimeout(() => load({ silent: true }), Math.min(...delays) + 50);
@@ -92,7 +96,7 @@ function QrCheckPage({ token, daily }) {
 
   async function register(action, assignmentId) {
     // React state updates alone do not serialize rapid taps or in-flight refreshes.
-    if (pending.current) return;
+    if (pending.current || payload?.readOnly) return;
     pending.current = true;
     const request = ++revision.current;
     setSaving(true);
@@ -102,7 +106,7 @@ function QrCheckPage({ token, daily }) {
     try {
       const next = await publicQrApi(`${endpoint}/${action}`, {
         method: 'POST',
-        ...(daily ? { body: JSON.stringify({ assignmentId, revision: payload.revision }) } : {}),
+        ...(daily || monthly ? { body: JSON.stringify({ assignmentId, revision: monthly ? payload.active?.revision : payload.revision }) } : {}),
       });
       if (request === revision.current) setPayload(next);
     } catch (err) {
@@ -122,7 +126,7 @@ function QrCheckPage({ token, daily }) {
 
   return (
     <main className="qr-check-page">
-      <section className={`qr-check-card${daily ? ' qr-check-card--daily' : ''}`}>
+      <section className={`qr-check-card${daily || monthly ? ' qr-check-card--daily' : ''}`}>
         <div className="qr-check-logo">
           <img src="/logo.png" alt="ExtraSolutio" />
         </div>
@@ -139,10 +143,18 @@ function QrCheckPage({ token, daily }) {
             <p>{error}</p>
             <button type="button" className="secondary-button" onClick={() => load()}>Tentar novamente</button>
           </div>
+        ) : monthly ? (
+          <>
+            <MonthlyQrServices payload={payload} saving={saving} onRegister={register} />
+            {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
+          </>
+        ) : payload.readOnly ? (
+          <QrConsultationSummary payload={payload} />
         ) : daily ? (
           <>
             <DailyQrServices payload={payload} saving={saving} onRegister={register} />
             {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
+            {payload.completed && <QrSummaryCopyButton payload={payload} />}
             <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
           </>
         ) : (
@@ -197,6 +209,7 @@ function QrCheckPage({ token, daily }) {
               </p>
             )}
             {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
+            {payload.completed && <QrSummaryCopyButton payload={payload} />}
             <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
           </>
         )}

@@ -5,7 +5,7 @@ function schedule(service) {
   return [service.startTime || '--:--', service.endTime || '--:--'].join(' → ');
 }
 
-export default function DailyQrServices({ payload, saving, onRegister }) {
+export default function DailyQrServices({ payload, saving, onRegister, showOverview = true }) {
   const [selection, setSelection] = useState(null);
   const selectedId = payload.activeAssignmentId || (selection?.revision === payload.revision ? selection.id : null);
   const current = payload.services.find((service) => service.assignmentId === selectedId && payload.candidateIds.includes(selectedId));
@@ -15,11 +15,11 @@ export default function DailyQrServices({ payload, saving, onRegister }) {
   const day = new Intl.DateTimeFormat('pt-PT', { timeZone: 'UTC' }).format(new Date(payload.assignmentDate));
 
   return <>
-    <header className="qr-check-header">
+    {showOverview && <header className="qr-check-header">
       <p>Picagens do dia · {day}</p>
       <h1>{payload.collaboratorName}</h1>
       <p>{payload.completedCount} de {payload.total} serviços concluídos</p>
-    </header>
+    </header>}
 
     {waitingForDay && <p className="qr-check-footnote" role="status">
       Picagens disponíveis em {day}, a partir das {payload.punchAvailableTime}.
@@ -64,15 +64,15 @@ export default function DailyQrServices({ payload, saving, onRegister }) {
     {payload.completed ? <div className="qr-check-completed" role="status"><CheckCircle2 size={22} />Todos os serviços deste dia estão concluídos.</div>
       : !payload.candidateIds.length && <p role="status">Não existem serviços disponíveis para picar neste momento.</p>}
 
-    <section className="qr-day-summary" aria-label="Serviços do dia">
+    {showOverview && <section className="qr-day-summary" aria-label="Serviços do dia">
       <h2>Serviços do dia</h2>
       <ol>{payload.services.map((service) => (
         <li key={service.assignmentId} aria-current={service.assignmentId === selectedId ? 'step' : undefined}>
           <strong>{service.eventName}</strong>
           <span>{schedule(service)}{service.workLocation ? ` · ${service.workLocation}` : ''}</span>
-          <span>{service.checkIn || '--:--'} → {service.checkOut || '--:--'} · {service.expired ? 'Expirado' : service.state.label}</span>
+          <span>{service.checkIn || '--:--'} → {service.checkOut || '--:--'} · {service.expired ? 'Picagens encerradas' : service.state.label}</span>
         </li>
       ))}</ol>
-    </section>
+    </section>}
   </>;
 }

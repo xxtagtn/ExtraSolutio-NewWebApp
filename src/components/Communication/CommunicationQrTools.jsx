@@ -15,6 +15,12 @@ function qrDate(row) {
   return row.assignmentDate ? date.format(new Date(row.assignmentDate)) : '';
 }
 
+function qrPeriod(row) {
+  return row.qrScope === 'month'
+    ? `Link mensal · ${row.punchExpiresAt ? `picagens até ${date.format(new Date(row.punchExpiresAt))} · ` : ''}consulta até ${date.format(new Date(row.expiresAt))}`
+    : `Serviços do dia · ${qrDate(row)}`;
+}
+
 export function useCommunicationQrTools() {
   const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState(null);
@@ -59,7 +65,7 @@ export function useCommunicationQrTools() {
     try {
       const link = document.createElement('a');
       link.href = await qrDataUrl(row);
-      link.download = `qr-${row.collaboratorName || 'colaborador'}-${row.qrScope === 'day' ? String(row.assignmentDate).slice(0, 10) : row.assignmentId}.png`;
+      link.download = `qr-${row.collaboratorName || 'colaborador'}-${row.qrScope === 'month' ? String(row.expiresAt).slice(0, 10) : row.qrScope === 'day' ? String(row.assignmentDate).slice(0, 10) : row.assignmentId}.png`;
       link.click();
     } catch {
       setNotice('Não foi possível descarregar o QR Code.');
@@ -97,7 +103,7 @@ export function useCommunicationQrTools() {
       img.onload = () => { printWindow.print(); printWindow.close(); };
       img.src = url;
       doc.body.appendChild(img);
-      const details = row.qrScope === 'day' ? [['p', `Serviços do dia · ${qrDate(row)}`]]
+      const details = ['day', 'month'].includes(row.qrScope) ? [['p', qrPeriod(row)]]
         : [['p', row.eventName], ['p', `${qrDate(row)} · ${row.role || ''}`], ['p', [row.startTime, row.endTime].filter(Boolean).join(' → ')]];
       for (const [tag, value] of [['h1', row.collaboratorName], ...details]) {
         const element = doc.createElement(tag);
@@ -136,9 +142,9 @@ export function CommunicationQrDialog({ tools }) {
   const row = tools.selected;
   if (!row) return null;
   return (
-    <Modal title={`QR Code${row.qrScope === 'day' ? ' diário' : ''} · ${row.collaboratorName}`} onClose={tools.close}>
+    <Modal title={`QR Code${row.qrScope === 'month' ? ' mensal' : row.qrScope === 'day' ? ' diário' : ''} · ${row.collaboratorName}`} onClose={tools.close}>
       <div className="communication-qr-dialog">
-        {row.qrScope === 'day' ? <p>Serviços do dia · {qrDate(row)}</p> : <>
+        {['day', 'month'].includes(row.qrScope) ? <p>{qrPeriod(row)}</p> : <>
           <p>{row.eventName} · {qrDate(row)}</p>
           <p>{[row.startTime, row.endTime].filter(Boolean).join(' → ')}</p>
         </>}

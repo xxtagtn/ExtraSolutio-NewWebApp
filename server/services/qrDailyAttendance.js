@@ -5,6 +5,7 @@ import { communicationQrWindow } from '../utils/communicationQrWindow.js';
 import { eventStartInstant } from '../utils/eventTime.js';
 import { readDailyQrToken } from '../utils/qrDailyToken.js';
 import { formatServerTime, qrCodeStateForAssignment, qrUsageWindow } from '../utils/qrCheckins.js';
+import { publicQrValidation, qrConsultationAccess } from '../utils/qrConsultation.js';
 import { ensureAssignmentQr } from './qrCodeGeneration.js';
 import { publicQrError, qrCheckoutProtection, registerPublicQr } from './qrAttendance.js';
 
@@ -32,7 +33,7 @@ function overlaps(a, b) {
   return !first || !second || (first.startsAt < second.endsAt && second.startsAt < first.endsAt);
 }
 
-async function dailyState(db, token, now, { preview = false } = {}) {
+async function dailyState(db, token, now, { preview = false, rowFilter } = {}) {
   const identity = readDailyQrToken(token);
   if (!identity) throw publicQrError(404, 'Link diário inválido.', 'QR_INVALID');
   const date = new Date(`${identity.day}T00:00:00Z`);
@@ -47,13 +48,14 @@ async function dailyState(db, token, now, { preview = false } = {}) {
       qrCheckLogs: { orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }], take: 4, select: { action: true, recordedAt: true } },
     },
   });
-  const rows = found.filter(eligible).sort((a, b) => {
+  const rows = found.filter((row) => eligible(row) && (!rowFilter || rowFilter(row))).sort((a, b) => {
     const first = plannedWindow(a)?.startsAt.getTime() || 0;
     const second = plannedWindow(b)?.startsAt.getTime() || 0;
     return first - second || a.id - b.id;
   });
   if (!rows.length) throw publicQrError(410, 'Não existem serviços disponíveis para este colaborador neste dia.', 'QR_DAY_EMPTY');
   const windows = rows.map((row) => qrUsageWindow({ assignment: row, event: row.event }));
+  const consultation = rows.map((row) => qrConsultationAccess({ assignment: row, event: row.event, now }));
   const punchStartsAt = windows[0].startsAt;
   // The reminder can open the link before the service day, but must not authorize a punch.
   const previewStartsAt = Math.min(punchStartsAt.getTime(), ...rows.map((row) => {
@@ -66,8 +68,10 @@ async function dailyState(db, token, now, { preview = false } = {}) {
       ? 'Este link pode ser consultado nas 24 horas anteriores ao primeiro serviço.'
       : 'As picagens só estão disponíveis no dia do serviço.', 'QR_NOT_ACTIVE');
   }
-  if (now.getTime() > Math.max(...windows.map((window) => window.expiresAt.getTime()))) {
-    throw publicQrError(410, 'Este link diário está expirado.', 'QR_EXPIRED');
+  const expiresAt = preview ? Math.max(...consultation.map((access) => access.consultationExpiresAt.getTime()))
+    : Math.max(...windows.map((window) => window.expiresAt.getTime()));
+  if (now.getTime() > expiresAt) {
+    throw publicQrError(410, preview ? 'O prazo de 31 dias para consultar os serviços deste dia terminou.' : 'Este link diário está expirado.', 'QR_EXPIRED');
   }
   const available = rows.filter((row, index) => now <= windows[index].expiresAt && !(row.checkIn && row.checkOut));
   const opened = available.filter((row) => row.checkIn && !row.checkOut);
@@ -79,13 +83,16 @@ async function dailyState(db, token, now, { preview = false } = {}) {
     const exit = row.qrCheckLogs.find((log) => log.action === 'check_out' && formatServerTime(log.recordedAt) === row.checkOut);
     if (exit) switchAvailableAt = Math.max(switchAvailableAt, exit.recordedAt.getTime() + QR_SERVICE_SWITCH_DELAY_MS);
   }
-  return { identity, rows, candidates, revision, switchAvailableAt, windows, punchStartsAt };
+  return { identity, rows, candidates, revision, switchAvailableAt, windows, punchStartsAt, consultation };
 }
 
 function payload(state, now) {
-  const { rows, candidates, identity, revision, switchAvailableAt, windows, punchStartsAt } = state;
+  const { rows, candidates, identity, revision, switchAvailableAt, windows, punchStartsAt, consultation } = state;
   return {
     scope: 'day', assignmentDate: identity.day,
+    timeZone: consultation[0].timeZone,
+    readOnly: consultation.every((access) => access.readOnly),
+    consultationExpiresAt: new Date(Math.max(...consultation.map((access) => access.consultationExpiresAt.getTime()))).toISOString(),
     collaboratorName: rows[0].collaborator.shortName || rows[0].collaborator.name,
     completed: rows.every((row) => row.checkIn && row.checkOut),
     completedCount: rows.filter((row) => row.checkIn && row.checkOut).length,
@@ -104,6 +111,8 @@ function payload(state, now) {
       workLocation: row.event.workLocationsEnabled ? row.workLocation?.name || '' : '',
       role: row.role || '', ...communicationAssignmentSchedule(row, row.event),
       checkIn: row.checkIn || '', checkOut: row.checkOut || '',
+      ...publicQrValidation(row),
+      readOnly: consultation[index].readOnly,
       state: qrCodeStateForAssignment(row),
       expired: now > windows[index].expiresAt,
       ...qrCheckoutProtection(qrFor(row), now),
@@ -111,15 +120,16 @@ function payload(state, now) {
   };
 }
 
-export async function readDailyQr(db, token, { now = new Date() } = {}) {
-  return payload(await dailyState(db, token, now, { preview: true }), now);
+export async function readDailyQr(db, token, { now = new Date(), rowFilter } = {}) {
+  return payload(await dailyState(db, token, now, { preview: true, rowFilter }), now);
 }
 
-export async function registerDailyQr(db, token, action, request = {}, { now = new Date(), audit = {} } = {}) {
+export async function registerDailyQr(db, token, action, request = {}, { now = new Date(), audit = {}, rowFilter, authorize } = {}) {
   await registerPublicQr(db, token, action, {
     now, audit, serializable: true,
     resolveQr: async (tx) => {
-      const state = await dailyState(tx, token, now);
+      if (authorize) await authorize(tx);
+      const state = await dailyState(tx, token, now, { rowFilter });
       if (!request?.revision || request.revision !== state.revision) {
         throw publicQrError(409, 'Os serviços foram atualizados. Confirma o serviço e tenta novamente.', 'QR_CHANGED');
       }
@@ -136,5 +146,5 @@ export async function registerDailyQr(db, token, action, request = {}, { now = n
       return qrFor(row);
     },
   });
-  return readDailyQr(db, token, { now });
+  return readDailyQr(db, token, { now, rowFilter });
 }

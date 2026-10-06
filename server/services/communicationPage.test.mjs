@@ -249,7 +249,7 @@ test('QR visibility updates by individual actual/planned times before pagination
   assert.deepEqual({ assignments: await db.eventAssignment.findMany(), events: await db.event.findMany(), codes: await db.qrCheckCode.findMany(), logs: await db.qrCheckLog.findMany() }, before);
 });
 
-test('reminder and QR table resolve the same daily link, schedule and collaborator without duplicate codes', async (t) => {
+test('reminder and QR table resolve the same monthly link, schedule and collaborator without duplicate codes', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now });
   process.env.DATABASE_URL = datasourceUrl;
   const { qrCodesRouter } = await import('../routes/qrCheckins.js');
@@ -280,13 +280,13 @@ test('reminder and QR table resolve the same daily link, schedule and collaborat
     assert.equal(tableRow.assignmentDate.toISOString().slice(0, 10), task.date);
     assert.deepEqual(await db.qrCheckCode.findUnique({ where: { assignmentId: 300 } }), saved);
     const other = await invoke('/assignments/:assignmentId', { assignmentId: '201' });
-    assert.notEqual(other.qrUrl, reminder.qrUrl);
+    assert.equal(other.qrUrl, reminder.qrUrl);
     assert.equal(other.assignmentId, 201);
     await db.eventAssignment.create({ data: { id: 301, eventId: 2, collaboratorId: 2, assignmentDate: new Date('2026-09-23'), plannedCheckIn: '18:00', plannedCheckOut: '22:00', status: 'confirmed' } });
     const secondService = await invoke('/assignments/:assignmentId', { assignmentId: '301' });
-    assert.equal(secondService.qrScope, 'day');
+    assert.equal(secondService.qrScope, 'month');
     assert.equal(secondService.qrUrl, reminder.qrUrl);
-    assert.match(secondService.qrUrl, /\/qr\/day\/day1\./);
+    assert.match(secondService.qrUrl, /\/qr\/month\/month1\./);
   } finally {
     await prisma.$disconnect();
   }

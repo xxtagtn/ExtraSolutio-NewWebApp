@@ -4,10 +4,14 @@ import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
 import { readQrCodesPage, readRelevantQrEvents } from '../services/qrCodesPage.js';
 import { communicationAssignmentSchedule } from '../../src/utils/communicationCenter.js';
-import { qrCheckoutProtection, readPublicQr, registerPublicQr } from '../services/qrAttendance.js';
+import { qrCheckoutProtection, readPublicQrForConsultation, registerPublicQr } from '../services/qrAttendance.js';
+import { publicQrValidation, qrConsultationAccess } from '../utils/qrConsultation.js';
 import { ensureAssignmentQr } from '../services/qrCodeGeneration.js';
 import { readDailyQr, registerDailyQr } from '../services/qrDailyAttendance.js';
-import { createDailyQrToken } from '../utils/qrDailyToken.js';
+import { createMonthlyQrToken, monthlyQrCycle } from '../utils/qrMonthlyToken.js';
+import { monthlyQrRows, monthlyServicePayload, readMonthlyQr, registerMonthlyQr } from '../services/qrMonthlyAttendance.js';
+import { buildPaginatedPayload } from '../utils/listQuery.js';
+import { communicationPagination } from '../services/communicationPage.js';
 import {
   QR_CHECK_ACTIONS,
   qrCodeStateForAssignment,
@@ -66,13 +70,14 @@ function qrRowPayload(req, assignment, qrCode) {
     checkIn: assignment.checkIn,
     checkOut: assignment.checkOut,
     state,
-    qrScope: 'day',
-    qrUrl: `${publicBaseUrl(req)}/qr/day/${createDailyQrToken(assignment.collaboratorId, schedule.date)}`,
-    expiresAt: qrCode.expiresAt,
+    qrScope: 'month',
+    qrUrl: `${publicBaseUrl(req)}/qr/month/${createMonthlyQrToken(assignment.collaboratorId)}`,
+    expiresAt: monthlyQrCycle().expiresAt,
+    punchExpiresAt: monthlyQrCycle().punchExpiresAt,
   };
 }
 
-function publicPayload(req, qrCode) {
+function publicPayload(req, qrCode, access = qrConsultationAccess({ event: qrCode.event || qrCode.assignment?.event, assignment: qrCode.assignment })) {
   const assignment = qrCode.assignment;
   const event = qrCode.event || assignment?.event || {};
   const collaborator = qrCode.collaborator || assignment?.collaborator || {};
@@ -90,6 +95,11 @@ function publicPayload(req, qrCode) {
     plannedCheckOut: assignment.plannedCheckOut || '',
     checkIn: assignment.checkIn || '',
     checkOut: assignment.checkOut || '',
+    ...publicQrValidation(assignment),
+    readOnly: access.readOnly,
+    consultationExpiresAt: access.consultationExpiresAt,
+    punchExpiresAt: access.punchExpiresAt,
+    timeZone: access.timeZone,
     completed: Boolean(assignment.checkIn && assignment.checkOut),
     ...qrCheckoutProtection(qrCode),
     qrUrl: publicQrUrl(req, qrCode.token),
@@ -106,8 +116,18 @@ qrCodesRouter.use((_req, res, next) => {
 
 qrPublicRouter.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store');
+  res.set('Referrer-Policy', 'no-referrer');
   next();
 });
+
+qrPublicRouter.get('/month/:token', asyncHandler(async (req, res) => {
+  res.json(await readMonthlyQr(prisma, req.params.token));
+}));
+for (const [path, action] of [['check-in', QR_CHECK_ACTIONS.checkIn], ['check-out', QR_CHECK_ACTIONS.checkOut]]) {
+  qrPublicRouter.post(`/month/:token/${path}`, asyncHandler(async (req, res) => {
+    res.json(await registerMonthlyQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req) }));
+  }));
+}
 
 qrPublicRouter.get('/day/:token', asyncHandler(async (req, res) => {
   res.json(await readDailyQr(prisma, req.params.token));
@@ -120,8 +140,8 @@ for (const [path, action] of [['check-in', QR_CHECK_ACTIONS.checkIn], ['check-ou
 }
 
 qrPublicRouter.get('/:token', asyncHandler(async (req, res) => {
-  const qrCode = await readPublicQr(prisma, req.params.token);
-  res.json(publicPayload(req, qrCode));
+  const { qrCode, access } = await readPublicQrForConsultation(prisma, req.params.token);
+  res.json(publicPayload(req, qrCode, access));
 }));
 
 qrPublicRouter.post('/:token/check-in', asyncHandler(async (req, res) => {
@@ -136,6 +156,33 @@ qrPublicRouter.post('/:token/check-out', asyncHandler(async (req, res) => {
 
 qrCodesRouter.get('/events', asyncHandler(async (_req, res) => {
   res.json(await readRelevantQrEvents(prisma, { now: new Date() }));
+}));
+
+qrCodesRouter.get('/monthly/events', asyncHandler(async (_req, res) => {
+  const rows = await monthlyQrRows(prisma);
+  const events = new Map(rows.map((row) => [row.event.id, { id: row.event.id, name: row.event.name, date: row.event.date,
+    clientName: row.event.client?.name || row.event.clientName || '' }]));
+  res.json([...events.values()]);
+}));
+
+qrCodesRouter.get('/monthly', asyncHandler(async (req, res) => {
+  const now = new Date();
+  const rows = await monthlyQrRows(prisma, { now, eventId: parseId(req.query.eventId) });
+  const groups = new Map();
+  for (const row of rows) {
+    if (!groups.has(row.collaboratorId)) groups.set(row.collaboratorId, { collaboratorId: row.collaboratorId,
+      collaboratorName: row.collaborator.shortName || row.collaborator.name, qrScope: 'month',
+      qrUrl: `${publicBaseUrl(req)}/qr/month/${createMonthlyQrToken(row.collaboratorId, now)}`,
+      expiresAt: monthlyQrCycle(now).expiresAt, punchExpiresAt: monthlyQrCycle(now).punchExpiresAt, services: [] });
+    groups.get(row.collaboratorId).services.push(monthlyServicePayload(row, now));
+  }
+  const items = [...groups.values()].sort((a, b) => a.collaboratorName.localeCompare(b.collaboratorName, 'pt') || a.collaboratorId - b.collaboratorId);
+  const { page, pageSize, skip } = communicationPagination(req.query, items.length);
+  res.json({ ...buildPaginatedPayload({ items: items.slice(skip, skip + pageSize), total: items.length, page, pageSize }),
+    expiresAt: monthlyQrCycle(now).expiresAt,
+    punchExpiresAt: monthlyQrCycle(now).punchExpiresAt,
+    summary: { total: items.length, services: rows.length, entries: rows.filter((row) => row.checkIn).length,
+      completed: rows.filter((row) => row.checkIn && row.checkOut).length } });
 }));
 
 qrCodesRouter.get('/events/:eventId', asyncHandler(async (req, res) => {
@@ -173,6 +220,9 @@ qrCodesRouter.get('/assignments/:assignmentId', asyncHandler(async (req, res) =>
   if (!assignment) return res.status(404).json({ message: 'Colaborador do evento não encontrado.' });
   if (String(assignment.status || '').toLowerCase() === 'cancelled') {
     return res.status(410).json({ message: 'Este dia do evento foi cancelado.' });
+  }
+  if (assignment.qrCheckCode?.revokedAt) {
+    return res.status(410).json({ message: 'O acesso a este serviço foi revogado.' });
   }
   const qrCode = await ensureQrCodeForAssignment(assignment);
   res.json(qrRowPayload(req, assignment, qrCode));

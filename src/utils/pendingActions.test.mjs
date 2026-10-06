@@ -34,7 +34,7 @@ test('detects urgent operational and validation actions from services', () => {
         id: 12,
         name: 'Evento validado',
         date: '2026-06-05T18:00:00.000Z',
-        client: { name: 'FIC' },
+        client: { name: 'FIC', billingMethod: 'per_event', paymentTerm: 'immediate' },
         requiredRoles: JSON.stringify([{ role: 'Emp.Mesa', qty: 1 }]),
         assignments: [{ id: 3, role: 'Emp.Mesa', status: 'confirmed', validationStatus: 'validated', paymentStatus: 'unpaid' }],
         billingStatus: 'pending',
@@ -97,7 +97,7 @@ test('labels residence title documents in pending actions', () => {
   assert.equal(actions[0].details.find((item) => item.label === 'Documento').value, 'Título de Residência');
 });
 
-test('adds client and service context to billing actions', () => {
+test('uses issued invoices for pending client payments and service context for ready-to-bill actions', () => {
   const actions = buildPendingActions({
     services: [
       {
@@ -117,19 +117,22 @@ test('adds client and service context to billing actions', () => {
         date: '2026-06-05',
         totalRevenue: 565.25,
         billingStatus: 'pending',
-        client: { name: 'BLACK' },
+        client: { name: 'BLACK', billingMethod: 'per_event', paymentTerm: 'immediate' },
         assignments: [{ id: 902, status: 'confirmed', validationStatus: 'validated' }],
       },
     ],
+    invoices: [{ id: 900, number: 'FT 900', status: 'issued', issueDate: '2026-06-05', total: 2592.9,
+      client: { name: 'SSH - Supreme Sport Hospitality', paymentTerm: 'immediate' } }],
   }, { today });
 
-  const payment = actions.find((action) => action.id === 'service-billing-90');
-  assert.equal(payment.title, 'Pagamento de cliente pendente');
+  assert.equal(actions.some((action) => action.id === 'service-billing-90'), false, 'An invoiced service does not invent a payment deadline');
+  const payment = actions.find((action) => action.id === 'invoice-overdue-900');
+  assert.equal(payment.title, 'Fatura vencida');
   assert.equal(payment.origin, 'SSH - Supreme Sport Hospitality');
-  assert.equal(payment.to, '/finance?area=clients&eventId=90');
+  assert.equal(payment.to, '/finance?area=clients&invoiceId=900');
   assert.deepEqual(payment.details, [
     { label: 'Cliente', value: 'SSH - Supreme Sport Hospitality' },
-    { label: 'Evento', value: 'Restaurante Luz Chakall' },
+    { label: 'Fatura', value: 'FT 900' },
     { label: 'Valor', value: '2.592,90 €' },
     { label: 'Vencimento', value: 'Ontem (05/06/2026)' },
   ]);
@@ -162,15 +165,29 @@ test('detects budget follow-ups and overdue invoices', () => {
         id: 30,
         number: 'FT 30',
         status: 'issued',
+        issueDate: '2026-05-31T00:00:00.000Z',
         dueDate: '2026-05-31T00:00:00.000Z',
         total: 500,
-        client: { name: 'BLACK' },
+        client: { name: 'BLACK', paymentTerm: 'immediate' },
       },
     ],
   }, { today });
 
   assert.ok(actions.some((action) => action.id === 'budget-followup-20-0'));
   assert.ok(actions.some((action) => action.id === 'invoice-overdue-30'));
+});
+
+test('does not invent billing actions or invoice deadlines from incomplete conditions or draft invoices', () => {
+  const actions = buildPendingActions({
+    services: [{ id: 93, name: 'Sem condicoes', status: 'finalized', date: '2026-06-01',
+      billingStatus: 'pending', totalRevenue: 200, client: { name: 'Cliente sem metodo' } }],
+    invoices: [
+      { id: 31, status: 'draft', issueDate: '2026-05-01', dueDate: '2026-05-01', total: 200, client: { paymentTerm: 'immediate' } },
+      { id: 32, status: 'issued', dueDate: '2026-05-01', total: 200, client: { paymentTerm: 'immediate' } },
+      { id: 33, status: 'issued', issueDate: '2026-05-01', dueDate: '2026-05-01', total: 200, client: {} },
+    ],
+  }, { today });
+  assert.equal(actions.some((action) => action.id.startsWith('service-billing-') || action.id.startsWith('invoice-overdue-')), false);
 });
 
 test('ignores billing actions without a valid service date unless the event is finance ready', () => {

@@ -44,9 +44,12 @@ const services = [
   },
 ];
 
+const invoices = [{ id: 1, eventId: 2, issueDate: '2026-06-01', status: 'issued', total: 600 }];
+
 test('builds the balance overview for the selected month and year', () => {
   const overview = buildBalanceOverview({
     services,
+    invoices,
     today: new Date('2026-06-01T12:00:00'),
     period: { month: '6', year: '2026', clientId: 'all', status: 'all' },
   });
@@ -75,6 +78,7 @@ test('builds the balance overview for the selected month and year', () => {
 test('filters the balance overview by client and operational status', () => {
   const overview = buildBalanceOverview({
     services,
+    invoices,
     today: new Date('2026-06-01T12:00:00'),
     period: { month: '6', year: '2026', clientId: '11', status: 'confirmed' },
   });

@@ -5,6 +5,8 @@ import {
   qrCheckOutAvailableAt,
   validateQrUsage,
 } from '../utils/qrCheckins.js';
+import { qrConsultationAccess } from '../utils/qrConsultation.js';
+import { isAssignmentOnCancelledDay } from '../../src/utils/eventCancelledDays.js';
 
 const qrInclude = {
   event: { include: { client: true } },
@@ -35,7 +37,7 @@ export function qrCheckoutProtection(qrCode, now = new Date()) {
   };
 }
 
-export async function readPublicQr(client, token, { now = new Date() } = {}) {
+async function loadPublicQr(client, token) {
   if (!token) throw publicQrError(404, 'QR Code inválido.', 'QR_INVALID');
   const qrCode = await client.qrCheckCode.findUnique({ where: { token }, include: qrInclude });
   if (!qrCode) throw publicQrError(404, 'QR Code inválido.', 'QR_INVALID');
@@ -43,6 +45,11 @@ export async function readPublicQr(client, token, { now = new Date() } = {}) {
   if (String(qrCode.assignment?.status || '').toLowerCase() === 'cancelled') {
     throw publicQrError(410, 'Este dia do evento foi cancelado.', 'QR_DAY_CANCELLED');
   }
+  return qrCode;
+}
+
+export async function readPublicQr(client, token, { now = new Date() } = {}) {
+  const qrCode = await loadPublicQr(client, token);
   try {
     validateQrUsage({ event: qrCode.event || qrCode.assignment?.event, assignment: qrCode.assignment, now });
   } catch (error) {
@@ -51,12 +58,40 @@ export async function readPublicQr(client, token, { now = new Date() } = {}) {
   return qrCode;
 }
 
+export async function readPublicQrForConsultation(client, token, { now = new Date() } = {}) {
+  const qrCode = await loadPublicQr(client, token);
+  const event = qrCode.event || qrCode.assignment?.event;
+  const assignment = qrCode.assignment;
+  if (!assignment || qrCode.collaboratorId !== assignment.collaboratorId || qrCode.eventId !== assignment.eventId) {
+    throw publicQrError(410, 'Este link já não corresponde ao serviço atribuído.', 'QR_INVALID');
+  }
+  if (['cancelled', 'canceled', 'removed', 'missed_justified', 'missed_unjustified'].includes(String(assignment.status || '').toLowerCase())
+    || ['cancelled', 'canceled'].includes(String(event?.status || '').toLowerCase()) || isAssignmentOnCancelledDay(assignment, event)) {
+    throw publicQrError(410, 'Este serviço já não está disponível.', 'QR_DAY_CANCELLED');
+  }
+  let access;
+  try {
+    access = qrConsultationAccess({ event, assignment, now });
+  } catch (error) {
+    throw publicQrError(error.status || 400, error.message, error.code || 'QR_INVALID');
+  }
+  if (now < access.punchStartsAt) throw publicQrError(400, 'Este QR Code ainda não está ativo para este dia de serviço.', 'QR_NOT_ACTIVE');
+  if (now > access.consultationExpiresAt) throw publicQrError(410, 'O prazo de 31 dias para consultar este serviço terminou.', 'QR_EXPIRED');
+  return { qrCode, access };
+}
+
 export async function registerPublicQr(prisma, token, action, { now = new Date(), audit = {}, resolveQr, serializable = false } = {}) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
         const qrCode = resolveQr ? await resolveQr(tx) : await readPublicQr(tx, token, { now });
         const assignment = qrCode.assignment;
+        // Consultation must never authorize a write, including through a custom resolver.
+        try {
+          validateQrUsage({ event: qrCode.event || assignment?.event, assignment, now });
+        } catch (error) {
+          throw publicQrError(error.status || 400, error.message, error.code || 'QR_INVALID');
+        }
         const serverTime = formatServerTime(now);
         const data = {};
 

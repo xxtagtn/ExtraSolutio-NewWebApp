@@ -1,5 +1,5 @@
-import { Bell, BellOff, Save, Send } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Bell, BellOff, RefreshCw, Save, Send } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../utils/api.js';
 import { currentPushDevice, disablePush, enablePush, pushAvailability, requestPushPermission } from '../../utils/pushNotifications.js';
 import './PushSettings.css';
@@ -12,13 +12,48 @@ export default function PushSettings({ userId }) {
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const unavailable = pushAvailability();
+  const [unavailable, setUnavailable] = useState(pushAvailability);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const preferencesLoadedFor = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let permissionStatus;
+    function refresh() {
+      setUnavailable(pushAvailability());
+      if (!busy) {
+        setBusy(true);
+        setRefreshVersion((version) => version + 1);
+      }
+    }
+    function onVisible() {
+      if (document.visibilityState === 'visible') refresh();
+    }
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    if (globalThis.navigator?.permissions?.query) {
+      globalThis.navigator.permissions.query({ name: 'notifications' }).then((status) => {
+        if (cancelled) return;
+        permissionStatus = status;
+        status.addEventListener('change', refresh);
+      }).catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+      permissionStatus?.removeEventListener('change', refresh);
+    };
+  }, [busy]);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      setBusy(true);
+      setError('');
+      setUnavailable(pushAvailability());
       try {
-        const result = await api('/push/config');
+        const result = await api('/push/config', { cache: 'no-store' });
         if (cancelled) return;
         setConfig(result);
         if (globalThis.isSecureContext && globalThis.PushManager && globalThis.navigator?.serviceWorker) {
@@ -26,16 +61,17 @@ export default function PushSettings({ userId }) {
           if (cancelled) return;
           setDevice(current.device);
           setSubscription(current.subscription);
-          if (current.device) {
+          if (current.device && preferencesLoadedFor.current !== userId) {
             setPreferences({ notifyEntry: current.device.notifyEntry, notifyExit: current.device.notifyExit });
           }
+          preferencesLoadedFor.current = userId;
         }
       } catch (err) { if (!cancelled) setError(err.message); }
       finally { if (!cancelled) setBusy(false); }
     }
     void load();
     return () => { cancelled = true; };
-  }, [userId, unavailable]);
+  }, [userId, refreshVersion]);
 
   async function run(action) {
     if (busy) return;
@@ -64,6 +100,11 @@ export default function PushSettings({ userId }) {
         <label><input type="checkbox" checked={preferences.notifyExit} onChange={(event) => setPreferences((old) => ({ ...old, notifyExit: event.target.checked }))} />Saídas</label>
       </fieldset>
       <div className="push-settings__actions">
+        <button type="button" className="button button--ghost" disabled={busy} onClick={() => {
+          setBusy(true);
+          setError('');
+          setRefreshVersion((version) => version + 1);
+        }}><RefreshCw size={17} />Voltar a verificar</button>
         {!device ? <button type="button" className="command-button" disabled={blocked} onClick={activate}><Bell size={17} />Ativar neste dispositivo</button> : <>
           <button type="button" className="command-button" disabled={blocked} onClick={() => run(async () => {
             const result = await api('/push/device', { method: 'PUT', body: JSON.stringify({ subscription: subscription.toJSON(), ...preferences }) });

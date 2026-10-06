@@ -77,7 +77,7 @@ try {
   const recovered = await setup({ permission: 'denied' }); await recovered.login(); await recovered.profile();
   await recovered.page.getByText('Notificações bloqueadas nas definições deste browser/dispositivo.').waitFor();
   await recovered.page.evaluate(() => { Notification.permission = 'granted'; window.dispatchEvent(new Event('focus')); });
-  await recovered.page.waitForFunction(() => ![...document.querySelectorAll('.push-settings button')].find((button) => button.textContent.includes('Ativar neste dispositivo'))?.disabled, { timeout: 3000 });
+  await recovered.page.waitForFunction(() => ![...document.querySelectorAll('.push-settings button')].find((button) => button.textContent.includes('Ativar neste dispositivo'))?.disabled, null, { timeout: 3000 });
   await recovered.page.getByRole('button', { name: 'Ativar neste dispositivo' }).click();
   await recovered.page.getByText('Notificações ativas neste dispositivo.', { exact: true }).waitFor();
   await recovered.context.close();
@@ -112,6 +112,12 @@ try {
   await s.page.getByText('Notificações ativas neste dispositivo.', { exact: true }).waitFor();
   assert.equal(await s.page.evaluate(() => window.__permissionCalls), 1);
   await s.page.getByLabel('Saídas', { exact: true }).uncheck();
+  const refreshed = s.page.waitForResponse((response) => response.url().endsWith('/push/config'));
+  await s.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await refreshed;
+  await s.page.waitForFunction(() => !document.querySelector('.push-settings fieldset')?.disabled);
+  assert.equal(await s.page.getByLabel('Saídas', { exact: true }).isChecked(), false, 'Refreshing status preserves unsaved preferences');
+  assert.equal(await s.page.evaluate(() => window.__permissionCalls), 1, 'Refreshing never requests permission automatically');
   await s.page.getByRole('button', { name: 'Guardar preferências' }).click();
   await s.page.getByText('Preferências guardadas.').waitFor(); assert.equal(s.device().notifyExit, false);
   await s.page.getByRole('button', { name: 'Testar notificação' }).click();
