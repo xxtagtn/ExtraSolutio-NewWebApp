@@ -68,10 +68,9 @@ async function dailyState(db, token, now, { preview = false, rowFilter } = {}) {
       ? 'Este link pode ser consultado nas 24 horas anteriores ao primeiro serviço.'
       : 'As picagens só estão disponíveis no dia do serviço.', 'QR_NOT_ACTIVE');
   }
-  const expiresAt = preview ? Math.max(...consultation.map((access) => access.consultationExpiresAt.getTime()))
-    : Math.max(...windows.map((window) => window.expiresAt.getTime()));
+  const expiresAt = Math.max(...windows.map((window) => window.expiresAt.getTime()));
   if (now.getTime() > expiresAt) {
-    throw publicQrError(410, preview ? 'O prazo de 31 dias para consultar os serviços deste dia terminou.' : 'Este link diário está expirado.', 'QR_EXPIRED');
+    throw publicQrError(410, 'Este link diário está expirado.', 'QR_EXPIRED');
   }
   const available = rows.filter((row, index) => now <= windows[index].expiresAt && !(row.checkIn && row.checkOut));
   const opened = available.filter((row) => row.checkIn && !row.checkOut);
@@ -123,6 +122,22 @@ function payload(state, now) {
 
 export async function readDailyQr(db, token, { now = new Date(), rowFilter } = {}) {
   return payload(await dailyState(db, token, now, { preview: true, rowFilter }), now);
+}
+
+export function publicDailyPunchPayload(state) {
+  const candidateIds = state.punchRetryAfterMs > 0 ? [] : state.candidateIds;
+  const services = state.services.filter((service) => candidateIds.includes(service.assignmentId)).map((service) => ({
+    assignmentId: service.assignmentId, eventName: service.eventName, clientName: service.clientName,
+    location: service.location, workLocation: service.workLocation, role: service.role,
+    startTime: service.startTime, endTime: service.endTime, checkIn: service.checkIn, checkOut: service.checkOut,
+    state: service.state, expired: service.expired, checkOutAvailableAt: service.checkOutAvailableAt,
+    checkOutAvailableTime: service.checkOutAvailableTime, checkOutRetryAfterMs: service.checkOutRetryAfterMs,
+  }));
+  return { scope: 'day', assignmentDate: state.assignmentDate, collaboratorName: state.collaboratorName,
+    completed: state.completed, completedCount: state.completedCount, total: state.total, revision: state.revision,
+    selectionRequired: candidateIds.length > 1, activeAssignmentId: candidateIds.length === 1 ? candidateIds[0] : null,
+    candidateIds, punchAvailableAt: state.punchAvailableAt, punchAvailableTime: state.punchAvailableTime,
+    punchRetryAfterMs: state.punchRetryAfterMs, switchRetryAfterMs: state.switchRetryAfterMs, services };
 }
 
 export async function registerDailyQr(db, token, action, request = {}, { now = new Date(), audit = {}, rowFilter, authorize } = {}) {

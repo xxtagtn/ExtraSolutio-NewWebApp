@@ -22,7 +22,7 @@ function identity(token, now) {
   return result;
 }
 
-export async function monthlyQrRows(db, { now = new Date(), collaboratorId, eventId, cycle = monthlyQrCycle(now) } = {}) {
+export async function monthlyQrRows(db, { now = new Date(), collaboratorId, eventId, cycle = monthlyQrCycle(now), includeEntryLogs = false } = {}) {
   const from = new Date(`${cycle.historyFrom}T00:00:00Z`);
   const until = new Date(`${cycle.servicesUntil}T00:00:00Z`);
   // Assignment dates are civil service dates; only the current link's days are listed.
@@ -36,6 +36,8 @@ export async function monthlyQrRows(db, { now = new Date(), collaboratorId, even
     include: {
       event: { include: { client: { select: { name: true } } } },
       collaborator: { select: { name: true, shortName: true } }, workLocation: { select: { name: true } }, qrCheckCode: true,
+      ...(includeEntryLogs ? { qrCheckLogs: { where: { action: 'check_in' }, orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }],
+        take: 1, select: { action: true, recordedAt: true } } } : {}),
     },
     orderBy: [{ assignmentDate: 'asc' }, { id: 'asc' }],
   });

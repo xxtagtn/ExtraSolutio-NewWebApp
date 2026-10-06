@@ -4,7 +4,6 @@ import { useParams } from 'react-router-dom';
 import { API_URL } from '../utils/api.js';
 import DailyQrServices from '../components/Communication/DailyQrServices.jsx';
 import MonthlyQrServices from '../components/Communication/MonthlyQrServices.jsx';
-import QrConsultationSummary, { QrSummaryCopyButton } from '../components/Communication/QrConsultationSummary.jsx';
 
 async function publicQrApi(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -37,6 +36,13 @@ function StateBadge({ state }) {
 
 export default function QrCheck({ daily = false, monthly = false }) {
   const { token } = useParams();
+  if (monthly && !token?.startsWith('month2.')) return <main className="qr-check-page"><section className="qr-check-card">
+    <div className="qr-check-logo"><img src="/logo.png" alt="ExtraSolutio" /></div>
+    <div className="qr-check-empty qr-check-empty--error">
+      <ShieldAlert size={32} /><h1>Link mensal desativado</h1>
+      <p>Pede o link diário do serviço à ExtraSolutio.</p>
+    </div>
+  </section></main>;
   return <QrCheckPage key={`${monthly}:${daily}:${token}`} token={token} daily={daily} monthly={monthly} />;
 }
 
@@ -96,7 +102,7 @@ function QrCheckPage({ token, daily, monthly }) {
 
   async function register(action, assignmentId) {
     // React state updates alone do not serialize rapid taps or in-flight refreshes.
-    if (pending.current || payload?.readOnly) return;
+    if (pending.current) return;
     pending.current = true;
     const request = ++revision.current;
     setSaving(true);
@@ -147,14 +153,12 @@ function QrCheckPage({ token, daily, monthly }) {
           <>
             <MonthlyQrServices payload={payload} saving={saving} onRegister={register} />
             {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
+            <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
           </>
-        ) : payload.readOnly ? (
-          <QrConsultationSummary payload={payload} />
         ) : daily ? (
           <>
             <DailyQrServices payload={payload} saving={saving} onRegister={register} />
             {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
-            {payload.completed && <QrSummaryCopyButton payload={payload} />}
             <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
           </>
         ) : (
@@ -175,7 +179,7 @@ function QrCheckPage({ token, daily, monthly }) {
                 <dd>{payload.role || '-'}</dd>
               </div>
               <div>
-                <dt>Horário previsto</dt>
+                <dt>Previsto</dt>
                 <dd>{[payload.plannedCheckIn, payload.plannedCheckOut].filter(Boolean).join(' → ') || '-'}</dd>
               </div>
               <div>
@@ -209,7 +213,6 @@ function QrCheckPage({ token, daily, monthly }) {
               </p>
             )}
             {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
-            {payload.completed && <QrSummaryCopyButton payload={payload} />}
             <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
           </>
         )}

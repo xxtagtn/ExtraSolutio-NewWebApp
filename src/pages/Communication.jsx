@@ -23,6 +23,7 @@ import { useCommunicationData } from '../hooks/useCommunicationData.js';
 import { api } from '../utils/api.js';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { communicationSummary } from '../utils/communicationCenter.js';
+import { groupQrRowsByCollaboratorDay } from '../utils/communicationQrGroups.js';
 import { withCommunicationMessageDraft } from '../utils/communicationMessageDrafts.js';
 import { date } from '../utils/formatters.js';
 
@@ -82,19 +83,21 @@ function SummaryCard({ icon: Icon, label, value, tone = 'accent' }) {
   );
 }
 
+const qrStateTones = { qr_generated: 'info', entrada_registada: 'warning', servico_concluido: 'success' };
+
 function QrCodesPanel({ canManageQrCodes, qrTools }) {
   const [eventId, setEventId] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const { data: eventOptions, error: optionsError, reload: reloadEvents } = useCommunicationData(canManageQrCodes ? '/qr-codes/monthly/events' : null, { poll: true });
+  const { data: eventOptions, error: optionsError, reload: reloadEvents } = useCommunicationData(canManageQrCodes ? '/qr-codes/events' : null, { poll: true });
   const { data: payload, loading, error, reload: loadQrCodes } = useCommunicationData(
-    canManageQrCodes ? `/qr-codes/monthly?page=${page}&pageSize=${pageSize}&eventId=${eventId}` : null,
+    canManageQrCodes && eventId ? `/qr-codes/events/${eventId}?page=${page}&pageSize=${pageSize}&groupBy=collaboratorDay` : null,
     { poll: true },
   );
 
   useEffect(() => {
-    if (eventId && eventOptions && !eventOptions.some((event) => String(event.id) === String(eventId))) {
-      setEventId('');
+    if (eventOptions && !eventOptions.some((event) => String(event.id) === String(eventId))) {
+      setEventId(eventOptions[0]?.id || '');
       setPage(1);
     }
   }, [eventId, eventOptions]);
@@ -115,10 +118,9 @@ function QrCodesPanel({ canManageQrCodes, qrTools }) {
         <label>
           <span>Evento/Serviço</span>
           <select value={eventId} onChange={(event) => { setEventId(event.target.value); setPage(1); }}>
-            <option value="">Todos os eventos/serviços</option>
             {eventOptions?.length ? eventOptions.map((item) => (
               <option key={item.id} value={item.id}>{item.name} · {item.clientName} · {formatTaskDate(item.date)}</option>
-            )) : null}
+            )) : <option value="">Sem serviços nesta janela</option>}
           </select>
         </label>
         <button type="button" className="secondary-button" onClick={() => { reloadEvents(); loadQrCodes(); }} disabled={loading}>
@@ -130,14 +132,14 @@ function QrCodesPanel({ canManageQrCodes, qrTools }) {
 
       <div className="communication-qr-summary">
         <article>
-          <small>Links mensais</small>
-          <strong>Picagens até {formatTaskDate(payload?.punchExpiresAt)} · Consulta até {formatTaskDate(payload?.expiresAt)}</strong>
-          <span>{payload?.summary?.services || 0} serviços confirmados</span>
+          <small>Evento</small>
+          <strong>{payload?.event?.name || 'Seleciona um evento'}</strong>
+          <span>{payload?.event?.clientName || ''}</span>
         </article>
         <article>
-          <small>Colaboradores</small>
+          <small>QR gerados</small>
           <strong>{payload?.summary?.total || 0}</strong>
-          <span>com link disponível</span>
+          <span>colaboradores atribuídos</span>
         </article>
         <article>
           <small>Entradas</small>
@@ -163,35 +165,32 @@ function QrCodesPanel({ canManageQrCodes, qrTools }) {
           <tbody>
             {loading ? (
               <tr><td colSpan="3">A carregar QR Codes...</td></tr>
-            ) : (payload?.items || []).length ? payload.items.map((group) => (
-              <tr key={group.collaboratorId}>
+            ) : (payload?.rows || []).length ? groupQrRowsByCollaboratorDay(payload.rows, payload.event?.date).map((group) => (
+              <tr key={group.key}>
                 <td data-label="Colaborador">
-                  <strong>{group.collaboratorName}</strong>
-                  <small>Consulta até {formatTaskDate(group.expiresAt)}</small>
+                  <strong>{group.rows[0].collaboratorName}</strong>
+                  <small>{formatTaskDate(group.rows[0].assignmentDate)}</small>
                 </td>
                 <td data-label="Serviços / Picagens">
-                  <details className="communication-month-services">
-                    <summary>{group.services.length} {group.services.length === 1 ? 'serviço' : 'serviços'}</summary>
                   <div className="communication-qr-services">
-                    {group.services.map((row) => (
+                    {[...group.rows].sort((a, b) => String(a.startTime || '').localeCompare(String(b.startTime || '')) || a.assignmentId - b.assignmentId).map((row) => (
                       <div className="communication-qr-service" key={row.assignmentId}>
                         <div className="communication-qr-service__header">
-                          <span className="communication-qr-service__schedule"><Clock3 size={15} aria-hidden="true" />{formatTaskDate(row.assignmentDate)} · {[row.startTime, row.endTime].filter(Boolean).join(' → ') || 'Sem horário'}</span>
-                          <Badge tone={row.checkIn && row.checkOut ? 'success' : 'info'}>{row.checkIn && row.checkOut ? 'Concluído' : row.readOnly ? 'Consulta' : 'Confirmado'}</Badge>
+                          <span className="communication-qr-service__schedule"><Clock3 size={15} aria-hidden="true" />{[row.startTime, row.endTime].filter(Boolean).join(' → ') || 'Sem horário'}</span>
+                          <Badge tone={qrStateTones[row.state?.key] || 'neutral'}>{row.state?.label || 'QR Gerado'}</Badge>
                         </div>
-                        <small>{row.eventName} · {row.role || 'Sem função'}</small>
+                        <small>{row.role || 'Sem função'}</small>
                         <small>Entrada: {row.checkIn || '-'} · Saída: {row.checkOut || '-'}</small>
                       </div>
                     ))}
                   </div>
-                  </details>
                 </td>
                 <td data-label="Ações">
-                  <CommunicationQrActions row={group} tools={qrTools} compact />
+                  <CommunicationQrActions row={group.rows[0]} tools={qrTools} compact />
                 </td>
               </tr>
             )) : (
-              <tr><td colSpan="3">Sem colaboradores com serviços confirmados neste período.</td></tr>
+              <tr><td colSpan="3">Sem serviços dentro da janela de 24 horas.</td></tr>
             )}
           </tbody>
         </table>

@@ -6,124 +6,79 @@ const { chromium } = await import(process.argv[3] || 'playwright');
 const output = process.argv[2];
 if (!output) throw new Error('Provide a screenshot output directory.');
 await mkdir(output, { recursive: true });
-const base = {
-  assignmentDate: '2026-09-24', collaboratorName: 'Ana Cristina Rosa', timeZone: 'Europe/Lisbon',
-  consultationExpiresAt: '2026-10-25T23:59:59.999Z', readOnly: true,
-};
-const morning = {
-  assignmentId: 1, eventName: 'Embaixada da Republica Popular da China', clientName: 'Cliente de teste',
-  role: 'Emp. Mesa', location: 'Lisboa', workLocation: 'Sala principal',
-  startTime: '08:00', endTime: '16:00', plannedCheckIn: '08:00', plannedCheckOut: '16:00',
-  checkIn: '08:02', checkOut: '16:05', validationStatus: 'validated', validatedCheckIn: '08:00', validatedCheckOut: '16:00',
-  state: { key: 'completed', label: 'Concluido', nextAction: null }, expired: true, readOnly: true,
-};
-const afternoon = {
-  ...morning, assignmentId: 2, eventName: 'Servico da tarde', role: 'Bar',
-  checkIn: '17:00', checkOut: '', validationStatus: 'pending', validatedCheckIn: '', validatedCheckOut: '',
-};
-const daily = { ...base, scope: 'day', services: [morning, afternoon], total: 2, completedCount: 1,
-  completed: false, candidateIds: [], selectionRequired: false, revision: 'isolated-ui' };
-const individual = { ...base, ...morning, completed: true };
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const baseUrl = process.env.QR_UI_URL || 'http://localhost:5175';
 const errors = [];
-let mutations = 0;
-
-async function setup(initial, path = '/qr/day/ui-test') {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
-  await context.addInitScript(() => Object.defineProperty(window.navigator, 'clipboard', {
-    configurable: true, value: { writeText: async (text) => { window.copiedQrSummary = text; } },
-  }));
-  let response = initial;
-  let status = 200;
-  await context.route('**/api/**', async (route) => {
-    if (route.request().method() !== 'GET') mutations += 1;
-    await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(response) });
-  });
-  const page = await context.newPage();
-  page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto(`${process.env.QR_UI_URL || 'http://localhost:5175'}${path}`);
-  await page.locator('.qr-check-header').waitFor();
-  return { context, page, update: (next, code = 200) => { response = next; status = code; } };
-}
-
-async function layout(page, width) {
-  await page.setViewportSize({ width, height: 1000 });
-  const result = await page.evaluate(() => {
-    const problems = [];
-    for (const element of document.querySelectorAll('.qr-check-card h1, .qr-check-card h2, .qr-check-card p, .qr-check-card dt, .qr-check-card dd, .qr-check-card button')) {
-      const rect = element.getBoundingClientRect();
-      if (rect.width && (rect.left < 0 || rect.right > innerWidth || element.scrollWidth > element.clientWidth + 2)) {
-        problems.push(element.textContent);
-      }
-    }
-    for (const row of document.querySelectorAll('.qr-consultation-record dl > div')) {
-      const label = row.querySelector('dt').getBoundingClientRect();
-      const value = row.querySelector('dd').getBoundingClientRect();
-      if (label.right > value.left) problems.push(`Overlapping: ${row.textContent}`);
-    }
-    const logo = document.querySelector('.qr-check-logo img');
-    return { problems, overflow: document.documentElement.scrollWidth > innerWidth, logo: logo.complete && logo.naturalWidth > 0 };
-  });
-  assert.deepEqual(result.problems, [], `${width}px: text overflow/overlap`);
-  assert.equal(result.overflow, false, `${width}px: page overflow`);
-  assert.equal(result.logo, true, 'Company logo loaded');
-}
-
+let writes = 0;
+const active = {
+  scope: 'day', assignmentDate: '2026-09-24', collaboratorName: 'Ana Cristina Rosa',
+  total: 2, completedCount: 0, completed: false, revision: 'isolated-test',
+  activeAssignmentId: 1, candidateIds: [1], selectionRequired: false,
+  punchRetryAfterMs: 0, switchRetryAfterMs: 0,
+  services: [{
+    assignmentId: 1, eventName: 'Servico atual', role: 'Emp. Mesa', location: 'Lisboa',
+    startTime: '08:00', endTime: '16:00', checkIn: '08:02', checkOut: '',
+    state: { key: 'entrada_registada', label: 'Entrada registada', nextAction: 'check_out' },
+    checkOutRetryAfterMs: 1800000, checkOutAvailableTime: '08:32',
+  }],
+};
+const completed = { ...active, services: [], candidateIds: [], activeAssignmentId: null, completed: true, completedCount: 2 };
+const preview = { ...completed, completed: false, completedCount: 0, punchRetryAfterMs: 3600000, punchAvailableTime: '00:00' };
+const cases = [
+  ['active', '/qr/day/ui-test', active, 200],
+  ['completed', '/qr/day/ui-test', completed, 200],
+  ['preview', '/qr/day/ui-test', preview, 200],
+  ['expired-daily', '/qr/day/ui-test', { message: 'Este link diário está expirado.' }, 410],
+  ['expired-legacy', '/qr/legacy-test', { message: 'Este QR Code está expirado.' }, 410],
+];
 try {
-  const { page, context, update } = await setup(daily);
-  assert.equal(await page.locator('.qr-consultation-record').count(), 2);
-  assert.equal(await page.locator('.qr-check-command, input[type=radio]').count(), 0);
-  assert.match(await page.locator('.qr-consultation-record').first().innerText(), /Horário previsto[\s\S]*08:00 → 16:00[\s\S]*Horário de picagem[\s\S]*08:02[\s\S]*16:05[\s\S]*8:03h/);
-  assert.match(await page.locator('.qr-consultation-record').last().innerText(), /Sem registo[\s\S]*Incompleto/);
-  assert.doesNotMatch(await page.locator('.qr-consultation-records').innerText(), /Validação|Validado|Por validar|Horário validado/);
   for (const width of [1280, 390, 360, 320]) {
-    await layout(page, width);
-    await page.screenshot({ path: join(output, `qr-consultation-${width}.png`), fullPage: true });
+    for (const [name, path, initial, initialStatus] of cases) {
+      const context = await browser.newContext({ viewport: { width, height: 1000 } });
+      let body = initial;
+      let status = initialStatus;
+      await context.route('**/api/**', async (route) => {
+        if (route.request().method() !== 'GET') writes += 1;
+        await route.fulfill({ status, json: body });
+      });
+      const page = await context.newPage();
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`${baseUrl}${path}`);
+      if (status === 410) await page.getByRole('heading', { name: 'Não foi possível validar' }).waitFor();
+      else await page.getByRole('heading', { name: active.collaboratorName }).waitFor();
+      assert.equal(await page.locator('.qr-day-summary, .qr-month-history, .qr-consultation-record, .qr-summary-copy').count(), 0);
+      if (name === 'active') {
+        assert.equal(await page.getByRole('button', { name: 'Dar Saída' }).isDisabled(), true);
+        assert.match(await page.locator('.qr-day-current').innerText(), /Servico atual/);
+        assert.doesNotMatch(await page.locator('.qr-check-card').innerText(), /Validação|Validado|Por validar/);
+      } else {
+        assert.equal(await page.locator('.qr-check-command, .qr-day-current, input[type=radio]').count(), 0);
+      }
+      if (name === 'completed') await page.getByText('Todos os serviços deste dia estão concluídos.').waitFor();
+      if (name === 'preview') await page.getByText('Picagens disponíveis em 24/09/2026, a partir das 00:00.').waitFor();
+      const layout = await page.evaluate(() => ({
+        overflow: document.documentElement.scrollWidth > innerWidth,
+        clipped: [...document.querySelectorAll('.qr-check-card h1, .qr-check-card h2, .qr-check-card p, .qr-check-card dd, .qr-check-card button')]
+          .filter((element) => element.scrollWidth > element.clientWidth + 2).map((element) => element.textContent),
+        logo: document.querySelector('.qr-check-logo img')?.naturalWidth > 0,
+      }));
+      assert.equal(layout.overflow, false, `${name}: ${width}px`);
+      assert.deepEqual(layout.clipped, [], `${name}: ${width}px`);
+      assert.equal(layout.logo, true);
+      await page.screenshot({ path: join(output, `daily-no-history-${name}-${width}.png`), fullPage: true });
+      if (name === 'active') {
+        body = { message: 'Este link diário está expirado.' };
+        status = 410;
+        await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+        await page.getByRole('heading', { name: 'Não foi possível validar' }).waitFor();
+        assert.equal(await page.locator('.qr-check-command, .qr-day-current').count(), 0);
+      }
+      await context.close();
+    }
   }
-  await page.getByRole('button', { name: 'Copiar resumo' }).click();
-  const copied = await page.evaluate(() => window.copiedQrSummary);
-  assert.match(copied, /Entrada registada: 08:02/);
-  assert.match(copied, /Horário previsto: 08:00 → 16:00[\s\S]*Horário de picagem:/);
-  assert.match(copied, /Servico da tarde/);
-  assert.doesNotMatch(copied, /Validação:|Por validar|Horário validado/);
-  await page.evaluate(() => { window.navigator.clipboard.writeText = async () => { throw new Error('Clipboard denied'); }; });
-  await page.getByRole('button', { name: 'Resumo copiado' }).click();
-  const textarea = page.locator('.qr-summary-manual-copy textarea');
-  await textarea.waitFor();
-  assert.equal(await textarea.getAttribute('readonly'), '');
-  assert.equal(await textarea.inputValue(), copied);
-  await layout(page, 320);
-  update({ message: 'O prazo de 31 dias para consultar os servicos deste dia terminou.' }, 410);
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await page.locator('.qr-check-empty--error').waitFor();
-  assert.equal(await page.locator('.qr-consultation-record, .qr-check-command').count(), 0);
-  await context.close();
-
-  const legacy = await setup(individual, '/qr/ui-test');
-  assert.equal(await legacy.page.locator('.qr-consultation-record').count(), 1);
-  for (const width of [1280, 390, 320]) await layout(legacy.page, width);
-  await legacy.page.screenshot({ path: join(output, 'qr-consultation-individual.png'), fullPage: true });
-  await legacy.context.close();
-
-  const active = await setup({ ...individual, readOnly: false, completed: false, checkOut: '',
-    checkOutRetryAfterMs: 1800000, checkOutAvailableTime: '08:32', state: { key: 'checked_in', label: 'Entrada registada', nextAction: 'check_out' } }, '/qr/ui-test');
-  assert.equal(await active.page.locator('.qr-check-command').isDisabled(), true);
-  assert.match(await active.page.locator('.qr-check-footnote').first().innerText(), /30 minutos/);
-  active.update(individual);
-  await active.page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await active.page.locator('.qr-consultation-record').waitFor();
-  assert.equal(await active.page.locator('.qr-check-command').count(), 0);
-  await active.context.close();
-
-  const preview = await setup({ ...daily, readOnly: false, services: [{ ...morning, readOnly: false, expired: false,
-    checkIn: '', checkOut: '', state: { key: 'qr_generated', label: 'QR Gerado', nextAction: 'check_in' } }],
-    total: 1, completedCount: 0, candidateIds: [1], activeAssignmentId: 1, punchRetryAfterMs: 86400000, punchAvailableTime: '00:00' });
-  assert.equal(await preview.page.locator('.qr-check-command').isDisabled(), true);
-  assert.match(await preview.page.locator('.qr-check-footnote').first().innerText(), /Picagens dispon/);
-  await preview.context.close();
+  assert.equal(writes, 0);
   assert.deepEqual(errors, []);
-  assert.equal(mutations, 0, 'UI checks must never make a write request');
-  console.log('QR consultation UI passed: daily/individual, 1280/390/360/320px, clipboard/fallback, expiry, live transition and punch cooldown/preview. No API writes.');
+  console.log('Daily and legacy no-history UI passed: current punch, preview metadata, completion, expiry and refresh at 320/360/390/1280px.');
 } finally {
   await browser.close();
 }

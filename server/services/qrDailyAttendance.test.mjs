@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import { once } from 'node:events';
-import { readDailyQr, registerDailyQr } from './qrDailyAttendance.js';
+import { publicDailyPunchPayload, readDailyQr, registerDailyQr } from './qrDailyAttendance.js';
 import { ensureAssignmentQr } from './qrCodeGeneration.js';
 import { readPublicQr, registerPublicQr } from './qrAttendance.js';
 import { createDailyQrToken } from '../utils/qrDailyToken.js';
@@ -65,6 +65,48 @@ async function punch(fixture, action, time, { id, state, date = day } = {}) {
 const saved = (row) => db.eventAssignment.findUnique({ where: { id: row.id } });
 const edit = (row, data) => db.eventAssignment.update({ where: { id: row.id }, data });
 const logs = (fixture) => db.qrCheckLog.findMany({ where: { collaboratorId: fixture.collaborator.id }, orderBy: { id: 'asc' } });
+
+test('public daily responses expose only current punch candidates, never history or a future agenda', async () => {
+  const f = await fixture();
+  const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
+  const preview = publicDailyPunchPayload(await read(f, '09:00:00', '2026-09-23'));
+  assert.deepEqual(preview.services, []);
+  assert.deepEqual(preview.candidateIds, []);
+  assert.equal(preview.activeAssignmentId, null);
+  assert.ok(preview.punchRetryAfterMs > 0);
+  const raw = await read(f);
+  const snapshot = structuredClone(raw);
+  const initial = publicDailyPunchPayload(raw);
+  assert.deepEqual(raw, snapshot, 'Serialization must not modify attendance state');
+  assert.deepEqual(initial.services.map((row) => row.assignmentId), [f.rows[0].id]);
+  assert.equal(initial.revision, raw.revision);
+  for (const key of ['validationStatus', 'validatedCheckIn', 'validatedCheckOut', 'totalPay', 'hourlyRate', 'consultationExpiresAt']) {
+    assert.equal(Object.hasOwn(initial.services[0], key), false, key);
+    assert.equal(Object.hasOwn(initial, key), false, key);
+  }
+  assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
+  assert.equal((await logs(f)).length, 0);
+  await punch(f, 'check_in', '09:00:00');
+  const next = publicDailyPunchPayload(await punch(f, 'check_out', '12:00:00'));
+  assert.deepEqual(next.services.map((row) => row.assignmentId), [f.rows[1].id]);
+  assert.equal(next.completedCount, 1);
+  await punch(f, 'check_in', '15:00:00');
+  const completed = publicDailyPunchPayload(await punch(f, 'check_out', '18:00:00'));
+  assert.equal(completed.completed, true);
+  assert.deepEqual(completed.services, []);
+  assert.deepEqual(completed.candidateIds, []);
+});
+
+test('public daily responses retain necessary overlap selection and open-service priority', async () => {
+  const f = await fixture({ times: [['09:00', '12:00'], ['11:00', '14:00']] });
+  const choice = publicDailyPunchPayload(await read(f));
+  assert.equal(choice.selectionRequired, true);
+  assert.deepEqual(choice.services.map((row) => row.assignmentId), f.rows.map((row) => row.id));
+  const opened = publicDailyPunchPayload(await punch(f, 'check_in', '09:00:00', { id: f.rows[1].id }));
+  assert.equal(opened.selectionRequired, false);
+  assert.deepEqual(opened.services.map((row) => row.assignmentId), [f.rows[1].id]);
+  assert.equal(opened.services[0].checkOutRetryAfterMs, 1800000);
+});
 
 test('one daily link completes morning and afternoon separately and preserves existing pay/validation fields', async () => {
   const fixtureData = await fixture();
@@ -214,7 +256,7 @@ test('overnight checkout and after-midnight entry work without exposing the foll
   await punch(late, 'check_in', '00:15:00', { date: '2026-09-25' });
   await assert.rejects(punch(late, 'check_out', '00:44:59', { date: '2026-09-25' }), { code: 'QR_CHECKOUT_TOO_EARLY' });
   await punch(late, 'check_out', '00:45:00', { date: '2026-09-25' });
-  assert.equal((await read(f, '00:00:00', '2026-09-26')).readOnly, true);
+  await assert.rejects(read(f, '00:00:00', '2026-09-26'), { code: 'QR_EXPIRED' });
   await assert.rejects(punch(f, 'check_in', '00:00:00', { date: '2026-09-26' }), { code: 'QR_EXPIRED' });
 });
 
@@ -222,7 +264,7 @@ test('date restrictions, invalid links and assignment spoofing do not write anyt
   const f = await fixture();
   const other = await fixture();
   await assert.rejects(punch(f, 'check_in', '23:59:59', { date: '2026-09-23' }), { code: 'QR_NOT_ACTIVE' });
-  assert.equal((await read(f, '00:00:00', '2026-09-25')).readOnly, true);
+  await assert.rejects(read(f, '00:00:00', '2026-09-25'), { code: 'QR_EXPIRED' });
   await assert.rejects(punch(f, 'check_in', '00:00:00', { date: '2026-09-25' }), { code: 'QR_EXPIRED' });
   await assert.rejects(readDailyQr(db, 'invalid'), { code: 'QR_INVALID' });
   await assert.rejects(punch(f, 'check_in', '09:00:00', { id: other.rows[0].id }), { code: 'QR_SERVICE_REQUIRED' });
@@ -306,25 +348,15 @@ test('service changes, removal and daily work locations are read afresh without 
   await assert.rejects(read(f), { code: 'QR_DAY_EMPTY' });
 });
 
-test('daily consultation retains split shifts, incomplete punches and validation without writes or cross-day access', async () => {
+test('expired daily links reject history consultation without writes or cross-day access', async () => {
   const f = await fixture({ continuous: true, sameEvent: false });
   await edit(f.rows[0], { checkIn: '09:02', checkOut: '12:05', validationStatus: 'validated', validatedCheckIn: '09:00', validatedCheckOut: '12:00' });
   await edit(f.rows[1], { checkIn: '15:00' });
-  const nextDay = await db.eventAssignment.create({ data: { eventId: f.event.id, collaboratorId: f.collaborator.id, assignmentDate: new Date('2026-09-25'), status: 'confirmed' } });
-  const other = await fixture();
+  await db.eventAssignment.create({ data: { eventId: f.event.id, collaboratorId: f.collaborator.id, assignmentDate: new Date('2026-09-25'), status: 'confirmed' } });
   const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
-  const state = await readDailyQr(db, f.token, { now: new Date('2026-10-25T23:59:59.999Z') });
-  assert.equal(state.readOnly, true);
-  assert.equal(state.total, 2);
-  assert.deepEqual(state.candidateIds, []);
-  assert.deepEqual(state.services.map((row) => row.assignmentId), f.rows.map((row) => row.id));
-  assert.equal(state.services[0].checkIn, '09:02');
-  assert.equal(state.services[0].validatedCheckIn, '09:00');
-  assert.equal(state.services[1].checkOut, '');
-  assert.ok(state.services.every((row) => row.assignmentId !== nextDay.id && row.assignmentId !== other.rows[0].id));
-  assert.doesNotMatch(JSON.stringify(state), /totalPay|hourlyRate|paymentStatus|nif|phone/);
+  await assert.rejects(readDailyQr(db, f.token, { now: new Date('2026-10-25T23:59:59.999Z') }), { code: 'QR_EXPIRED' });
   for (const action of ['check_in', 'check_out']) {
-    await assert.rejects(registerDailyQr(db, f.token, action, { assignmentId: f.rows[1].id, revision: state.revision }, { now: new Date('2026-10-25T12:00:00Z') }), { code: 'QR_EXPIRED' });
+    await assert.rejects(registerDailyQr(db, f.token, action, { assignmentId: f.rows[1].id, revision: 'expired' }, { now: new Date('2026-10-25T12:00:00Z') }), { code: 'QR_EXPIRED' });
   }
   await assert.rejects(readDailyQr(db, f.token, { now: new Date('2026-10-26T00:00:00Z') }), { code: 'QR_EXPIRED' });
   assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
@@ -335,12 +367,13 @@ test('daily consultation retains split shifts, incomplete punches and validation
 test('public HTTP routes accept signed daily links, enforce request revisions and retain legacy routes', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: at('09:00:00') });
   process.env.DATABASE_URL = datasourceUrl;
-  const { qrPublicRouter } = await import('../routes/qrCheckins.js');
+  const { qrPublicRouter, qrCodesRouter } = await import('../routes/qrCheckins.js');
   const { prisma } = await import('../prisma.js');
   const f = await fixture();
   const app = express();
   app.use(express.json());
   app.use('/api/qr-check', qrPublicRouter);
+  app.use('/api/qr-codes', qrCodesRouter);
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message, code: error.code }));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -349,7 +382,22 @@ test('public HTTP routes accept signed daily links, enforce request revisions an
     const initial = await fetch(`${url}/day/${f.token}`);
     assert.equal(initial.status, 200);
     assert.equal(initial.headers.get('cache-control'), 'no-store');
+    assert.equal(initial.headers.get('referrer-policy'), 'no-referrer');
     const state = await initial.json();
+    assert.deepEqual(state.services.map((row) => row.assignmentId), [f.rows[0].id]);
+    const unchanged = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
+    for (const [path, method] of [
+      ['/api/qr-check/month/already-issued-token', 'GET'],
+      ['/api/qr-check/month/already-issued-token/check-in', 'POST'],
+      ['/api/qr-check/month/already-issued-token/check-out', 'POST'],
+      ['/api/qr-codes/monthly', 'GET'], ['/api/qr-codes/monthly/events', 'GET'],
+    ]) {
+      const response = await fetch(new URL(path, url), { method });
+      assert.equal(response.status, 410, `${method} ${path}`);
+      assert.match((await response.json()).message, /mensais antigos foram desativados/);
+    }
+    assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), unchanged);
+    assert.equal((await logs(f)).length, 0);
     const body = JSON.stringify({ assignmentId: state.activeAssignmentId, revision: state.revision });
     const send = (action) => fetch(`${url}/day/${f.token}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
     assert.equal((await send('check-in')).status, 200);
@@ -365,11 +413,8 @@ test('public HTTP routes accept signed daily links, enforce request revisions an
     const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
     t.mock.timers.setTime(new Date('2026-10-25T23:59:59.999Z').getTime());
     const consultation = await fetch(`${url}/day/${f.token}`);
-    assert.equal(consultation.status, 200);
-    const historical = await consultation.json();
-    assert.equal(historical.readOnly, true);
-    assert.equal(historical.services[0].checkIn, '09:00');
-    assert.equal((await fetch(`${url}/${qr.token}`)).status, 200);
+    assert.equal(consultation.status, 410);
+    assert.equal((await fetch(`${url}/${qr.token}`)).status, 410);
     for (const action of ['check-in', 'check-out']) {
       assert.equal((await send(action)).status, 410);
       assert.equal((await fetch(`${url}/${qr.token}/${action}`, { method: 'POST' })).status, 410);

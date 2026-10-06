@@ -92,7 +92,7 @@ test('monthly and daily display distinguish planned times from punches, with eve
     assert.equal(service.checkIn, row.checkIn);
     assert.equal(service.checkOut, row.checkOut);
     const day = row.assignmentDate.toISOString().slice(0, 10);
-    const daily = await readDailyQr(db, createDailyQrToken(f.collaborator.id, day), { now: at('2026-10-06') });
+    const daily = await readDailyQr(db, createDailyQrToken(f.collaborator.id, day), { now: at(day, '10:00:00') });
     assert.equal(daily.services[0].plannedCheckIn, start);
     assert.equal(daily.services[0].plannedCheckOut, end);
     assert.equal(daily.services[0].checkIn, row.checkIn);
@@ -247,16 +247,13 @@ test('monthly read isolates collaborators, rejects spoofing and stale revisions,
   await assert.rejects(readMonthlyQr(db, f.token, { now: at('2026-10-06') }), { code: 'QR_MONTH_EMPTY' });
 });
 
-test('HTTP monthly routes and communication generate the same link, expire without redirects and never leak private fields', async (t) => {
+test('already-issued signed monthly links are disabled for reads and writes, with daily generation restored', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: at('2026-10-06') });
   process.env.DATABASE_URL = datasourceUrl;
   const { qrPublicRouter, qrCodesRouter } = await import('../routes/qrCheckins.js');
   const { prisma } = await import('../prisma.js');
   const f = await fixture();
-  await f.add('2026-10-06');
-  const otherEvent = await db.event.create({ data: { name: 'Another confirmed event', date: new Date('2026-10-07') } });
-  await db.eventAssignment.create({ data: { collaboratorId: f.collaborator.id, eventId: otherEvent.id,
-    status: 'confirmed', plannedCheckIn: '09:00', plannedCheckOut: '17:00' } });
+  const row = await f.add('2026-10-06');
   const app = express();
   app.use(express.json());
   app.use('/api/qr-check', qrPublicRouter);
@@ -267,48 +264,39 @@ test('HTTP monthly routes and communication generate the same link, expire witho
   const base = `http://127.0.0.1:${server.address().port}`;
   const url = `${base}/api/qr-check/month/${f.token}`;
   try {
-    const listing = await (await fetch(`${base}/api/qr-codes/monthly?pageSize=100`)).json();
-    assert.ok(listing.items, JSON.stringify(listing));
-    const item = listing.items.find((row) => row.collaboratorId === f.collaborator.id);
-    assert.equal(item.services.length, 2);
-    assert.ok(item.qrUrl.endsWith(`/qr/month/${f.token}`));
-    const filtered = await (await fetch(`${base}/api/qr-codes/monthly?pageSize=100&eventId=${f.event.id}`)).json();
-    const filteredItem = filtered.items.find((row) => row.collaboratorId === f.collaborator.id);
-    assert.equal(filteredItem.services.length, 1);
-    assert.equal(filteredItem.qrUrl, item.qrUrl);
-    assert.equal(listing.items.filter((row) => row.collaboratorId === f.collaborator.id).length, 1);
-    const response = await fetch(url);
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('cache-control'), 'no-store');
-    const current = await response.json();
-    assert.equal(current.scope, 'month');
-    assert.equal(JSON.stringify(current).includes('123456789'), false);
+    const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
+    for (const date of ['2026-10-06', '2026-11-01', '2026-11-14', '2026-11-15']) {
+      t.mock.timers.setTime(at(date).getTime());
+      for (const suffix of ['', '/check-in', '/check-out']) {
+        const response = await fetch(`${url}${suffix}`, suffix ? { method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assignmentId: row.id, revision: 'old' }) } : {});
+        assert.equal(response.status, 410);
+        assert.equal(response.headers.get('location'), null);
+        assert.equal(response.headers.get('cache-control'), 'no-store');
+        assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+        const body = await response.json();
+        assert.match(body.message, /mensais antigos foram desativados/);
+        assert.equal(body.code, 'QR_RETIRED');
+      }
+    }
+    for (const path of ['/api/qr-codes/monthly?pageSize=100', '/api/qr-codes/monthly/events',
+      `/api/qr-codes/monthly?eventId=${f.event.id}`]) {
+      assert.equal((await fetch(`${base}${path}`)).status, 410);
+    }
+    assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
+    assert.equal(await db.qrCheckLog.count({ where: { collaboratorId: f.collaborator.id } }), 0);
     assert.equal(await db.qrCheckCode.count({ where: { collaboratorId: f.collaborator.id } }), 0);
-    const body = JSON.stringify({ assignmentId: current.active.activeAssignmentId, revision: current.active.revision });
-    assert.equal((await fetch(`${url}/check-in`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })).status, 200);
-    assert.equal((await fetch(`${url}/check-out`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })).status, 409);
+    t.mock.timers.setTime(at('2026-10-06').getTime());
+    const dailyResponse = await fetch(`${base}/api/qr-codes/assignments/${row.id}`);
+    assert.equal(dailyResponse.status, 200);
+    const daily = await dailyResponse.json();
+    assert.equal(daily.qrScope, 'day');
+    assert.match(daily.qrUrl, /\/qr\/day\/day1\./);
+    const qr = await db.qrCheckCode.findUnique({ where: { assignmentId: row.id } });
     const revokedAt = at('2026-10-06', '10:00:00');
-    const qr = await db.qrCheckCode.findUnique({ where: { assignmentId: current.active.activeAssignmentId } });
     await db.qrCheckCode.update({ where: { id: qr.id }, data: { revokedAt } });
-    assert.equal((await fetch(`${base}/api/qr-codes/assignments/${qr.assignmentId}`)).status, 410);
+    assert.equal((await fetch(`${base}/api/qr-codes/assignments/${row.id}`)).status, 410);
     assert.equal((await db.qrCheckCode.findUnique({ where: { id: qr.id } })).revokedAt.getTime(), revokedAt.getTime());
-    t.mock.timers.setTime(at('2026-11-01', '00:00:00').getTime());
-    assert.equal((await fetch(url)).status, 200);
-    for (const suffix of ['/check-in', '/check-out']) {
-      const readOnly = await fetch(`${url}${suffix}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-      assert.equal(readOnly.status, 410);
-      assert.equal((await readOnly.json()).code, 'QR_READ_ONLY');
-    }
-    await f.add('2026-11-16');
-    t.mock.timers.setTime(at('2026-11-15', '00:00:00').getTime());
-    for (const suffix of ['', '/check-in', '/check-out']) {
-      const expired = await fetch(`${url}${suffix}`, suffix ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body } : {});
-      assert.equal(expired.status, 410);
-      assert.equal(expired.headers.get('location'), null);
-      assert.equal(JSON.stringify(await expired.json()).includes('month1.'), false);
-    }
-    const updated = await (await fetch(`${base}/api/qr-codes/monthly?pageSize=100`)).json();
-    assert.notEqual(updated.items.find((row) => row.collaboratorId === f.collaborator.id).qrUrl, item.qrUrl);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await prisma.$disconnect();

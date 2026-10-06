@@ -15,12 +15,6 @@ function qrDate(row) {
   return row.assignmentDate ? date.format(new Date(row.assignmentDate)) : '';
 }
 
-function qrPeriod(row) {
-  return row.qrScope === 'month'
-    ? `Link mensal · ${row.punchExpiresAt ? `picagens até ${date.format(new Date(row.punchExpiresAt))} · ` : ''}consulta até ${date.format(new Date(row.expiresAt))}`
-    : `Serviços do dia · ${qrDate(row)}`;
-}
-
 export function useCommunicationQrTools() {
   const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState(null);
@@ -65,7 +59,7 @@ export function useCommunicationQrTools() {
     try {
       const link = document.createElement('a');
       link.href = await qrDataUrl(row);
-      link.download = `qr-${row.collaboratorName || 'colaborador'}-${row.qrScope === 'month' ? String(row.expiresAt).slice(0, 10) : row.qrScope === 'day' ? String(row.assignmentDate).slice(0, 10) : row.assignmentId}.png`;
+      link.download = `qr-${row.collaboratorName || 'colaborador'}-${row.qrScope === 'day' ? String(row.assignmentDate).slice(0, 10) : row.assignmentId}.png`;
       link.click();
     } catch {
       setNotice('Não foi possível descarregar o QR Code.');
@@ -103,7 +97,7 @@ export function useCommunicationQrTools() {
       img.onload = () => { printWindow.print(); printWindow.close(); };
       img.src = url;
       doc.body.appendChild(img);
-      const details = ['day', 'month'].includes(row.qrScope) ? [['p', qrPeriod(row)]]
+      const details = row.qrScope === 'day' ? [['p', `Serviços do dia · ${qrDate(row)}`]]
         : [['p', row.eventName], ['p', `${qrDate(row)} · ${row.role || ''}`], ['p', [row.startTime, row.endTime].filter(Boolean).join(' → ')]];
       for (const [tag, value] of [['h1', row.collaboratorName], ...details]) {
         const element = doc.createElement(tag);
@@ -122,10 +116,12 @@ export function useCommunicationQrTools() {
 export function CommunicationQrActions({ row, tools, compact = false }) {
   const disabled = !row?.qrUrl;
   const className = compact ? 'icon-button' : 'secondary-button';
+  const linkRow = row?.monthlyQrUrl ? { ...row, qrUrl: row.monthlyQrUrl } : row;
+  const linkLabel = row?.monthlyQrUrl ? 'Copiar Link mensal' : 'Copiar Link';
   return (
     <div className="communication-qr-actions">
-      <button type="button" className={className} title="Copiar Link" aria-label={`Copiar Link${row ? ` de ${row.collaboratorName}` : ''}`} disabled={disabled} onClick={() => tools.copyLink(row)}>
-        <Copy size={16} />{!compact && ' Copiar Link'}
+      <button type="button" className={className} title={row?.monthlyQrUrl ? `${linkLabel} · válido até ${date.format(new Date(row.monthlyExpiresAt))}` : linkLabel} aria-label={`${linkLabel}${row ? ` de ${row.collaboratorName}` : ''}`} disabled={disabled} onClick={() => tools.copyLink(linkRow)}>
+        <Copy size={16} />{!compact && ` ${linkLabel}`}
       </button>
       <button type="button" className={className} title="Ver QR" aria-label={`Ver QR Code${row ? ` de ${row.collaboratorName}` : ''}`} disabled={disabled} onClick={() => tools.open(row)}>
         {compact ? <Eye size={16} /> : <QrCode size={16} />}{!compact && ' QR Code'}
@@ -142,9 +138,9 @@ export function CommunicationQrDialog({ tools }) {
   const row = tools.selected;
   if (!row) return null;
   return (
-    <Modal title={`QR Code${row.qrScope === 'month' ? ' mensal' : row.qrScope === 'day' ? ' diário' : ''} · ${row.collaboratorName}`} onClose={tools.close}>
+    <Modal title={`QR Code${row.qrScope === 'day' ? ' diário' : ''} · ${row.collaboratorName}`} onClose={tools.close}>
       <div className="communication-qr-dialog">
-        {['day', 'month'].includes(row.qrScope) ? <p>{qrPeriod(row)}</p> : <>
+        {row.qrScope === 'day' ? <p>Serviços do dia · {qrDate(row)}</p> : <>
           <p>{row.eventName} · {qrDate(row)}</p>
           <p>{[row.startTime, row.endTime].filter(Boolean).join(' → ')}</p>
         </>}
@@ -152,7 +148,7 @@ export function CommunicationQrDialog({ tools }) {
         <code>{row.qrUrl}</code>
         <span role="status" aria-live="polite">{tools.notice}</span>
         <div className="form-actions">
-          <button type="button" className="secondary-button" onClick={() => tools.copyLink(row)}><Copy size={16} /> Copiar Link</button>
+          <button type="button" className="secondary-button" onClick={() => tools.copyLink(row)}><Copy size={16} /> {row.qrScope === 'day' ? 'Copiar Link diário' : 'Copiar Link'}</button>
           <button type="button" className="secondary-button" onClick={() => tools.copyImage(row)} disabled={!tools.image}><Copy size={16} /> Copiar QR Code</button>
           <button type="button" className="secondary-button" onClick={() => tools.print(row)}><Printer size={16} /> Imprimir</button>
           <button type="button" className="command-button" onClick={() => tools.download(row)}><Download size={16} /> Download</button>

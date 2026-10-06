@@ -1,12 +1,11 @@
 import { CheckCircle2, LogIn, LogOut, MapPin } from 'lucide-react';
 import { useState } from 'react';
-import { qrPlannedSchedule } from '../../utils/qrConsultationSummary.js';
 
 function schedule(service) {
   return [service.startTime || '--:--', service.endTime || '--:--'].join(' → ');
 }
 
-export default function DailyQrServices({ payload, saving, onRegister, showOverview = true }) {
+export default function DailyQrServices({ payload, saving, onRegister, showHeader = true }) {
   const [selection, setSelection] = useState(null);
   const selectedId = payload.activeAssignmentId || (selection?.revision === payload.revision ? selection.id : null);
   const current = payload.services.find((service) => service.assignmentId === selectedId && payload.candidateIds.includes(selectedId));
@@ -16,7 +15,7 @@ export default function DailyQrServices({ payload, saving, onRegister, showOverv
   const day = new Intl.DateTimeFormat('pt-PT', { timeZone: 'UTC' }).format(new Date(payload.assignmentDate));
 
   return <>
-    {showOverview && <header className="qr-check-header">
+    {showHeader && <header className="qr-check-header">
       <p>Picagens do dia · {day}</p>
       <h1>{payload.collaboratorName}</h1>
       <p>{payload.completedCount} de {payload.total} serviços concluídos</p>
@@ -47,7 +46,7 @@ export default function DailyQrServices({ payload, saving, onRegister, showOverv
       </header>
       <dl className="qr-check-details">
         <div><dt>Função</dt><dd>{current.role || '-'}</dd></div>
-        <div><dt>Horário previsto</dt><dd>{qrPlannedSchedule(current)}</dd></div>
+        <div><dt>Previsto</dt><dd>{schedule(current)}</dd></div>
         <div><dt>Entrada</dt><dd>{current.checkIn || 'Por registar'}</dd></div>
         <div><dt>Saída</dt><dd>{current.checkOut || 'Por registar'}</dd></div>
       </dl>
@@ -65,15 +64,5 @@ export default function DailyQrServices({ payload, saving, onRegister, showOverv
     {payload.completed ? <div className="qr-check-completed" role="status"><CheckCircle2 size={22} />Todos os serviços deste dia estão concluídos.</div>
       : !payload.candidateIds.length && <p role="status">Não existem serviços disponíveis para picar neste momento.</p>}
 
-    {showOverview && <section className="qr-day-summary" aria-label="Serviços do dia">
-      <h2>Serviços do dia</h2>
-      <ol>{payload.services.map((service) => (
-        <li key={service.assignmentId} aria-current={service.assignmentId === selectedId ? 'step' : undefined}>
-          <strong>{service.eventName}</strong>
-          <span>{schedule(service)}{service.workLocation ? ` · ${service.workLocation}` : ''}</span>
-          <span>{service.checkIn || '--:--'} → {service.checkOut || '--:--'} · {service.expired ? 'Picagens encerradas' : service.state.label}</span>
-        </li>
-      ))}</ol>
-    </section>}
   </>;
 }

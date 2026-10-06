@@ -1,9 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { applicationDay, createMonthlyQrToken, monthlyQrCycle, readMonthlyQrToken } from './qrMonthlyToken.js';
+import { applicationDay, createMonthlyQrToken, monthlyQrCycle, readMonthlyQrToken,
+  createMonthlyPunchToken, monthlyPunchCycle, readMonthlyPunchToken } from './qrMonthlyToken.js';
 
 const secret = 'isolated-monthly-qr-test';
+
+test('new punching links are valid only from the first to the last instant of their calendar month', () => {
+  for (const [date, first, last, next] of [
+    ['2026-10-15T12:00:00Z', '2026-09-30T23:00:00Z', '2026-10-31T23:59:59.999Z', '2026-11-01T00:00:00Z'],
+    ['2026-03-15T12:00:00Z', '2026-03-01T00:00:00Z', '2026-03-31T22:59:59.999Z', '2026-03-31T23:00:00Z'],
+    ['2028-02-15T12:00:00Z', '2028-02-01T00:00:00Z', '2028-02-29T23:59:59.999Z', '2028-03-01T00:00:00Z'],
+    ['2026-12-15T12:00:00Z', '2026-12-01T00:00:00Z', '2026-12-31T23:59:59.999Z', '2027-01-01T00:00:00Z'],
+  ]) {
+    const token = createMonthlyPunchToken(1, new Date(date), secret);
+    const cycle = monthlyPunchCycle(new Date(date), 'Europe/Lisbon');
+    assert.equal(cycle.expiresAt.toISOString(), last);
+    assert.equal(readMonthlyPunchToken(token, { now: new Date(first), secret }).notActive, false);
+    assert.equal(readMonthlyPunchToken(token, { now: new Date(new Date(first).getTime() - 1), secret }).notActive, true);
+    assert.equal(readMonthlyPunchToken(token, { now: new Date(last), secret }).expired, false);
+    assert.equal(readMonthlyPunchToken(token, { now: new Date(next), secret }).expired, true);
+    assert.equal(createMonthlyPunchToken(1, new Date(last), secret), token);
+    assert.notEqual(createMonthlyPunchToken(1, new Date(next), secret), token);
+    assert.equal(readMonthlyPunchToken(createMonthlyQrToken(1, new Date(date), secret), { now: new Date(date), secret }), null);
+    assert.equal(readMonthlyPunchToken(token.replace('month2.', 'month1.'), { now: new Date(date), secret }), null);
+    assert.equal(readMonthlyPunchToken(`${token}x`, { now: new Date(date), secret }), null);
+    assert.equal(readMonthlyPunchToken(token, { now: new Date(date), secret: 'wrong' }), null);
+  }
+});
 test('monthly link rotates on the 1st and remains read-only through the following 14th', () => {
   const first = new Date('2026-10-01T00:00:00+01:00');
   const last = new Date('2026-10-31T23:59:59.999Z');

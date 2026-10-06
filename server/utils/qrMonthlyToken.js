@@ -78,3 +78,41 @@ export function readMonthlyQrToken(token, { now = new Date(), secret = process.e
     return null;
   }
 }
+
+export function monthlyPunchCycle(now = new Date(), timeZone = process.env.APP_TIMEZONE || 'Europe/Lisbon') {
+  const cycle = monthlyQrCycle(now, timeZone);
+  return { ...cycle, expiresAt: cycle.punchExpiresAt };
+}
+
+function punchSignature(encoded, secret) {
+  if (!secret) throw new Error('JWT_SECRET em falta para assinar o link mensal.');
+  return createHmac('sha256', secret).update(`extrasolutio:qr-month:v2:${encoded}`).digest();
+}
+
+export function createMonthlyPunchToken(collaboratorId, now = new Date(), secret = process.env.JWT_SECRET) {
+  if (!Number.isSafeInteger(Number(collaboratorId)) || Number(collaboratorId) <= 0) throw new Error('Colaborador inválido.');
+  const encoded = Buffer.from(JSON.stringify([Number(collaboratorId), monthlyPunchCycle(now).key])).toString('base64url');
+  return `month2.${encoded}.${punchSignature(encoded, secret).toString('base64url')}`;
+}
+
+export function readMonthlyPunchToken(token, { now = new Date(), secret = process.env.JWT_SECRET } = {}) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 3 || parts[0] !== 'month2') return null;
+    const actual = Buffer.from(parts[2], 'base64url');
+    const expected = punchSignature(parts[1], secret);
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+    const values = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+    if (!Array.isArray(values) || values.length !== 2 || !Number.isSafeInteger(values[0]) || values[0] <= 0) return null;
+    const key = values[1];
+    if (typeof key !== 'string' || !/^\d{4}-\d{2}-01$/.test(key)) return null;
+    const [year, month] = key.split('-').map(Number);
+    if (monthDay(year, month, 1) !== key) return null;
+    const timeZone = process.env.APP_TIMEZONE || 'Europe/Lisbon';
+    const cycle = calendarCycle(key, now, timeZone);
+    cycle.expiresAt = cycle.punchExpiresAt;
+    return { collaboratorId: values[0], cycle, notActive: now < cycle.startsAt, expired: now > cycle.expiresAt };
+  } catch {
+    return null;
+  }
+}

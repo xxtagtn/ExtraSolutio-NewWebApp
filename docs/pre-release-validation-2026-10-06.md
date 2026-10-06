@@ -1,5 +1,10 @@
 # Pre-release validation - 2026-10-06
 
+> Superseded for public QR links: see [Monthly pending links validation](monthly-pending-links-validation-2026-10-06.md)
+> for the current implementation and final checks. The new monthly link shows
+> pending services only and expires at month end. Monthly consultation/history
+> described below are no longer available through the public routes.
+
 ## Result
 
 All available automated local checks passed after the corrections below.
