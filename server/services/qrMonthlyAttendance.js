@@ -66,9 +66,22 @@ export function monthlyServicePayload(row, now, cycle = monthlyQrCycle(now)) {
 export async function readMonthlyQr(db, token, { now = new Date() } = {}) {
   const { collaboratorId, cycle, consultationOnly } = identity(token, now);
   const rows = await monthlyQrRows(db, { collaboratorId, now, cycle });
-  if (!rows.length) throw publicQrError(410, 'Não existem serviços confirmados disponíveis neste período.', 'QR_MONTH_EMPTY');
+  let overnightRows = [];
+  // Only an already-started overnight service can bridge months; never add it to monthly history.
+  if (!consultationOnly && cycle.day === cycle.historyFrom) {
+    const previousDay = new Date(`${cycle.historyFrom}T00:00:00Z`);
+    previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+    overnightRows = (await monthlyQrRows(db, { collaboratorId, now,
+      cycle: { ...cycle, historyFrom: previousDay.toISOString().slice(0, 10), servicesUntil: cycle.historyFrom } }))
+      .filter((row) => {
+        const window = qrUsageWindow({ assignment: row, event: row.event });
+        return row.checkIn && now >= window.startsAt && now <= window.expiresAt;
+      });
+  }
+  const availableRows = [...overnightRows, ...rows];
+  if (!availableRows.length) throw publicQrError(410, 'Não existem serviços confirmados disponíveis neste período.', 'QR_MONTH_EMPTY');
   // Reuse the daily candidate selection, cooldown and revision for the active day.
-  const activeRows = consultationOnly ? [] : rows.filter((row) => {
+  const activeRows = consultationOnly ? [] : availableRows.filter((row) => {
     const window = qrUsageWindow({ assignment: row, event: row.event });
     return now >= window.startsAt && now <= window.expiresAt && !(row.checkIn && row.checkOut);
   });
@@ -76,7 +89,7 @@ export async function readMonthlyQr(db, token, { now = new Date() } = {}) {
   const activeDay = activeRow ? eventDayKey(activeRow.assignmentDate || activeRow.event.date) : null;
   const active = activeDay ? await readDailyQr(db, createDailyQrToken(collaboratorId, activeDay), { now, rowFilter: monthlyQrEligible }) : null;
   return {
-    scope: 'month', collaboratorName: rows[0].collaborator.shortName || rows[0].collaborator.name,
+    scope: 'month', collaboratorName: availableRows[0].collaborator.shortName || availableRows[0].collaborator.name,
     timeZone: cycle.timeZone, consultationExpiresAt: cycle.expiresAt.toISOString(), historyFrom: cycle.historyFrom,
     punchExpiresAt: cycle.punchExpiresAt.toISOString(), consultationOnly,
     readOnly: !active, activeDay, active, services: rows.map((row) => monthlyServicePayload(row, now, cycle)),

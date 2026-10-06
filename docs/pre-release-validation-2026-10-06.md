@@ -11,7 +11,7 @@ that the production infrastructure has been validated.
 
 | Check | Result |
 | --- | --- |
-| All `*.test.mjs` files in `server`, `src` and `shared` | 774 passed; zero failures or skips |
+| All `*.test.mjs` files in `server`, `src` and `shared` | 777 passed; zero failures or skips |
 | `tests/auth-session.e2e.mjs` | Passed |
 | `tests/qr-daily.e2e.mjs` | Passed |
 | `tests/push-notifications.e2e.mjs` | Passed |
@@ -37,7 +37,17 @@ on the suite. Backend database integration tests used temporary SQLite files.
   Recorded times, separately identified validated times and on-page validation
   remain unchanged. Added regression checks for individual, daily and monthly
   links, and verified clipboard output plus the manual-copy fallback.
-- Re-ran all listed checks after this summary change; all passed locally.
+- Fixed monthly history boundaries to the link's origin calendar month. The
+  first 14 days no longer append the previous month to the current link.
+  Previous-month history remains available through its own read-only link.
+- Previously issued 16th-to-15th links also list only their origin calendar
+  month, preserving their original consultation expiry. Punching now ends at
+  that month's end, rather than admitting services from the following month.
+- An eligible overnight service from the previous day can appear temporarily
+  in the new link's punching area, but never in its monthly history or copied
+  summary. Checkout also works without any new-month assignments.
+- Re-ran all listed checks after the latest month-isolation correction; all
+  passed locally.
 - Updated client-normalization fixtures to include the existing required
   billing conditions. Added assertions that missing conditions remain rejected
   and partial updates preserve existing conditions.
@@ -55,8 +65,9 @@ on the suite. Backend database integration tests used temporary SQLite files.
   button. Refresh does not request permission automatically or discard unsaved
   notification preferences.
 
-No payment calculations, attendance rules, login duration or database structure
-were changed by these verification corrections.
+No payment calculations, recorded hours, login duration or database structure
+were changed. Monthly link access is limited to its origin month; eligible
+overnight checkout retains the existing service-level protections.
 
 ## Monthly Link Regression Coverage
 
@@ -66,6 +77,9 @@ were changed by these verification corrections.
 - Old links reject both entry and exit during consultation, including direct
   API requests, and stop consultation at midnight starting the 15th.
 - The old link does not expose the next month's services or replacement token.
+- Month history stays fixed on the 1st, 14th, 15th and throughout the following
+  month's consultation period. September and October links remain separate,
+  including Communication reads, without changing assignment records.
 - The new month's link can complete an eligible overnight service under the
   existing checkout rules.
 - Year rollover, February/leap years, daylight saving, isolated collaborators,
@@ -80,6 +94,9 @@ Still required in a separate staging environment matching production:
   payment updates. Schema validation does not prove database/runtime behavior.
 - Verify production configuration, stable signing secret, application timezone,
   HTTPS public URLs, Apache route fallback/proxy and API startup/restart.
+- Deploy and restart the updated API as well as updating the frontend. The
+  month-isolation correction is server-side; replacing `dist` alone is not
+  sufficient.
 - Verify PWA updating from the currently installed version on real devices.
 - Test actual push delivery on a real phone, including background/closed app.
 - Preserve uploads and environment configuration, and prepare a verified backup

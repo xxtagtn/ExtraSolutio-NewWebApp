@@ -29,18 +29,18 @@ function calendarCycle(startDay, now, timeZone) {
     punchExpiresAt: new Date(eventStartInstant(servicesUntil, '00:00', timeZone).getTime() - 1),
     expiresAt: new Date(eventStartInstant(consultationUntil, '00:00', timeZone).getTime() - 1),
     servicesUntil,
-    // The new link also retains last month's records during the consultation grace period.
-    historyFrom: day >= startDay && day < monthDay(year, month, 15) ? monthDay(year, month - 1, 1) : startDay,
+    historyFrom: startDay,
   };
 }
 
 function legacyCycle(startDay, now, timeZone) {
   const [year, month] = startDay.split('-').map(Number);
-  const servicesUntil = monthDay(year, month + 1, 16);
-  const expiresAt = new Date(eventStartInstant(servicesUntil, '00:00', timeZone).getTime() - 1);
+  const servicesUntil = monthDay(year, month + 1, 1);
+  const expiresAt = new Date(eventStartInstant(monthDay(year, month + 1, 16), '00:00', timeZone).getTime() - 1);
   return {
     key: startDay, timeZone, day: applicationDay(now, timeZone), legacy: true,
-    startsAt: eventStartInstant(startDay, '00:00', timeZone), expiresAt, punchExpiresAt: expiresAt,
+    startsAt: eventStartInstant(startDay, '00:00', timeZone), expiresAt,
+    punchExpiresAt: new Date(eventStartInstant(servicesUntil, '00:00', timeZone).getTime() - 1),
     historyFrom: monthDay(year, month, 1), servicesUntil,
   };
 }

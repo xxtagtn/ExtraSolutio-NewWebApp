@@ -26,7 +26,7 @@ test('monthly link rotates on the 1st and remains read-only through the followin
 
 test('calendar cycles and history cutoff handle year rollover and Lisbon DST independently of host timezone', () => {
   for (const [now, key, expiry, punchExpiry, historyFrom] of [
-    ['2026-01-06T12:00:00Z', '2026-01-01', '2026-02-14T23:59:59.999Z', '2026-01-31T23:59:59.999Z', '2025-12-01'],
+    ['2026-01-06T12:00:00Z', '2026-01-01', '2026-02-14T23:59:59.999Z', '2026-01-31T23:59:59.999Z', '2026-01-01'],
     ['2026-03-16T00:00:00Z', '2026-03-01', '2026-04-14T22:59:59.999Z', '2026-03-31T22:59:59.999Z', '2026-03-01'],
     ['2026-10-16T00:00:00+01:00', '2026-10-01', '2026-11-14T23:59:59.999Z', '2026-10-31T23:59:59.999Z', '2026-10-01'],
     ['2028-02-15T12:00:00Z', '2028-02-01', '2028-03-14T23:59:59.999Z', '2028-02-29T23:59:59.999Z', '2028-02-01'],
@@ -48,5 +48,19 @@ test('already-issued 16th-to-15th links retain their original expiry', () => {
   const valid = readMonthlyQrToken(token, { now: new Date('2026-10-15T23:59:59.999+01:00'), secret });
   assert.equal(valid.expired, false);
   assert.equal(valid.cycle.legacy, true);
+  assert.equal(valid.cycle.historyFrom, '2026-09-01');
+  assert.equal(valid.cycle.servicesUntil, '2026-10-01');
+  assert.equal(valid.consultationOnly, true);
   assert.equal(readMonthlyQrToken(token, { now: new Date('2026-10-16T00:00:00+01:00'), secret }).expired, true);
+});
+
+test('calendar month range stays fixed across the 1st, 14th, 15th and next-month consultation period', () => {
+  const token = createMonthlyQrToken(1, new Date('2026-10-01T00:00:00+01:00'), secret);
+  for (const now of ['2026-10-01T00:00:00+01:00', '2026-10-06T12:00:00Z', '2026-10-14T23:59:59+01:00',
+    '2026-10-15T00:00:00+01:00', '2026-11-01T00:00:00Z', '2026-11-14T23:59:59Z']) {
+    const { cycle, expired } = readMonthlyQrToken(token, { now: new Date(now), secret });
+    assert.equal(expired, false);
+    assert.equal(cycle.historyFrom, '2026-10-01');
+    assert.equal(cycle.servicesUntil, '2026-11-01');
+  }
 });

@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import { once } from 'node:events';
-import { readMonthlyQr, registerMonthlyQr } from './qrMonthlyAttendance.js';
+import { monthlyQrRows, readMonthlyQr, registerMonthlyQr } from './qrMonthlyAttendance.js';
 import { createMonthlyQrToken } from '../utils/qrMonthlyToken.js';
 import { ensureAssignmentQr } from './qrCodeGeneration.js';
 import { eventStartInstant } from '../utils/eventTime.js';
@@ -76,15 +76,41 @@ test('only confirmed starts in the calendar month are listed; next month appears
   assert.equal(await db.qrCheckCode.count({ where: { collaboratorId: f.collaborator.id } }), 0);
 });
 
+test('September and October links keep separate month histories throughout consultation and communication reads', async () => {
+  const f = await fixture();
+  const september = [await f.add('2026-09-15', { checkIn: '09:00', checkOut: '12:00' }),
+    await f.add('2026-09-30', { plannedCheckIn: '22:00', plannedCheckOut: '02:00', checkIn: '22:00', checkOut: '02:00' })];
+  const singleEvent = await db.event.create({ data: { name: 'September single event', date: new Date('2026-09-28') } });
+  september.push(await db.eventAssignment.create({ data: { eventId: singleEvent.id, collaboratorId: f.collaborator.id,
+    status: 'confirmed', plannedCheckIn: '08:00', plannedCheckOut: '16:00' } }));
+  const october = [await f.add('2026-10-01'), await f.add('2026-10-06'), await f.add('2026-10-31')];
+  await f.add('2026-11-01');
+  const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
+  const septemberToken = createMonthlyQrToken(f.collaborator.id, at('2026-09-01'));
+  const old = await readMonthlyQr(db, septemberToken, { now: at('2026-10-06') });
+  assert.deepEqual(new Set(old.services.map((row) => row.assignmentId)), new Set(september.map((row) => row.id)));
+  assert.equal(old.consultationOnly, true);
+  assert.equal(old.active, null);
+  for (const day of ['2026-10-01', '2026-10-06', '2026-10-14', '2026-10-15', '2026-11-14']) {
+    const current = await readMonthlyQr(db, f.token, { now: at(day) });
+    assert.deepEqual(current.services.map((row) => row.assignmentId), october.map((row) => row.id));
+    assert.equal(current.historyFrom, '2026-10-01');
+  }
+  const communication = await monthlyQrRows(db, { collaboratorId: f.collaborator.id, now: at('2026-10-06') });
+  assert.deepEqual(communication.map((row) => row.id), october.map((row) => row.id));
+  await assert.rejects(readMonthlyQr(db, septemberToken, { now: at('2026-10-15', '00:00:00') }), { code: 'QR_EXPIRED' });
+  assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
+});
+
 test('same monthly link adds confirmed services and preserves daily cooldown, pay, validation and separate shifts', async () => {
   const f = await fixture();
   const morning = await f.add('2026-10-06', { validationStatus: 'approved', clientCheckIn: '09:00', clientCheckOut: '12:00' });
   const old = await f.add('2026-09-24', { checkIn: '08:02', checkOut: '16:05', validationStatus: 'validated', validatedCheckIn: '08:00', validatedCheckOut: '16:00' });
   await f.add('2026-08-31');
   let current = await readMonthlyQr(db, f.token, { now: at('2026-10-06') });
-  assert.equal(current.services.length, 2);
+  assert.equal(current.services.length, 1);
   assert.equal(current.active.activeAssignmentId, morning.id);
-  assert.equal(current.services.find((row) => row.assignmentId === old.id).validatedCheckIn, '08:00');
+  assert.equal(current.services.some((row) => row.assignmentId === old.id), false);
   assert.equal(JSON.stringify(current).includes('123456789'), false);
   assert.equal(JSON.stringify(current).includes('hourlyRate'), false);
   assert.equal(await db.qrCheckCode.count({ where: { collaboratorId: f.collaborator.id } }), 0);
@@ -92,7 +118,7 @@ test('same monthly link adds confirmed services and preserves daily cooldown, pa
   const future = await f.add('2026-10-09');
   const later = await f.add('2026-11-01');
   current = await readMonthlyQr(db, f.token, { now: at('2026-10-06') });
-  assert.equal(current.services.length, 4);
+  assert.equal(current.services.length, 3);
   assert.equal(current.services.find((row) => row.assignmentId === future.id).upcoming, true);
   assert.equal(current.services.some((row) => row.assignmentId === later.id), false);
   current = await punch(f, 'check_in', at('2026-10-06'));
@@ -140,14 +166,33 @@ test('old month is read-only through the following 14th; new link handles overni
   const renewed = await readMonthlyQr(db, token, { now: next });
   assert.equal(renewed.services.some((row) => row.assignmentId === lastMonth.id), false);
   assert.equal(renewed.active.activeAssignmentId, overnight.id);
-  assert.equal(renewed.services.find((row) => row.assignmentId === overnight.id).requiresNewLinkForCheckout, false);
+  assert.deepEqual(renewed.services.map((row) => row.assignmentId), [november.id]);
+  assert.equal(renewed.active.services.some((row) => row.assignmentId === overnight.id), true);
   assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
   const checked = await registerMonthlyQr(db, token, 'check_out', { assignmentId: overnight.id, revision: renewed.active.revision }, { now: at('2026-11-01', '02:00:00') });
-  assert.equal(checked.services[0].checkOut, '02:00');
+  assert.equal(checked.services.some((row) => row.assignmentId === overnight.id), false);
+  assert.equal((await db.eventAssignment.findUnique({ where: { id: overnight.id } })).checkOut, '02:00');
   assert.equal((await readMonthlyQr(db, f.token, { now: at('2026-11-01', '02:00:00') })).services[0].checkOut, '02:00');
   await punch({ ...f, token }, 'check_in', at('2026-11-01', '09:00:00'));
   assert.equal((await db.eventAssignment.findUnique({ where: { id: november.id } })).checkIn, '09:00');
   assert.equal((await db.eventAssignment.findUnique({ where: { id: lastMonth.id } })).checkIn, '09:00');
+});
+
+test('an overnight checkout remains possible without any new-month services and does not populate monthly history', async () => {
+  const f = await fixture();
+  const overnight = await f.add('2026-10-31', { plannedCheckIn: '22:00', plannedCheckOut: '02:00', checkIn: '22:00' });
+  const now = at('2026-11-01', '01:00:00');
+  const token = createMonthlyQrToken(f.collaborator.id, now);
+  const current = await readMonthlyQr(db, token, { now });
+  assert.deepEqual(current.services, []);
+  assert.equal(current.active.activeAssignmentId, overnight.id);
+  const finished = await registerMonthlyQr(db, token, 'check_out', { assignmentId: overnight.id,
+    revision: current.active.revision }, { now: at('2026-11-01', '02:00:00') });
+  assert.deepEqual(finished.services, []);
+  assert.equal(finished.active, null);
+  const old = await readMonthlyQr(db, f.token, { now: at('2026-11-01', '02:00:00') });
+  assert.equal(old.services[0].checkOut, '02:00');
+  assert.equal(old.consultationOnly, true);
 });
 
 test('monthly read isolates collaborators, rejects spoofing and stale revisions, excludes unconfirmed/cancelled/revoked services', async () => {
