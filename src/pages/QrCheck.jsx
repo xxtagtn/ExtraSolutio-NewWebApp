@@ -126,7 +126,7 @@ function QrCheckPage({ token, daily, monthly }) {
 
   return (
     <main className="qr-check-page">
-      <section className={`qr-check-card${daily || monthly ? ' qr-check-card--daily' : ''}`}>
+      <section className={`qr-check-card${daily || monthly ? ' qr-check-card--daily' : ''}${monthly ? ' qr-check-card--monthly' : ''}`}>
         <div className="qr-check-logo">
           <img src="/logo.png" alt="ExtraSolutio" />
         </div>
@@ -175,7 +175,7 @@ function QrCheckPage({ token, daily, monthly }) {
                 <dd>{payload.role || '-'}</dd>
               </div>
               <div>
-                <dt>Previsto</dt>
+                <dt>Horário previsto</dt>
                 <dd>{[payload.plannedCheckIn, payload.plannedCheckOut].filter(Boolean).join(' → ') || '-'}</dd>
               </div>
               <div>

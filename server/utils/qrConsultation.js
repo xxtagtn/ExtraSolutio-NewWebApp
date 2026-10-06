@@ -3,6 +3,11 @@ import { qrUsageWindow } from './qrCheckins.js';
 
 export const QR_CONSULTATION_DAYS = 31;
 
+export function publicQrPlannedSchedule(assignment = {}, event = {}) {
+  return { plannedCheckIn: assignment.plannedCheckIn || event.startTime || '',
+    plannedCheckOut: assignment.plannedCheckOut || event.endTime || '' };
+}
+
 export function qrConsultationAccess({ event = {}, assignment = {}, now = new Date(), timeZone = process.env.APP_TIMEZONE || 'Europe/Lisbon' } = {}) {
   const { startsAt, expiresAt } = qrUsageWindow({ event, assignment, timeZone });
   // Add calendar days in the application timezone, not 31 fixed 24-hour blocks.

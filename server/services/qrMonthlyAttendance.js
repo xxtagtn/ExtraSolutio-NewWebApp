@@ -5,7 +5,7 @@ import { eventStartInstant } from '../utils/eventTime.js';
 import { communicationQrWindow } from '../utils/communicationQrWindow.js';
 import { createDailyQrToken } from '../utils/qrDailyToken.js';
 import { qrUsageWindow } from '../utils/qrCheckins.js';
-import { publicQrValidation } from '../utils/qrConsultation.js';
+import { publicQrPlannedSchedule, publicQrValidation } from '../utils/qrConsultation.js';
 import { publicQrError } from './qrAttendance.js';
 import { readDailyQr, registerDailyQr } from './qrDailyAttendance.js';
 
@@ -56,6 +56,7 @@ export function monthlyServicePayload(row, now, cycle = monthlyQrCycle(now)) {
     role: row.role || '', location: row.event.location || '',
     workLocation: row.event.workLocationsEnabled ? row.workLocation?.name || '' : '',
     ...communicationAssignmentSchedule(row, row.event),
+    ...publicQrPlannedSchedule(row, row.event),
     checkIn: row.checkIn || '', checkOut: row.checkOut || '', ...publicQrValidation(row),
     readOnly: now > cycle.punchExpiresAt || now > window.expiresAt,
     upcoming: !row.checkIn && !row.checkOut && now < startsAt,

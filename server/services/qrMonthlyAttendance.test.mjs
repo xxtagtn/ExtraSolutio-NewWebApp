@@ -10,6 +10,8 @@ import express from 'express';
 import { once } from 'node:events';
 import { monthlyQrRows, readMonthlyQr, registerMonthlyQr } from './qrMonthlyAttendance.js';
 import { createMonthlyQrToken } from '../utils/qrMonthlyToken.js';
+import { createDailyQrToken } from '../utils/qrDailyToken.js';
+import { readDailyQr } from './qrDailyAttendance.js';
 import { ensureAssignmentQr } from './qrCodeGeneration.js';
 import { eventStartInstant } from '../utils/eventTime.js';
 
@@ -74,6 +76,29 @@ test('only confirmed starts in the calendar month are listed; next month appears
   assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
   assert.equal(await db.qrCheckLog.count({ where: { collaboratorId: f.collaborator.id } }), 0);
   assert.equal(await db.qrCheckCode.count({ where: { collaboratorId: f.collaborator.id } }), 0);
+});
+
+test('monthly and daily display distinguish planned times from punches, with event fallback and no writes', async () => {
+  const f = await fixture();
+  await db.event.update({ where: { id: f.event.id }, data: { startTime: '07:00', endTime: '15:00' } });
+  const assigned = await f.add('2026-10-02', { plannedCheckIn: '08:00', plannedCheckOut: '16:00', checkIn: '08:02', checkOut: '16:05' });
+  const inherited = await f.add('2026-10-03', { plannedCheckIn: null, plannedCheckOut: null, checkIn: '07:04', checkOut: '15:06' });
+  const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
+  const monthly = await readMonthlyQr(db, f.token, { now: at('2026-10-06') });
+  for (const [row, start, end] of [[assigned, '08:00', '16:00'], [inherited, '07:00', '15:00']]) {
+    const service = monthly.services.find((item) => item.assignmentId === row.id);
+    assert.equal(service.plannedCheckIn, start);
+    assert.equal(service.plannedCheckOut, end);
+    assert.equal(service.checkIn, row.checkIn);
+    assert.equal(service.checkOut, row.checkOut);
+    const day = row.assignmentDate.toISOString().slice(0, 10);
+    const daily = await readDailyQr(db, createDailyQrToken(f.collaborator.id, day), { now: at('2026-10-06') });
+    assert.equal(daily.services[0].plannedCheckIn, start);
+    assert.equal(daily.services[0].plannedCheckOut, end);
+    assert.equal(daily.services[0].checkIn, row.checkIn);
+  }
+  assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
+  assert.equal(await db.qrCheckLog.count({ where: { collaboratorId: f.collaborator.id } }), 0);
 });
 
 test('September and October links keep separate month histories throughout consultation and communication reads', async () => {

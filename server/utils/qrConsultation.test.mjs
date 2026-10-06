@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { qrConsultationAccess, publicQrValidation, QR_CONSULTATION_DAYS } from './qrConsultation.js';
+import { qrConsultationAccess, publicQrPlannedSchedule, publicQrValidation, QR_CONSULTATION_DAYS } from './qrConsultation.js';
 import { qrUsageWindow, validateQrUsage } from './qrCheckins.js';
 
 test('31 calendar days of consultation do not extend the punch window', () => {
@@ -35,4 +35,16 @@ test('public validation exposes only confirmed schedule fields, never payment or
   assert.deepEqual(publicQrValidation(assignment), { validationStatus: 'validated', validatedCheckIn: '08:00', validatedCheckOut: '16:00' });
   assert.deepEqual(publicQrValidation({ ...assignment, validationStatus: 'matched' }), { validationStatus: 'pending', validatedCheckIn: '', validatedCheckOut: '' });
   assert.deepEqual(publicQrValidation({ validationStatus: 'approved', clientCheckIn: '09:00', clientCheckOut: '17:00' }), { validationStatus: 'validated', validatedCheckIn: '09:00', validatedCheckOut: '17:00' });
+});
+
+test('public planned times come only from assignment or event, never punches or validation', () => {
+  const assignment = { plannedCheckIn: '07:00', plannedCheckOut: '15:00', checkIn: '07:02', checkOut: '15:03',
+    validatedCheckIn: '08:00', validatedCheckOut: '16:00' };
+  const before = structuredClone(assignment);
+  const event = { startTime: '09:00', endTime: '17:00' };
+  assert.deepEqual(publicQrPlannedSchedule(assignment, event), { plannedCheckIn: '07:00', plannedCheckOut: '15:00' });
+  assert.deepEqual(publicQrPlannedSchedule({ ...assignment, plannedCheckIn: null, plannedCheckOut: null }, event),
+    { plannedCheckIn: '09:00', plannedCheckOut: '17:00' });
+  assert.deepEqual(publicQrPlannedSchedule({ checkIn: '07:02', checkOut: '15:03' }), { plannedCheckIn: '', plannedCheckOut: '' });
+  assert.deepEqual(assignment, before);
 });

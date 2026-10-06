@@ -23,6 +23,10 @@ export function qrSummaryRecords(payload) {
   return ['day', 'month'].includes(payload.scope) ? payload.services : [payload];
 }
 
+export function qrPlannedSchedule(service) {
+  return `${(service.plannedCheckIn ?? service.startTime) || '--:--'} → ${(service.plannedCheckOut ?? service.endTime) || '--:--'}`;
+}
+
 export function qrSummaryText(payload) {
   const lines = ['ExtraSolutio · Resumo de horários', payload.collaboratorName,
     payload.scope === 'month' ? `Desde ${qrSummaryDate(payload.historyFrom)}` : qrSummaryDate(payload.assignmentDate)];
@@ -31,11 +35,9 @@ export function qrSummaryText(payload) {
     lines.push('', service.eventName);
     if (payload.scope === 'month') lines.push(`Dia: ${qrSummaryDate(service.assignmentDate)}`);
     if (service.role) lines.push(`Função: ${service.role}`);
+    lines.push(`Horário previsto: ${qrPlannedSchedule(service)}`, 'Horário de picagem:');
     lines.push(`Entrada registada: ${service.checkIn || 'Sem registo'}`, `Saída registada: ${service.checkOut || 'Sem registo'}`,
-      `Intervalo registado: ${recordedIntervalLabel(service.checkIn, service.checkOut)}`);
-    if (service.validationStatus === 'validated' && service.validatedCheckIn && service.validatedCheckOut) {
-      lines.push(`Horário validado: ${service.validatedCheckIn} → ${service.validatedCheckOut}`);
-    }
+      `Horas trabalhadas: ${recordedIntervalLabel(service.checkIn, service.checkOut)}`);
   }
   return lines.join('\n');
 }

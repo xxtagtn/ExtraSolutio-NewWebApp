@@ -1,5 +1,6 @@
 import { CheckCircle2, LogIn, LogOut, MapPin } from 'lucide-react';
 import { useState } from 'react';
+import { qrPlannedSchedule } from '../../utils/qrConsultationSummary.js';
 
 function schedule(service) {
   return [service.startTime || '--:--', service.endTime || '--:--'].join(' → ');
@@ -46,7 +47,7 @@ export default function DailyQrServices({ payload, saving, onRegister, showOverv
       </header>
       <dl className="qr-check-details">
         <div><dt>Função</dt><dd>{current.role || '-'}</dd></div>
-        <div><dt>Previsto</dt><dd>{schedule(current)}</dd></div>
+        <div><dt>Horário previsto</dt><dd>{qrPlannedSchedule(current)}</dd></div>
         <div><dt>Entrada</dt><dd>{current.checkIn || 'Por registar'}</dd></div>
         <div><dt>Saída</dt><dd>{current.checkOut || 'Por registar'}</dd></div>
       </dl>

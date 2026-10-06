@@ -5,7 +5,7 @@ import { communicationQrWindow } from '../utils/communicationQrWindow.js';
 import { eventStartInstant } from '../utils/eventTime.js';
 import { readDailyQrToken } from '../utils/qrDailyToken.js';
 import { formatServerTime, qrCodeStateForAssignment, qrUsageWindow } from '../utils/qrCheckins.js';
-import { publicQrValidation, qrConsultationAccess } from '../utils/qrConsultation.js';
+import { publicQrPlannedSchedule, publicQrValidation, qrConsultationAccess } from '../utils/qrConsultation.js';
 import { ensureAssignmentQr } from './qrCodeGeneration.js';
 import { publicQrError, qrCheckoutProtection, registerPublicQr } from './qrAttendance.js';
 
@@ -110,6 +110,7 @@ function payload(state, now) {
       location: row.event.location || '',
       workLocation: row.event.workLocationsEnabled ? row.workLocation?.name || '' : '',
       role: row.role || '', ...communicationAssignmentSchedule(row, row.event),
+      ...publicQrPlannedSchedule(row, row.event),
       checkIn: row.checkIn || '', checkOut: row.checkOut || '',
       ...publicQrValidation(row),
       readOnly: consultation[index].readOnly,

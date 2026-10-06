@@ -73,8 +73,9 @@ try {
   const { page, context, update } = await setup(daily);
   assert.equal(await page.locator('.qr-consultation-record').count(), 2);
   assert.equal(await page.locator('.qr-check-command, input[type=radio]').count(), 0);
-  assert.match(await page.locator('.qr-consultation-record').first().innerText(), /08:02[\s\S]*16:05[\s\S]*8:03h[\s\S]*08:00 \u2192 16:00/);
-  assert.match(await page.locator('.qr-consultation-record').last().innerText(), /Sem registo[\s\S]*Incompleto[\s\S]*Por validar/);
+  assert.match(await page.locator('.qr-consultation-record').first().innerText(), /Horário previsto[\s\S]*08:00 → 16:00[\s\S]*Horário de picagem[\s\S]*08:02[\s\S]*16:05[\s\S]*8:03h/);
+  assert.match(await page.locator('.qr-consultation-record').last().innerText(), /Sem registo[\s\S]*Incompleto/);
+  assert.doesNotMatch(await page.locator('.qr-consultation-records').innerText(), /Validação|Validado|Por validar|Horário validado/);
   for (const width of [1280, 390, 360, 320]) {
     await layout(page, width);
     await page.screenshot({ path: join(output, `qr-consultation-${width}.png`), fullPage: true });
@@ -82,9 +83,9 @@ try {
   await page.getByRole('button', { name: 'Copiar resumo' }).click();
   const copied = await page.evaluate(() => window.copiedQrSummary);
   assert.match(copied, /Entrada registada: 08:02/);
-  assert.match(copied, /Horario validado|Hor\u00e1rio validado/);
+  assert.match(copied, /Horário previsto: 08:00 → 16:00[\s\S]*Horário de picagem:/);
   assert.match(copied, /Servico da tarde/);
-  assert.doesNotMatch(copied, /Validação:|Por validar/);
+  assert.doesNotMatch(copied, /Validação:|Por validar|Horário validado/);
   await page.evaluate(() => { window.navigator.clipboard.writeText = async () => { throw new Error('Clipboard denied'); }; });
   await page.getByRole('button', { name: 'Resumo copiado' }).click();
   const textarea = page.locator('.qr-summary-manual-copy textarea');

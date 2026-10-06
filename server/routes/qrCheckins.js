@@ -5,7 +5,7 @@ import { asyncHandler } from '../utils/http.js';
 import { readQrCodesPage, readRelevantQrEvents } from '../services/qrCodesPage.js';
 import { communicationAssignmentSchedule } from '../../src/utils/communicationCenter.js';
 import { qrCheckoutProtection, readPublicQrForConsultation, registerPublicQr } from '../services/qrAttendance.js';
-import { publicQrValidation, qrConsultationAccess } from '../utils/qrConsultation.js';
+import { publicQrPlannedSchedule, publicQrValidation, qrConsultationAccess } from '../utils/qrConsultation.js';
 import { ensureAssignmentQr } from '../services/qrCodeGeneration.js';
 import { readDailyQr, registerDailyQr } from '../services/qrDailyAttendance.js';
 import { createMonthlyQrToken, monthlyQrCycle } from '../utils/qrMonthlyToken.js';
@@ -91,8 +91,7 @@ function publicPayload(req, qrCode, access = qrConsultationAccess({ event: qrCod
     clientName: event.client?.name || event.clientName || '',
     assignmentDate: assignment.assignmentDate || event.date || null,
     role: assignment.role || '',
-    plannedCheckIn: assignment.plannedCheckIn || '',
-    plannedCheckOut: assignment.plannedCheckOut || '',
+    ...publicQrPlannedSchedule(assignment, event),
     checkIn: assignment.checkIn || '',
     checkOut: assignment.checkOut || '',
     ...publicQrValidation(assignment),
