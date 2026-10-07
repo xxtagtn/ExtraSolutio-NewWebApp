@@ -76,3 +76,52 @@ These results validate the local application, not the production infrastructure.
   git diff whitespace checks passed. The existing bundle-size warning remains.
 - Updated screenshots: node_modules/.cache/balance-all-tabs/. Verification
   logs: .codex-tmp/balance-tabs-*.log. No online deployment or production writes.
+
+## Individual Staff Evolution: Annual, Monthly And Weekly
+
+- Added Anual/Mensal/Semanal segmented controls to Evolucao de Staff. Annual
+  retains the twelve-month series; monthly displays each day of the selected
+  month; weekly displays the selected Monday-Sunday block within that month.
+  Partial boundary weeks are clipped to the month, preserving the month scope.
+- All views follow the selected collaborator, name/NIF search, client, event
+  status and year. When the page selects all months, the evolution tool has a
+  local month selector without changing the cost table or page totals.
+- Monthly and weekly summaries show service count, hours and the existing
+  cost total, plus the preceding period's value and absolute change. Previous
+  monthly comparison uses the complete prior month, including December across
+  a year boundary. Partial weekly comparisons use matching weekdays seven
+  days earlier. Exact comparison date ranges are shown.
+- Comparison data reuses the existing finance-ready/billable assignment filters,
+  cost formula and advance/payment formulas. Previous-year comparison entries
+  do not affect current-year totals, collaborator options or annual charts.
+- Added seven unit cases: selected collaborator daily/weekly parity, leap years,
+  exact week coverage, local month selection, payment/advance/state parity,
+  prior-year comparison, partial weeks and prior-period filters.
+- All 836 unit/integration tests passed. Browser checks cover the three views,
+  comparison amounts and date ranges, nonblank chart geometry, collaborator
+  selection, month selection, pagination, filters, refresh, empty/loading/error
+  states and 320/390/768/1024/1440px layouts. Other Balancete tabs and individual
+  and bulk Staff payment workflows also passed regression checks.
+- Screenshots: node_modules/.cache/balance-staff/staff-evolucao-*.png.
+  Logs: .codex-tmp/balance-staff-period-*.log. No online deployment or real writes.
+
+## Axis Clipping And Compact Mobile Detail Follow-Up
+
+- Reproduced the reported left-axis clipping in the browser: the fixed 65px
+  axis cut tick labels 250,00 EUR, 500,00 EUR and 750,00 EUR. The new regression
+  assertion failed before the fix and checks each SVG tick's screen bounds.
+- Staff evolution now uses Recharts' built-in automatic Y-axis measurement,
+  explicit 12px tick typography and a small left safety margin. Tick formatting,
+  exact tooltip values and financial calculations remain unchanged.
+- On mobile only, monthly/daily detail rows now use two rows of three fields
+  instead of tall stacked blocks. All six fields remain available, with their
+  labels; existing bounded vertical scrolling remains. The main collaborator
+  cost table is unaffected.
+- Browser tests cover all three views at 320/390/1440px with chart amounts
+  800, 12345.67 and 1234567.89, tick-label bounds and full chart rendering.
+  Existing 320/390/768/1024/1440px filter, selection, comparison and detail
+  checks passed, including an explicit mobile detail-row height assertion.
+- All 836 unit/integration tests, Staff browser suite, ESLint, production build
+  and PWA verification passed. Logs: .codex-tmp/balance-staff-axis-*.log.
+  Screenshots: node_modules/.cache/balance-staff/staff-axis-*.png and updated
+  monthly detail captures. No production data changes or online deployment.

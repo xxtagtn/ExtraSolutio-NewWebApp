@@ -31,7 +31,9 @@ const services = [{ id: 1, name: 'Evento QA', client, clientId: 1, status: 'fina
   assignment(50, 3, 'Outro Colaborador', '2026-09-02', 'unpaid', { hourlyRate: 8 }),
 ] }, { id: 3, name: 'Por validar', client, clientId: 1, status: 'confirmed', date: '2026-09-01', assignments: [assignment(60, 4, 'Não validado', '2026-09-01')] }];
 
-async function setup(width, { failServices = false, delay = 0 } = {}) {
+async function setup(width, { failServices = false, delay = 0, chartAmount } = {}) {
+  const chartServices = chartAmount === undefined ? services : structuredClone(services);
+  if (chartAmount !== undefined) chartServices[0].assignments[0].hourlyRate = chartAmount / 5;
   const context = await browser.newContext({ viewport: { width, height: 1000 }, timezoneId: 'Europe/Lisbon' });
   await context.addInitScript(() => localStorage.setItem('extrasolutio.auth', JSON.stringify({
     token: 'test-only-token', user: { id: 1, name: 'Admin QA', role: 'admin' }, lastActivityAt: Date.now(), sessionId: 'balance-staff-qa',
@@ -41,7 +43,7 @@ async function setup(width, { failServices = false, delay = 0 } = {}) {
     const path = new URL(route.request().url()).pathname.slice(4);
     if (delay && path === '/services') await new Promise((resolve) => setTimeout(resolve, delay));
     if (failServices && path === '/services') return route.fulfill({ status: 500, json: { message: 'Serviços indisponíveis no teste' } });
-    const body = { '/services': services, '/clients': [client, otherClient] }[path] || [];
+    const body = { '/services': chartServices, '/clients': [client, otherClient] }[path] || [];
     await route.fulfill({ status: 200, json: body });
   });
   const page = await context.newPage();
@@ -61,17 +63,42 @@ async function totals(page, amounts, annual) {
 }
 
 async function layout(page) {
+  await page.evaluate(() => document.fonts.ready);
   const result = await page.evaluate(() => ({
     overflow: document.documentElement.scrollWidth > innerWidth + 1,
     clipped: [...document.querySelectorAll('.balance-staff button, .balance-staff strong, .balance-staff select, .balance-staff input, .balance-tabs button')]
       .filter((element) => element.checkVisibility() && element.scrollWidth > element.clientWidth + 2)
       .map((element) => element.textContent),
+    clippedTicks: [...document.querySelectorAll('.balance-staff-chart .recharts-cartesian-axis-tick text')].filter((element) => {
+      const rect = element.getBoundingClientRect();
+      const chart = element.closest('svg').getBoundingClientRect();
+      return rect.left < chart.left - 1 || rect.right > chart.right + 1 || rect.top < chart.top - 1 || rect.bottom > chart.bottom + 1;
+    }).map((element) => element.textContent),
+    tallDetailRows: innerWidth > 760 ? [] : [...document.querySelectorAll('.balance-staff-months[open] tbody tr')]
+      .filter((element) => element.checkVisibility() && element.getBoundingClientRect().height > 145)
+      .map((element) => element.textContent),
   }));
   assert.equal(result.overflow, false);
   assert.deepEqual(result.clipped, []);
+  assert.deepEqual(result.clippedTicks, [], 'All chart axis labels fit inside the SVG viewport');
+  assert.deepEqual(result.tallDetailRows, [], 'Mobile detail rows remain compact');
 }
 
 try {
+  for (const width of [1440, 390, 320]) {
+    for (const chartAmount of [800, 12345.67, 1234567.89]) {
+      const { page, context } = await setup(width, { chartAmount });
+      await page.getByLabel('Colaborador', { exact: true }).selectOption('1');
+      for (const view of ['Anual', 'Mensal', 'Semanal']) {
+        await page.getByRole('button', { name: view, exact: true }).click();
+        await page.waitForTimeout(250);
+        await layout(page);
+        assert.ok(await page.locator('.balance-staff-chart .recharts-yAxis text').count() > 0);
+      }
+      await page.locator('.balance-staff-evolution').screenshot({ path: `${output}/staff-axis-${width}-${chartAmount}.png`, animations: 'disabled' });
+      await context.close();
+    }
+  }
   for (const width of [1440, 1024, 768, 390, 320]) {
     const { page, context } = await setup(width);
     await totals(page, [305, 50, 235], 355);
@@ -86,11 +113,47 @@ try {
     await page.locator('.balance-staff-months summary').click();
     assert.equal(await page.locator('.balance-staff-months tbody tr').count(), 12);
     assert.match(await page.locator('.balance-staff-months tbody tr').nth(8).innerText(), /150,00/);
+    await page.getByRole('button', { name: 'Mensal', exact: true }).click();
+    assert.equal(await page.locator('.balance-staff-months tbody tr').count(), 30);
+    assert.equal(await page.locator('.balance-staff-annual strong').first().textContent(), money.format(150));
+    assert.match(await page.locator('.balance-staff-evolution > header small').textContent(), /Miriam.*Setembro 2026/);
+    assert.match(await page.locator('.balance-staff-comparison-period').textContent(), /01\/08\/2026.*31\/08\/2026/);
+    assert.match(await page.locator('.balance-staff-change').first().innerText(), /Anterior: 0,00.*\+150,00/s);
+    assert.match(await page.locator('.balance-staff-months tbody tr').first().innerText(), /01\/09.*50,00/s);
+    await layout(page);
+    await page.screenshot({ path: `${output}/staff-mensal-${width}.png`, fullPage: true, animations: 'disabled' });
+    await page.locator('.balance-staff-months summary').click();
+    await page.locator('.balance-staff-evolution').screenshot({ path: `${output}/staff-evolucao-mensal-${width}.png`, animations: 'disabled' });
+    await page.locator('.balance-staff-months summary').click();
+    await page.getByRole('button', { name: 'Semanal', exact: true }).click();
+    assert.equal(await page.locator('.balance-staff-months tbody tr').count(), 6);
+    assert.equal(await page.locator('.balance-staff-annual strong').first().textContent(), money.format(150));
+    await page.getByLabel('Semana da evolução').selectOption('7');
+    assert.equal(await page.locator('.balance-staff-months tbody tr').count(), 7);
+    assert.equal(await page.locator('.balance-staff-annual strong').first().textContent(), money.format(0));
+    assert.match(await page.locator('.balance-staff-comparison-period').textContent(), /31\/08\/2026.*06\/09\/2026/);
+    assert.match(await page.locator('.balance-staff-change').first().innerText(), /Anterior: 150,00.*-150,00/s);
+    await page.getByLabel('Semana da evolução').selectOption('1');
+    await layout(page);
+    assert.ok(await page.locator('.balance-staff-chart .recharts-bar-rectangle path').evaluateAll((bars) => bars.some((bar) => bar.getBoundingClientRect().height > 80)), 'Weekly chart renders selected collaborator costs');
+    await page.screenshot({ path: `${output}/staff-semanal-${width}.png`, fullPage: true, animations: 'disabled' });
+    await page.locator('.balance-staff-months summary').click();
+    await page.locator('.balance-staff-evolution').screenshot({ path: `${output}/staff-evolucao-semanal-${width}.png`, animations: 'disabled' });
+    await page.locator('.balance-staff-months summary').click();
+    await page.getByRole('button', { name: 'Anual', exact: true }).click();
     await page.getByLabel('Mês', { exact: true }).selectOption('10');
     await totals(page, [50, 50, 0], 200);
     assert.equal(await page.getByLabel('Colaborador', { exact: true }).inputValue(), '1');
     await page.getByLabel('Mês', { exact: true }).selectOption('');
     await totals(page, [200, 100, 100], 200);
+    await page.getByRole('button', { name: 'Mensal', exact: true }).click();
+    await page.getByLabel('Mês da evolução').selectOption('10');
+    assert.equal(await page.locator('.balance-staff-annual strong').first().textContent(), money.format(50));
+    assert.equal(await page.locator('.balance-staff-months tbody tr').count(), 31);
+    await page.getByRole('button', { name: 'Semanal', exact: true }).click();
+    assert.equal(await page.locator('.balance-staff-annual strong').first().textContent(), money.format(50));
+    assert.equal(await page.getByLabel('Colaborador', { exact: true }).inputValue(), '1');
+    await page.getByRole('button', { name: 'Anual', exact: true }).click();
     await page.getByLabel('Mês', { exact: true }).selectOption('9');
     await page.getByLabel('Colaborador', { exact: true }).selectOption('all');
     await page.getByLabel('Pesquisar colaborador').fill('pecanha');
@@ -115,7 +178,7 @@ try {
     await page.goto(`${base}/finance?area=staff&assignmentId=1`);
     await page.getByRole('heading', { name: 'Pagamentos de Staff', exact: true }).waitFor();
     assert.equal(await page.getByRole('heading', { name: 'Custos por Colaborador', exact: true }).count(), 0);
-    assert.equal(await page.getByRole('heading', { name: 'Evolução Mensal Staff', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('heading', { name: 'Evolução de Staff', exact: true }).count(), 0);
     await context.close();
   }
   const refreshed = await setup(390);
@@ -139,7 +202,7 @@ try {
   await slow.context.close();
   assert.deepEqual(errors, []);
   assert.equal(writes, 0);
-  console.log('Passed: Staff monthly/annual analysis, service dates, filters, search, pagination, refresh, states, empty/error/loading and 320-1440px layouts. No database writes.');
+  console.log('Passed: Staff annual/monthly/weekly analysis, previous-period comparison, collaborator/service dates, filters, search, pagination, refresh, states, empty/error/loading and 320-1440px layouts. No database writes.');
 } finally {
   await browser.close();
 }

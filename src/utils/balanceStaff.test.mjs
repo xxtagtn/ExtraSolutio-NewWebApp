@@ -117,3 +117,98 @@ test('analysis does not mutate events, assignments or persisted payment data', (
   buildStaffBalance({ services, period });
   assert.deepEqual(services, before);
 });
+
+test('daily and weekly evolution reuse exact selected collaborator payment values', () => {
+  const services = [event([
+    row(1, 1, '2026-09-01'), row(2, 1, '2026-09-02', 'paid'), row(3, 1, '2026-09-07', 'ganho'),
+    row(4, 2, '2026-09-01'), row(5, 1, '2026-10-01'),
+  ])];
+  const result = buildStaffBalance({ services, period, collaboratorId: '1' });
+  assert.equal(result.evolution.dailySeries.length, 30);
+  assert.deepEqual(result.evolution.monthTotals, result.totals);
+  assert.deepEqual(result.evolution.weekTotals, { services: 2, hours: 10, cost: 100, paid: 50, unpaid: 50 });
+  assert.equal(result.evolution.weeklySeries.length, 6);
+  assert.equal(result.evolution.weeks[0].label, '01/09 – 06/09');
+  const next = buildStaffBalance({ services, period, collaboratorId: '1', evolutionWeek: 7 });
+  assert.equal(next.evolution.weekTotals.cost, 50);
+  assert.equal(next.evolution.weekTotals.paid, 0);
+  assert.equal(next.evolution.weekTotals.unpaid, 50);
+  assert.deepEqual(next.totals, result.totals);
+  assert.deepEqual(next.annualTotals, result.annualTotals);
+});
+
+test('week boundaries cover selected month once, including leap years and empty days', () => {
+  for (const [year, month, days] of [['2024', '2', 29], ['2026', '2', 28], ['2026', '3', 31], ['2026', '12', 31]]) {
+    const result = buildStaffBalance({ period: { ...period, year, month } });
+    assert.equal(result.evolution.dailySeries.length, days);
+    assert.equal(result.evolution.weeks.flatMap(({ start, end }) => Array.from({ length: end - start + 1 }, (_, index) => start + index)).join(','), Array.from({ length: days }, (_, index) => index + 1).join(','));
+    assert.deepEqual(result.evolution.weekTotals, result.totals);
+    assert.ok(result.evolution.weeks.every((week) => week.start >= 1 && week.end <= days));
+  }
+});
+
+test('all-month filter supports evolution month selection without changing annual data', () => {
+  const services = [event([row(1, 1, '2026-09-01'), row(2, 1, '2026-10-01', 'paid')])];
+  const result = buildStaffBalance({ services, period: { ...period, month: '' }, evolutionMonth: 10, evolutionWeek: 999 });
+  assert.equal(result.evolution.month, 10);
+  assert.equal(result.evolution.monthTotals.cost, 50);
+  assert.equal(result.evolution.monthTotals.paid, 50);
+  assert.equal(result.evolution.activeWeek.start, 1);
+  assert.equal(result.totals.cost, 100);
+  assert.equal(result.annualTotals.cost, 100);
+  assert.equal(buildStaffBalance({ services, period, evolutionMonth: 10 }).evolution.month, 9);
+});
+
+test('weekly amounts respect all analysis filters, states, adjustments and advances', () => {
+  const services = [event([
+    row(1, 1, '2026-09-01', 'paid', { paymentAdjustment: -2.5, advancePayments: '[{"amount":20},{"amount":40,"car":true}]' }),
+    row(2, 2, '2026-09-01', 'penhorado'), row(3, 1, '2026-09-02', 'ganho'),
+  ]), event([row(4, 1, '2026-09-03')], { clientId: 2 })];
+  const result = buildStaffBalance({ services, period: { ...period, clientId: '1', status: 'finalized' }, search: 'pecanha' });
+  assert.deepEqual(result.evolution.weekTotals, result.totals);
+  assert.deepEqual(result.evolution.monthTotals, result.totals);
+  const before = result.evolution.weekTotals;
+  services[0].assignments[2].paymentStatus = 'paid';
+  const after = buildStaffBalance({ services, period: { ...period, clientId: '1', status: 'finalized' }, search: 'pecanha' }).evolution.weekTotals;
+  assert.equal(after.cost, before.cost);
+  assert.equal(after.paid - before.paid, 50);
+  assert.equal(before.unpaid - after.unpaid, 50);
+});
+
+test('monthly comparison crosses the year without changing the annual summary or collaborators', () => {
+  const services = [event([
+    row(1, 1, '2025-12-10'), row(2, 1, '2025-12-20', 'paid'), row(3, 1, '2026-01-01'), row(4, 2, '2025-12-10'),
+  ])];
+  const result = buildStaffBalance({ services, period: { ...period, month: '1' }, collaboratorId: '1' });
+  assert.equal(result.annualTotals.cost, 50);
+  assert.equal(result.evolution.monthTotals.cost, 50);
+  assert.equal(result.evolution.previousMonth.totals.cost, 100);
+  assert.equal(result.evolution.previousMonth.totals.services, 2);
+  assert.equal(result.evolution.previousMonth.totals.paid, 50);
+  assert.equal(result.evolution.previousMonth.label, '01/12/2025 – 31/12/2025');
+  assert.equal(result.collaborators.length, 1);
+});
+
+test('partial week compares matching weekdays without leaking adjacent days into current totals', () => {
+  const services = [event([
+    row(1, 1, '2026-08-24'), row(2, 1, '2026-08-25'), row(3, 1, '2026-08-30'),
+    row(4, 1, '2026-08-31'), row(5, 1, '2026-09-01'), row(6, 1, '2026-09-06'),
+  ])];
+  const result = buildStaffBalance({ services, period, collaboratorId: '1' });
+  assert.equal(result.evolution.previousWeek.label, '25/08/2026 – 30/08/2026');
+  assert.equal(result.evolution.previousWeek.totals.cost, 100);
+  assert.equal(result.evolution.weekTotals.cost, 100);
+  assert.equal(result.totals.cost, 100);
+  const next = buildStaffBalance({ services, period, collaboratorId: '1', evolutionWeek: 7 });
+  assert.equal(next.evolution.previousWeek.label, '31/08/2026 – 06/09/2026');
+  assert.equal(next.evolution.previousWeek.totals.cost, 150);
+  assert.equal(next.evolution.weekTotals.cost, 0);
+});
+
+test('comparison excludes other collaborators, clients and non-billable services', () => {
+  const services = [event([row(1, 1, '2026-08-25'), row(2, 2, '2026-08-25'), row(3, 1, '2026-09-01')]),
+    event([row(4, 1, '2026-08-25')], { clientId: 2 }), event([row(5, 1, '2026-08-25')], { status: 'confirmed' })];
+  const result = buildStaffBalance({ services, period: { ...period, clientId: '1' }, search: 'pecanha' });
+  assert.equal(result.evolution.previousMonth.totals.cost, 50);
+  assert.equal(result.evolution.previousWeek.totals.cost, 50);
+});
