@@ -57,6 +57,9 @@ try {
     await page.goto(`${baseUrl}/qr/month/month2.ui-test`);
     await page.getByRole('heading', { name: 'Ana Cristina Rosa' }).waitFor();
     await page.getByRole('heading', { name: 'Próximos Serviços', exact: true }).waitFor();
+    const footerNote = 'Os serviços concluídos não ficam disponíveis para consulta, uma vez que os horários registados estão sujeitos a validação com o cliente/parceiro.';
+    assert.equal(await page.getByText(footerNote, { exact: true }).count(), 1);
+    assert.equal(await page.locator('.qr-check-card > :last-child').innerText(), footerNote);
     assert.equal(await page.getByRole('region', { name: 'Próximos Serviços', exact: true }).count(), 1);
     assert.equal(await page.getByRole('button', { name: 'Dar Saída' }).isDisabled(), true);
     assert.equal(await page.locator('.qr-month-day').count(), 5);
@@ -96,6 +99,7 @@ try {
     response = { ...response, services: [] };
     await refresh();
     await page.getByText('Sem serviços pendentes neste mês.').waitFor();
+    assert.equal(await page.getByText(footerNote, { exact: true }).count(), 1);
     assert.equal(await page.locator('.qr-month-day').count(), 0);
     status = 410;
     response = { message: 'Este link mensal está expirado. Pede o link do mês atual.' };

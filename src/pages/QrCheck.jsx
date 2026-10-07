@@ -154,6 +154,7 @@ function QrCheckPage({ token, daily, monthly }) {
             <MonthlyQrServices payload={payload} saving={saving} onRegister={register} />
             {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
             <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
+            <p className="qr-check-footnote">Os serviços concluídos não ficam disponíveis para consulta, uma vez que os horários registados estão sujeitos a validação com o cliente/parceiro.</p>
           </>
         ) : daily ? (
           <>

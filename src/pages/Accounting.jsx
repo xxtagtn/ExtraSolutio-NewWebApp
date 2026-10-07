@@ -78,6 +78,7 @@ import {
 import { hasPaymentNotes, normalizePaymentNotes } from '../utils/staffPaymentNotes.js';
 import {
   countStaffPaymentTabs,
+  sumStaffPaymentTabs,
   STAFF_PAYMENT_WORKFLOW_TABS,
   staffPaymentSearchMatches,
   staffPaymentWorkflowTab,
@@ -1739,6 +1740,15 @@ export default function Accounting() {
     () => countStaffPaymentTabs(searchedPaymentWorkflowEntries, STAFF_PAYMENT_TABS),
     [searchedPaymentWorkflowEntries],
   );
+  const staffPaymentTabTotals = useMemo(
+    () => sumStaffPaymentTabs(searchedPaymentWorkflowEntries, STAFF_PAYMENT_TABS, (assignment) => (
+      assignmentOutstandingPay({
+        ...assignment,
+        paymentAdjustment: staffPaymentDrafts[assignment.id]?.paymentAdjustment ?? assignment.paymentAdjustment,
+      })
+    )),
+    [searchedPaymentWorkflowEntries, staffPaymentDrafts],
+  );
 
   const staffPaymentPresentationScopeKey = JSON.stringify([
     activeArea,
@@ -3063,6 +3073,7 @@ export default function Accounting() {
                 >
                   <span className="finance-payment-tab__label">{tab.label}</span>
                   <span className="finance-payment-tab__count">{staffPaymentTabCounts[tab.id] || 0}</span>
+                  <strong className="finance-payment-tab__amount">{money.format(staffPaymentTabTotals[tab.id] || 0)}</strong>
                 </button>
               ))}
             </div>

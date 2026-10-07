@@ -61,6 +61,18 @@ export function countStaffPaymentTabs(assignments, tabs) {
   return counts;
 }
 
+export function sumStaffPaymentTabs(assignments, tabs, amountForAssignment) {
+  const cents = Object.fromEntries(tabs.map((tab) => [tab.id, 0]));
+  for (const assignment of assignments) {
+    const amount = amountForAssignment(assignment);
+    const rowCents = Number.isFinite(amount) ? Math.round(amount * 100) : 0;
+    const tabId = staffPaymentWorkflowTab(assignment);
+    if (Object.hasOwn(cents, tabId)) cents[tabId] += rowCents;
+    if (Object.hasOwn(cents, 'all')) cents.all += rowCents;
+  }
+  return Object.fromEntries(Object.entries(cents).map(([tabId, total]) => [tabId, total / 100]));
+}
+
 export function staffPaymentSearchMatches(assignment, search) {
   const query = normalized(search);
   if (!query) return true;

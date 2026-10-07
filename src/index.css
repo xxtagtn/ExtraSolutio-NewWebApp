@@ -15401,6 +15401,21 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   color: #041311;
 }
 
+.finance-payment-tab__amount {
+  flex: 0 0 auto;
+  padding-left: 7px;
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.finance-payment-tabs .service-tab--active .finance-payment-tab__amount {
+  color: inherit;
+}
+
 .finance-payment-tools {
   display: grid;
   gap: 14px;
@@ -15479,6 +15494,11 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   .finance-payment-tabs .service-tab {
     min-height: 36px;
     flex: 0 0 auto;
+    max-width: 100%;
+  }
+
+  .finance-payment-tabs .service-tab .finance-payment-tab__label {
+    white-space: normal;
   }
 
   .finance-payment-tools {
