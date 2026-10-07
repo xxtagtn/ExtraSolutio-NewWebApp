@@ -26,6 +26,7 @@ body:has(.balance-page)::before { opacity: 0; }
 .balance-page .balance-current-button { min-height: 40px; }
 .balance-page .balance-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 26px;
   padding: 0;
   border: 0;
@@ -33,6 +34,60 @@ body:has(.balance-page)::before { opacity: 0; }
   border-radius: 0;
   background: none;
   overflow: visible;
+}
+
+.balance-staff { display: grid; gap: 24px; min-width: 0; }
+.balance-staff h2 { margin: 0; font-size: 1.05rem; }
+.balance-staff header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 16px; }
+.balance-staff header small { color: var(--muted); font-size: 0.8rem; }
+.balance-staff-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.balance-staff-toolbar label { display: grid; gap: 8px; font-size: 0.8rem; color: var(--muted); min-width: 0; }
+.balance-staff-toolbar select, .balance-staff-search { min-width: 0; width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
+.balance-staff-toolbar select { padding: 8px; }
+.balance-staff-search { display: flex; align-items: center; padding: 0 10px; gap: 8px; }
+.balance-staff-search svg { flex-shrink: 0; }
+.balance-staff-search input { width: 100%; min-width: 0; border: 0; background: transparent; padding: 10px 0; color: var(--text); }
+.balance-staff-search:focus-within { border-color: var(--accent); outline: 1px solid var(--accent); }
+.balance-staff-search input:focus { outline: none; }
+.balance-staff-totals, .balance-staff-annual { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding-block: 16px; border-block: 1px solid var(--line); }
+.balance-staff-totals div, .balance-staff-annual div { display: grid; gap: 8px; min-width: 0; }
+.balance-staff-totals span, .balance-staff-annual span { color: var(--muted); font-size: 0.8rem; }
+.balance-staff-totals strong, .balance-staff-annual strong { font-size: 1.1rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.balance-staff-totals .balance-kpi--finalized strong { color: #34d399; }
+.balance-staff-totals .balance-kpi--margin strong { color: #fbbf24; }
+.balance-staff-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.85rem; }
+.balance-staff-table th { font-size: 0.7rem; color: var(--muted); text-align: left; font-weight: 600; }
+.balance-staff-table th, .balance-staff-table td { padding: 14px 10px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; vertical-align: middle; }
+.balance-staff-table th:first-child, .balance-staff-table td:first-child { width: 30%; padding-left: 0; }
+.balance-staff-table th:last-child, .balance-staff-table td:last-child { padding-right: 0; }
+.balance-staff-table td { font-variant-numeric: tabular-nums; }
+.balance-staff-name { border: 0; padding: 0; background: none; text-align: left; color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.balance-staff-name:hover { color: var(--accent); }
+.balance-staff-table td small { display: block; color: var(--muted); font-size: 0.72rem; margin-top: 5px; }
+.balance-staff-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-top: 16px; color: var(--muted); font-size: 0.8rem; }
+.balance-staff-pagination > span { margin-right: auto; }
+.balance-staff-pagination label, .balance-staff-pagination nav { display: flex; align-items: center; gap: 8px; }
+.balance-staff-pagination select { max-width: 85px; min-height: 32px; }
+.balance-staff-note { color: var(--muted); font-size: 0.75rem; line-height: 1.5; margin: 12px 0 0; }
+.balance-staff-evolution { border-top: 1px solid var(--line); padding-top: 24px; min-width: 0; }
+.balance-staff-annual { margin-bottom: 16px; border-top: 0; padding-top: 0; }
+.balance-staff-chart { width: 100%; min-width: 0; height: 250px; }
+.balance-staff .legend-client-margin { background: #60a5fa; }
+.balance-staff-months { border-top: 1px solid var(--line); margin-top: 16px; }
+.balance-staff-months summary { padding: 14px 0; color: var(--muted); font-size: 0.85rem; cursor: pointer; }
+.balance-staff button:focus-visible, .balance-staff summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 760px) {
+  .balance-staff-toolbar { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .balance-staff-totals, .balance-staff-annual { gap: 10px; }
+  .balance-staff-totals strong, .balance-staff-annual strong { font-size: 0.95rem; }
+  .balance-staff-table thead { display: none; }
+  .balance-staff-table tbody { display: grid; }
+  .balance-staff-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .balance-staff-table td, .balance-staff-table td:first-child, .balance-staff-table td:last-child { display: grid; gap: 6px; border: 0; padding: 0; width: auto; min-width: 0; }
+  .balance-staff-table td::before { content: attr(data-label); color: var(--muted); font-size: 0.7rem; }
+  .balance-staff-table td:first-child { grid-column: 1 / -1; }
+  .balance-staff-table td:first-child small { margin: 0; }
+  .balance-staff-months { max-height: 440px; overflow-y: auto; }
 }
 .balance-page .balance-tabs .service-tab {
   flex: 0 1 auto;
@@ -47,39 +102,39 @@ body:has(.balance-page)::before { opacity: 0; }
 }
 .balance-page .balance-tabs .service-tab--active { border-bottom-color: var(--accent); color: var(--accent); }
 .balance-overview { display: grid; gap: 24px; min-width: 0; }
-.balance-overview .balance-kpi-grid { gap: 0; padding: 8px 0 4px; }
-.balance-overview .balance-kpi {
-  grid-template-columns: 25px minmax(0, 1fr);
-  align-items: start;
+.balance-overview .balance-kpi-grid { gap: 12px; padding: 0; align-items: stretch; }
+.balance-page .balance-kpi {
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
   gap: 12px;
-  padding: 0 18px;
-  min-height: 82px;
-  border: 0;
-  border-right: 1px solid var(--line);
-  border-radius: 0;
-  background: none;
+  padding: 16px;
+  min-height: 124px;
+  border: 1px solid var(--border-subtle, var(--line));
+  border-radius: 6px;
+  background: var(--surface-raised, var(--panel));
   box-shadow: none;
   text-align: left;
   color: var(--text);
 }
-.balance-overview .balance-kpi:first-child { padding-left: 0; }
-.balance-overview .balance-kpi:last-child { border-right: 0; padding-right: 0; }
-.balance-overview .balance-kpi__icon {
-  width: 25px;
-  height: 25px;
-  margin-top: 2px;
-  border: 0;
-  border-radius: 0;
-  background: none;
+.balance-page .balance-kpi__icon {
+  width: 42px;
+  height: 46px;
+  margin-top: 0;
+  border: 1px solid color-mix(in srgb, var(--balance-tone) 45%, transparent);
+  border-radius: 6px;
+  background: var(--balance-tone-soft);
   color: var(--balance-tone);
 }
-.balance-overview .balance-kpi div { gap: 8px; }
-.balance-overview .balance-kpi span { color: var(--muted); font-size: 0.8rem; }
-.balance-overview .balance-kpi .balance-kpi__icon { color: var(--balance-tone); }
-.balance-overview .balance-kpi strong { font-size: 1.55rem; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.balance-overview .balance-kpi small { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 0.73rem; line-height: 1.5; }
-.balance-overview .balance-kpi--margin small { color: #fbbf24; }
-.balance-overview button.balance-kpi:hover strong { color: #fbbf24; }
+.balance-page .balance-kpi div { gap: 8px; min-width: 0; }
+.balance-page .balance-kpi div > span { min-height: 2.8em; }
+.balance-page .balance-kpi span { color: var(--muted); font-size: 0.78rem; line-height: 1.4; }
+.balance-page .balance-kpi .balance-kpi__icon { color: var(--balance-tone); }
+.balance-page .balance-kpi strong { font-size: 1.3rem; line-height: 1.2; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.balance-page .balance-kpi small { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 0.7rem; line-height: 1.5; }
+.balance-page .balance-kpi small svg { flex-shrink: 0; }
+.balance-page .balance-kpi--margin small { color: #fbbf24; }
+.balance-page button.balance-kpi:hover { border-color: var(--balance-tone); }
+.balance-page button.balance-kpi:hover strong { color: #fbbf24; }
 .balance-overview button:focus-visible, .balance-overview summary:focus-visible, .balance-page .service-tab:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
@@ -88,8 +143,10 @@ body:has(.balance-page)::before { opacity: 0; }
   display: grid;
   grid-template-columns: 0.85fr repeat(3, minmax(0, 1fr));
   align-items: center;
-  border-block: 1px solid var(--line);
-  padding: 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised, var(--panel));
+  padding: 16px;
   gap: 0;
 }
 .balance-overview h2 { font-size: 1.05rem; line-height: 1.4; margin: 0; }
@@ -115,7 +172,7 @@ body:has(.balance-page)::before { opacity: 0; }
 .balance-attention-item > svg:last-child { color: #60a5fa; }
 .balance-attention-item--overdue strong { color: #fb7185; }
 .balance-attention-item:hover, .balance-attention-item[aria-expanded='true'] { color: var(--accent); }
-.balance-attention-detail { border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+.balance-attention-detail { border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised, var(--panel)); padding: 16px; }
 .balance-attention-detail > header, .balance-margin-detail > header { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 16px; }
 .balance-overview header small { display: block; color: var(--muted); margin-top: 4px; font-size: 0.8rem; }
 .balance-detail-list { max-height: 320px; overflow-y: auto; min-width: 0; }
@@ -126,19 +183,21 @@ body:has(.balance-page)::before { opacity: 0; }
 .balance-detail-list small { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 4px; overflow-wrap: anywhere; }
 .balance-detail-list b { font-size: 0.88rem; font-variant-numeric: tabular-nums; }
 .balance-detail-list p { font-size: 0.85rem; color: var(--muted); }
-.balance-overview .balance-main-grid--minimal { grid-template-columns: minmax(0, 1.85fr) minmax(280px, 1fr); gap: 24px; }
+.balance-overview .balance-main-grid--minimal { grid-template-columns: minmax(0, 1.85fr) minmax(280px, 1fr); gap: 16px; }
 .balance-overview .balance-main-grid--wide { grid-template-columns: minmax(0, 1fr); }
-.balance-overview .balance-chart-panel { background: none; border: 0; border-radius: 0; }
-.balance-overview .balance-chart-panel > header { padding: 0 0 12px; border: 0; flex-wrap: wrap; }
+.balance-overview .balance-chart-panel { background: var(--surface-raised, var(--panel)); border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+.balance-overview .balance-chart-panel > header { padding: 0 0 16px; border: 0; flex-wrap: wrap; }
 .balance-overview .balance-chart { padding: 0; min-height: 250px; }
-.balance-overview .balance-chart-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 16px 0 0; }
+.balance-overview .balance-chart-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 16px 0 0; border-top: 1px solid var(--line); margin-top: 12px; }
 .balance-overview .balance-chart-summary div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px; padding-right: 16px; border-right: 1px solid var(--line); text-align: left; }
 .balance-overview .balance-chart-summary div:last-child { border: 0; padding: 0; }
 .balance-overview .balance-chart-summary strong { font-size: 0.92rem; }
 .balance-overview .balance-chart-summary div:nth-child(1) strong { color: var(--accent); }
 .balance-overview .balance-chart-summary div:nth-child(2) strong { color: #60a5fa; }
 .balance-overview .balance-chart-summary div:nth-child(3) strong { color: #fbbf24; }
-.balance-margin-detail { min-width: 0; padding-left: 24px; border-left: 1px solid var(--line); }
+.balance-margin-detail { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised, var(--panel)); }
+.balance-margin-detail > header > div { min-width: 0; }
+.balance-margin-detail > header > button { flex-shrink: 0; }
 .balance-margin-detail dl { margin: 24px 0 0; }
 .balance-margin-detail dl > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 0.83rem; }
 .balance-margin-detail dt { color: var(--muted); }
@@ -146,7 +205,7 @@ body:has(.balance-page)::before { opacity: 0; }
 .balance-margin-detail dl > div:last-child { border: 0; }
 .balance-margin-detail dl > .balance-margin-total { margin-top: 10px; padding-top: 18px; font-size: 1rem; }
 .balance-margin-total dt, .balance-margin-total dd { color: #fbbf24; font-weight: 600; }
-.balance-forecast { border: 1px solid var(--line); border-radius: 6px; }
+.balance-forecast { border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised, var(--panel)); }
 .balance-forecast > summary { display: flex; align-items: center; gap: 20px; padding: 16px; list-style: none; cursor: pointer; }
 .balance-forecast > summary::-webkit-details-marker, .balance-management-alerts > summary::-webkit-details-marker { display: none; }
 .balance-forecast > summary > svg { flex-shrink: 0; color: #93c5fd; }
@@ -162,9 +221,9 @@ body:has(.balance-page)::before { opacity: 0; }
 .balance-management-alerts > summary { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; font-size: 0.85rem; color: var(--muted); cursor: pointer; list-style: none; }
 .balance-overview .balance-alert-panel > header { display: none; }
 
-@media (max-width: 1250px) {
-  .balance-overview .balance-kpi { grid-template-columns: minmax(0, 1fr); gap: 8px; padding-inline: 14px; }
-  .balance-overview .balance-kpi strong { font-size: 1.35rem; }
+@media (max-width: 1500px) {
+  .balance-page .balance-kpi { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px; align-content: start; }
+  .balance-page .balance-kpi strong { font-size: 1.25rem; }
   .balance-attention-item { padding-inline: 12px; gap: 8px; }
   .balance-attention-strip { grid-template-columns: 0.75fr repeat(3, minmax(0, 1fr)); }
   .balance-attention-strip h2 { font-size: 0.85rem; }
@@ -172,7 +231,6 @@ body:has(.balance-page)::before { opacity: 0; }
 
 @media (max-width: 1000px) {
   .balance-overview .balance-main-grid--minimal { grid-template-columns: minmax(0, 1fr); }
-  .balance-margin-detail { border-left: 0; border-top: 1px solid var(--line); padding: 20px 0 0; }
   .balance-margin-detail dl { margin-top: 12px; }
   .balance-forecast > summary { gap: 12px; flex-wrap: wrap; }
 }
@@ -186,17 +244,16 @@ body:has(.balance-page)::before { opacity: 0; }
   .balance-page .balance-current-button { grid-column: 1 / -1; justify-self: end; }
   .balance-page .balance-tabs { gap: 22px; }
   .balance-overview { gap: 20px; }
-  .balance-overview .balance-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 0; }
-  .balance-overview .balance-kpi { padding: 0 12px; min-height: 90px; }
-  .balance-overview .balance-kpi:nth-child(odd) { padding-left: 0; }
-  .balance-overview .balance-kpi:nth-child(even) { border-right: 0; }
-  .balance-overview .balance-kpi:last-child { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; min-height: 64px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .balance-overview .balance-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .balance-page .balance-kpi { padding: 14px; min-height: 150px; }
+  .balance-page .balance-kpi strong { font-size: 1.1rem; }
+  .balance-overview .balance-kpi:last-child { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; min-height: 88px; }
   .balance-overview .balance-kpi:last-child div { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 12px; width: 100%; }
   .balance-overview .balance-kpi:last-child small { grid-column: 1 / -1; }
-  .balance-attention-strip { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-block: 18px; }
+  .balance-attention-strip { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; }
   .balance-attention-strip h2 { font-size: 0.9rem; }
   .balance-attention-item { grid-template-columns: 24px minmax(0, 1fr) 17px; border: 0; padding: 0; gap: 10px; }
-  .balance-attention-item span { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .balance-attention-item span { display: grid; gap: 4px; }
   .balance-attention-item small { font-size: 0.83rem; }
   .balance-attention-item strong { font-size: 0.95rem; }
   .balance-overview .balance-chart-summary { gap: 10px; }
@@ -207,4 +264,114 @@ body:has(.balance-page)::before { opacity: 0; }
   .balance-forecast > summary span { grid-column: 2 / -1; border: 0; padding: 0; display: flex; justify-content: space-between; gap: 8px; }
   .balance-forecast-body { grid-template-columns: minmax(0, 1fr); padding: 14px 12px; }
   .balance-detail-list > a { gap: 8px; }
+}
+
+@media (max-width: 380px) {
+  .balance-overview .balance-kpi-grid { grid-template-columns: minmax(0, 1fr); }
+  .balance-page .balance-kpi { grid-template-columns: 42px minmax(0, 1fr); align-items: center; min-height: 108px; }
+  .balance-overview .balance-kpi:last-child div { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* All Balancete workspaces share the overview's metric and tool surfaces. */
+.balance-page .balance-client-kpi-grid,
+.balance-page .balance-events-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+}
+.balance-page .balance-client-kpi-grid .balance-kpi {
+  border: 1px solid var(--border-subtle, var(--line));
+  border-radius: 6px;
+  background: var(--surface-raised, var(--panel));
+}
+.balance-page .balance-panel {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised, var(--panel));
+}
+.balance-client-table-panel > header,
+.balance-client-attention > header,
+.balance-client-evolution > header,
+.balance-events-panel > header { padding: 16px; }
+.balance-page .balance-client-evolution > header { flex-wrap: wrap; }
+.balance-page .balance-client-evolution > header > div { min-width: 0; }
+.balance-page .balance-client-evolution > header select { min-width: 0; max-width: 100%; width: 300px; }
+.balance-page .balance-client-table__head,
+.balance-page .balance-client-row {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.55fr) repeat(5, minmax(0, 1fr)) minmax(0, 1.1fr) minmax(0, 0.85fr);
+  gap: 12px;
+}
+.balance-page .balance-client-table__head { letter-spacing: 0; line-height: 1.5; padding-block: 12px; }
+.balance-page .balance-client-row { padding-block: 14px; }
+.balance-page .balance-client-table { overflow-x: visible; }
+.balance-page .balance-events-header--costs,
+.balance-page .balance-event-row--costs {
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1.2fr) minmax(0, 1fr) repeat(4, minmax(0, 1fr)) minmax(0, 1fr) 16px;
+  gap: 12px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.balance-page .balance-events-header--costs { padding-block: 12px; min-width: 0; }
+.balance-page .balance-events-table { border: 0; border-radius: 0; }
+.balance-page .balance-event-row--costs { padding-block: 14px; text-decoration: none; }
+.balance-page .balance-event-row--costs span:nth-child(3) { flex-wrap: wrap; }
+.balance-page .balance-event-row--costs span:nth-child(7) b { display: block; margin: 4px 0 0; }
+.balance-page .balance-staff-totals { padding: 0; border: 0; gap: 12px; }
+.balance-staff-costs, .balance-staff-evolution {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  background: var(--surface-raised, var(--panel));
+}
+.balance-staff-evolution > header small { display: block; margin-top: 6px; }
+
+@media (max-width: 1100px) {
+  .balance-page .balance-client-kpi-grid,
+  .balance-page .balance-events-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .balance-page .balance-client-table__head,
+  .balance-page .balance-events-header--costs { display: none; }
+  .balance-page .balance-client-row,
+  .balance-page .balance-event-row--costs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+    padding: 16px 0;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    text-decoration: none;
+  }
+  .balance-page .balance-client-row > strong,
+  .balance-page .balance-event-row--costs > strong { grid-column: 1 / -1; }
+  .balance-page .balance-client-row > span,
+  .balance-page .balance-event-row--costs > span[data-label] { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .balance-page .balance-client-row > span::before,
+  .balance-page .balance-event-row--costs > span::before { color: var(--muted); font-size: 0.7rem; text-transform: none; }
+  .balance-page .balance-client-row > span:nth-child(2)::before { content: 'Eventos'; }
+  .balance-page .balance-client-row > span:nth-child(3)::before { content: 'Receita'; }
+  .balance-page .balance-client-row > span:nth-child(4)::before { content: 'Staff'; }
+  .balance-page .balance-client-row > span:nth-child(5)::before { content: 'Custos externos'; }
+  .balance-page .balance-client-row > span:nth-child(6)::before { content: 'Margem'; }
+  .balance-page .balance-client-row > span:nth-child(7)::before { content: 'Em aberto'; }
+  .balance-page .balance-client-row > span:nth-child(8)::before { content: 'Próximo vencimento'; }
+  .balance-page .balance-client-row > span:nth-child(9)::before { content: 'Estado'; }
+  .balance-page .balance-event-row--costs > span[data-label]::before { content: attr(data-label); }
+  .balance-page .balance-event-row--costs > span:nth-child(3) > svg { display: none; }
+  .balance-page .balance-event-row--costs > svg { display: none; }
+}
+@media (max-width: 760px) {
+  .balance-page .balance-staff-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .balance-page .balance-staff-totals > .balance-kpi:last-child { grid-column: 1 / -1; grid-template-columns: 42px minmax(0, 1fr); min-height: 108px; }
+  .balance-staff-costs, .balance-staff-evolution { padding: 14px; }
+  .balance-page .balance-client-evolution__body > aside strong { overflow-wrap: anywhere; }
+}
+@media (max-width: 380px) {
+  .balance-page .balance-client-kpi-grid,
+  .balance-page .balance-events-kpi-grid,
+  .balance-page .balance-staff-totals { grid-template-columns: minmax(0, 1fr); }
 }

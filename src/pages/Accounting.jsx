@@ -38,7 +38,7 @@ import { buildFinanceEventDescriptors } from '../utils/financeEventIdentity.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
-import { staffAssignmentPaymentTotal } from '../utils/staffPayment.js';
+import { staffAssignmentCostTotal, staffAssignmentOutstandingPay, staffAssignmentPaymentTotal } from '../utils/staffPayment.js';
 import StaffTravelSummary from '../components/StaffTravelSummary.jsx';
 import {
   buildClientEventReconciliation,
@@ -240,11 +240,11 @@ function assignmentCarAdvanceTotal(assignment) {
 }
 
 function assignmentStaffCostTotal(assignment) {
-  return Number((assignmentPayWithVat(assignment) + assignmentCarAdvanceTotal(assignment)).toFixed(2));
+  return staffAssignmentCostTotal(assignment);
 }
 
 function assignmentOutstandingPay(assignment) {
-  return staffPaymentRemaining(assignmentPayWithVat(assignment), assignmentAdvances(assignment));
+  return staffAssignmentOutstandingPay(assignment);
 }
 
 function adjustmentInputValue(value) {
@@ -1133,8 +1133,6 @@ export default function Accounting() {
   const [updatingEventId, setUpdatingEventId] = useState(null);
   const [clientAdjustmentDrafts, setClientAdjustmentDrafts] = useState({});
   const [updatingClientAdjustmentEventId, setUpdatingClientAdjustmentEventId] = useState(null);
-  const [staffCostPage, setStaffCostPage] = useState(1);
-  const [staffCostPageSize, setStaffCostPageSize] = useState('10');
   const [expenseForm, setExpenseForm] = useState(emptyExpense());
   const [expenseError, setExpenseError] = useState('');
   const [savingExpense, setSavingExpense] = useState(false);
@@ -1672,52 +1670,6 @@ export default function Accounting() {
     }
     return ids.size;
   }, [selectedPaymentStaffEntries]);
-
-  const staffByCollaborator = useMemo(() => {
-    const map = new Map();
-    for (const assignment of filteredStaffEntries) {
-      const key = Number(assignment.collaboratorId);
-      const current = map.get(key) || {
-        id: key,
-        name: assignment.collaborator?.shortName || assignment.collaborator?.name || '-',
-        nif: assignment.collaborator?.nif || '-',
-        hours: 0,
-        total: 0,
-        unpaid: 0,
-        events: 0,
-      };
-      current.hours += assignmentHours(assignment);
-      current.total += assignmentStaffCostTotal(assignment);
-      current.unpaid += assignment.paymentStatus === 'paid' ? 0 : assignmentOutstandingPay(assignment);
-      current.events += 1;
-      map.set(key, current);
-    }
-    return [...map.values()].sort((a, b) => b.total - a.total);
-  }, [filteredStaffEntries]);
-
-  const staffCostPagination = useMemo(() => {
-    const pageSize = staffCostPageSize === 'all'
-      ? Math.max(staffByCollaborator.length, 1)
-      : Number(staffCostPageSize);
-    return paginateItems(staffByCollaborator, staffCostPage, pageSize);
-  }, [staffByCollaborator, staffCostPage, staffCostPageSize]);
-
-  const staffByMonth = useMemo(() => {
-    const map = new Map();
-    for (const event of financeServices) {
-      if (staffFilters.eventId !== 'all' && String(event.id) !== staffFilters.eventId) continue;
-      for (const assignment of billableAssignments(event)) {
-        const assignmentWithEvent = { ...assignment, event };
-        if (staffFilters.date && assignmentWorkDateInputValue(assignmentWithEvent) !== staffFilters.date) continue;
-        if (staffFilters.collaboratorId !== 'all' && String(assignment.collaboratorId) !== staffFilters.collaboratorId) continue;
-        const total = assignmentStaffCostTotal(assignmentWithEvent);
-        if (total <= 0) continue;
-        const key = staffPaymentTiming(assignmentWithEvent).paymentMonth || monthKey(assignmentWorkDateValue(assignmentWithEvent));
-        map.set(key, (map.get(key) || 0) + total);
-      }
-    }
-    return [...map.entries()].sort(([a], [b]) => b.localeCompare(a)).slice(0, 8);
-  }, [financeServices, staffFilters]);
 
   const currentMonthUnpaidAssignments = useMemo(() => selectedPaymentStaffEntries
     .filter((assignment) => assignment.paymentStatus !== 'paid')
@@ -2963,99 +2915,6 @@ export default function Accounting() {
               <p className="muted">{filteredReadyStaffEventCount} evento(s) · Só registos validados entram nas ações em massa.</p>
             </section>
           </div>
-
-          <Card title="Custos por Colaborador">
-            <div className="table-wrap">
-              <table className="data-table finance-cost-table">
-                <thead>
-                  <tr>
-                    <th>Colaborador</th>
-                    <th>NIF</th>
-                    <th>Serviços</th>
-                    <th>Horas</th>
-                    <th>Total</th>
-                    <th>Por pagar</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {staffCostPagination.items.map((row) => (
-                    <tr key={row.id}>
-                      <td data-label="Colaborador">{row.name}</td>
-                      <td data-label="NIF">{row.nif}</td>
-                      <td data-label="Serviços">{row.events}</td>
-                      <td data-label="Horas">{durationHours(row.hours)}</td>
-                      <td data-label="Total">{money.format(row.total)}</td>
-                      <td data-label="Por pagar">{money.format(row.unpaid)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!staffByCollaborator.length ? <p className="muted">Sem custos de staff para os filtros selecionados.</p> : null}
-            </div>
-            {staffCostPagination.totalItems ? (
-              <footer className="collab-pagination finance-cost-pagination">
-                <span className="collab-pagination__summary">
-                  A mostrar {staffCostPagination.startItem}-{staffCostPagination.endItem} de {staffCostPagination.totalItems}
-                </span>
-                <label className="collab-pagination__size">
-                  <span>Por página</span>
-                  <select
-                    className="form-control"
-                    value={staffCostPageSize}
-                    onChange={(event) => {
-                      setStaffCostPageSize(event.target.value);
-                      setStaffCostPage(1);
-                    }}
-                  >
-                    <option value="10">10</option>
-                    <option value="20">20</option>
-                    <option value="50">50</option>
-                    <option value="all">Tudo</option>
-                  </select>
-                </label>
-                <nav className="collab-pagination__pages" aria-label="Paginação dos custos por colaborador">
-                  <button
-                    className="collab-pagination__page"
-                    type="button"
-                    aria-label="Página anterior"
-                    disabled={staffCostPagination.currentPage <= 1}
-                    onClick={() => setStaffCostPage(staffCostPagination.currentPage - 1)}
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  {staffCostPagination.pageNumbers.map((pageNumber) => (
-                    <button
-                      key={pageNumber}
-                      className={`collab-pagination__page ${pageNumber === staffCostPagination.currentPage ? 'is-active' : ''}`}
-                      type="button"
-                      aria-current={pageNumber === staffCostPagination.currentPage ? 'page' : undefined}
-                      onClick={() => setStaffCostPage(pageNumber)}
-                    >
-                      {pageNumber}
-                    </button>
-                  ))}
-                  <button
-                    className="collab-pagination__page"
-                    type="button"
-                    aria-label="Página seguinte"
-                    disabled={staffCostPagination.currentPage >= staffCostPagination.totalPages}
-                    onClick={() => setStaffCostPage(staffCostPagination.currentPage + 1)}
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </nav>
-              </footer>
-            ) : null}
-          </Card>
-
-          <Card title="Evolução Mensal Staff">
-            <div className="finance-month-list">
-              {staffByMonth.map(([month, total]) => (
-                <div key={month}><span>{monthLabel(month)}</span><strong>{money.format(total)}</strong></div>
-              ))}
-              {!staffByMonth.length ? <p className="muted">Sem histórico de custos.</p> : null}
-            </div>
-          </Card>
 
           <Card title="Pagamentos de Staff" className="finance-span-2">
             <div className="service-tabs budget-tabs finance-tabs finance-payment-tabs" role="tablist" aria-label="Estado dos pagamentos de staff">

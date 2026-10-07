@@ -123,21 +123,6 @@ try {
     await page.getByRole('button', { name: 'Consultar serviços de Ana QA' }).click();
     const travelSummary = page.locator('.finance-staff-payment-table .staff-travel-summary').first();
     await travelSummary.waitFor();
-    const costRow = page.locator('.finance-cost-table tbody tr').first();
-    if (viewport.width <= 760) {
-      assert.equal(await costRow.evaluate((element) => getComputedStyle(element).display), 'grid',
-        'Mobile collaborator costs should render as labeled cards');
-      const costLayout = await costRow.evaluate((element) => ({
-        scrollWidth: element.scrollWidth,
-        clientWidth: element.clientWidth,
-        firstLabel: getComputedStyle(element.querySelector('td'), '::before').content,
-      }));
-      assert.ok(costLayout.scrollWidth <= costLayout.clientWidth + 1,
-        `Mobile collaborator costs overflow horizontally: ${JSON.stringify(costLayout)}`);
-      assert.match(costLayout.firstLabel, /Colaborador/);
-      await costRow.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: join(tmpdir(), `staff-travel-finance-costs-${name}.png`) });
-    }
     const travelBounds = await travelSummary.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       const cell = element.closest('td').getBoundingClientRect();
@@ -177,6 +162,28 @@ try {
     assert.match(await payment.innerText(), /14:00h/);
     await payment.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(tmpdir(), `staff-travel-finance-${name}.png`) });
+    assert.equal(await page.getByRole('heading', { name: 'Custos por Colaborador' }).count(), 0);
+    await page.goto(`${baseUrl}/balancete`);
+    await page.getByLabel('Mês', { exact: true }).selectOption('9');
+    await page.getByLabel('Ano', { exact: true }).selectOption('2026');
+    await page.locator('.balance-tabs').getByRole('button', { name: 'Staff', exact: true }).click();
+    const costRow = page.locator('.balance-staff-costs tbody tr').first();
+    await costRow.waitFor();
+    assert.match(await costRow.locator('[data-label="Custo total"]').innerText(), /150,00/);
+    if (viewport.width <= 760) {
+      assert.equal(await costRow.evaluate((element) => getComputedStyle(element).display), 'grid',
+        'Mobile collaborator costs should render as labeled cards');
+      const costLayout = await costRow.evaluate((element) => ({
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+        firstLabel: getComputedStyle(element.querySelector('td'), '::before').content,
+      }));
+      assert.ok(costLayout.scrollWidth <= costLayout.clientWidth + 1,
+        `Mobile collaborator costs overflow horizontally: ${JSON.stringify(costLayout)}`);
+      assert.match(costLayout.firstLabel, /Colaborador/);
+      await costRow.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(tmpdir(), `staff-travel-balance-costs-${name}.png`) });
+    }
     await page.goto(`${baseUrl}/finance?area=clients&eventId=30&month=2026-09`);
     const clientSummaryRow = page.locator('.finance-client-financial-table .finance-client-summary-row').first();
     await clientSummaryRow.waitFor({ timeout: 10000 });

@@ -34,6 +34,9 @@ import { balanceChartWindow, balanceMonthComparison, buildBalanceAttention, buil
 import { availableFinancialYears } from '../utils/dashboardMetrics.js';
 import { date, money } from '../utils/formatters.js';
 import { SERVICE_STATUS, statusLabel } from '../utils/serviceStatus.js';
+import BalanceStaff from '../components/BalanceStaff.jsx';
+import KpiCard from '../components/BalanceKpi.jsx';
+import { staffAnalysisYears } from '../utils/balanceStaff.js';
 import './balanceOverview.css';
 
 const monthOptions = [
@@ -67,6 +70,7 @@ const balanceSections = [
   ['overview', 'Visão geral'],
   ['clients', 'Clientes'],
   ['events', 'Eventos'],
+  ['staff', 'Staff'],
 ];
 
 function currentPeriod() {
@@ -116,22 +120,6 @@ function clientStateLabel(state) {
   if (state === 'overdue') return 'Em atraso';
   if (state === 'open') return 'A vencer';
   return 'Regularizado';
-}
-
-function KpiCard({ icon: Icon, label, value, detail, tone = 'accent', onClick, expanded }) {
-  const Element = onClick ? 'button' : 'article';
-  return (
-    <Element className={`balance-kpi balance-kpi--${tone}`} {...(onClick ? {
-      type: 'button', onClick, 'aria-expanded': expanded, 'aria-controls': 'balance-margin-detail',
-    } : {})}>
-      <span className="balance-kpi__icon"><Icon size={22} /></span>
-      <div>
-        <span>{label}</span>
-        <strong>{value}</strong>
-        {detail ? <small>{detail}{onClick ? <ChevronDown size={13} /> : null}</small> : null}
-      </div>
-    </Element>
-  );
 }
 
 function FinancialDetailList({ rows, empty }) {
@@ -200,13 +188,13 @@ function EventsTable({ rows, loading }) {
         {rows.map((row) => (
           <Link className="balance-event-row balance-event-row--costs" key={row.id} to={`/services/${row.id}`} role="row">
             <strong>{row.eventName}</strong>
-            <span>{row.clientName}</span>
-            <span><CalendarDays size={14} />{row.date ? date.format(row.date) : '-'}</span>
-            <span>{money.format(row.revenue)}</span>
-            <span>{money.format(row.staff)}</span>
-            <span>{money.format(row.external)}</span>
-            <span>{money.format(row.margin)} <b>{formatPercent(row.marginPct)}</b></span>
-            <span><em className={`balance-status balance-status--${statusTone(row.rawStatus)}`}>{statusText(row.rawStatus)}</em></span>
+            <span data-label="Cliente">{row.clientName}</span>
+            <span data-label="Data"><CalendarDays size={14} />{row.date ? date.format(row.date) : '-'}</span>
+            <span data-label="Receita">{money.format(row.revenue)}</span>
+            <span data-label="Staff">{money.format(row.staff)}</span>
+            <span data-label="Custos externos">{money.format(row.external)}</span>
+            <span data-label="Margem">{money.format(row.margin)} <b>{formatPercent(row.marginPct)}</b></span>
+            <span data-label="Estado"><em className={`balance-status balance-status--${statusTone(row.rawStatus)}`}>{statusText(row.rawStatus)}</em></span>
             <ArrowRight size={16} />
           </Link>
         ))}
@@ -250,7 +238,7 @@ export default function Dashboard() {
   const [activeAttention, setActiveAttention] = useState('');
 
   const yearOptions = useMemo(
-    () => Array.from(new Set([initialPeriod.year, ...availableFinancialYears(services, invoices, transactions,
+    () => Array.from(new Set([initialPeriod.year, ...staffAnalysisYears(services), ...availableFinancialYears(services, invoices, transactions,
       budgets.map((budget) => ({ date: budget.eventDate })))]))
       .sort((a, b) => Number(b) - Number(a)),
     [budgets, initialPeriod.year, invoices, services, transactions],
@@ -587,7 +575,7 @@ export default function Dashboard() {
                 <h2>Evolução do cliente selecionado</h2>
                 <small>{selectedYear}</small>
               </div>
-              <select value={activeClient?.key || ''} onChange={(event) => setActiveClientKey(event.target.value)} disabled={!overview.clientRows.length}>
+              <select aria-label="Cliente da evolução" value={activeClient?.key || ''} onChange={(event) => setActiveClientKey(event.target.value)} disabled={!overview.clientRows.length}>
                 {overview.clientRows.length ? overview.clientRows.map((row) => <option key={row.key} value={row.key}>{row.clientName}</option>) : <option value="">Sem clientes</option>}
               </select>
             </header>
@@ -627,7 +615,16 @@ export default function Dashboard() {
         </>
       ) : null}
 
-      {activeSection === 'events' ? <EventsTable rows={overview.eventRows} loading={loading} /> : null}
+      {activeSection === 'events' ? <>
+        <section className="balance-events-kpi-grid" aria-label="Totais dos eventos do período">
+          <KpiCard icon={CalendarDays} label="Eventos do período" value={loading || error ? '—' : overview.eventRows.length} tone="finalized" />
+          <KpiCard icon={CircleDollarSign} label="Receita do período" value={financialValue(overview.kpis.validatedRevenue)} tone="revenue" />
+          <KpiCard icon={UsersRound} label="Custos do período" value={financialValue(overview.kpis.staffToPay + overview.kpis.externalCosts + overview.kpis.taxCosts)} tone="staff" />
+          <KpiCard icon={TrendingUp} label="Margem do período" value={financialValue(overview.kpis.realMargin)} tone="margin" />
+        </section>
+        <EventsTable rows={overview.eventRows} loading={loading} />
+      </> : null}
+      {activeSection === 'staff' ? <BalanceStaff services={services} period={period} loading={loadingServices} error={servicesError} /> : null}
     </div>
   );
 }

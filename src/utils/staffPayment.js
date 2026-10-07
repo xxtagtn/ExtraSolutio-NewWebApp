@@ -1,5 +1,6 @@
 import { decimalValue, staffPaymentHours } from './serviceFinance.js';
 import { staffTravelCompensation } from './staffTravel.js';
+import { staffCarAdvancesTotal, staffPaymentRemaining } from './staffAdvances.js';
 
 const COLLABORATOR_VAT_RATE = 0.23;
 const STAFF_PAYMENT_START_DAY = 8;
@@ -17,6 +18,14 @@ export function staffAssignmentPaymentTotal(assignment, event = assignment.event
     Boolean(assignment.collaborator?.includeVat),
     assignment.paymentAdjustment,
   );
+}
+
+export function staffAssignmentCostTotal(assignment) {
+  return Number((staffAssignmentPaymentTotal(assignment) + staffCarAdvancesTotal(assignment.advancePayments)).toFixed(2));
+}
+
+export function staffAssignmentOutstandingPay(assignment) {
+  return staffPaymentRemaining(staffAssignmentPaymentTotal(assignment), assignment.advancePayments);
 }
 
 export function staffPaymentTotal(baseAmount, includesVat = false, adjustment = 0) {
