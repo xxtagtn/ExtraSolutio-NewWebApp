@@ -17,8 +17,8 @@ test('subtracts a negative decimal adjustment from the staff payment', () => {
   assert.equal(staffPaymentTotal(80, false, '-2,43€'), 77.57);
 });
 
-test('applies the adjustment after collaborator VAT', () => {
-  assert.equal(staffPaymentTotal(100, true, '-2,43'), 120.57);
+test('applies the adjustment before collaborator VAT', () => {
+  assert.equal(staffPaymentTotal(100, true, '-2,43'), 120.01);
 });
 
 test('does not allow an adjustment to produce a negative payment', () => {

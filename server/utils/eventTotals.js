@@ -191,3 +191,12 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
     billableHours: Number((preserveClientTotals ? numberValue(event.billableHours) : billableHours).toFixed(2)),
   };
 }
+
+export function withCurrentStaffVatCost(event) {
+  const assignments = billableEventAssignments(activeEventAssignments(event, event.assignments || []));
+  if (!assignments.some((assignment) => assignment.collaborator?.includeVat && numberValue(assignment.paymentAdjustment) !== 0)) return event;
+  // Historical event snapshots can predate the VAT fix. Refresh only staff
+  // cost in read payloads; never rewrite issued client revenue or stored data.
+  const { totalCost } = calculateEventTotals(event, event.assignments, { preserveClientTotals: true });
+  return totalCost === Number(event.totalCost) ? event : { ...event, totalCost };
+}

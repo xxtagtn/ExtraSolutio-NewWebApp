@@ -1,23 +1,27 @@
 import { decimalValue, staffPaymentHours } from './serviceFinance.js';
 import { staffTravelCompensation } from './staffTravel.js';
-import { staffCarAdvancesTotal, staffPaymentRemaining } from './staffAdvances.js';
+import { staffAdvancesTotal, staffCarAdvancesTotal, staffPaymentRemaining } from './staffAdvances.js';
 
 const COLLABORATOR_VAT_RATE = 0.23;
 const STAFF_PAYMENT_START_DAY = 8;
 const STAFF_PAYMENT_END_DAY = 14;
 
-export function staffAssignmentPaymentTotal(assignment, event = assignment.event || {}, assignments = event.assignments) {
+export function staffAssignmentPaymentBreakdown(assignment, event = assignment.event || {}, assignments = event.assignments) {
   const hours = staffPaymentHours(assignment);
   const rate = decimalValue(assignment.hourlyRate) || 0;
   const explicit = decimalValue(assignment.totalPay) || 0;
   const serviceAmount = hours > 0 && rate > 0
     ? hours * rate
     : (explicit > 0 ? explicit : hours * rate);
-  return staffPaymentTotal(
+  return staffPaymentBreakdown(
     serviceAmount + staffTravelCompensation(assignment, event, assignments).amount,
     Boolean(assignment.collaborator?.includeVat),
     assignment.paymentAdjustment,
   );
+}
+
+export function staffAssignmentPaymentTotal(assignment, event = assignment.event || {}, assignments = event.assignments) {
+  return staffAssignmentPaymentBreakdown(assignment, event, assignments).total;
 }
 
 export function staffAssignmentCostTotal(assignment) {
@@ -29,10 +33,36 @@ export function staffAssignmentOutstandingPay(assignment) {
 }
 
 export function staffPaymentTotal(baseAmount, includesVat = false, adjustment = 0) {
+  return staffPaymentBreakdown(baseAmount, includesVat, adjustment).total;
+}
+
+export function staffPaymentBreakdown(baseAmount, includesVat = false, adjustment = 0) {
   const base = decimalValue(baseAmount) || 0;
   const adjustmentAmount = decimalValue(adjustment) || 0;
-  const amountWithVat = includesVat ? base * (1 + COLLABORATOR_VAT_RATE) : base;
-  return Number(Math.max(0, amountWithVat + adjustmentAmount).toFixed(2));
+  const adjustedBase = Number(Math.max(0, base + adjustmentAmount).toFixed(2));
+  const vatRate = includesVat ? COLLABORATOR_VAT_RATE : 0;
+  const vat = Number((adjustedBase * vatRate).toFixed(2));
+  return { base: adjustedBase, vat, vatRate, total: Number((adjustedBase + vat).toFixed(2)) };
+}
+
+export function staffAssignmentPaymentBalance(assignment) {
+  const receipt = staffAssignmentPaymentBreakdown(assignment);
+  const advances = staffAdvancesTotal(assignment.advancePayments);
+  const car = staffCarAdvancesTotal(assignment.advancePayments);
+  const total = staffPaymentRemaining(receipt.total, assignment.advancePayments);
+  // Advances are cash already paid, not taxable discounts. Decompose each
+  // remaining service balance, never a global collaborator total.
+  const salaryBalance = Math.max(0, receipt.total - advances);
+  const salaryBase = receipt.vatRate ? Number((salaryBalance / (1 + receipt.vatRate)).toFixed(2)) : salaryBalance;
+  return {
+    base: Number((salaryBase + car).toFixed(2)),
+    total,
+    vat: Number((salaryBalance - salaryBase).toFixed(2)),
+    receiptBase: receipt.base,
+    receiptTotal: receipt.total,
+    advances,
+    car,
+  };
 }
 
 function parseDate(value) {

@@ -155,7 +155,7 @@ test('includes collaborator VAT and payment adjustments in Staff cost', () => {
     collaborator: { includeVat: true },
   }]);
 
-  assert.equal(totals.totalCost, 51.2);
+  assert.equal(totals.totalCost, 51.66);
 });
 
 test('recalculates 140 to 70 when the active team changes from two people to one', () => {

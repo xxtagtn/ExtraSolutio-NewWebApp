@@ -144,13 +144,12 @@ try {
       assert.equal(await payment.evaluate((element) => getComputedStyle(element.querySelector('.finance-client-schedule')).whiteSpace), 'normal',
         'Mobile client hours should wrap cleanly beside their label');
       const advanceHighlight = await payment.evaluate((element) => {
-        const wasSelected = element.classList.contains('finance-row-selected');
-        element.classList.remove('finance-row-selected');
+        const originalClassName = element.className;
+        element.classList.remove('finance-row-selected', 'finance-row-payment--attention', 'finance-row-vat');
         element.classList.add('finance-row-advance');
         const cell = getComputedStyle(element.querySelector('td:nth-child(4)')).backgroundColor;
         const card = getComputedStyle(element).backgroundColor;
-        element.classList.remove('finance-row-advance');
-        if (wasSelected) element.classList.add('finance-row-selected');
+        element.className = originalClassName;
         return { cell, card };
       });
       assert.equal(advanceHighlight.cell, 'rgba(0, 0, 0, 0)',

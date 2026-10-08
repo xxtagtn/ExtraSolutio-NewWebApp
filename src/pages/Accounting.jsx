@@ -38,7 +38,8 @@ import { buildFinanceEventDescriptors } from '../utils/financeEventIdentity.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
-import { staffAssignmentCostTotal, staffAssignmentOutstandingPay, staffAssignmentPaymentTotal } from '../utils/staffPayment.js';
+import { staffAssignmentCostTotal, staffAssignmentOutstandingPay, staffAssignmentPaymentBalance } from '../utils/staffPayment.js';
+import StaffPaymentAmount from '../components/Finance/StaffPaymentAmount.jsx';
 import StaffTravelSummary from '../components/StaffTravelSummary.jsx';
 import {
   buildClientEventReconciliation,
@@ -54,7 +55,6 @@ import {
   normalizeStaffAdvances,
   staffAdvancesTotal,
   staffCarAdvancesTotal,
-  staffPaymentRemaining,
 } from '../utils/staffAdvances.js';
 import {
   effectiveInvoiceDueDate,
@@ -67,6 +67,7 @@ import {
   createStaffPaymentGroupSnapshot,
   groupStaffPaymentEntries,
   restoreStaffPaymentSnapshotGroups,
+  summarizeStaffPaymentAmounts,
 } from '../utils/staffPaymentGroups.js';
 import {
   assignmentWorkDateValue,
@@ -221,10 +222,6 @@ function billableAssignments(event) {
 
 function assignmentHours(assignment) {
   return staffPaymentHours(assignment);
-}
-
-function assignmentPayWithVat(assignment) {
-  return staffAssignmentPaymentTotal(assignment);
 }
 
 function assignmentAdvances(assignment) {
@@ -1731,27 +1728,26 @@ export default function Accounting() {
     visibleStaffPayments,
   ]);
   const visibleStaffPaymentGroups = useMemo(() => staffPaymentGroupsForDisplay.map((group) => {
+    const amounts = summarizeStaffPaymentAmounts(group.assignments.map((assignment) => ({
+      ...assignment, paymentAdjustment: staffPaymentDrafts[assignment.id]?.paymentAdjustment
+        ?? adjustmentInputValue(assignment.paymentAdjustment),
+    })));
     const summary = {
       ...group,
       hours: 0,
-      total: 0,
+      total: amounts.total.total,
+      amounts,
       adjustments: 0,
-      paid: 0,
-      outstanding: 0,
+      paid: amounts.paid.total,
+      outstanding: amounts.outstanding.total,
       statusCounts: new Map(),
     };
     for (const assignment of group.assignments) {
       const adjustment = staffPaymentDrafts[assignment.id]?.paymentAdjustment
         ?? adjustmentInputValue(assignment.paymentAdjustment);
-      const grossTotal = assignmentPayWithVat({ ...assignment, paymentAdjustment: adjustment });
-      const advances = assignmentAdvances(assignment);
-      const outstanding = staffPaymentRemaining(grossTotal, advances);
       const status = staffPaymentWorkflowTab(assignment);
       summary.hours += assignmentHours(assignment);
-      summary.total += outstanding;
       summary.adjustments += decimalValue(adjustment) || 0;
-      if (assignment.paymentStatus === 'paid') summary.paid += outstanding;
-      else summary.outstanding += outstanding;
       summary.statusCounts.set(status, (summary.statusCounts.get(status) || 0) + 1);
     }
     return summary;
@@ -3118,17 +3114,17 @@ export default function Accounting() {
                               <span><small>Serviços</small><strong>{group.assignments.length}</strong></span>
                               <span><small>Horas</small><strong>{durationHours(group.hours)}</strong></span>
                               <span><small>Ajustes</small><strong>{money.format(Number(group.adjustments.toFixed(2)))}</strong></span>
-                              <span><small>Total</small><strong>{money.format(Number(group.total.toFixed(2)))}</strong></span>
-                              <span><small>Já pago</small><strong>{money.format(Number(group.paid.toFixed(2)))}</strong></span>
-                              <span><small>Por pagar</small><strong>{money.format(Number(group.outstanding.toFixed(2)))}</strong></span>
+                              <span><small>Total</small><StaffPaymentAmount amount={group.amounts.total} withVat={group.collaborator?.includeVat} /></span>
+                              <span><small>Já pago</small><StaffPaymentAmount amount={group.amounts.paid} withVat={group.collaborator?.includeVat} /></span>
+                              <span><small>Por pagar</small><StaffPaymentAmount amount={group.amounts.outstanding} withVat={group.collaborator?.includeVat} /></span>
                             </div>
                           </td>
                           <td>{group.assignments.length}</td>
                           <td>{durationHours(group.hours)}</td>
                           <td>{money.format(Number(group.adjustments.toFixed(2)))}</td>
-                          <td><strong>{money.format(Number(group.total.toFixed(2)))}</strong></td>
-                          <td>{money.format(Number(group.paid.toFixed(2)))}</td>
-                          <td><strong>{money.format(Number(group.outstanding.toFixed(2)))}</strong></td>
+                          <td><StaffPaymentAmount amount={group.amounts.total} withVat={group.collaborator?.includeVat} /></td>
+                          <td><StaffPaymentAmount amount={group.amounts.paid} withVat={group.collaborator?.includeVat} emphasized={false} /></td>
+                          <td><StaffPaymentAmount amount={group.amounts.outstanding} withVat={group.collaborator?.includeVat} /></td>
                           <td>
                             <button
                               type="button"
@@ -3180,8 +3176,8 @@ export default function Accounting() {
                       const advances = assignmentAdvances(assignment);
                       const advanceTotal = staffAdvancesTotal(advances);
                       const carAdvanceTotal = staffCarAdvancesTotal(advances);
-                      const grossTotal = assignmentPayWithVat({ ...assignment, paymentAdjustment: draft.paymentAdjustment });
-                      const outstandingTotal = staffPaymentRemaining(grossTotal, advances);
+                      const paymentAmount = staffAssignmentPaymentBalance({ ...assignment, paymentAdjustment: draft.paymentAdjustment });
+                      const grossTotal = paymentAmount.receiptTotal;
                       const salaryAdvanceNotes = advances.filter((advance) => !advance.car).map((advance) => advance.note).filter(Boolean);
                       const carAdvanceNotes = advances.filter((advance) => advance.car).map((advance) => advance.note).filter(Boolean);
                       return (
@@ -3253,7 +3249,7 @@ export default function Accounting() {
                       </td>
                       <td>
                         <div className="finance-pay-total">
-                          <strong>{money.format(outstandingTotal)}</strong>
+                          <StaffPaymentAmount amount={paymentAmount} withVat={assignment.collaborator?.includeVat} />
                           {advanceTotal > 0 ? <small>Bruto {money.format(grossTotal)}</small> : null}
                         </div>
                       </td>

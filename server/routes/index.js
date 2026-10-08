@@ -46,6 +46,7 @@ import {
   assignmentConflictNeedsCheck,
 } from '../utils/assignmentConflict.js';
 import { serviceListInclude } from '../utils/listPayloads.js';
+import { withCurrentStaffVatCost } from '../utils/eventTotals.js';
 import {
   appendEventRateHistory,
   initialEventRateHistory,
@@ -789,7 +790,7 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   deleteMiddleware: servicesDelete,
   buildWhere: buildServiceWhere,
   buildOrderBy: () => ({ date: 'desc' }),
-  serializeRow: (row, req) => maskEventForRole(row, req.user),
+  serializeRow: (row, req) => maskEventForRole(withCurrentStaffVatCost(row), req.user),
   normalizeCreate: normalizeServiceCreate,
   normalizeUpdate: normalizeServiceUpdate,
   loadExistingForUpdate: true,

@@ -1,3 +1,5 @@
+import { staffAssignmentPaymentBalance } from './staffPayment.js';
+
 export function groupStaffPaymentEntries(entries = []) {
   const groups = new Map();
 
@@ -43,4 +45,22 @@ export function restoreStaffPaymentSnapshotGroups(entries = [], snapshot = [], m
       assignments,
     }];
   });
+}
+
+export function summarizeStaffPaymentAmounts(assignments = []) {
+  const fields = ['base', 'total', 'vat', 'receiptBase', 'receiptTotal', 'advances', 'car'];
+  const zero = () => Object.fromEntries(fields.map((field) => [field, 0]));
+  const cents = { total: zero(), paid: zero(), outstanding: zero() };
+  for (const assignment of assignments) {
+    const amount = staffAssignmentPaymentBalance(assignment);
+    const state = assignment.paymentStatus === 'paid' ? 'paid' : 'outstanding';
+    for (const field of fields) {
+      const value = Math.round(amount[field] * 100);
+      cents.total[field] += value;
+      cents[state][field] += value;
+    }
+  }
+  return Object.fromEntries(Object.entries(cents).map(([state, amounts]) => [state,
+    Object.fromEntries(fields.map((field) => [field, amounts[field] / 100])),
+  ]));
 }

@@ -222,9 +222,9 @@ test('keeps existing rounding, client minimum and VAT/adjustment rules', () => {
   const source = event({ split5050: true, minimumHoursSnapshot: 5 });
   assert.equal(staffWorkedHours(row), 3);
   assert.equal(clientChargeHours(row, '', '', 5), 5);
-  assert.equal(staffAssignmentPaymentTotal(row, source), 47.2);
+  assert.equal(staffAssignmentPaymentTotal(row, source), 46.74);
   const totals = calculateEventTotals(source, [row]);
-  assert.equal(totals.totalCost, 47.2);
+  assert.equal(totals.totalCost, 46.74);
   assert.equal(totals.totalRevenue, 128);
 });
 

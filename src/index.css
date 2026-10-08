@@ -8134,6 +8134,11 @@ th {
   font-size: 0.9rem;
 }
 
+.finance-payment-amount { display: grid; gap: 4px; min-width: 0; }
+.finance-payment-amount > * { overflow-wrap: anywhere; }
+.finance-payment-amount .finance-payment-amount__vat { color: #fb923c; font-size: 0.72rem; line-height: 1.4; }
+.finance-payment-amount .finance-payment-amount__receipt { color: var(--muted); font-size: 0.68rem; line-height: 1.4; }
+
 .finance-staff-payment-state {
   width: 100%;
   min-width: 0;

@@ -58,11 +58,11 @@ test('staff pending amount reuses VAT, travel, adjustments and advances without 
     travelCars: [{ id: 'car-1', durationHours: 2 }], assignments: [assignment] };
   const rows = buildBalanceOverview({ services: [event], period }).eventRows;
   const expected = staffPaymentRemaining(staffAssignmentPaymentTotal(assignment, event), assignment.advancePayments);
-  assert.equal(expected, 162.6);
+  assert.equal(expected, 161.45);
   const before = structuredClone(event);
   assert.equal(buildBalanceAttention({ eventRows: rows }).staff.amount, expected);
   const splitEvent = { ...event, split5050: true };
-  assert.equal(buildBalanceAttention({ eventRows: buildBalanceOverview({ services: [splitEvent], period }).eventRows }).staff.amount, 150.3);
+  assert.equal(buildBalanceAttention({ eventRows: buildBalanceOverview({ services: [splitEvent], period }).eventRows }).staff.amount, 149.15);
   assert.deepEqual(event, before);
 });
 

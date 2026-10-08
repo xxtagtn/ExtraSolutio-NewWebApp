@@ -197,10 +197,10 @@ test('tab totals reuse validated hours, rates, travel, VAT, adjustments, advance
     ] },
   };
   const before = structuredClone(assignment);
-  assert.equal(paymentAmount(assignment), 140.5);
+  assert.equal(paymentAmount(assignment), 139.93);
   const totals = sumStaffPaymentTabs([assignment], tabs, paymentAmount);
-  assert.equal(totals.paid, 140.5);
-  assert.equal(totals.all, 140.5);
+  assert.equal(totals.paid, 139.93);
+  assert.equal(totals.all, 139.93);
   assert.equal(totals.unpaid, 0);
   assert.deepEqual(assignment, before);
 });

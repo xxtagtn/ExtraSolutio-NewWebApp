@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir } from 'node:fs/promises';
 import { money } from '../src/utils/formatters.js';
+import { withCurrentStaffVatCost } from '../server/utils/eventTotals.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -15,7 +16,7 @@ const labels = {
   validated_es: 'Validado ES', awaiting_data: 'Aguardar RV', penhorado: 'Penhorado', ganho: 'Ganho', paid: 'Colaboradores Pagos',
 };
 const baseline = {
-  all: [34, 1226.75], unpaid: [3, 496.75], awaiting_validation: [1, 40],
+  all: [34, 1226.18], unpaid: [3, 496.18], awaiting_validation: [1, 40],
   validated_es: [1, 50], awaiting_data: [1, 110], penhorado: [1, 75], ganho: [1, 205], paid: [2, 250],
 };
 const errors = [];
@@ -125,7 +126,7 @@ async function setup(width, initial = fixture()) {
         Object.assign(row, update.data);
         body = row;
       }
-    } else if (path === '/services') body = data.services;
+    } else if (path === '/services') body = data.services.map(withCurrentStaffVatCost);
     else if (path === '/collaborators') body = data.collaborators;
     else if (path === '/clients') body = [{ id: 1, name: 'Cliente QA' }];
     else if (path === '/settings') body = {};
@@ -159,18 +160,18 @@ try {
     await summary(page, { all: [27, 456.25], unpaid: [1, 256.25], paid: [1, 150], validated_es: [1, 50], ganho: [0, 0] });
     await collaborator.selectOption('all');
     await event.selectOption('30');
-    await summary(page, { all: [1, 140.5], unpaid: [1, 140.5], paid: [0, 0] });
+    await summary(page, { all: [1, 139.93], unpaid: [1, 139.93], paid: [0, 0] });
     await event.selectOption('all');
     const search = page.getByPlaceholder('Nome ou NIF do colaborador');
     await search.fill('Ana');
-    await summary(page, { all: [3, 340.5], unpaid: [2, 240.5], paid: [1, 100] });
+    await summary(page, { all: [3, 339.93], unpaid: [2, 239.93], paid: [1, 100] });
     await search.fill('nenhum resultado');
     await summary(page, Object.fromEntries(Object.keys(labels).map((id) => [id, [0, 0]])));
     await search.fill('');
     await summary(page, baseline);
     const workDate = page.locator('.finance-payment-filters input[type=date]');
     await workDate.fill('2026-09-06');
-    await summary(page, { all: [1, 140.5], unpaid: [1, 140.5], paid: [0, 0] });
+    await summary(page, { all: [1, 139.93], unpaid: [1, 139.93], paid: [0, 0] });
     await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
     await page.locator('.finance-month-control select').first().selectOption('10');
     await summary(page, baseline);
@@ -184,7 +185,7 @@ try {
     await summary(page, baseline);
 
     await page.locator('.finance-staff-payment-detail-table .payment-state').first().selectOption('paid');
-    await summary(page, { ...baseline, unpaid: [2, 396.75], paid: [2, 350] });
+    await summary(page, { ...baseline, unpaid: [2, 396.18], paid: [2, 350] });
     assert.equal(await tab(page, 'unpaid').getAttribute('aria-selected'), 'true');
     assert.equal(f.data.services[0].assignments.find((row) => row.id === 27).paymentStatus, 'paid');
 
@@ -192,7 +193,7 @@ try {
     await page.getByRole('checkbox', { name: 'Selecionar 25 serviços processáveis de Miriam Oliveira', exact: true }).check();
     await page.locator('.finance-bulk-status').selectOption('awaiting_data');
     await page.getByRole('button', { name: 'Aplicar alteração', exact: true }).click();
-    await summary(page, { ...baseline, unpaid: [1, 140.5], paid: [2, 350], awaiting_data: [26, 366.25] });
+    await summary(page, { ...baseline, unpaid: [1, 139.93], paid: [2, 350], awaiting_data: [26, 366.25] });
     assert.equal(f.writes.at(-1).payload.updates.length, 25);
     assert.equal(await tab(page, 'unpaid').getAttribute('aria-selected'), 'true');
 
@@ -200,7 +201,7 @@ try {
     await page.getByRole('checkbox', { name: 'Selecionar 25 serviços processáveis de Miriam Oliveira', exact: true }).check();
     await page.locator('.finance-bulk-status').selectOption('paid');
     await page.getByRole('button', { name: 'Aplicar alteração', exact: true }).click();
-    await summary(page, { ...baseline, unpaid: [1, 140.5], paid: [2, 606.25] });
+    await summary(page, { ...baseline, unpaid: [1, 139.93], paid: [2, 606.25] });
     assert.equal(f.writes.at(-1).payload.updates.length, 25);
     assert.equal(await tab(page, 'awaiting_data').getAttribute('aria-selected'), 'true');
 
@@ -208,20 +209,78 @@ try {
     await page.getByRole('button', { name: 'Consultar serviços de Miriam Oliveira' }).click();
     const payment = page.locator('.finance-staff-payment-detail-table .payment-state').first();
     await payment.selectOption('validated_es');
-    await summary(page, { ...baseline, unpaid: [1, 140.5], paid: [2, 596], validated_es: [2, 60.25] });
+    await summary(page, { ...baseline, unpaid: [1, 139.93], paid: [2, 596], validated_es: [2, 60.25] });
     await tab(page, 'validated_es').click();
     await page.getByRole('button', { name: 'Consultar serviços de Miriam Oliveira' }).click();
     const adjustment = page.locator('.finance-staff-payment-detail-table .finance-adjustment-input').first();
     await adjustment.fill('-2,50');
-    await summary(page, { all: [34, 1224.25], validated_es: [2, 57.75], paid: [2, 596] });
+    await summary(page, { all: [34, 1223.68], validated_es: [2, 57.75], paid: [2, 596] });
     await adjustment.blur();
     await page.waitForFunction(() => !document.querySelector('.finance-staff-payment-detail-table .finance-adjustment-input:disabled'));
     assert.equal(f.data.services[0].assignments[0].paymentAdjustment, -2.5);
     await layout(page);
     await page.reload();
-    await summary(page, { all: [34, 1224.25], unpaid: [1, 140.5], paid: [2, 596], validated_es: [2, 57.75] });
+    await summary(page, { all: [34, 1223.68], unpaid: [1, 139.93], paid: [2, 596], validated_es: [2, 57.75] });
     await f.context.close();
     console.log(`${width}px: all tab totals/counts, VAT/travel/advances, filters, individual save/failure, 25-row bulk transitions, adjustment and reload passed`);
+  }
+
+  // Exact IVA regression: display receipt bases while keeping real gross costs.
+  for (const width of [1440, 768, 390, 320]) {
+    const iva = { id: 1, name: 'Ana Carolina Rodrigues', shortName: 'Ana Carolina Rodrigues', includeVat: true, status: 'active' };
+    const exempt = { id: 2, name: 'Sem IVA', includeVat: false, status: 'active' };
+    const assignments = [[5, 8.5, -2.5], [12, 8, -12], [10, 8, 0], [11.5, 8, 0]].map(([hours, rate, adjustment], index) => ({
+      id: index + 1, eventId: 1, collaboratorId: 1, collaborator: iva, role: 'Emp.Mesa', status: 'confirmed', paymentStatus: 'unpaid',
+      assignmentDate: '2026-09-04', hoursWorked: hours, staffPayableHours: hours, clientRealHours: hours,
+      hourlyRate: rate, paymentAdjustment: adjustment,
+    }));
+    const data = { collaborators: [iva, exempt], services: [
+      { id: 1, name: 'Caso 38h30 IVA', date: '2026-09-04', status: 'finalized', billingStatus: 'pending', clientId: 1,
+        totalRevenue: 1000, totalCost: 367.41, taxAmount: 0, assignments },
+      { id: 2, name: 'Sem IVA', date: '2026-09-04', status: 'finalized', billingStatus: 'pending', clientId: 1,
+        totalRevenue: 500, totalCost: 40, taxAmount: 0, assignments: [{ ...assignments[0], id: 50, eventId: 2, collaboratorId: 2, collaborator: exempt }] },
+    ] };
+    const f = await setup(width, data);
+    const { page } = f;
+    await tab(page, 'all').click();
+    await summary(page, { all: [5, 404.08], unpaid: [2, 404.08], paid: [0, 0] });
+    const group = page.locator('.finance-staff-payment-group-row').filter({ hasText: 'Ana Carolina Rodrigues' });
+    const groupAmount = (index) => group.locator(':scope > td').nth(index).locator('.finance-payment-amount');
+    assert.equal(await groupAmount(5).locator('> strong').textContent(), money.format(296));
+    assert.equal(await groupAmount(5).locator('.finance-payment-amount__vat').textContent(), `${money.format(364.08)} c/ IVA`);
+    assert.match(await group.innerText(), /IVA 23%/);
+    await page.getByRole('button', { name: 'Consultar serviços de Ana Carolina Rodrigues', exact: true }).click();
+    const rows = page.locator('.finance-staff-payment-detail-table tbody tr');
+    assert.deepEqual(await rows.locator('.finance-pay-total .finance-payment-amount > strong').allTextContents(), [40, 84, 80, 92].map((value) => money.format(value)));
+    assert.deepEqual(await rows.locator('.finance-pay-total .finance-payment-amount__vat').allTextContents(), [49.2, 103.32, 98.4, 113.16].map((value) => `${money.format(value)} c/ IVA`));
+    await layout(page);
+    const clipped = await page.locator('.finance-payment-amount').evaluateAll((elements) => elements.filter((element) => element.checkVisibility() && element.scrollWidth > element.clientWidth + 2).map((element) => element.textContent));
+    assert.deepEqual(clipped, []);
+    await page.screenshot({ path: `${output}/staff-iva-${width}.png`, fullPage: true, animations: 'disabled' });
+    await rows.first().locator('.payment-state').selectOption('paid');
+    await summary(page, { all: [5, 404.08], paid: [1, 49.2], unpaid: [2, 354.88] });
+    assert.equal(await groupAmount(6).locator('> span').first().textContent(), money.format(40));
+    assert.equal(await groupAmount(7).locator('> strong').textContent(), money.format(256));
+    await page.getByRole('checkbox', { name: 'Selecionar 4 serviços processáveis de Ana Carolina Rodrigues', exact: true }).check();
+    await page.locator('.finance-bulk-status').selectOption('paid');
+    await page.getByRole('button', { name: 'Aplicar alteração', exact: true }).click();
+    await summary(page, { all: [5, 404.08], paid: [1, 364.08], unpaid: [1, 40] });
+    assert.equal(f.writes.at(-1).payload.updates.length, 4);
+    assert.equal(await groupAmount(6).locator('> span').first().textContent(), money.format(296));
+    assert.equal(await groupAmount(7).locator('> strong').textContent(), money.format(0));
+    const adjustment = rows.first().locator('.finance-adjustment-input');
+    await adjustment.fill('+10,00');
+    await adjustment.blur();
+    await summary(page, { all: [5, 419.46], paid: [1, 379.46], unpaid: [1, 40] });
+    assert.equal(await groupAmount(5).locator('> strong').textContent(), money.format(308.5));
+    await page.goto(`${base}/balancete`);
+    await page.getByLabel('Ano', { exact: true }).selectOption('2026');
+    await page.getByLabel('Mês', { exact: true }).selectOption('9');
+    assert.equal(await page.locator('.balance-kpi--staff strong').textContent(), money.format(419.46));
+    await page.locator('.balance-tabs').getByRole('button', { name: 'Staff', exact: true }).click();
+    assert.equal(await page.locator('.balance-staff-totals .balance-kpi').first().locator('strong').textContent(), money.format(419.46));
+    await f.context.close();
+    console.log(`${width}px: exact receipt bases, IVA totals, individual/bulk state changes, positive adjustment and gross Balancete costs passed`);
   }
 
   // Pagination must not limit totals; large values must remain inside the controls.
