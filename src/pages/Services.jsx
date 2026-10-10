@@ -76,10 +76,11 @@ import {
 import { requiredStaffTotal } from '../utils/serviceRequirements.js';
 import {
   buildServiceDuplicateForm,
-  changeDuplicatedServiceStart,
+  createDuplicatePeriodDraft,
   emptyAssignmentForRole,
   shiftDuplicatedServiceStart,
   synchronizeDuplicatedServiceDays,
+  updateDuplicatePeriodDraft,
 } from '../utils/serviceDuplication.js';
 import { calculateTravelAmount } from '../utils/travelCalculator.js';
 
@@ -526,8 +527,7 @@ export default function Services() {
   const [editing, setEditing] = useState(null);
   const [duplicateSource, setDuplicateSource] = useState(null);
   const [copyTeam, setCopyTeam] = useState(false);
-  const duplicateDateRef = useRef('');
-  const duplicateTeamStartRef = useRef('');
+  const duplicatePeriodRef = useRef(null);
   const [form, setForm] = useState(emptyForm());
   const [formBaseline, setFormBaseline] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
@@ -813,9 +813,10 @@ export default function Services() {
 
   useEffect(() => {
     if (!formOpen || !duplicateSource) return;
-    const synchronized = synchronizeDuplicatedServiceDays(form);
-    if (synchronized === form) return;
-    setForm((current) => synchronizeDuplicatedServiceDays(current));
+    const updated = updateDuplicatePeriodDraft(form, duplicatePeriodRef.current);
+    duplicatePeriodRef.current = updated.retained;
+    if (updated.form === form) return;
+    setForm((current) => ({ ...current, assignments: updated.form.assignments, requiredRoles: updated.form.requiredRoles }));
     setActiveCollaboratorPickerIndex(null);
     setCollaboratorPickerPlacement(null);
     setActiveAdvanceIndex(null);
@@ -902,6 +903,7 @@ export default function Services() {
     setEditing(null);
     setDuplicateSource(null);
     setCopyTeam(false);
+    duplicatePeriodRef.current = null;
     setForm(initial);
     setFormBaseline(initial);
     setActiveTab('summary');
@@ -938,6 +940,7 @@ export default function Services() {
     setEditing(row);
     setDuplicateSource(null);
     setCopyTeam(false);
+    duplicatePeriodRef.current = null;
     setForm(nextForm);
     setFormBaseline(nextForm);
     setActiveTab('summary');
@@ -966,8 +969,7 @@ export default function Services() {
     }
     setEditing(null);
     setDuplicateSource(source);
-    duplicateDateRef.current = source.date;
-    duplicateTeamStartRef.current = source.date;
+    duplicatePeriodRef.current = createDuplicatePeriodDraft(initial);
     setCopyTeam(false);
     setForm(initial);
     setFormBaseline(initial);
@@ -986,28 +988,33 @@ export default function Services() {
 
   function toggleDuplicateTeam(includeTeam) {
     const duplicate = shiftDuplicatedServiceStart(
-      buildServiceDuplicateForm(duplicateSource, emptyForm(), { includeTeam }), duplicateTeamStartRef.current,
+      buildServiceDuplicateForm(duplicateSource, emptyForm(), { includeTeam }), duplicatePeriodRef.current.startDate,
     );
     setCopyTeam(includeTeam);
-    setForm((current) => formWithStaffRates(withAssignmentPlaceholders(synchronizeDuplicatedServiceDays({
-      ...current, assignments: duplicate.assignments.map((assignment) => {
+    const next = formWithStaffRates({
+      ...form, assignments: duplicate.assignments.map((assignment) => {
         const collaborator = collaboratorsById.get(String(assignment.collaboratorId));
         return assignment.collaboratorId && (!collaborator || collaborator.status === 'inactive')
           ? { ...assignment, collaboratorId: '' } : assignment;
       }),
-    }))));
+    });
+    const updated = updateDuplicatePeriodDraft(next, { ...duplicatePeriodRef.current, assignments: [] });
+    duplicatePeriodRef.current = updated.retained;
+    setForm(withAssignmentPlaceholders(updated.form));
   }
 
-  function updateStartDate(date) {
-    const previousDate = duplicateDateRef.current;
+  function updateEventPeriod(patch) {
+    const next = { ...form, ...patch };
     if (!duplicateSource) {
-      setForm((current) => ({ ...current, date }));
+      setForm(next);
       return;
     }
-    const updated = changeDuplicatedServiceStart({ ...form, date: previousDate }, date, duplicateTeamStartRef.current);
-    duplicateTeamStartRef.current = updated.teamStartDate;
+    const updated = updateDuplicatePeriodDraft(next, duplicatePeriodRef.current, { relocate: true });
+    duplicatePeriodRef.current = updated.retained;
     setForm(updated.form);
-    if (date) duplicateDateRef.current = date;
+    setActiveCollaboratorPickerIndex(null);
+    setCollaboratorPickerPlacement(null);
+    setActiveAdvanceIndex(null);
   }
 
   function closeForm(force = false) {
@@ -1016,6 +1023,7 @@ export default function Services() {
     setEditing(null);
     setDuplicateSource(null);
     setCopyTeam(false);
+    duplicatePeriodRef.current = null;
     setForm(emptyForm());
     setFormBaseline(emptyForm());
     setFormError('');
@@ -1079,10 +1087,12 @@ export default function Services() {
     setTemplateError('');
     if (!template) return;
     setTemplateName(template.name || '');
-    setForm((prev) => applyServiceTemplateToForm(prev, template, {
+    const next = applyServiceTemplateToForm(form, template, {
       uniformOptions,
       selectedClient,
-    }));
+    });
+    if (duplicateSource) duplicatePeriodRef.current = createDuplicatePeriodDraft(next);
+    setForm(next);
   }
 
   async function saveCurrentTemplate() {
@@ -1890,14 +1900,11 @@ export default function Services() {
                         </select>
                       </label>
                       <label>{form.isContinuous ? 'Data de início' : 'Data'}
-                        <input type="date" value={form.date} required onChange={(event) => updateStartDate(event.target.value)} />
+                        <input type="date" value={form.date} required onChange={(event) => updateEventPeriod({ date: event.target.value })} />
                       </label>
                       {form.isContinuous ? (
                         <label>Data de fim
-                          <input type="date" value={form.endDate} min={form.date || undefined} required onChange={(event) => {
-                            const next = { ...form, endDate: event.target.value };
-                            setForm(duplicateSource ? synchronizeDuplicatedServiceDays(next) : next);
-                          }} />
+                          <input type="date" value={form.endDate} min={form.date || undefined} required onChange={(event) => updateEventPeriod({ endDate: event.target.value })} />
                         </label>
                       ) : null}
                       <label className="check-inline service-check event-continuous-toggle">
@@ -1905,12 +1912,10 @@ export default function Services() {
                           type="checkbox"
                           checked={form.isContinuous}
                           onChange={(event) => {
-                            const next = {
-                              ...form,
+                            updateEventPeriod({
                               isContinuous: event.target.checked,
                               endDate: event.target.checked ? (form.endDate || form.date) : '',
-                            };
-                            setForm(duplicateSource ? synchronizeDuplicatedServiceDays(next) : next);
+                            });
                           }}
                         />
                         <span>Evento contínuo</span>

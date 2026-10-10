@@ -101,17 +101,58 @@ export function synchronizeDuplicatedServiceDays(form) {
   return { ...form, assignments, requiredRoles };
 }
 
-export function changeDuplicatedServiceStart(form, date, teamStartDate = form.date) {
-  const offset = dayTimestamp(date) - dayTimestamp(form.date);
-  if (!Number.isFinite(offset) || !offset) return { form: { ...form, date }, teamStartDate };
-  // Editing within the mapped period resizes it without moving its teams. Moving to a
-  // different period still shifts the planning, as the duplication workflow did before.
-  if (form.isContinuous && date >= teamStartDate && date <= form.endDate) {
-    return { form: synchronizeDuplicatedServiceDays({ ...form, date }), teamStartDate };
-  }
-  const mappedStart = dayTimestamp(teamStartDate);
+export function createDuplicatePeriodDraft(form) {
   return {
-    form: synchronizeDuplicatedServiceDays(shiftDuplicatedServiceStart(form, date)),
-    teamStartDate: Number.isFinite(mappedStart) ? new Date(mappedStart + offset).toISOString().slice(0, 10) : teamStartDate,
+    assignments: [], requiredRoles: [],
+    startDate: form.date, endDate: form.isContinuous ? form.endDate : form.date,
+    anchorDate: form.date,
+  };
+}
+
+function sameRows(a = [], b = []) {
+  return a.length === b.length && a.every((row, index) => row === b[index]);
+}
+
+// Out-of-period rows live only in this temporary modal draft. They are restored
+// by date when the range grows, but never included in the saved event payload.
+export function updateDuplicatePeriodDraft(form, retained, { relocate = false } = {}) {
+  const start = eventDayKey(form.date);
+  const end = form.isContinuous ? eventDayKey(form.endDate) : start;
+  if (!Number.isFinite(dayTimestamp(start)) || !Number.isFinite(dayTimestamp(end)) || end < start) {
+    return { form, retained };
+  }
+  let all = {
+    ...form,
+    assignments: [...new Set([...(form.assignments || []), ...retained.assignments])]
+      .sort((a, b) => eventDayKey(a.assignmentDate).localeCompare(eventDayKey(b.assignmentDate))),
+    requiredRoles: [...new Set([...(form.requiredRoles || []), ...retained.requiredRoles])]
+      .sort((a, b) => eventDayKey(a.day).localeCompare(eventDayKey(b.day))),
+  };
+  let mapping = retained;
+  const plannedDays = [retained.startDate, retained.endDate,
+    ...all.assignments.map((row) => eventDayKey(row.assignmentDate)),
+    ...all.requiredRoles.map((row) => eventDayKey(row.day)),
+  ].filter((day) => Number.isFinite(dayTimestamp(day))).sort();
+  if (relocate && plannedDays.length && (end < plannedDays[0] || start > plannedDays.at(-1))) {
+    const anchorDate = retained.anchorDate || retained.startDate;
+    const moved = shiftDuplicatedServiceStart({ ...all, date: anchorDate }, start);
+    // Moving the planning does not choose or overwrite the user's end date.
+    all = { ...moved, endDate: form.endDate };
+    const offset = dayTimestamp(start) - dayTimestamp(anchorDate);
+    const shift = (day) => new Date(dayTimestamp(day) + offset).toISOString().slice(0, 10);
+    mapping = { ...retained, startDate: shift(retained.startDate), endDate: shift(retained.endDate) };
+  }
+  const active = synchronizeDuplicatedServiceDays(all);
+  const activeAssignments = new Set(active.assignments);
+  const activeRoles = new Set(active.requiredRoles);
+  const nextRetained = {
+    ...mapping,
+    anchorDate: start > mapping.startDate ? start : mapping.startDate,
+    assignments: all.assignments.filter((row) => !activeAssignments.has(row)),
+    requiredRoles: all.requiredRoles.filter((row) => !activeRoles.has(row)),
+  };
+  return {
+    form: sameRows(form.assignments, active.assignments) && sameRows(form.requiredRoles, active.requiredRoles) ? form : active,
+    retained: nextRetained,
   };
 }

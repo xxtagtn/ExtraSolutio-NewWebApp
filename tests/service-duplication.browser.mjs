@@ -74,6 +74,10 @@ try {
       }
       else if (path === '/collaborators') body = [collaborator];
       else if (path === '/collaborators/roles') body = ['Emp.Mesa'];
+      else if (path === '/service-templates') body = [{ id: 8, name: 'Template QA', payload: {
+        isContinuous: true, startTime: '09:00', endTime: '17:00',
+        requiredRoles: [{ role: 'Emp.Mesa', qty: 1, agreedRate: 14 }],
+      } }];
       else if (path === '/settings') body = {};
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     });
@@ -98,7 +102,8 @@ try {
     await dialog.getByLabel('Evento / Serviço', { exact: true }).fill('Novo evento sem equipa');
     await dialog.getByLabel('Data de início', { exact: true }).fill('');
     await dialog.getByLabel('Data de início', { exact: true }).fill('2030-11-01');
-    assert.equal(await dialog.getByLabel('Data de fim', { exact: true }).inputValue(), '2030-11-02');
+    assert.equal(await dialog.getByLabel('Data de fim', { exact: true }).inputValue(), '2030-10-02', 'editing start must not overwrite end');
+    await dialog.getByLabel('Data de fim', { exact: true }).fill('2030-11-02');
     await page.screenshot({ path: `node_modules/.cache/service-duplication/${name}.png`, fullPage: true });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${name}: page must not overflow horizontally`);
     await dialog.getByRole('button', { name: 'Guardar novo evento', exact: true }).click();
@@ -126,6 +131,7 @@ try {
     await dialog.getByRole('button', { name: 'Evento/Serviço', exact: true }).click();
     await dialog.getByLabel('Evento / Serviço', { exact: true }).fill('Novo evento com equipa');
     await dialog.getByLabel('Data de início', { exact: true }).fill('2030-12-01');
+    await dialog.getByLabel('Data de fim', { exact: true }).fill('2030-12-02');
     failCreate = true;
     await dialog.getByRole('button', { name: 'Guardar novo evento', exact: true }).click();
     await dialog.getByText('Falha QA controlada', { exact: true }).waitFor();
@@ -151,6 +157,25 @@ try {
     assert.equal(writes.some((write) => write.method === 'PUT' || write.method === 'DELETE'), false);
     assert.equal(original.name, 'Evento original QA');
     assert.equal(original.assignments[0].paymentStatus, 'paid');
+
+    const writesBeforeTemplate = writes.length;
+    await page.goto(`${baseUrl}/services?duplicateServiceId=12`);
+    dialog = page.getByRole('dialog', { name: 'Novo evento a partir de Evento original QA', exact: true });
+    await dialog.waitFor();
+    await dialog.getByLabel('Copiar equipa do evento original (a aguardar confirmação)', { exact: true }).check();
+    await dialog.getByLabel('Data de fim', { exact: true }).fill('2030-10-01');
+    await dialog.getByRole('button', { name: 'Selecionar template', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Template QA', exact: true }).click();
+    await dialog.getByLabel('Data de fim', { exact: true }).fill('2030-10-02');
+    await dialog.getByRole('button', { name: 'Colaboradores', exact: true }).click();
+    for (const day of ['01/10/2030', '02/10/2030']) {
+      await dialog.locator('.service-day-tabs').getByRole('button', { name: day, exact: true }).click();
+      assert.deepEqual(await dialog.locator('.service-collab-trigger').allTextContents(), [], 'template keeps its existing empty-team behavior and must not restore previously cached team');
+    }
+    await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
+    assert.ok(writes.slice(writesBeforeTemplate).every((write) => write.method === 'POST'
+      && /^\/services\/10[01]\/workflow\/synchronize$/.test(write.path)),
+    `unsaved template must not write records; only existing saved event synchronization is allowed: ${JSON.stringify(writes.slice(writesBeforeTemplate).map(({ path, method }) => ({ path, method })))}`);
 
     client.billingMethod = 'prepaid';
     await page.goto(`${baseUrl}/services?duplicateServiceId=12`);
@@ -181,7 +206,7 @@ try {
     await dialog.getByRole('button', { name: 'Guardar', exact: true }).waitFor();
     await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
     assert.deepEqual(errors, []);
-    console.log(`PASS ${name}: no writes on open/cancel; new event only on save; optional pending team; independent dates; retry; prepayment; create/edit regression; no source changes`);
+    console.log(`PASS ${name}: no writes on open/cancel; new event only on save; optional pending team; independent dates; template reset; retry; prepayment; create/edit regression; no source changes`);
     await context.close();
   }
 } finally {
