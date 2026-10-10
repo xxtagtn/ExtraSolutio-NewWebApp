@@ -34,9 +34,15 @@ export function buildServiceDuplicateForm(source, defaults, { includeTeam = fals
     km: car.km, kmRate: car.kmRate, durationHours: car.durationHours,
     travelPeople: car.travelPeople, travelStaffHourlyRate: car.travelStaffHourlyRate,
   }));
+  const locationKeys = new Map();
   form.workLocations = (source.workLocations || [])
-    .map((location) => String(typeof location === 'string' ? location : location.name || '').trim())
-    .filter(Boolean);
+    .map((location, index) => {
+      const name = String(typeof location === 'string' ? location : location.name || '').trim();
+      const duplicateLocationKey = `duplicate-location-${index + 1}`;
+      if (name && location.id) locationKeys.set(String(location.id), duplicateLocationKey);
+      return { name, duplicateLocationKey };
+    })
+    .filter((location) => location.name);
   form.requiredRoles = (source.requiredRoles || [])
     .filter((requirement) => !requirement.day || !isEventDayCancelled(source, requirement.day))
     .map((requirement) => ({
@@ -55,9 +61,47 @@ export function buildServiceDuplicateForm(source, defaults, { includeTeam = fals
       plannedCheckOut: assignment.plannedCheckOut || '',
       collaboratorId: includeTeam && ['confirmed', 'pending_confirmation'].includes(assignment.status)
         ? assignment.collaboratorId : '',
+      ...(includeTeam && source.workLocationsEnabled && assignment.collaboratorId
+        && ['confirmed', 'pending_confirmation'].includes(assignment.status)
+        && locationKeys.has(String(assignment.workLocationId)) ? {
+          duplicateWorkLocationKey: locationKeys.get(String(assignment.workLocationId)),
+        } : {}),
       isDriver: Boolean(assignment.isDriver),
     }));
   return synchronizeDuplicatedServiceDays(form);
+}
+
+function locationNameKey(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt');
+}
+
+// Draft keys never reach storage. Resolve them against the newly created event,
+// after its locations have real IDs, rather than reusing source location IDs.
+export function resolveDuplicatedServiceWorkLocations(form, savedEvent = null) {
+  const draftLocations = new Map((form.workLocations || [])
+    .filter((location) => location?.duplicateLocationKey)
+    .map((location) => [location.duplicateLocationKey, location]));
+  const savedLocations = new Map((savedEvent?.workLocations || [])
+    .filter((location) => Number(location.id) > 0
+      && (location.eventId === undefined || Number(location.eventId) === Number(savedEvent.id)))
+    .map((location) => [locationNameKey(location.name), location]));
+  return {
+    ...form,
+    workLocations: (form.workLocations || []).map((location) => (
+      typeof location === 'string' ? location : location.name
+    )),
+    assignments: (form.assignments || []).map((assignment) => {
+      const { duplicateWorkLocationKey, ...row } = assignment;
+      if (!duplicateWorkLocationKey) return row;
+      const location = form.workLocationsEnabled ? draftLocations.get(duplicateWorkLocationKey) : null;
+      const nameKey = locationNameKey(location?.name);
+      const savedLocation = nameKey ? savedLocations.get(nameKey) : null;
+      if (savedEvent && nameKey && !savedLocation) {
+        throw new Error(`Não foi possível associar o local de trabalho "${location.name}" ao novo evento.`);
+      }
+      return { ...row, workLocationId: savedLocation ? String(savedLocation.id) : '' };
+    }),
+  };
 }
 
 function dayTimestamp(value) {

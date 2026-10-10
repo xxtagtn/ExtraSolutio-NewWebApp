@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { normalizeAssignment, normalizeEvent } from '../server/routes/crud.js';
+import { buildEventAttendanceRows } from '../src/utils/eventAttendanceExcel.js';
 
 const { chromium } = await import(process.argv[2] ? pathToFileURL(process.argv[2]).href : 'playwright');
 const baseUrl = process.argv[4] || 'http://127.0.0.1:5175';
@@ -19,6 +20,8 @@ const cases = [
   { name: 'single-day', kept: [days[0]], single: true },
   { name: 'preserve-edited-team-15-to-25', days: fullDays, kept: fullDays.slice(5), start: '2030-10-15', roundTrip: true },
   { name: 'round-trip-without-team', kept: days, roundTrip: true, withoutTeam: true },
+  { name: 'renamed-location', kept: days, renameLocation: true },
+  { name: 'removed-location', kept: days, removeLocation: true },
 ];
 await mkdir('node_modules/.cache/service-duplication-days', { recursive: true });
 const browser = await chromium.launch({ headless: true, channel: process.argv[3] || undefined });
@@ -31,11 +34,14 @@ try {
         isContinuous: !scenario.single, startTime: '08:00', endTime: '18:00', status: 'finalized', statusMode: 'manual',
         billingStatus: 'paid', paidAmount: 1000, totalRevenue: 1000, totalCost: 500,
         cancelledDays: scenario.cancelledDays || [],
+        workLocationsEnabled: true,
+        workLocations: [20, 21, 22].map((id, index) => ({ id, eventId: 12, name: `Lounge ${index + 1}`, sortOrder: index })),
         requiredRoles: sourceDays.map((day) => ({ role: 'Emp.Mesa', qty: 3, agreedRate: 14, day })),
         assignments: sourceDays.flatMap((day, dayIndex) => [0, 1].map((index) => ({
           id: dayIndex * 10 + index + 1, eventId: 12, collaboratorId: dayIndex * 2 + index + 1,
           collaborator: collaborators[dayIndex * 2 + index], role: 'Emp.Mesa', assignmentDate: day,
           status: 'confirmed', plannedCheckIn: `${String(8 + dayIndex).padStart(2, '0')}:00`, plannedCheckOut: day === '2030-10-20' ? '19:00' : '18:00',
+          workLocationId: 20 + (dayIndex + index) % 3,
           checkIn: `${String(8 + dayIndex).padStart(2, '0')}:00`, checkOut: '18:00', validationStatus: 'validated',
           hoursWorked: Math.max(1, 8 - dayIndex), totalPay: 100, hourlyRate: 8, paymentStatus: 'paid',
         }))),
@@ -59,11 +65,23 @@ try {
         let body = [];
         if (request.method() !== 'GET') writes.push({ path, method: request.method(), body: request.postDataJSON() });
         if (path === '/services' && request.method() === 'POST') {
-          body = { ...normalizeEvent(request.postDataJSON()), id: 100, assignments: [], client, workLocations: [] };
+          const payload = request.postDataJSON();
+          body = { ...normalizeEvent(payload), id: 100, assignments: [], client,
+            workLocations: (payload.workLocations || []).map((name, index) => ({ id: 700 + index, eventId: 100, name, sortOrder: index })).reverse() };
           stored.push(body);
         } else if (path === '/assignments' && request.method() === 'POST') {
           body = { ...normalizeAssignment(request.postDataJSON()), id: 900 + writes.length };
+          body.workLocation = stored[0].workLocations.find((location) => location.id === body.workLocationId) || null;
           stored[0].assignments.push(body);
+        } else if (/^\/assignments\/\d+$/.test(path) && request.method() === 'PUT') {
+          body = stored[0].assignments.find((row) => row.id === Number(path.split('/').at(-1)));
+          Object.assign(body, normalizeAssignment(request.postDataJSON()));
+          body.workLocation = stored[0].workLocations.find((location) => location.id === body.workLocationId) || null;
+        } else if (path === '/services/100' && request.method() === 'PUT') {
+          const payload = request.postDataJSON();
+          const normalized = normalizeEvent(payload);
+          for (const key of Object.keys(payload)) if (key in normalized) stored[0][key] = normalized[key];
+          body = stored[0];
         } else if (path === '/services') body = [original, ...stored];
         else if (path === '/services/12') body = original;
         else if (path === '/services/100') body = stored[0];
@@ -89,6 +107,8 @@ try {
       if (scenario.copyAfter) await copyTeam.check();
       // Recopy repeatedly: the final draft must still contain each original slot once.
       if (!scenario.withoutTeam) for (let repeat = 0; repeat < 2; repeat += 1) { await copyTeam.uncheck(); await copyTeam.check(); }
+      if (scenario.renameLocation) await dialog.getByLabel('Local de Trabalho 1', { exact: true }).fill('Lounge VIP');
+      if (scenario.removeLocation) await dialog.getByRole('button', { name: 'Remover local 2', exact: true }).click();
       await dialog.getByRole('button', { name: 'Colaboradores', exact: true }).click();
       const editedDay = scenario.days ? '2030-10-20' : null;
       if (editedDay) {
@@ -162,6 +182,12 @@ try {
         original.assignments.filter((row) => !scenario.withoutTeam && scenario.kept.includes(row.assignmentDate))
           .map((row) => [scenario.single ? null : shiftedDay(row.assignmentDate), row.collaboratorId]));
       for (const row of assignmentPayloads) {
+        const sourceRow = original.assignments.find((assignment) => assignment.collaboratorId === row.collaboratorId);
+        const sourceLocation = original.workLocations.find((location) => location.id === sourceRow.workLocationId);
+        const expectedName = scenario.renameLocation && sourceLocation.id === 20 ? 'Lounge VIP' : sourceLocation.name;
+        const savedLocation = stored[0].workLocations.find((location) => location.name === expectedName);
+        assert.equal(row.workLocationId, savedLocation?.id || null, 'each day/team association uses its actual new location ID, including rename/removal');
+        assert.ok(!original.workLocations.some((location) => location.id === row.workLocationId));
         const editedId = editedDay ? original.assignments.find((assignment) => assignment.assignmentDate === editedDay).collaboratorId : null;
         assert.equal(row.status, row.collaboratorId === editedId ? 'confirmed' : 'pending_confirmation');
         if (row.collaboratorId === editedId) {
@@ -175,6 +201,17 @@ try {
       }
       assert.ok(writes.every((write) => write.method === 'POST' && ['/services', '/assignments', '/services/100/workflow/synchronize'].includes(write.path)), 'only the new event is created/synchronized; no updates or deletes to original records');
       assert.deepEqual(original, snapshot);
+      if (!scenario.withoutTeam) for (const day of retainedDates) {
+        const exported = buildEventAttendanceRows({ assignments: stored[0].assignments,
+          collaborators, workLocations: stored[0].workLocations, selectedDay: day, isContinuous: !scenario.single });
+        assert.equal(exported.length, 2);
+        for (const row of exported) {
+          const sourceRow = original.assignments.find((assignment) => assignment.collaborator.name === row.collaborator);
+          const sourceLocation = original.workLocations.find((location) => location.id === sourceRow.workLocationId);
+          assert.equal(row.workLocation, scenario.removeLocation && sourceLocation.id === 21 ? ''
+            : scenario.renameLocation && sourceLocation.id === 20 ? 'Lounge VIP' : sourceLocation.name);
+        }
+      }
 
       // Reload from normalized saved API data, rather than the in-memory creation form.
       await page.goto(`${baseUrl}/services?serviceId=100`);
@@ -187,6 +224,26 @@ try {
       }
       if (scenario.start || scenario.end) assert.deepEqual(await dialog.locator('.service-day-tabs button').allTextContents(), retainedDates.map((day) => day.split('-').reverse().join('/')));
       await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
+      if (scenario.name === 'all-days' || scenario.single) {
+        await page.goto(`${baseUrl}/services/100`);
+        await page.getByRole('button', { name: 'Colaboradores', exact: true }).click();
+        const firstAssignment = stored[0].assignments[0];
+        const firstPerson = collaborators.find((person) => person.id === firstAssignment.collaboratorId);
+        const editableRow = page.locator('.service-detail-team-row').filter({ hasText: firstPerson.name });
+        const locationSelect = editableRow.locator('.service-detail-work-location-field select');
+        await locationSelect.waitFor();
+        assert.equal(await locationSelect.inputValue(), String(firstAssignment.workLocationId), 'detail shows the copied location, not unassigned');
+        const nextLocation = stored[0].workLocations.find((location) => location.id !== firstAssignment.workLocationId);
+        await locationSelect.selectOption(String(nextLocation.id));
+        const savedTeam = page.waitForResponse((response) => response.url().endsWith('/api/services/100') && response.request().method() === 'PUT');
+        await page.getByRole('button', { name: 'Guardar alterações', exact: true }).first().click();
+        await savedTeam;
+        assert.equal(firstAssignment.workLocationId, nextLocation.id);
+        await page.reload();
+        await page.getByRole('button', { name: 'Colaboradores', exact: true }).click();
+        assert.equal(await locationSelect.inputValue(), String(nextLocation.id), 'editing duplicate location persists after reload');
+        assert.deepEqual(original, snapshot);
+      }
       assert.deepEqual(errors, []);
       assert.deepEqual(original, snapshot);
       console.log(`PASS ${viewportName} ${scenario.name}: exact day/team mapping, repeated copy, normalized save/reopen, original unchanged`);

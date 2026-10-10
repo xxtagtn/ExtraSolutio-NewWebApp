@@ -78,6 +78,7 @@ import {
   buildServiceDuplicateForm,
   createDuplicatePeriodDraft,
   emptyAssignmentForRole,
+  resolveDuplicatedServiceWorkLocations,
   shiftDuplicatedServiceStart,
   synchronizeDuplicatedServiceDays,
   updateDuplicatePeriodDraft,
@@ -1424,12 +1425,14 @@ export default function Services() {
       });
       const travelCars = cleanTravelCarsForPayload(form.travelCars);
       const firstTravelCar = travelCars[0] || {};
+      const submissionForm = duplicateSource ? resolveDuplicatedServiceWorkLocations(form) : form;
       const payload = {
         ...form,
+        ...(duplicateSource ? { workLocations: submissionForm.workLocations, assignments: submissionForm.assignments } : {}),
         serviceReference: String(form.serviceReference || '').trim() || null,
         status: statusManualOverride ? form.status : nextAutomaticServiceStatus(form),
         statusMode: statusManualOverride ? 'manual' : 'automatic',
-        assignmentDrafts: assignmentDraftsFromRows(form.assignments),
+        assignmentDrafts: assignmentDraftsFromRows(submissionForm.assignments),
         endDate: form.isContinuous && form.endDate ? form.endDate : null,
         location: effectiveLocation,
         uniform: form.uniform === 'Outros' ? form.uniformOther : form.uniform,
@@ -1470,13 +1473,21 @@ export default function Services() {
         body: JSON.stringify(payload),
       });
       const eventId = editing ? editing.id : saved.id;
+      const savedAssignments = duplicateSource
+        ? resolveDuplicatedServiceWorkLocations(form, saved).assignments : form.assignments;
+      if (duplicateSource) {
+        const assignmentDrafts = assignmentDraftsFromRows(savedAssignments);
+        if (JSON.stringify(assignmentDrafts) !== JSON.stringify(payload.assignmentDrafts)) {
+          await api(`/services/${eventId}`, { method: 'PUT', body: JSON.stringify({ assignmentDrafts }) });
+        }
+      }
       if (editing) {
         const existingIds = new Set((editing.assignments || []).map((item) => item.id));
         const keptIds = new Set(form.assignments.filter((item) => item.id).map((item) => item.id));
         const toDelete = [...existingIds].filter((id) => !keptIds.has(id));
         await Promise.all(toDelete.map((id) => api(`/assignments/${id}`, { method: 'DELETE' })));
       }
-      for (const item of form.assignments.filter((assignment) => assignment.role && assignment.collaboratorId)) {
+      for (const item of savedAssignments.filter((assignment) => assignment.role && assignment.collaboratorId)) {
         const staffHours = formAssignmentStaffHours(item);
         const hasManualStaffTimes = Boolean(item.checkIn && item.checkOut);
         const hasManualClientTimes = Boolean(
@@ -2032,7 +2043,7 @@ export default function Services() {
                                 aria-label={`Local de Trabalho ${index + 1}`}
                                 onChange={(event) => {
                                   const next = [...form.workLocations];
-                                  next[index] = event.target.value;
+                                  next[index] = typeof item === 'string' ? event.target.value : { ...item, name: event.target.value };
                                   setForm({ ...form, workLocations: next });
                                 }}
                               />

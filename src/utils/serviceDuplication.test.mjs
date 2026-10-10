@@ -54,7 +54,7 @@ test('duplicates planning without creating identities, billing or workflow histo
   assert.equal(form.rateHistory, null);
   assert.deepEqual(form.staffTravel, []);
   assert.deepEqual(form.externalCosts, []);
-  assert.deepEqual(form.workLocations, ['Sala']);
+  assert.deepEqual(form.workLocations, [{ name: 'Sala', duplicateLocationKey: 'duplicate-location-1' }]);
   assert.equal(form.travelCars[0].id, 'car-1');
   for (const field of ['id', 'invoices', 'qrToken', 'cancelledDays', 'statusMode']) assert.equal(field in form, false);
   assert.equal('id' in form.requiredRoles[0], false);
@@ -71,6 +71,7 @@ test('optional team is awaiting confirmation, without punches, advances or payme
   assert.deepEqual(assignment.advancePayments, []);
   assert.equal(assignment.hourlyRate, '');
   assert.equal(assignment.workLocationId, '');
+  assert.equal(assignment.duplicateWorkLocationKey, 'duplicate-location-1');
   for (const field of ['checkIn', 'checkOut', 'clientCheckIn', 'clientCheckOut', 'validatedCheckIn', 'validatedCheckOut', 'validationNotes']) {
     assert.equal(assignment[field], '');
   }

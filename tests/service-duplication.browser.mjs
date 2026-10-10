@@ -61,11 +61,18 @@ try {
           return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Falha QA controlada' }) });
         }
         const payload = request.postDataJSON();
-        body = { ...normalizeEvent(payload), id: 100 + created.length, assignments: [], workLocations: [{ id: 200 + created.length, name: 'Sala' }] };
+        body = { ...normalizeEvent(payload), id: 100 + created.length, assignments: [],
+          workLocations: (payload.workLocations || []).map((name, index) => ({ id: 200 + created.length * 10 + index, eventId: 100 + created.length, name })) };
         created.push(body);
       } else if (path === '/assignments' && request.method() === 'POST') {
         body = { ...normalizeAssignment(request.postDataJSON()), id: 900 + writes.length };
         created.find((event) => event.id === body.eventId).assignments.push(body);
+      } else if (/^\/services\/\d+$/.test(path) && request.method() === 'PUT') {
+        body = created.find((event) => event.id === Number(path.split('/').at(-1)));
+        assert.ok(body, 'updates must target newly created events, not the original');
+        const payload = request.postDataJSON();
+        const normalized = normalizeEvent(payload);
+        for (const key of Object.keys(payload)) if (key in normalized) body[key] = normalized[key];
       } else if (path === '/services') body = [original, ...created];
       else if (path === '/services/12') body = original;
       else if (path === '/clients') {
@@ -148,7 +155,7 @@ try {
       assert.equal(assignment.hoursWorked, 0);
       assert.equal(assignment.totalPay, 0);
       assert.equal(assignment.hourlyRate, 10, 'must not reuse a historical staff tariff');
-      assert.equal(assignment.workLocationId, null);
+      assert.equal(assignment.workLocationId, 210, 'copied association must use the new event location ID');
       assert.deepEqual(JSON.parse(assignment.advancePayments || '[]'), []);
       for (const field of ['checkIn', 'checkOut', 'clientCheckIn', 'clientCheckOut', 'validatedCheckIn', 'validatedCheckOut']) assert.equal(assignment[field], null);
       assert.equal(assignment.plannedCheckOut, '04:00');
@@ -177,6 +184,24 @@ try {
       && /^\/services\/10[01]\/workflow\/synchronize$/.test(write.path)),
     `unsaved template must not write records; only existing saved event synchronization is allowed: ${JSON.stringify(writes.slice(writesBeforeTemplate).map(({ path, method }) => ({ path, method })))}`);
 
+    // Existing inactive-staff protection turns copied rows into empty slots.
+    // Those drafts must also receive the new location ID, never a draft key.
+    collaborator.status = 'inactive';
+    await page.goto(`${baseUrl}/services?duplicateServiceId=12`);
+    dialog = page.getByRole('dialog', { name: 'Novo evento a partir de Evento original QA', exact: true });
+    await dialog.waitFor();
+    await dialog.getByLabel('Copiar equipa do evento original (a aguardar confirmação)', { exact: true }).check();
+    await dialog.getByLabel('Data de início', { exact: true }).fill('2031-01-01');
+    await dialog.getByLabel('Data de fim', { exact: true }).fill('2031-01-02');
+    await dialog.getByRole('button', { name: 'Guardar novo evento', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(created.length, 3);
+    assert.equal(created[2].assignments.length, 0, 'inactive staff must remain unassigned');
+    assert.deepEqual(JSON.parse(created[2].assignmentDrafts).map((row) => [row.assignmentDate, row.workLocationId]),
+      [['2031-01-01', '220'], ['2031-01-02', '220']]);
+    assert.ok(!JSON.stringify(created[2]).includes('duplicate-location'));
+    collaborator.status = 'active';
+
     client.billingMethod = 'prepaid';
     await page.goto(`${baseUrl}/services?duplicateServiceId=12`);
     dialog = page.getByRole('dialog', { name: 'Novo evento a partir de Evento original QA', exact: true });
@@ -185,7 +210,7 @@ try {
     await dialog.getByRole('button', { name: 'Colaboradores', exact: true }).click();
     assert.equal(await dialog.getByRole('button', { name: '+ Adicionar colaborador', exact: true }).isDisabled(), true);
     await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
-    assert.equal(created.length, 2, 'prepayment checks and cancellation do not create an event');
+    assert.equal(created.length, 3, 'prepayment checks and cancellation do not create an event');
     client.billingMethod = 'per_event';
 
     await page.goto(`${baseUrl}/services`);
