@@ -74,6 +74,7 @@ import {
   travelCarsFromSource,
 } from '../utils/serviceTemplateForm.js';
 import { requiredStaffTotal } from '../utils/serviceRequirements.js';
+import { buildServiceDuplicateForm, emptyAssignmentForRole, shiftDuplicatedServiceStart } from '../utils/serviceDuplication.js';
 import { calculateTravelAmount } from '../utils/travelCalculator.js';
 
 const eventTypeOptions = [
@@ -334,34 +335,6 @@ function collaboratorHasRole(collab, role) {
   return roles.includes(role) || String(collab?.category || '') === String(role);
 }
 
-function emptyAssignmentForRole(role, assignmentDate = '') {
-  return {
-    role,
-    collaboratorId: '',
-    assignmentDate,
-    collaboratorSearch: '',
-    plannedCheckIn: '',
-    plannedCheckOut: '',
-    checkIn: '',
-    checkOut: '',
-    clientCheckIn: '',
-    clientCheckOut: '',
-    validatedCheckIn: '',
-    validatedCheckOut: '',
-    hoursWorked: 0,
-    clientBillableHours: 0,
-    staffPayableHours: 0,
-    hourlyRate: '',
-    workLocationId: '',
-    validationStatus: 'pending',
-    validationNotes: '',
-    clientSynced: false,
-    isDriver: false,
-    advancePayments: [],
-    status: 'pending_confirmation',
-  };
-}
-
 function withAssignmentPlaceholders(nextForm) {
   const assignments = [...(nextForm.assignments || [])];
   for (const required of nextForm.requiredRoles || []) {
@@ -529,8 +502,8 @@ export default function Services() {
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi('/services', []);
-  const { data: clients } = useApi('/clients', []);
-  const { data: collaborators } = useApi('/collaborators?light=1', []);
+  const { data: clients, loading: clientsLoading } = useApi('/clients', []);
+  const { data: collaborators, loading: collaboratorsLoading } = useApi('/collaborators?light=1', []);
   const { data: budgets, reload: reloadBudgets } = useApi('/budgets', []);
   const { data: roleCatalog } = useApi('/collaborators/roles', []);
   const { data: serviceTemplates, reload: reloadTemplates } = useApi('/service-templates', []);
@@ -545,6 +518,9 @@ export default function Services() {
   const [formOpen, setFormOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('summary');
   const [editing, setEditing] = useState(null);
+  const [duplicateSource, setDuplicateSource] = useState(null);
+  const [copyTeam, setCopyTeam] = useState(false);
+  const duplicateDateRef = useRef('');
   const [form, setForm] = useState(emptyForm());
   const [formBaseline, setFormBaseline] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
@@ -868,7 +844,7 @@ export default function Services() {
   }, [activeCollaboratorPickerIndex]);
 
   useEffect(() => {
-    if (loading || statusSyncing || formOpen || !data.length) return;
+    if (loading || statusSyncing || formOpen || !data.length || searchParams.get('duplicateServiceId')) return;
     const updates = data.filter((row) => row.statusMode !== 'manual');
     if (!updates.length) return;
 
@@ -892,7 +868,7 @@ export default function Services() {
     return () => {
       cancelled = true;
     };
-  }, [data, loading, reload, statusSyncing, formOpen]);
+  }, [data, loading, reload, statusSyncing, formOpen, searchParams]);
 
   useEffect(() => {
     if (!formOpen) return;
@@ -907,6 +883,8 @@ export default function Services() {
   function openCreate() {
     const initial = emptyForm();
     setEditing(null);
+    setDuplicateSource(null);
+    setCopyTeam(false);
     setForm(initial);
     setFormBaseline(initial);
     setActiveTab('summary');
@@ -941,6 +919,8 @@ export default function Services() {
   const openEdit = useCallback((row) => {
     const nextForm = formWithStaffRates(withAssignmentPlaceholders(toForm(row)));
     setEditing(row);
+    setDuplicateSource(null);
+    setCopyTeam(false);
     setForm(nextForm);
     setFormBaseline(nextForm);
     setActiveTab('summary');
@@ -956,10 +936,65 @@ export default function Services() {
     setActiveAdvanceIndex(null);
   }, [formWithStaffRates]);
 
+  const openDuplicate = useCallback((row) => {
+    const source = toForm(row);
+    const pricingClient = (clients || []).find((client) => String(client.id) === String(source.clientId));
+    const initial = withAssignmentPlaceholders(applyClientRulesToServiceForm(
+      buildServiceDuplicateForm(source, emptyForm()), pricingClient, { uniformOptions },
+    ));
+    // Unlinked clients must keep their original name and location.
+    if (!pricingClient) {
+      initial.clientId = source.clientId;
+      initial.location = source.location;
+    }
+    setEditing(null);
+    setDuplicateSource(source);
+    duplicateDateRef.current = source.date;
+    setCopyTeam(false);
+    setForm(initial);
+    setFormBaseline(initial);
+    setActiveTab('summary');
+    setFormOpen(true);
+    setFormError('');
+    setTemplateError('');
+    setTemplateName('');
+    setSelectedTemplateId('');
+    setStatusManualOverride(false);
+    setSelectedTeamDay('');
+    setActiveCollaboratorPickerIndex(null);
+    setCollaboratorPickerPlacement(null);
+    setActiveAdvanceIndex(null);
+  }, [clients]);
+
+  function toggleDuplicateTeam(includeTeam) {
+    const duplicate = shiftDuplicatedServiceStart(
+      buildServiceDuplicateForm(duplicateSource, emptyForm(), { includeTeam }), form.date || duplicateDateRef.current,
+    );
+    setCopyTeam(includeTeam);
+    setForm((current) => formWithStaffRates(withAssignmentPlaceholders({
+      ...current, assignments: duplicate.assignments.map((assignment) => {
+        const collaborator = collaboratorsById.get(String(assignment.collaboratorId));
+        return assignment.collaboratorId && (!collaborator || collaborator.status === 'inactive')
+          ? { ...assignment, collaboratorId: '' } : assignment;
+      }),
+    })));
+  }
+
+  function updateStartDate(date) {
+    const previousDate = duplicateDateRef.current;
+    setForm((current) => {
+      if (!duplicateSource) return { ...current, date };
+      return shiftDuplicatedServiceStart({ ...current, date: previousDate }, date);
+    });
+    if (date) duplicateDateRef.current = date;
+  }
+
   function closeForm(force = false) {
     if (!force && !confirmDiscardChanges(formHasChanges(formBaseline, form))) return;
     setFormOpen(false);
     setEditing(null);
+    setDuplicateSource(null);
+    setCopyTeam(false);
     setForm(emptyForm());
     setFormBaseline(emptyForm());
     setFormError('');
@@ -1000,19 +1035,22 @@ export default function Services() {
   }
 
   useEffect(() => {
-    const idParam = searchParams.get('serviceId');
-    if (!idParam || loading || openedFromQuery) return;
+    const duplicateId = searchParams.get('duplicateServiceId');
+    const idParam = duplicateId || searchParams.get('serviceId');
+    if (!idParam || loading || openedFromQuery || (duplicateId && (clientsLoading || collaboratorsLoading))) return;
     const targetId = Number(idParam);
     if (!Number.isInteger(targetId)) return;
     const target = data.find((row) => row.id === targetId);
     if (target) {
-      openEdit(target);
+      if (duplicateId) openDuplicate(target);
+      else openEdit(target);
       setOpenedFromQuery(true);
       const nextParams = new window.URLSearchParams(searchParams);
       nextParams.delete('serviceId');
+      nextParams.delete('duplicateServiceId');
       setSearchParams(nextParams, { replace: true });
     }
-  }, [searchParams, setSearchParams, loading, openedFromQuery, data, openEdit]);
+  }, [searchParams, setSearchParams, loading, clientsLoading, collaboratorsLoading, openedFromQuery, data, openEdit, openDuplicate]);
 
   function applyTemplate(templateId) {
     const template = sortedTemplates.find((item) => String(item.id) === String(templateId));
@@ -1291,6 +1329,16 @@ export default function Services() {
 
   async function submit(event) {
     event.preventDefault();
+    if (duplicateSource && (!form.name.trim() || !form.date || (form.isContinuous && !form.endDate))) {
+      setFormError('Preenche o nome e as datas do novo evento/serviço.');
+      setActiveTab('summary');
+      return;
+    }
+    if (duplicateSource && prepaidPaymentBlocked && form.assignments.some((item) => item.collaboratorId)) {
+      setFormError('Cliente com pré-pagamento: regista a sinalização antes de alocar novos colaboradores.');
+      setActiveTab('summary');
+      return;
+    }
     if (form.isContinuous && form.endDate && form.date && parseDateOnly(form.endDate) < parseDateOnly(form.date)) {
       setFormError('A data de fim nao pode ser anterior a data de inicio.');
       setActiveTab('summary');
@@ -1581,11 +1629,11 @@ export default function Services() {
     );
   }
 
-  const tabs = editing
+  const tabs = editing || duplicateSource
     ? [
         { id: 'summary', label: 'Evento/Serviço' },
         { id: 'team', label: 'Colaboradores' },
-        { id: 'finance', label: 'Financeiro' },
+        ...(editing ? [{ id: 'finance', label: 'Financeiro' }] : []),
       ]
     : [{ id: 'summary', label: 'Evento/Serviço' }];
 
@@ -1709,8 +1757,14 @@ export default function Services() {
       </Card>
 
       {formOpen ? (
-        <Modal title={editing ? form.name || 'Editar Evento/Serviço' : 'Novo Evento/Serviço'} onClose={() => closeForm()} size="wide">
+        <Modal title={editing ? form.name || 'Editar Evento/Serviço' : duplicateSource ? `Novo evento a partir de ${duplicateSource.name}` : 'Novo Evento/Serviço'} onClose={() => closeForm()} size="wide">
           <form className="resource-form" onSubmit={submit}>
+            {duplicateSource ? (
+              <label className="service-duplicate-team">
+                <input type="checkbox" checked={copyTeam} disabled={prepaidPaymentBlocked && !copyTeam} onChange={(event) => toggleDuplicateTeam(event.target.checked)} />
+                Copiar equipa do evento original (a aguardar confirmação)
+              </label>
+            ) : null}
             <div className="service-tabs">
               {tabs.map((tab) => (
                 <button key={tab.id} type="button" className={`service-tab ${activeTab === tab.id ? 'service-tab--active' : ''}`} onClick={() => setActiveTab(tab.id)}>
@@ -1815,7 +1869,7 @@ export default function Services() {
                         </select>
                       </label>
                       <label>{form.isContinuous ? 'Data de início' : 'Data'}
-                        <input type="date" value={form.date} required onChange={(event) => setForm({ ...form, date: event.target.value })} />
+                        <input type="date" value={form.date} required onChange={(event) => updateStartDate(event.target.value)} />
                       </label>
                       {form.isContinuous ? (
                         <label>Data de fim
@@ -2492,7 +2546,7 @@ export default function Services() {
                   Retirar do arquivo
                 </button>
               ) : null}
-              <button className="command-button" type="submit" disabled={saving || removing}>{saving ? 'A guardar...' : 'Guardar'}</button>
+              <button className="command-button" type="submit" disabled={saving || removing}>{saving ? 'A guardar...' : duplicateSource ? 'Guardar novo evento' : 'Guardar'}</button>
             </footer>
           </form>
         </Modal>

@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock,
+  Copy,
   Edit3,
   Euro,
   FileClock,
@@ -1121,6 +1122,10 @@ export default function ServiceDetail() {
             <Link className="command-button" to={`/services?serviceId=${service.id}`}>
               <Edit3 size={16} />
               Editar dados
+            </Link>
+            <Link className="secondary-button" to={`/services?duplicateServiceId=${service.id}`}>
+              <Copy size={16} />
+              Duplicar evento
             </Link>
             <Link className="secondary-button" to={`/time-validation?eventId=${service.id}`}>
               <Clock size={16} />

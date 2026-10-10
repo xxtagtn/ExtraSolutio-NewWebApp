@@ -4208,6 +4208,20 @@ th {
   gap: 10px;
 }
 
+.service-duplicate-team {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.5;
+}
+
+.service-duplicate-team input[type="checkbox"] {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
 .services-archive-pagination {
   display: flex;
   align-items: center;
