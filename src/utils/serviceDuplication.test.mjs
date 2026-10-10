@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildServiceDuplicateForm, emptyAssignmentForRole, shiftDuplicatedServiceStart } from './serviceDuplication.js';
+import { buildServiceDuplicateForm, changeDuplicatedServiceStart, emptyAssignmentForRole, shiftDuplicatedServiceStart, synchronizeDuplicatedServiceDays } from './serviceDuplication.js';
 import { nextAutomaticServiceStatus } from './serviceStatus.js';
 
 const defaults = () => ({
@@ -131,4 +131,135 @@ test('single-day copies, empty data and invalid intermediate date inputs remain 
   assert.deepEqual(form.assignments, []);
   assert.deepEqual(form.requiredRoles, []);
   assert.deepEqual(shiftDuplicatedServiceStart(form, '').assignments, []);
+});
+
+function multiDaySource() {
+  const days = ['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13'];
+  return {
+    ...structuredClone(source), date: days[0], endDate: days.at(-1), cancelledDays: [],
+    requiredRoles: days.map((day) => ({ role: 'Emp. Mesa', qty: 3, agreedRate: '14,00', day })),
+    assignments: days.flatMap((day, dayIndex) => Array.from({ length: 3 }, (_, index) => ({
+      ...structuredClone(source.assignments[0]), id: dayIndex * 10 + index,
+      collaboratorId: `${dayIndex * 10 + index + 1}`, assignmentDate: day,
+      plannedCheckIn: `${10 + dayIndex}:00`,
+    }))),
+  };
+}
+
+test('copies every day without deleting or reassigning its distinct team', () => {
+  const original = multiDaySource();
+  const snapshot = structuredClone(original);
+  const duplicate = buildServiceDuplicateForm(original, defaults(), { includeTeam: true });
+  assert.equal(duplicate.assignments.length, 12);
+  assert.deepEqual(duplicate.assignments.map((row) => [row.assignmentDate, row.collaboratorId, row.plannedCheckIn]),
+    original.assignments.map((row) => [row.assignmentDate, row.collaboratorId, row.plannedCheckIn]));
+  assert.strictEqual(synchronizeDuplicatedServiceDays(duplicate), duplicate, 'no-op synchronization must not trigger a render loop');
+  assert.deepEqual(original, snapshot);
+});
+
+test('shortening the continuous period removes assignments, empty slots and requirements for the last day', () => {
+  const original = multiDaySource();
+  for (const includeTeam of [true, false]) {
+    const duplicate = buildServiceDuplicateForm(original, defaults(), { includeTeam });
+    const resized = synchronizeDuplicatedServiceDays({ ...duplicate, endDate: '2026-10-12' });
+    assert.equal(resized.assignments.length, 9);
+    assert.equal(resized.requiredRoles.length, 3);
+    assert.ok(resized.assignments.every((row) => row.assignmentDate <= resized.endDate));
+    assert.equal(duplicate.assignments.length, 12, 'source draft must not be mutated');
+  }
+});
+
+test('removing interleaved days keeps exact date associations, not positions in the day list', () => {
+  const original = multiDaySource();
+  const snapshot = structuredClone(original);
+  const duplicate = buildServiceDuplicateForm(original, defaults(), { includeTeam: true });
+  const resized = synchronizeDuplicatedServiceDays({ ...duplicate, cancelledDays: ['2026-10-11', { date: '2026-10-13' }] });
+  assert.deepEqual(resized.requiredRoles.map((row) => row.day), ['2026-10-10', '2026-10-12']);
+  assert.deepEqual(resized.assignments.map((row) => [row.assignmentDate, row.collaboratorId]),
+    original.assignments.filter((row) => ['2026-10-10', '2026-10-12'].includes(row.assignmentDate))
+      .map((row) => [row.assignmentDate, row.collaboratorId]));
+  assert.deepEqual(original, snapshot);
+});
+
+test('advancing the first date inside the copied period trims days without moving their teams', () => {
+  const original = multiDaySource();
+  const duplicate = buildServiceDuplicateForm(original, defaults(), { includeTeam: true });
+  const changed = changeDuplicatedServiceStart(duplicate, '2026-10-12', original.date);
+  assert.equal(changed.form.endDate, '2026-10-13');
+  assert.equal(changed.teamStartDate, original.date);
+  assert.equal(changed.form.assignments.length, 6);
+  assert.deepEqual(changed.form.assignments.map((row) => row.collaboratorId), ['21', '22', '23', '31', '32', '33']);
+  assert.deepEqual(changed.form.requiredRoles.map((row) => row.day), ['2026-10-12', '2026-10-13']);
+});
+
+test('recopying the team respects the edited period and never appends duplicates or deleted days', () => {
+  const original = multiDaySource();
+  let current = changeDuplicatedServiceStart(buildServiceDuplicateForm(original, defaults()), '2026-10-12', original.date).form;
+  current = synchronizeDuplicatedServiceDays({ ...current, endDate: '2026-10-12' });
+  for (const includeTeam of [true, false, true, false, true]) {
+    const copied = buildServiceDuplicateForm(original, defaults(), { includeTeam });
+    current = synchronizeDuplicatedServiceDays({ ...current, assignments: copied.assignments });
+    assert.equal(current.assignments.length, 3);
+    assert.ok(current.assignments.every((row) => row.assignmentDate === '2026-10-12'));
+    assert.deepEqual(current.assignments.map((row) => row.collaboratorId), includeTeam ? ['21', '22', '23'] : ['', '', '']);
+  }
+});
+
+test('moving a trimmed event to another month preserves its remaining teams and recopy date mapping', () => {
+  const original = multiDaySource();
+  const trimmed = changeDuplicatedServiceStart(buildServiceDuplicateForm(original, defaults(), { includeTeam: true }), '2026-10-12');
+  const moved = changeDuplicatedServiceStart(trimmed.form, '2026-11-01', trimmed.teamStartDate);
+  assert.equal(moved.form.endDate, '2026-11-02');
+  assert.equal(moved.teamStartDate, '2026-10-30');
+  const copied = shiftDuplicatedServiceStart(buildServiceDuplicateForm(original, defaults(), { includeTeam: true }), moved.teamStartDate);
+  const recopied = synchronizeDuplicatedServiceDays({ ...moved.form, assignments: copied.assignments });
+  assert.deepEqual(recopied.assignments.map((row) => [row.assignmentDate, row.collaboratorId]),
+    moved.form.assignments.map((row) => [row.assignmentDate, row.collaboratorId]));
+});
+
+test('cancelled source days never copy their team or explicit requirements, even with stale confirmed statuses', () => {
+  const original = { ...multiDaySource(), cancelledDays: [{ date: '2026-10-11', assignmentStates: [{ id: 10, status: 'confirmed' }] }] };
+  const snapshot = structuredClone(original);
+  const duplicate = buildServiceDuplicateForm(original, defaults(), { includeTeam: true });
+  assert.equal(duplicate.assignments.length, 9);
+  assert.equal(duplicate.requiredRoles.length, 3);
+  assert.ok(duplicate.assignments.every((row) => row.assignmentDate !== '2026-10-11'));
+  assert.equal('cancelledDays' in duplicate, false, 'original cancellation history is not transferred');
+  assert.deepEqual(original, snapshot);
+});
+
+test('converting a multi-day duplicate to a single day keeps only that day and its planned times', () => {
+  const duplicate = buildServiceDuplicateForm(multiDaySource(), defaults(), { includeTeam: true });
+  const single = synchronizeDuplicatedServiceDays({ ...duplicate, isContinuous: false, endDate: '' });
+  assert.equal(single.assignments.length, 3);
+  assert.equal(single.requiredRoles.length, 1);
+  assert.ok(single.assignments.every((row) => row.assignmentDate === single.date && row.plannedCheckIn === '10:00'));
+});
+
+test('invalid intermediate dates keep the draft intact until existing date validation runs', () => {
+  const duplicate = buildServiceDuplicateForm(multiDaySource(), defaults(), { includeTeam: true });
+  for (const patch of [{ date: '' }, { endDate: '' }, { endDate: '2026-10-09' }]) {
+    const incomplete = { ...duplicate, ...patch };
+    assert.strictEqual(synchronizeDuplicatedServiceDays(incomplete), incomplete);
+  }
+});
+
+test('a missing continuous assignment date is not guessed or replaced: existing save validation still applies', () => {
+  const original = multiDaySource();
+  original.assignments[0].assignmentDate = '';
+  const duplicate = buildServiceDuplicateForm(original, defaults(), { includeTeam: true });
+  assert.equal(duplicate.assignments[0].assignmentDate, '');
+  assert.equal(duplicate.assignments[0].collaboratorId, original.assignments[0].collaboratorId);
+});
+
+test('restoring the first date after trimming does not shift the remaining days or attach another day team', () => {
+  const original = multiDaySource();
+  const trimmed = changeDuplicatedServiceStart(buildServiceDuplicateForm(original, defaults(), { includeTeam: true }), '2026-10-12');
+  const restored = changeDuplicatedServiceStart(trimmed.form, '2026-10-10', trimmed.teamStartDate);
+  assert.equal(restored.form.endDate, '2026-10-13');
+  assert.equal(restored.teamStartDate, '2026-10-10');
+  assert.deepEqual(restored.form.assignments.map((row) => row.assignmentDate), trimmed.form.assignments.map((row) => row.assignmentDate));
+  const recopied = synchronizeDuplicatedServiceDays({ ...restored.form, assignments: buildServiceDuplicateForm(original, defaults(), { includeTeam: true }).assignments });
+  assert.deepEqual(recopied.assignments.map((row) => [row.assignmentDate, row.collaboratorId]),
+    original.assignments.map((row) => [row.assignmentDate, row.collaboratorId]));
 });

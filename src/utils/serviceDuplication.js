@@ -1,3 +1,5 @@
+import { activeEventDayKeys, eventDayKey, isAssignmentOnCancelledDay, isEventDayCancelled } from './eventCancelledDays.js';
+
 const planningFields = [
   'eventType', 'date', 'endDate', 'isContinuous', 'clientId', 'clientName',
   'useDefaultLocation', 'location', 'guestsCount', 'startTime', 'endTime',
@@ -35,24 +37,27 @@ export function buildServiceDuplicateForm(source, defaults, { includeTeam = fals
   form.workLocations = (source.workLocations || [])
     .map((location) => String(typeof location === 'string' ? location : location.name || '').trim())
     .filter(Boolean);
-  form.requiredRoles = (source.requiredRoles || []).map((requirement) => ({
-    role: requirement.role, qty: requirement.qty, agreedRate: requirement.agreedRate,
-    ...(requirement.day ? { day: requirement.day } : {}),
-    ...(requirement.start ? { start: requirement.start } : {}),
-    ...(requirement.end ? { end: requirement.end } : {}),
-    ...(requirement.order !== undefined ? { order: requirement.order } : {}),
-  }));
+  form.requiredRoles = (source.requiredRoles || [])
+    .filter((requirement) => !requirement.day || !isEventDayCancelled(source, requirement.day))
+    .map((requirement) => ({
+      role: requirement.role, qty: requirement.qty, agreedRate: requirement.agreedRate,
+      ...(requirement.day ? { day: requirement.day } : {}),
+      ...(requirement.start ? { start: requirement.start } : {}),
+      ...(requirement.end ? { end: requirement.end } : {}),
+      ...(requirement.order !== undefined ? { order: requirement.order } : {}),
+    }));
   form.assignments = (source.assignments || [])
     .filter((assignment) => !['cancelled', 'missed_justified', 'missed_unjustified'].includes(assignment.status))
+    .filter((assignment) => !isAssignmentOnCancelledDay(assignment, source))
     .map((assignment) => ({
-    ...emptyAssignmentForRole(assignment.role, assignment.assignmentDate || ''),
-    plannedCheckIn: assignment.plannedCheckIn || '',
-    plannedCheckOut: assignment.plannedCheckOut || '',
-    collaboratorId: includeTeam && ['confirmed', 'pending_confirmation'].includes(assignment.status)
-      ? assignment.collaboratorId : '',
-    isDriver: Boolean(assignment.isDriver),
+      ...emptyAssignmentForRole(assignment.role, assignment.assignmentDate || ''),
+      plannedCheckIn: assignment.plannedCheckIn || '',
+      plannedCheckOut: assignment.plannedCheckOut || '',
+      collaboratorId: includeTeam && ['confirmed', 'pending_confirmation'].includes(assignment.status)
+        ? assignment.collaboratorId : '',
+      isDriver: Boolean(assignment.isDriver),
     }));
-  return form;
+  return synchronizeDuplicatedServiceDays(form);
 }
 
 function dayTimestamp(value) {
@@ -77,5 +82,36 @@ export function shiftDuplicatedServiceStart(form, date) {
     assignments: form.assignments.map((assignment) => (
       assignment.assignmentDate ? { ...assignment, assignmentDate: shift(assignment.assignmentDate) } : assignment
     )),
+  };
+}
+
+// Prune the actual draft data, not only the visible day tabs. Missing/invalid
+// intermediate dates must remain editable and are checked by the existing save validation.
+export function synchronizeDuplicatedServiceDays(form) {
+  if (!Number.isFinite(dayTimestamp(form.date))) return form;
+  if (form.isContinuous && (!Number.isFinite(dayTimestamp(form.endDate)) || form.endDate < form.date)) return form;
+  const days = new Set(activeEventDayKeys(form));
+  const assignments = (form.assignments || []).filter((assignment) => (
+    days.has(eventDayKey(assignment.assignmentDate || form.date))
+  ));
+  const requiredRoles = (form.requiredRoles || []).filter((requirement) => (
+    !requirement.day || days.has(eventDayKey(requirement.day))
+  ));
+  if (assignments.length === (form.assignments || []).length && requiredRoles.length === (form.requiredRoles || []).length) return form;
+  return { ...form, assignments, requiredRoles };
+}
+
+export function changeDuplicatedServiceStart(form, date, teamStartDate = form.date) {
+  const offset = dayTimestamp(date) - dayTimestamp(form.date);
+  if (!Number.isFinite(offset) || !offset) return { form: { ...form, date }, teamStartDate };
+  // Editing within the mapped period resizes it without moving its teams. Moving to a
+  // different period still shifts the planning, as the duplication workflow did before.
+  if (form.isContinuous && date >= teamStartDate && date <= form.endDate) {
+    return { form: synchronizeDuplicatedServiceDays({ ...form, date }), teamStartDate };
+  }
+  const mappedStart = dayTimestamp(teamStartDate);
+  return {
+    form: synchronizeDuplicatedServiceDays(shiftDuplicatedServiceStart(form, date)),
+    teamStartDate: Number.isFinite(mappedStart) ? new Date(mappedStart + offset).toISOString().slice(0, 10) : teamStartDate,
   };
 }
