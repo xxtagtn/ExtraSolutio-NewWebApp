@@ -37,20 +37,24 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 const errors = [];
 let sequence = 0;
 
-async function setup(width, overlap = false, initialTime = '2026-09-24T08:00:00Z', monthly = false, closing = false) {
-  const serviceDay = closing ? '2026-09-30' : '2026-09-24';
-  const collaborator = await db.collaborator.create({ data: { name: 'Colaborador de Teste Nome Comprido', email: `browser-${++sequence}@example.test` } });
+async function setup(width, overlap = false, initialTime = '2026-09-24T08:00:00Z', monthly = false, closing = false, lateOpen = false) {
+  const serviceDay = lateOpen ? '2026-10-10' : closing ? '2026-09-30' : '2026-09-24';
+  const collaborator = await db.collaborator.create({ data: { name: lateOpen ? 'Elizabeth Estevão Pungue' : 'Colaborador de Teste Nome Comprido', email: `browser-${++sequence}@example.test` } });
   const event = await db.event.create({ data: { name: 'Restaurante de Teste', date: new Date(serviceDay), location: 'Lisboa', workLocationsEnabled: true } });
   const workLocation = await db.eventWorkLocation.create({ data: { eventId: event.id, name: 'Sala principal' } });
   const rows = [];
-  for (const [plannedCheckIn, plannedCheckOut] of closing ? [['18:00', '04:00']] : [['09:00', '12:00'], [overlap ? '11:00' : '15:00', '18:00']]) {
+  for (const [plannedCheckIn, plannedCheckOut] of lateOpen ? [['18:00', '23:00']] : closing ? [['18:00', '04:00']] : [['09:00', '12:00'], [overlap ? '11:00' : '15:00', '18:00']]) {
     rows.push(await db.eventAssignment.create({ data: {
       eventId: event.id, collaboratorId: collaborator.id, workLocationId: workLocation.id,
       plannedCheckIn, plannedCheckOut, role: 'Emp.Mesa', status: 'confirmed',
     } }));
   }
   if (monthly) await db.eventAssignment.create({ data: {
-    eventId: event.id, collaboratorId: collaborator.id, assignmentDate: new Date(closing ? '2026-10-01' : '2026-09-25'),
+    eventId: event.id, collaboratorId: collaborator.id, assignmentDate: new Date(lateOpen ? '2026-10-11' : closing ? '2026-10-01' : '2026-09-25'),
+    plannedCheckIn: '09:00', plannedCheckOut: '12:00', role: 'Bar', status: 'confirmed',
+  } });
+  if (lateOpen) await db.eventAssignment.create({ data: {
+    eventId: event.id, collaboratorId: collaborator.id, assignmentDate: new Date('2026-10-20'),
     plannedCheckIn: '09:00', plannedCheckOut: '12:00', role: 'Bar', status: 'confirmed',
   } });
   const token = monthly ? createMonthlyPunchToken(collaborator.id, new Date(`${serviceDay}T08:00:00Z`))
@@ -115,6 +119,52 @@ async function layout(page) {
 }
 
 try {
+  for (const width of [320, 390, 768, 1440]) {
+    const f = await setup(width, false, '2026-10-10T16:34:00Z', true, false, true);
+    const { page } = f;
+    await page.getByRole('button', { name: 'Dar Entrada' }).evaluate((button) => { button.click(); button.click(); });
+    const exit = page.getByRole('button', { name: 'Dar Saída' });
+    await exit.waitFor();
+    assert.equal(await exit.isDisabled(), true);
+    f.setTime('00:30:00', '2026-10-11');
+    await refresh(page);
+    await page.getByRole('heading', { name: 'Picagens · 10/10/2026', exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.qr-check-command')?.disabled);
+    assert.match(await page.locator('.qr-day-current').innerText(), /18:00 → 23:00[\s\S]*17:34/);
+    assert.equal(await page.getByRole('button', { name: 'Dar Entrada' }).count(), 0);
+    assert.equal(await page.locator('.qr-month-day').count(), 2);
+    assert.equal(f.posts.length, 1, 'Changing the date must not synthesize any punch');
+    await layout(page);
+    await page.screenshot({ path: `${output}/late-open-${width}.png`, fullPage: true });
+    await exit.evaluate((button) => { button.click(); button.click(); });
+    await page.getByRole('heading', { name: 'Picagens · 11/10/2026', exact: true }).waitFor();
+    const entry = page.getByRole('button', { name: 'Dar Entrada' });
+    await entry.waitFor();
+    assert.equal(await entry.isDisabled(), true);
+    assert.equal(f.posts.length, 2);
+    assert.deepEqual(f.posts.map((request) => request.data.assignmentId), [f.rows[0].id, f.rows[0].id]);
+    assert.equal(await page.locator('[role=alert]').count(), 0, 'Committed exit must not display an expired daily link error');
+    const saved = await db.eventAssignment.findUnique({ where: { id: f.rows[0].id } });
+    assert.equal(saved.checkIn, '17:34');
+    assert.equal(saved.checkOut, '00:30');
+    f.setTime('00:30:02', '2026-10-11');
+    await page.clock.runFor(2100);
+    await page.waitForFunction(() => !document.querySelector('.qr-check-command')?.disabled);
+    await db.eventAssignment.update({ where: { id: f.rows[0].id }, data: { checkOut: null } });
+    await refresh(page);
+    await page.getByRole('heading', { name: 'Picagens · 10/10/2026', exact: true }).waitFor();
+    await exit.waitFor();
+    assert.equal(await entry.count(), 0);
+    await db.eventAssignment.update({ where: { id: f.rows[0].id }, data: { checkIn: null } });
+    await refresh(page);
+    await page.getByRole('heading', { name: 'Picagens · 11/10/2026', exact: true }).waitFor();
+    await entry.waitFor();
+    assert.equal(await exit.count(), 0);
+    assert.equal(f.posts.length, 2, 'Administrative corrections must only refresh the view');
+    await layout(page);
+    await f.context.close();
+    console.log(`Elizabeth midnight regression, real late checkout, double tap, switch delay and administrative reopening passed at ${width}px`);
+  }
   for (const width of [320, 390, 1440]) {
     const f = await setup(width, false, '2026-09-30T17:00:00Z', true, true);
     const { page } = f;

@@ -53,6 +53,201 @@ async function punch(f, action, now, { state, id } = {}) {
 const snapshot = (f) => db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id }, orderBy: { id: 'asc' } });
 const logs = (f) => db.qrCheckLog.findMany({ where: { collaboratorId: f.collaborator.id }, orderBy: { id: 'asc' } });
 
+test('Elizabeth regression: an open 10 October entry remains active after midnight, until its real checkout', async () => {
+  const f = await fixture();
+  await db.collaborator.update({ where: { id: f.collaborator.id }, data: { name: 'Elizabeth Estevão Pungue' } });
+  const first = await f.add('2026-10-10', { plannedCheckIn: '18:00', plannedCheckOut: '23:00',
+    clientCheckIn: '18:00', clientCheckOut: '23:00', validationStatus: 'approved' });
+  const nextEvent = await db.event.create({ data: { name: 'Serviço de 11/10', date: new Date('2026-10-11'), startTime: '08:00', endTime: '14:00' } });
+  const next = await f.add('2026-10-11', { eventId: nextEvent.id, plannedCheckIn: '08:00', plannedCheckOut: '14:00' });
+  const future = await f.add('2026-10-20');
+  await punch(f, 'check_in', at('2026-10-10', '17:34:00'));
+  const before = await snapshot(f);
+  const state = await read(f, at('2026-10-11', '00:30:00'));
+  assert.equal(state.collaboratorName, 'Elizabeth Estevão Pungue');
+  assert.equal(state.activeDay, '2026-10-10');
+  assert.equal(state.active.activeAssignmentId, first.id);
+  assert.equal(state.active.services[0].state.nextAction, 'check_out');
+  assert.deepEqual(state.services.map((row) => row.assignmentId), [first.id, next.id, future.id]);
+  assert.deepEqual(await snapshot(f), before, 'reading must not synthesize an exit');
+  await assert.rejects(punch(f, 'check_in', at('2026-10-11', '00:30:00'), { id: next.id, state }), { code: 'QR_SERVICE_REQUIRED' });
+  const after = await punch(f, 'check_out', at('2026-10-11', '00:30:00'), { state });
+  assert.equal(after.activeDay, '2026-10-11');
+  assert.equal(after.active.activeAssignmentId, next.id);
+  assert.deepEqual(after.services.map((row) => row.assignmentId), [next.id, future.id]);
+  const saved = (await snapshot(f)).find((row) => row.id === first.id);
+  assert.equal(saved.checkIn, '17:34');
+  assert.equal(saved.checkOut, '00:30');
+  assert.equal(saved.clientCheckIn, '18:00');
+  assert.equal(saved.clientCheckOut, '23:00');
+  assert.equal(saved.validationStatus, 'approved');
+  await assert.rejects(punch(f, 'check_out', at('2026-10-11', '00:30:00'), { state }), { code: 'QR_CHANGED' });
+  await assert.rejects(punch(f, 'check_in', at('2026-10-11', '00:30:01')), { code: 'QR_SERVICE_SWITCH' });
+  await punch(f, 'check_in', at('2026-10-11', '00:30:02'));
+  assert.equal((await logs(f)).filter((row) => row.assignmentId === first.id && row.action === 'check_out').length, 1);
+});
+
+test('planned overnight service retains priority after midnight over a confirmed next-day service', async () => {
+  const f = await fixture();
+  const first = await f.add('2026-10-10', { plannedCheckIn: '22:00', plannedCheckOut: '03:00' });
+  const next = await f.add('2026-10-11');
+  await punch(f, 'check_in', at('2026-10-10', '21:50:00'));
+  const state = await read(f, at('2026-10-11', '00:30:00'));
+  assert.equal(state.active.activeAssignmentId, first.id);
+  const after = await punch(f, 'check_out', at('2026-10-11', '03:00:00'), { state });
+  assert.equal(after.active.activeAssignmentId, next.id);
+  assert.equal((await snapshot(f)).find((row) => row.id === first.id).checkOut, '03:00');
+});
+
+test('past open entries remain pending without writes; expired unopened and completed services remain hidden', async () => {
+  const f = await fixture();
+  const open = await f.add('2026-10-10', { checkIn: '17:34', plannedCheckIn: '18:00', plannedCheckOut: '23:00' });
+  await f.add('2026-10-11');
+  await f.add('2026-10-12', { checkIn: '09:00', checkOut: '12:00' });
+  const future = await f.add('2026-10-20');
+  const before = await snapshot(f);
+  for (const day of ['2026-10-11', '2026-10-15', '2026-10-19']) {
+    const state = await read(f, at(day));
+    assert.equal(state.active.activeAssignmentId, open.id);
+    assert.equal(state.services.some((row) => row.assignmentId === open.id), true);
+  }
+  const state = await read(f, at('2026-10-15'));
+  assert.deepEqual(state.services.map((row) => row.assignmentId), [open.id, future.id]);
+  assert.deepEqual(await snapshot(f), before);
+  assert.equal((await logs(f)).length, 0);
+});
+
+test('administrative checkout deletion reopens the previous day; entry deletion removes that priority, ignoring logs', async () => {
+  const f = await fixture();
+  const first = await f.add('2026-10-10', { plannedCheckIn: '18:00', plannedCheckOut: '23:00' });
+  const next = await f.add('2026-10-11');
+  await punch(f, 'check_in', at('2026-10-10', '17:34:00'));
+  await punch(f, 'check_out', at('2026-10-10', '23:10:00'));
+  assert.equal((await read(f, at('2026-10-11', '00:30:00'))).active.activeAssignmentId, next.id);
+  await db.eventAssignment.update({ where: { id: first.id }, data: { checkOut: null } });
+  const reopened = await read(f, at('2026-10-11', '00:30:00'));
+  assert.equal(reopened.active.activeAssignmentId, first.id);
+  assert.equal(reopened.active.services[0].state.nextAction, 'check_out');
+  await db.eventAssignment.update({ where: { id: first.id }, data: { checkIn: null } });
+  const cleared = await read(f, at('2026-10-11', '00:30:00'));
+  assert.equal(cleared.active.activeAssignmentId, next.id);
+  assert.equal(cleared.services.some((row) => row.assignmentId === first.id), false);
+  await assert.rejects(punch(f, 'check_out', at('2026-10-11', '00:30:00'), { state: reopened }), { code: 'QR_CHANGED' });
+  assert.equal((await logs(f)).length, 2);
+});
+
+test('late monthly checkout keeps the entry cooldown across midnight and leaves daily QR expiration unchanged', async () => {
+  const f = await fixture();
+  const first = await f.add('2026-10-10', { plannedCheckIn: '23:00', plannedCheckOut: '23:59' });
+  await punch(f, 'check_in', at('2026-10-10', '23:50:00'));
+  const state = await read(f, at('2026-10-11', '00:00:00'));
+  assert.equal(state.active.services[0].checkOutRetryAfterMs, 20 * 60 * 1000);
+  await assert.rejects(punch(f, 'check_out', at('2026-10-11', '00:19:59'), { state }), { code: 'QR_CHECKOUT_TOO_EARLY' });
+  const { createDailyQrToken } = await import('../utils/qrDailyToken.js');
+  const { readDailyQr, registerDailyQr } = await import('./qrDailyAttendance.js');
+  const { registerPublicQr } = await import('./qrAttendance.js');
+  const daily = createDailyQrToken(f.collaborator.id, '2026-10-10');
+  const now = at('2026-10-11', '00:20:00');
+  await assert.rejects(readDailyQr(db, daily, { now }), { code: 'QR_EXPIRED' });
+  await assert.rejects(registerDailyQr(db, daily, 'check_out', { assignmentId: first.id, revision: state.active.revision }, { now }), { code: 'QR_EXPIRED' });
+  const qr = await ensureAssignmentQr(db, first.id);
+  await assert.rejects(registerPublicQr(db, qr.token, 'check_out', { now }), { code: 'QR_EXPIRED' });
+  const after = await punch(f, 'check_out', now);
+  assert.equal(after.active, null);
+  assert.deepEqual(after.services, []);
+  assert.equal((await logs(f)).length, 2);
+});
+
+test('multiple open service days close in chronological order before any new entry', async () => {
+  const f = await fixture();
+  const first = await f.add('2026-10-09', { checkIn: '18:00', plannedCheckIn: '18:00', plannedCheckOut: '23:00' });
+  const second = await f.add('2026-10-10', { checkIn: '18:00', plannedCheckIn: '18:00', plannedCheckOut: '23:00' });
+  const next = await f.add('2026-10-11');
+  const now = at('2026-10-11', '00:30:00');
+  assert.equal((await read(f, now)).active.activeAssignmentId, first.id);
+  const afterFirst = await punch(f, 'check_out', now);
+  assert.equal(afterFirst.active.activeAssignmentId, second.id);
+  const afterSecond = await punch(f, 'check_out', now);
+  assert.equal(afterSecond.active.activeAssignmentId, next.id);
+  assert.equal((await logs(f)).length, 2);
+  assert.equal((await snapshot(f)).find((row) => row.id === next.id).checkIn, null);
+});
+
+test('concurrent late checkouts commit one exit and cannot enter the next-day service', async () => {
+  const f = await fixture();
+  const first = await f.add('2026-10-10', { plannedCheckIn: '18:00', plannedCheckOut: '23:00' });
+  const next = await f.add('2026-10-11');
+  await punch(f, 'check_in', at('2026-10-10', '17:34:00'));
+  const now = at('2026-10-11', '00:30:00');
+  const state = await read(f, now);
+  const results = await Promise.allSettled([punch(f, 'check_out', now, { state }), punch(f, 'check_out', now, { state })]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(results.find((result) => result.status === 'rejected').reason.code, 'QR_CHANGED');
+  const saved = await snapshot(f);
+  assert.equal(saved.find((row) => row.id === first.id).checkOut, '00:30');
+  assert.equal(saved.find((row) => row.id === next.id).checkIn, null);
+  assert.equal((await logs(f)).length, 2);
+});
+
+test('reopening a past checkout before the write transaction invalidates the next-day entry request', async () => {
+  const f = await fixture();
+  const first = await f.add('2026-10-10', { checkIn: '17:34', checkOut: '23:10', plannedCheckIn: '18:00', plannedCheckOut: '23:00' });
+  const next = await f.add('2026-10-11');
+  const now = at('2026-10-11', '00:30:00');
+  const state = await read(f, now);
+  assert.equal(state.active.activeAssignmentId, next.id);
+  const guardedDb = new Proxy(db, { get(target, key) {
+    if (key === '$transaction') return async (callback, options) => {
+      await db.eventAssignment.update({ where: { id: first.id }, data: { checkOut: null } });
+      return db.$transaction(callback, options);
+    };
+    return Reflect.get(target, key);
+  } });
+  await assert.rejects(registerMonthlyPunchQr(guardedDb, f.token, 'check_in', {
+    assignmentId: next.id, revision: state.active.revision,
+  }, { now }), { code: 'QR_CHANGED' });
+  assert.equal((await snapshot(f)).find((row) => row.id === next.id).checkIn, null);
+  assert.equal((await logs(f)).length, 0);
+  const reopened = await read(f, now);
+  assert.equal(reopened.active.activeAssignmentId, first.id);
+  await punch(f, 'check_out', now, { state: reopened });
+  assert.equal((await snapshot(f)).find((row) => row.id === first.id).checkOut, '00:30');
+});
+
+test('late-checkout permission never overrides cancellation, revocation, confirmation, ownership or month validity', async () => {
+  for (const invalidate of [
+    (f, row) => db.eventAssignment.update({ where: { id: row.id }, data: { status: 'cancelled' } }),
+    (f, row) => db.eventAssignment.update({ where: { id: row.id }, data: { status: 'assigned' } }),
+    (f) => db.event.update({ where: { id: f.event.id }, data: { status: 'cancelled' } }),
+    async (_f, row) => {
+      const qr = await ensureAssignmentQr(db, row.id);
+      await db.qrCheckCode.update({ where: { id: qr.id }, data: { revokedAt: at('2026-10-11') } });
+    },
+  ]) {
+    const f = await fixture();
+    const row = await f.add('2026-10-10', { checkIn: '17:34', plannedCheckIn: '18:00', plannedCheckOut: '23:00' });
+    const state = await read(f, at('2026-10-11', '00:30:00'));
+    await invalidate(f, row);
+    await assert.rejects(punch(f, 'check_out', at('2026-10-11', '00:30:00'), { state }), { code: 'QR_MONTH_EMPTY' });
+    assert.equal((await snapshot(f)).find((item) => item.id === row.id).checkOut, null);
+    assert.equal((await logs(f)).length, 0);
+  }
+  const f = await fixture();
+  const open = await f.add('2026-10-10', { checkIn: '17:34', plannedCheckIn: '18:00', plannedCheckOut: '23:00' });
+  const other = await fixture();
+  await other.add('2026-10-11');
+  await assert.rejects(punch(other, 'check_out', at('2026-10-11'), { id: open.id }), { code: 'QR_SERVICE_REQUIRED' });
+  for (const day of ['2026-11-01', '2026-11-02']) {
+    await assert.rejects(read(f, at(day)), { code: 'QR_EXPIRED' });
+    await assert.rejects(punch(f, 'check_out', at(day)), { code: 'QR_EXPIRED' });
+  }
+  const nextMonth = { ...f, token: createMonthlyPunchToken(f.collaborator.id, at('2026-11-01')) };
+  await f.add('2026-11-01');
+  assert.equal((await read(nextMonth, at('2026-11-01'))).services.some((row) => row.assignmentId === open.id), false);
+  assert.equal((await snapshot(f)).find((row) => row.id === open.id).checkOut, null);
+  assert.equal((await logs(f)).length, 0);
+});
+
 test('newly confirmed services appear in the same issued link and cancellations disappear without copying records', async () => {
   const f = await fixture();
   const existing = await f.add('2026-10-16');
@@ -369,6 +564,26 @@ test('new monthly HTTP links integrate with Communication while daily URLs remai
     assert.equal((await fetch(url)).status, 410);
     assert.deepEqual(await snapshot(f), before);
     assert.equal((await logs(f)).length, 2);
+    const midnight = await fixture();
+    const midnightRow = await midnight.add('2026-10-10', { plannedCheckIn: '18:00', plannedCheckOut: '23:00' });
+    const midnightNext = await midnight.add('2026-10-11');
+    const midnightUrl = `${base}/api/qr-check/month/${midnight.token}`;
+    t.mock.timers.setTime(at('2026-10-10', '17:34:00').getTime());
+    const midnightInitial = await (await fetch(midnightUrl)).json();
+    const sendMidnight = (action, state) => fetch(`${midnightUrl}/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignmentId: midnightRow.id, revision: state.active?.revision }),
+    });
+    assert.equal((await sendMidnight('check-in', midnightInitial)).status, 200);
+    t.mock.timers.setTime(at('2026-10-11', '00:30:00').getTime());
+    const midnightState = await (await fetch(midnightUrl)).json();
+    assert.equal(midnightState.activeDay, '2026-10-10');
+    assert.equal(midnightState.active.services[0].state.nextAction, 'check_out');
+    const midnightExit = await sendMidnight('check-out', midnightState);
+    assert.equal(midnightExit.status, 200);
+    assert.equal((await midnightExit.json()).active.activeAssignmentId, midnightNext.id);
+    assert.equal((await sendMidnight('check-out', midnightState)).status, 409);
+    assert.equal((await logs(midnight)).length, 2);
     const closing = await fixture();
     const closingRow = await closing.add('2026-10-31', { plannedCheckIn: '18:00', plannedCheckOut: '04:00' });
     const nextMonthRow = await closing.add('2026-11-01');

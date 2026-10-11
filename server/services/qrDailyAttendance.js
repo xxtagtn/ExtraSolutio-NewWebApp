@@ -33,7 +33,7 @@ function overlaps(a, b) {
   return !first || !second || (first.startsAt < second.endsAt && second.startsAt < first.endsAt);
 }
 
-async function dailyState(db, token, now, { preview = false, rowFilter } = {}) {
+async function dailyState(db, token, now, { preview = false, rowFilter, allowExpiredCheckout } = {}) {
   const identity = readDailyQrToken(token);
   if (!identity) throw publicQrError(404, 'Link diário inválido.', 'QR_INVALID');
   const date = new Date(`${identity.day}T00:00:00Z`);
@@ -69,10 +69,11 @@ async function dailyState(db, token, now, { preview = false, rowFilter } = {}) {
       : 'As picagens só estão disponíveis no dia do serviço.', 'QR_NOT_ACTIVE');
   }
   const expiresAt = Math.max(...windows.map((window) => window.expiresAt.getTime()));
-  if (now.getTime() > expiresAt) {
+  const extended = rows.map((row) => Boolean(row.checkIn && !row.checkOut && allowExpiredCheckout?.(row)));
+  if (now.getTime() > expiresAt && !extended.some(Boolean)) {
     throw publicQrError(410, 'Este link diário está expirado.', 'QR_EXPIRED');
   }
-  const available = rows.filter((row, index) => now <= windows[index].expiresAt && !(row.checkIn && row.checkOut));
+  const available = rows.filter((row, index) => (now <= windows[index].expiresAt || extended[index]) && !(row.checkIn && row.checkOut));
   const opened = available.filter((row) => row.checkIn && !row.checkOut);
   const candidates = opened.length ? opened : available.filter((row) => row === available[0] || overlaps(available[0], row));
   const revision = createHash('sha256').update(JSON.stringify(rows.map((row) => [row.id, row.updatedAt, row.checkIn, row.checkOut, row.status, row.event.updatedAt, row.qrCheckCode?.token]))).digest('hex');
@@ -82,11 +83,11 @@ async function dailyState(db, token, now, { preview = false, rowFilter } = {}) {
     const exit = row.qrCheckLogs.find((log) => log.action === 'check_out' && formatServerTime(log.recordedAt) === row.checkOut);
     if (exit) switchAvailableAt = Math.max(switchAvailableAt, exit.recordedAt.getTime() + QR_SERVICE_SWITCH_DELAY_MS);
   }
-  return { identity, rows, candidates, revision, switchAvailableAt, windows, punchStartsAt, consultation };
+  return { identity, rows, candidates, revision, switchAvailableAt, windows, punchStartsAt, consultation, extended };
 }
 
 function payload(state, now) {
-  const { rows, candidates, identity, revision, switchAvailableAt, windows, punchStartsAt, consultation } = state;
+  const { rows, candidates, identity, revision, switchAvailableAt, windows, punchStartsAt, consultation, extended } = state;
   return {
     scope: 'day', assignmentDate: identity.day,
     timeZone: consultation[0].timeZone,
@@ -114,14 +115,14 @@ function payload(state, now) {
       ...publicQrValidation(row),
       readOnly: consultation[index].readOnly,
       state: qrCodeStateForAssignment(row),
-      expired: now > windows[index].expiresAt,
+      expired: now > windows[index].expiresAt && !extended[index],
       ...qrCheckoutProtection(qrFor(row), now),
     })),
   };
 }
 
-export async function readDailyQr(db, token, { now = new Date(), rowFilter } = {}) {
-  return payload(await dailyState(db, token, now, { preview: true, rowFilter }), now);
+export async function readDailyQr(db, token, { now = new Date(), rowFilter, allowExpiredCheckout } = {}) {
+  return payload(await dailyState(db, token, now, { preview: true, rowFilter, allowExpiredCheckout }), now);
 }
 
 export function publicDailyPunchPayload(state) {
@@ -140,12 +141,13 @@ export function publicDailyPunchPayload(state) {
     punchRetryAfterMs: state.punchRetryAfterMs, switchRetryAfterMs: state.switchRetryAfterMs, services };
 }
 
-export async function registerDailyQr(db, token, action, request = {}, { now = new Date(), audit = {}, rowFilter, authorize } = {}) {
+export async function registerDailyQr(db, token, action, request = {}, { now = new Date(), audit = {}, rowFilter, authorize, allowExpiredCheckout, readAfterWrite = true } = {}) {
   await registerPublicQr(db, token, action, {
     now, audit, serializable: true,
+    allowExpiredCheckout: allowExpiredCheckout ? (qr) => allowExpiredCheckout(qr.assignment) : undefined,
     resolveQr: async (tx) => {
       if (authorize) await authorize(tx);
-      const state = await dailyState(tx, token, now, { rowFilter });
+      const state = await dailyState(tx, token, now, { rowFilter, allowExpiredCheckout });
       if (!request?.revision || request.revision !== state.revision) {
         throw publicQrError(409, 'Os serviços foram atualizados. Confirma o serviço e tenta novamente.', 'QR_CHANGED');
       }
@@ -162,5 +164,5 @@ export async function registerDailyQr(db, token, action, request = {}, { now = n
       return qrFor(row);
     },
   });
-  return readDailyQr(db, token, { now, rowFilter });
+  return readAfterWrite ? readDailyQr(db, token, { now, rowFilter, allowExpiredCheckout }) : null;
 }

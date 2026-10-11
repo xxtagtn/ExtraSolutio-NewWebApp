@@ -80,17 +80,20 @@ export async function readPublicQrForConsultation(client, token, { now = new Dat
   return { qrCode, access };
 }
 
-export async function registerPublicQr(prisma, token, action, { now = new Date(), audit = {}, resolveQr, serializable = false } = {}) {
+export async function registerPublicQr(prisma, token, action, { now = new Date(), audit = {}, resolveQr, serializable = false, allowExpiredCheckout } = {}) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
         const qrCode = resolveQr ? await resolveQr(tx) : await readPublicQr(tx, token, { now });
         const assignment = qrCode.assignment;
-        // Consultation must never authorize a write, including through a custom resolver.
+        // Only an explicitly authorized monthly open checkout may outlive the daily window.
         try {
           validateQrUsage({ event: qrCode.event || assignment?.event, assignment, now });
         } catch (error) {
-          throw publicQrError(error.status || 400, error.message, error.code || 'QR_INVALID');
+          if (!(error.code === 'QR_EXPIRED' && action === QR_CHECK_ACTIONS.checkOut
+            && assignment?.checkIn && !assignment.checkOut && allowExpiredCheckout?.(qrCode))) {
+            throw publicQrError(error.status || 400, error.message, error.code || 'QR_INVALID');
+          }
         }
         const serverTime = formatServerTime(now);
         const data = {};

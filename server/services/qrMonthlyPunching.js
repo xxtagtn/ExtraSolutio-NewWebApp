@@ -5,7 +5,7 @@ import { publicQrPlannedSchedule } from '../utils/qrConsultation.js';
 import { formatServerTime, qrUsageWindow } from '../utils/qrCheckins.js';
 import { communicationQrWindow } from '../utils/communicationQrWindow.js';
 import { monthlyQrEligible, monthlyQrRows } from './qrMonthlyAttendance.js';
-import { publicDailyPunchPayload, readDailyQr, registerDailyQr } from './qrDailyAttendance.js';
+import { publicDailyPunchPayload, QR_SERVICE_SWITCH_DELAY_MS, readDailyQr, registerDailyQr } from './qrDailyAttendance.js';
 import { publicQrError } from './qrAttendance.js';
 
 function identity(token, now) {
@@ -45,8 +45,16 @@ async function closingRows(db, collaboratorId, cycle, now) {
     cycle: { ...cycle, historyFrom: lastMonthDay(cycle) } })).filter((row) => closingShift(row, cycle, now));
 }
 
-function pending(row, now) {
-  return !(row.checkIn && row.checkOut) && now <= qrUsageWindow({ assignment: row, event: row.event }).expiresAt;
+function openMonthlyCheckout(row, cycle, now) {
+  const day = eventDayKey(row.assignmentDate || row.event.date);
+  return monthlyQrEligible(row) && Boolean(row.checkIn && !row.checkOut)
+    && day >= cycle.historyFrom && day < cycle.servicesUntil && now <= cycle.expiresAt
+    && now >= qrUsageWindow({ assignment: row, event: row.event }).startsAt;
+}
+
+function pending(row, now, cycle) {
+  return !(row.checkIn && row.checkOut) && (now <= qrUsageWindow({ assignment: row, event: row.event }).expiresAt
+    || (cycle && openMonthlyCheckout(row, cycle, now)));
 }
 
 function servicePayload(row) {
@@ -62,7 +70,7 @@ function servicePayload(row) {
 
 export async function readMonthlyPunchQr(db, token, { now = new Date() } = {}) {
   const { collaboratorId, cycle, expired } = identity(token, now);
-  const rows = expired ? await closingRows(db, collaboratorId, cycle, now) : await monthlyQrRows(db, { collaboratorId, now, cycle });
+  const rows = expired ? await closingRows(db, collaboratorId, cycle, now) : await monthlyQrRows(db, { collaboratorId, now, cycle, includeExitLogs: true });
   if (expired && !rows.length) throw expiredLink();
   let overnight = [];
   // The new month's link may finish an open overnight shift, within its original window.
@@ -75,12 +83,22 @@ export async function readMonthlyPunchQr(db, token, { now = new Date() } = {}) {
   }
   const all = [...overnight, ...rows];
   if (!all.length) throw publicQrError(410, 'Não existem serviços confirmados disponíveis neste mês.', 'QR_MONTH_EMPTY');
-  const remaining = all.filter((row) => pending(row, now));
+  const remaining = all.filter((row) => pending(row, now, expired ? undefined : cycle));
   const available = remaining.filter((row) => now >= qrUsageWindow({ assignment: row, event: row.event }).startsAt);
   const current = available.find((row) => row.checkIn && !row.checkOut) || available[0];
   const activeDay = current ? eventDayKey(current.assignmentDate || current.event.date) : null;
   const active = activeDay ? publicDailyPunchPayload(await readDailyQr(db, createDailyQrToken(collaboratorId, activeDay),
-    { now, rowFilter: expired ? (row) => closingShift(row, cycle, now, false) : monthlyQrEligible })) : null;
+    { now, rowFilter: expired ? (row) => closingShift(row, cycle, now, false) : monthlyQrEligible,
+      allowExpiredCheckout: expired ? undefined : (row) => openMonthlyCheckout(row, cycle, now) })) : null;
+  // Preserve the existing switch delay when checkout advances to a different service day.
+  if (active) {
+    for (const row of all) {
+      if (!row.checkOut) continue;
+      const exit = row.qrCheckLogs?.find((log) => log.action === 'check_out' && formatServerTime(log.recordedAt, cycle.timeZone) === row.checkOut);
+      if (exit) active.switchRetryAfterMs = Math.max(active.switchRetryAfterMs,
+        exit.recordedAt.getTime() + QR_SERVICE_SWITCH_DELAY_MS - now.getTime());
+    }
+  }
   return {
     scope: 'month', collaboratorName: all[0].collaborator.shortName || all[0].collaborator.name,
     timeZone: cycle.timeZone, monthFrom: cycle.historyFrom, expiresAt: cycle.expiresAt.toISOString(),
@@ -96,10 +114,20 @@ export async function registerMonthlyPunchQr(db, token, action, request = {}, { 
   if (!current.activeDay) throw publicQrError(409, 'Não existem serviços disponíveis para picar neste momento.', 'QR_NOT_ACTIVE');
   await registerDailyQr(db, createDailyQrToken(collaboratorId, current.activeDay), action, request, {
     now, audit, rowFilter: expired ? (row) => closingShift(row, cycle, now, false) : monthlyQrEligible,
+    allowExpiredCheckout: expired ? undefined : (row) => openMonthlyCheckout(row, cycle, now),
+    // The monthly response selects the next day; the closed daily link may now be expired.
+    readAfterWrite: false,
     authorize: async (tx) => {
       identity(token, now);
       if (expired && !(await closingRows(tx, collaboratorId, cycle, now)).some((row) => row.id === Number(request.assignmentId))) {
         throw expiredLink();
+      }
+      const fresh = await readMonthlyPunchQr(tx, token, { now });
+      if (fresh.activeDay !== current.activeDay) {
+        throw publicQrError(409, 'Os serviços foram atualizados. Confirma o serviço e tenta novamente.', 'QR_CHANGED');
+      }
+      if (action === 'check_in' && fresh.active?.switchRetryAfterMs > 0) {
+        throw publicQrError(409, 'Saída registada. Aguarda um momento antes de entrar no próximo serviço.', 'QR_SERVICE_SWITCH');
       }
     },
   });
