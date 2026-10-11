@@ -1949,7 +1949,7 @@ export default function TimeValidation() {
                   <tr>
                     <th className="validation-collaborator-cell">Colaborador</th>
                     <th className="validation-event-cell">Evento</th>
-                    {showPlannedColumn ? <th>Previsto</th> : null}
+                    {showPlannedColumn ? <th className="validation-planned-cell">Previsto</th> : null}
                     <th className="validation-staff-cell">Staff</th>
                     {showClientColumn ? <th className="validation-client-cell">Cliente</th> : null}
                     {showDifferenceColumn ? <th className="validation-difference-cell">Diferença</th> : null}
@@ -1998,7 +1998,8 @@ export default function TimeValidation() {
                               ) : null}
                             </td>
                             {showPlannedColumn ? (
-                              <td>
+                              <td className="validation-planned-cell">
+                                <span className="validation-mobile-label">Previsto</span>
                                 <div className="validation-time-stack">
                                   <div className="validation-time-plain-field">
                                     <em>{row.plannedCheckIn || '--:--'}</em>
@@ -2013,23 +2014,30 @@ export default function TimeValidation() {
                               </td>
                             ) : null}
                             <td className="validation-staff-cell">
+                              <span className="validation-mobile-label">Picagens Staff</span>
                               <div className="validation-time-stack">
-                                <TimeInput
-                                  aria-label="Entrada Staff"
-                                  className="validation-time-input"
-                                  placeholder="--:--"
-                                  value={row.assignment.checkIn || ''}
-                                  onChange={(value) => updateDraft(row, { checkIn: value })}
-                                />
+                                <label className="validation-time-field">
+                                  <span className="validation-mobile-label">Entrada</span>
+                                  <TimeInput
+                                    aria-label="Entrada Staff"
+                                    className="validation-time-input"
+                                    placeholder="--:--"
+                                    value={row.assignment.checkIn || ''}
+                                    onChange={(value) => updateDraft(row, { checkIn: value })}
+                                  />
+                                </label>
                                 <ArrowDown size={14} className="validation-time-arrow" aria-hidden="true" />
-                                <TimeInput
-                                  aria-label="Saída Staff"
-                                  className="validation-time-input"
-                                  placeholder="--:--"
-                                  value={row.assignment.checkOut || ''}
-                                  onChange={(value) => updateDraft(row, { checkOut: value })}
-                                />
-                                <small>Total: {durationHours(staffColumnHours(row.assignment))}</small>
+                                <label className="validation-time-field">
+                                  <span className="validation-mobile-label">Saída</span>
+                                  <TimeInput
+                                    aria-label="Saída Staff"
+                                    className="validation-time-input"
+                                    placeholder="--:--"
+                                    value={row.assignment.checkOut || ''}
+                                    onChange={(value) => updateDraft(row, { checkOut: value })}
+                                  />
+                                </label>
+                                <small className="validation-time-total">Total: {durationHours(staffColumnHours(row.assignment))}</small>
                                 <StaffTravelSummary assignment={row.assignment} event={row.event} compact="inline" />
                                 {stage === TIME_VALIDATION_STAGE.staffPending ? (
                                   <button className="validation-copy-button" type="button" onClick={() => copyPlannedToStaff(row)}>
@@ -2041,37 +2049,44 @@ export default function TimeValidation() {
                             </td>
                             {showClientColumn ? (
                               <td className="validation-client-cell">
+                                <span className="validation-mobile-label">Horário Cliente</span>
                                 <div className="validation-time-stack">
-                                  <TimeInput
-                                    aria-label="Entrada Cliente"
-                                    className="validation-time-input"
-                                    placeholder="--:--"
-                                    data-validation-client-row={row.id}
-                                    value={row.assignment.clientCheckIn || ''}
-                                    onBlur={(value, event) => handleClientTimeBlur(
-                                      row,
-                                      'clientCheckIn',
-                                      value,
-                                      event.relatedTarget,
-                                    )}
-                                    onChange={(value) => updateDraft(row, { clientCheckIn: value })}
-                                  />
+                                  <label className="validation-time-field">
+                                    <span className="validation-mobile-label">Entrada</span>
+                                    <TimeInput
+                                      aria-label="Entrada Cliente"
+                                      className="validation-time-input"
+                                      placeholder="--:--"
+                                      data-validation-client-row={row.id}
+                                      value={row.assignment.clientCheckIn || ''}
+                                      onBlur={(value, event) => handleClientTimeBlur(
+                                        row,
+                                        'clientCheckIn',
+                                        value,
+                                        event.relatedTarget,
+                                      )}
+                                      onChange={(value) => updateDraft(row, { clientCheckIn: value })}
+                                    />
+                                  </label>
                                   <ArrowDown size={14} className="validation-time-arrow" aria-hidden="true" />
-                                  <TimeInput
-                                    aria-label="Saída Cliente"
-                                    className="validation-time-input"
-                                    placeholder="--:--"
-                                    data-validation-client-row={row.id}
-                                    value={row.assignment.clientCheckOut || ''}
-                                    onBlur={(value, event) => handleClientTimeBlur(
-                                      row,
-                                      'clientCheckOut',
-                                      value,
-                                      event.relatedTarget,
-                                    )}
-                                    onChange={(value) => updateDraft(row, { clientCheckOut: value })}
-                                  />
-                                  <small>Total: {durationHours(clientColumnHours(row.assignment))}</small>
+                                  <label className="validation-time-field">
+                                    <span className="validation-mobile-label">Saída</span>
+                                    <TimeInput
+                                      aria-label="Saída Cliente"
+                                      className="validation-time-input"
+                                      placeholder="--:--"
+                                      data-validation-client-row={row.id}
+                                      value={row.assignment.clientCheckOut || ''}
+                                      onBlur={(value, event) => handleClientTimeBlur(
+                                        row,
+                                        'clientCheckOut',
+                                        value,
+                                        event.relatedTarget,
+                                      )}
+                                      onChange={(value) => updateDraft(row, { clientCheckOut: value })}
+                                    />
+                                  </label>
+                                  <small className="validation-time-total">Total: {durationHours(clientColumnHours(row.assignment))}</small>
                                   <button className="validation-copy-button" type="button" onClick={() => copyStaffToClient(row)}>
                                     <Copy size={12} />
                                     Staff
@@ -2084,14 +2099,16 @@ export default function TimeValidation() {
                                 <ValidationDifferenceBadge row={row} />
                               </td>
                             ) : null}
-                            <td>
+                            <td className="validation-notes-cell">
+                              <span className="validation-mobile-label">Notas</span>
                               <input
                                 className="validation-note-input"
+                                aria-label="Notas de validação"
                                 value={row.assignment.validationNotes || ''}
                                 onChange={(event) => updateDraft(row, { validationNotes: event.target.value })}
                               />
                             </td>
-                            <td>
+                            <td className="validation-actions-cell">
                               <div className="validation-row-actions">
                                 {row.validationState.isValidated ? (
                                   <button className="icon-button" type="button" title="Reabrir validação" aria-label="Reabrir validação" onClick={() => reopenRowValidation(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
@@ -2103,7 +2120,7 @@ export default function TimeValidation() {
                                     Aceitar
                                   </button>
                                 )}
-                                <button className="icon-button" type="button" title="Guardar validação" onClick={() => saveRow(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
+                                <button className="icon-button" type="button" title="Guardar validação" aria-label="Guardar validação" onClick={() => saveRow(row)} disabled={savingId === row.id || bulkValidatingEventId !== null}>
                                   <Save size={16} />
                                 </button>
                               </div>

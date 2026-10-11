@@ -9726,6 +9726,14 @@ th {
   justify-items: start;
 }
 
+.validation-mobile-label {
+  display: none;
+}
+
+.validation-time-field {
+  display: contents;
+}
+
 .validation-time-input {
   width: 86px;
   min-height: 32px;
@@ -13113,13 +13121,13 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     border-radius: 10px;
   }
 
-  .validation-table .validation-row {
+  .validation-main-panel .validation-table .validation-row {
     display: grid;
     gap: 10px;
     margin-bottom: 12px;
     padding: 12px;
     border: 1px solid rgba(148, 163, 184, 0.2);
-    border-radius: 12px;
+    border-radius: 8px;
     background: rgba(10, 16, 19, 0.84);
   }
 
@@ -13268,6 +13276,151 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   .validation-row-actions > * {
     flex: 1 1 auto;
     justify-content: center;
+  }
+
+  .validation-main-panel .validation-table {
+    min-width: 0;
+  }
+
+  .validation-table .validation-row > td {
+    min-width: 0;
+    max-width: none;
+  }
+
+  .validation-table .validation-collaborator-heading {
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .validation-table .validation-collaborator-heading > strong {
+    flex: 1 1 140px;
+    min-width: 0;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .validation-table .validation-event-cell > strong,
+  .validation-table .validation-event-cell > small {
+    overflow-wrap: anywhere;
+  }
+
+  .validation-table .validation-mobile-label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+
+  .validation-table .validation-row > .validation-planned-cell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .validation-table .validation-planned-cell > .validation-mobile-label {
+    margin: 0;
+  }
+
+  .validation-table .validation-planned-cell .validation-time-stack {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+  }
+
+  .validation-table .validation-time-spacer,
+  .validation-table .validation-time-arrow,
+  .validation-table .validation-time-plain-field:last-child svg {
+    display: none;
+  }
+
+  .validation-table .validation-time-plain-field {
+    gap: 8px;
+    width: auto;
+    min-height: 20px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .validation-table .validation-staff-cell .validation-time-stack,
+  .validation-table .validation-client-cell .validation-time-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 8px 12px;
+  }
+
+  .validation-table .validation-time-field {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .validation-table .validation-time-field .validation-mobile-label {
+    margin-bottom: 4px;
+    font-size: 0.68rem;
+  }
+
+  .validation-table .validation-time-input {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    font-size: 1rem;
+  }
+
+  .validation-table .validation-time-total {
+    align-self: center;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .validation-table .validation-time-stack > .staff-travel-summary {
+    grid-column: 1;
+  }
+
+  .validation-table .validation-copy-button {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+    justify-self: end;
+    align-self: start;
+    min-height: 30px;
+    padding: 0 8px;
+  }
+
+  .validation-table .validation-row > .validation-client-cell {
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  .validation-table .validation-note-input {
+    min-height: 40px;
+    font-size: 1rem;
+  }
+
+  .validation-table .validation-row-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .validation-table .validation-row-actions > button {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+  }
+
+  .validation-table .validation-row-action:not(:disabled) {
+    border-color: rgba(20, 184, 166, 0.35);
+    background: rgba(20, 184, 166, 0.12);
+    color: var(--text);
   }
 
   .validation-table-summary {
