@@ -7580,6 +7580,87 @@ th {
   color: #86efac;
 }
 
+.qr-check-checkout-reminder {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 36px;
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(20, 184, 166, 0.1);
+  color: var(--text);
+}
+
+.qr-check-checkout-reminder > svg {
+  margin-top: 5px;
+  color: var(--accent);
+}
+
+.qr-check-checkout-reminder p {
+  margin: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.qr-check-checkout-reminder strong {
+  display: block;
+}
+
+.qr-check-checkout-reminder button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.qr-check-checkout-summary {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.qr-check-checkout-summary h2 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.qr-check-checkout-summary p {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.qr-check-checkout-summary .qr-check-checkout-planned {
+  margin-top: 10px;
+}
+
+.qr-check-checkout-times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0 0;
+}
+
+.qr-check-checkout-times dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.qr-check-checkout-times dd {
+  margin: 4px 0 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .qr-check-empty h1,
 .qr-check-empty p {
   margin: 0;

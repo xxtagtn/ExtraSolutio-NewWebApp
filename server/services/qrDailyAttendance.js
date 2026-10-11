@@ -7,7 +7,7 @@ import { readDailyQrToken } from '../utils/qrDailyToken.js';
 import { formatServerTime, qrCodeStateForAssignment, qrUsageWindow } from '../utils/qrCheckins.js';
 import { publicQrPlannedSchedule, publicQrValidation, qrConsultationAccess } from '../utils/qrConsultation.js';
 import { ensureAssignmentQr } from './qrCodeGeneration.js';
-import { publicQrError, qrCheckoutProtection, registerPublicQr } from './qrAttendance.js';
+import { publicQrCheckoutReceipt, publicQrError, qrCheckoutProtection, registerPublicQr } from './qrAttendance.js';
 
 export const QR_SERVICE_SWITCH_DELAY_MS = 2000;
 const excludedStatuses = new Set(['cancelled', 'canceled', 'removed', 'missed_justified', 'missed_unjustified']);
@@ -138,11 +138,12 @@ export function publicDailyPunchPayload(state) {
     completed: state.completed, completedCount: state.completedCount, total: state.total, revision: state.revision,
     selectionRequired: candidateIds.length > 1, activeAssignmentId: candidateIds.length === 1 ? candidateIds[0] : null,
     candidateIds, punchAvailableAt: state.punchAvailableAt, punchAvailableTime: state.punchAvailableTime,
-    punchRetryAfterMs: state.punchRetryAfterMs, switchRetryAfterMs: state.switchRetryAfterMs, services };
+    punchRetryAfterMs: state.punchRetryAfterMs, switchRetryAfterMs: state.switchRetryAfterMs, services,
+    ...(state.checkoutReceipt ? { checkoutReceipt: state.checkoutReceipt } : {}) };
 }
 
 export async function registerDailyQr(db, token, action, request = {}, { now = new Date(), audit = {}, rowFilter, authorize, allowExpiredCheckout, readAfterWrite = true } = {}) {
-  await registerPublicQr(db, token, action, {
+  const updated = await registerPublicQr(db, token, action, {
     now, audit, serializable: true,
     allowExpiredCheckout: allowExpiredCheckout ? (qr) => allowExpiredCheckout(qr.assignment) : undefined,
     resolveQr: async (tx) => {
@@ -164,5 +165,7 @@ export async function registerDailyQr(db, token, action, request = {}, { now = n
       return qrFor(row);
     },
   });
-  return readAfterWrite ? readDailyQr(db, token, { now, rowFilter, allowExpiredCheckout }) : null;
+  const receipt = action === 'check_out' ? publicQrCheckoutReceipt(updated) : null;
+  const state = readAfterWrite ? await readDailyQr(db, token, { now, rowFilter, allowExpiredCheckout }) : null;
+  return receipt ? { ...state, checkoutReceipt: receipt } : state;
 }

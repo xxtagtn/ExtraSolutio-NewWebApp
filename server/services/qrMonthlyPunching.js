@@ -112,7 +112,7 @@ export async function registerMonthlyPunchQr(db, token, action, request = {}, { 
   if (expired && action !== 'check_out') throw expiredLink();
   const current = await readMonthlyPunchQr(db, token, { now });
   if (!current.activeDay) throw publicQrError(409, 'Não existem serviços disponíveis para picar neste momento.', 'QR_NOT_ACTIVE');
-  await registerDailyQr(db, createDailyQrToken(collaboratorId, current.activeDay), action, request, {
+  const registered = await registerDailyQr(db, createDailyQrToken(collaboratorId, current.activeDay), action, request, {
     now, audit, rowFilter: expired ? (row) => closingShift(row, cycle, now, false) : monthlyQrEligible,
     allowExpiredCheckout: expired ? undefined : (row) => openMonthlyCheckout(row, cycle, now),
     // The monthly response selects the next day; the closed daily link may now be expired.
@@ -131,14 +131,13 @@ export async function registerMonthlyPunchQr(db, token, action, request = {}, { 
       }
     },
   });
-  if (expired) {
-    try {
-      return await readMonthlyPunchQr(db, token, { now });
-    } catch (error) {
-      if (error.code !== 'QR_EXPIRED') throw error;
-      // A successful checkout must not be reported as a failed POST when it closes the link.
-      return { ...current, activeDay: null, active: null, services: [], closed: true };
-    }
+  let next;
+  try {
+    next = await readMonthlyPunchQr(db, token, { now });
+  } catch (error) {
+    if (!expired || error.code !== 'QR_EXPIRED') throw error;
+    // A successful checkout must not be reported as a failed POST when it closes the link.
+    next = { ...current, activeDay: null, active: null, services: [], closed: true };
   }
-  return readMonthlyPunchQr(db, token, { now });
+  return registered?.checkoutReceipt ? { ...next, checkoutReceipt: registered.checkoutReceipt } : next;
 }

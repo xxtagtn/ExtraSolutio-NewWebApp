@@ -147,6 +147,14 @@ try {
     const saved = await db.eventAssignment.findUnique({ where: { id: f.rows[0].id } });
     assert.equal(saved.checkIn, '17:34');
     assert.equal(saved.checkOut, '00:30');
+    const receipt = page.getByRole('region', { name: 'Servi\u00e7o acabado de concluir' });
+    await receipt.waitFor();
+    assert.match(await receipt.innerText(), /Restaurante de Teste[\s\S]*10\/10\/2026/);
+    assert.deepEqual(await receipt.locator('dd').allTextContents(), ['17:34', '00:30']);
+    await layout(page);
+    await page.screenshot({ path: `${output}/checkout-confirmation-${width}.png`, fullPage: true });
+    await page.getByRole('button', { name: 'Fechar aviso de sa\u00edda' }).click();
+    assert.equal(await receipt.count(), 0);
     f.setTime('00:30:02', '2026-10-11');
     await page.clock.runFor(2100);
     await page.waitForFunction(() => !document.querySelector('.qr-check-command')?.disabled);

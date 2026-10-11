@@ -1,9 +1,10 @@
-import { CheckCircle2, Clock3, LogIn, LogOut, ShieldAlert } from 'lucide-react';
+import { Camera, CheckCircle2, Clock3, LogIn, LogOut, ShieldAlert, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { API_URL } from '../utils/api.js';
 import DailyQrServices from '../components/Communication/DailyQrServices.jsx';
 import MonthlyQrServices from '../components/Communication/MonthlyQrServices.jsx';
+import { qrSummaryDate } from '../utils/qrConsultationSummary.js';
 
 async function publicQrApi(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -52,6 +53,7 @@ function QrCheckPage({ token, daily, monthly }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
+  const [checkoutReceipt, setCheckoutReceipt] = useState(null);
   const pending = useRef(false);
   const revision = useRef(0);
   const endpoint = `/qr-check/${monthly ? 'month/' : daily ? 'day/' : ''}${encodeURIComponent(token)}`;
@@ -108,13 +110,17 @@ function QrCheckPage({ token, daily, monthly }) {
     setSaving(true);
     setError('');
     setActionError('');
+    setCheckoutReceipt(null);
     let refreshNeeded = false;
     try {
       const next = await publicQrApi(`${endpoint}/${action}`, {
         method: 'POST',
         ...(daily || monthly ? { body: JSON.stringify({ assignmentId, revision: monthly ? payload.active?.revision : payload.revision }) } : {}),
       });
-      if (request === revision.current) setPayload(next);
+      if (request === revision.current) {
+        setPayload(next);
+        if (action === 'check-out') setCheckoutReceipt(next.checkoutReceipt || null);
+      }
     } catch (err) {
       if (request === revision.current) {
         setActionError(err.message || 'Não foi possível registar a hora.');
@@ -136,6 +142,24 @@ function QrCheckPage({ token, daily, monthly }) {
         <div className="qr-check-logo">
           <img src="/logo.png" alt="ExtraSolutio" />
         </div>
+        {checkoutReceipt && <div className="qr-check-checkout-reminder" role="status">
+          <Camera size={22} aria-hidden="true" />
+          <p><strong>Saída registada.</strong> Aponta o teu horário, ou tira print, este serviço será desativado de consulta muito em breve</p>
+          <button type="button" onClick={() => setCheckoutReceipt(null)}
+            aria-label="Fechar aviso de saída" title="Fechar aviso"><X size={18} /></button>
+          <section className="qr-check-checkout-summary" aria-label="Serviço acabado de concluir">
+            <h2>{checkoutReceipt.eventName}</h2>
+            <p>{checkoutReceipt.collaboratorName}</p>
+            <p>{qrSummaryDate(checkoutReceipt.assignmentDate)}{checkoutReceipt.role && ` · ${checkoutReceipt.role}`}</p>
+            {checkoutReceipt.clientName && <p>{checkoutReceipt.clientName}</p>}
+            {checkoutReceipt.location && <p>{checkoutReceipt.location}</p>}
+            <p className="qr-check-checkout-planned">Horário previsto: {checkoutReceipt.plannedCheckIn || '--:--'} → {checkoutReceipt.plannedCheckOut || '--:--'}</p>
+            <dl className="qr-check-checkout-times">
+              <div><dt>Entrada registada</dt><dd>{checkoutReceipt.checkIn}</dd></div>
+              <div><dt>Saída registada</dt><dd>{checkoutReceipt.checkOut}</dd></div>
+            </dl>
+          </section>
+        </div>}
         {loading ? (
           <div className="qr-check-empty">
             <Clock3 size={28} />

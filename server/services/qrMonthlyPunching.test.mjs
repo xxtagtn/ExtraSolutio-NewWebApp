@@ -75,6 +75,12 @@ test('Elizabeth regression: an open 10 October entry remains active after midnig
   assert.equal(after.activeDay, '2026-10-11');
   assert.equal(after.active.activeAssignmentId, next.id);
   assert.deepEqual(after.services.map((row) => row.assignmentId), [next.id, future.id]);
+  assert.equal(after.checkoutReceipt.assignmentId, first.id);
+  assert.equal(after.checkoutReceipt.eventName, f.event.name);
+  assert.equal(after.checkoutReceipt.assignmentDate, '2026-10-10');
+  assert.equal(after.checkoutReceipt.checkIn, '17:34');
+  assert.equal(after.checkoutReceipt.checkOut, '00:30');
+  assert.equal(Object.hasOwn(await read(f, at('2026-10-11', '00:30:00')), 'checkoutReceipt'), false);
   const saved = (await snapshot(f)).find((row) => row.id === first.id);
   assert.equal(saved.checkIn, '17:34');
   assert.equal(saved.checkOut, '00:30');
@@ -391,6 +397,10 @@ test('18:00 to 04:00 closes through the same expired monthly link with a success
   assert.equal(ack.closed, true);
   assert.equal(ack.active, null);
   assert.deepEqual(ack.services, []);
+  assert.equal(ack.checkoutReceipt.assignmentId, row.id);
+  assert.equal(ack.checkoutReceipt.assignmentDate, '2026-10-31');
+  assert.equal(ack.checkoutReceipt.checkIn, '18:00');
+  assert.equal(ack.checkoutReceipt.checkOut, '04:00');
   const saved = (await snapshot(f)).find((item) => item.id === row.id);
   assert.equal(saved.checkOut, '04:00');
   assert.equal(Number(saved.hoursWorked), 10);

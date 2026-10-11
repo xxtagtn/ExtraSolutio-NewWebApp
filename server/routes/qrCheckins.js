@@ -4,7 +4,7 @@ import { prisma } from '../prisma.js';
 import { asyncHandler } from '../utils/http.js';
 import { readQrCodesPage, readRelevantQrEvents } from '../services/qrCodesPage.js';
 import { communicationAssignmentSchedule } from '../../src/utils/communicationCenter.js';
-import { qrCheckoutProtection, readPublicQr, registerPublicQr } from '../services/qrAttendance.js';
+import { publicQrCheckoutReceipt, qrCheckoutProtection, readPublicQr, registerPublicQr } from '../services/qrAttendance.js';
 import { ensureAssignmentQr } from '../services/qrCodeGeneration.js';
 import { publicDailyPunchPayload, readDailyQr, registerDailyQr } from '../services/qrDailyAttendance.js';
 import { createDailyQrToken } from '../utils/qrDailyToken.js';
@@ -149,7 +149,7 @@ qrPublicRouter.post('/:token/check-in', asyncHandler(async (req, res) => {
 
 qrPublicRouter.post('/:token/check-out', asyncHandler(async (req, res) => {
   const updated = await registerPublicQr(prisma, req.params.token, QR_CHECK_ACTIONS.checkOut, { audit: requestAuditMeta(req) });
-  res.json(publicPayload(req, updated));
+  res.json({ ...publicPayload(req, updated), checkoutReceipt: publicQrCheckoutReceipt(updated) });
 }));
 
 qrCodesRouter.get('/events', asyncHandler(async (_req, res) => {

@@ -90,11 +90,18 @@ test('public daily responses expose only current punch candidates, never history
   const next = publicDailyPunchPayload(await punch(f, 'check_out', '12:00:00'));
   assert.deepEqual(next.services.map((row) => row.assignmentId), [f.rows[1].id]);
   assert.equal(next.completedCount, 1);
+  assert.equal(next.checkoutReceipt.assignmentId, f.rows[0].id);
+  assert.equal(next.checkoutReceipt.checkIn, '09:00');
+  assert.equal(next.checkoutReceipt.checkOut, '12:00');
+  assert.equal(Object.hasOwn(publicDailyPunchPayload(await read(f, '12:00:00')), 'checkoutReceipt'), false,
+    'Confirmation is only returned by the successful POST, never as history');
   await punch(f, 'check_in', '15:00:00');
   const completed = publicDailyPunchPayload(await punch(f, 'check_out', '18:00:00'));
   assert.equal(completed.completed, true);
   assert.deepEqual(completed.services, []);
   assert.deepEqual(completed.candidateIds, []);
+  assert.equal(completed.checkoutReceipt.assignmentId, f.rows[1].id);
+  assert.equal(completed.checkoutReceipt.checkOut, '18:00');
 });
 
 test('public daily responses retain necessary overlap selection and open-service priority', async () => {

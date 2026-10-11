@@ -5,8 +5,8 @@ import {
   qrCheckOutAvailableAt,
   validateQrUsage,
 } from '../utils/qrCheckins.js';
-import { qrConsultationAccess } from '../utils/qrConsultation.js';
-import { isAssignmentOnCancelledDay } from '../../src/utils/eventCancelledDays.js';
+import { publicQrPlannedSchedule, qrConsultationAccess } from '../utils/qrConsultation.js';
+import { eventDayKey, isAssignmentOnCancelledDay } from '../../src/utils/eventCancelledDays.js';
 
 const qrInclude = {
   event: { include: { client: true } },
@@ -22,6 +22,23 @@ const qrInclude = {
 
 export function publicQrError(statusCode, message, code = 'QR_ERROR') {
   return Object.assign(new Error(message), { statusCode, code, expose: true });
+}
+
+export function publicQrCheckoutReceipt(qrCode) {
+  const assignment = qrCode?.assignment;
+  if (!assignment?.checkIn || !assignment.checkOut) return null;
+  const event = qrCode.event || assignment.event || {};
+  const collaborator = qrCode.collaborator || assignment.collaborator || {};
+  return {
+    assignmentId: assignment.id,
+    collaboratorName: collaborator.shortName || collaborator.name || '',
+    eventName: event.name || 'Evento/Serviço',
+    clientName: event.client?.name || event.clientName || '',
+    assignmentDate: eventDayKey(assignment.assignmentDate || event.date),
+    role: assignment.role || '', location: event.location || '',
+    ...publicQrPlannedSchedule(assignment, event),
+    checkIn: assignment.checkIn, checkOut: assignment.checkOut,
+  };
 }
 
 export function qrCheckoutProtection(qrCode, now = new Date()) {
