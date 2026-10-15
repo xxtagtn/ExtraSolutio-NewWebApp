@@ -1,6 +1,7 @@
 import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
 import { requiredStaffTotal } from './serviceRequirements.js';
 import { activeEventDayKeys } from './eventCancelledDays.js';
+import { externalServiceCanArchive, isExternalOnlyService } from './externalServiceWorkflow.js';
 
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 const RETIRED_FINAL_STATUSES = new Set(['completed', 'invoiced', 'paid']);
@@ -119,6 +120,10 @@ export function nextAutomaticServiceStatus(event = {}, now = new Date()) {
   const hasReadyTeam = eventHasReadyTeam(event);
 
   if (current === SERVICE_STATUS.finalized || current === 'cancelled') return current;
+  if (isExternalOnlyService(event)) {
+    if (externalServiceCanArchive(event, now)) return SERVICE_STATUS.finalized;
+    return dateState === 'current' || dateState === 'after' ? SERVICE_STATUS.inProgress : SERVICE_STATUS.drafting;
+  }
   if (current === SERVICE_STATUS.toValidateClient) return current;
 
   if (current === SERVICE_STATUS.toValidateStaff) {
@@ -140,6 +145,7 @@ export function nextAutomaticServiceStatus(event = {}, now = new Date()) {
 }
 
 export function serviceStatusForDisplay(event = {}, now = new Date()) {
+  if (externalServiceCanArchive(event, now)) return SERVICE_STATUS.finalized;
   if (String(event?.statusMode || '').trim().toLowerCase() === 'manual') {
     return normalizeStatus(event.status);
   }
@@ -152,6 +158,7 @@ export function nextTimeValidationServiceStatus(event = {}) {
 
   if (current === 'cancelled') return current;
   if (current === SERVICE_STATUS.finalized) return current;
+  if (isExternalOnlyService(event)) return nextAutomaticServiceStatus(event);
   if (eventHasCompleteStaffSchedule(event)) return SERVICE_STATUS.toValidateClient;
   if (current === SERVICE_STATUS.toValidateClient) {
     const legacyClientStageIsStillComplete = assignments.length > 0
@@ -162,7 +169,8 @@ export function nextTimeValidationServiceStatus(event = {}) {
   return SERVICE_STATUS.toValidateStaff;
 }
 
-export function isArchivedService(event = {}) {
+export function isArchivedService(event = {}, now = new Date()) {
+  if (isExternalOnlyService(event)) return externalServiceCanArchive(event, now);
   return normalizeStatus(event.status) === SERVICE_STATUS.finalized;
 }
 

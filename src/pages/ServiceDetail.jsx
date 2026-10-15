@@ -16,6 +16,7 @@ import {
   History,
   MapPin,
   Plus,
+  ReceiptText,
   Save,
   Settings2,
   Trash2,
@@ -27,18 +28,27 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
+import ClientPaymentReference from '../components/UI/ClientPaymentReference.jsx';
+import Modal from '../components/UI/Modal.jsx';
+import ExternalCostsEditor from '../components/Finance/ExternalCostsEditor.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { useAuth } from '../hooks/useAuth.jsx';
+import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
+import { isExternalOnlyService } from '../utils/externalServiceWorkflow.js';
+import { buildClientPaymentPayload, clientPaymentDraft, clientPaymentSummary, clientReceiptReversalBlocker, clientSignalReversalBlocker } from '../utils/clientPayment.js';
+import { clientPaymentAssessment, readClientPaymentRecord } from '../utils/clientPaymentRecord.js';
 import { api } from '../utils/api.js';
 import { filterCollaboratorOptions } from '../utils/collaboratorSearch.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { serviceDetailTabFromQuery } from '../utils/deepLinks.js';
-import { calculateFinancialMargin, eventFinancialWarnings } from '../utils/eventFinancialRules.js';
-import { externalCostsTotals } from '../utils/externalCosts.js';
+import { eventFinancialWarnings } from '../utils/eventFinancialRules.js';
+import { eventCostSummary } from '../utils/eventCostSummary.js';
+import { createEmptyExternalCost, normalizeExternalCosts } from '../utils/externalCosts.js';
+import { externalCostRowsForEditing, validateExternalCostDraft } from '../utils/externalCostEditing.js';
 import { isEventDayCancelled } from '../utils/eventCancelledDays.js';
-import { eventTaxAmount, expensesIncludingEventTax } from '../utils/eventTax.js';
 import { eventFinancialImpactMessage } from '../utils/eventFinancialImpact.js';
 import { downloadEventAttendanceExcel } from '../utils/eventAttendanceExcel.js';
 import { date, durationHours, money } from '../utils/formatters.js';
@@ -64,7 +74,7 @@ import {
   statusLabel,
 } from '../utils/serviceStatus.js';
 import { staffAdvancesTotal, staffCarAdvancesTotal } from '../utils/staffAdvances.js';
-import { roundedBillableHours } from '../utils/serviceFinance.js';
+import { decimalValue, roundedBillableHours } from '../utils/serviceFinance.js';
 
 const tabs = [
   { id: 'summary', label: 'Resumo', icon: ClipboardList },
@@ -278,8 +288,9 @@ export default function ServiceDetail() {
   const { serviceId } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: services, loading, error, reload } = useApi('/services', []);
+  const { data: services, loading, error, reload } = useApi('/services', [], { revalidateOnFocus: true });
   const { data: collaborators } = useApi('/collaborators?light=1', []);
   const [activeTab, setActiveTab] = useState('summary');
   const [teamRows, setTeamRows] = useState([]);
@@ -305,15 +316,27 @@ export default function ServiceDetail() {
     signaledAmount: '',
     signaledAt: '',
     remainingPaymentDate: '',
+    remainingReceived: '',
+    billingPaymentDate: '',
   });
   const [savingBilling, setSavingBilling] = useState(false);
+  const [reversingSignal, setReversingSignal] = useState(false);
+  const billingReversalRef = useRef(false);
   const [billingError, setBillingError] = useState('');
+  const [additionalPayment, setAdditionalPayment] = useState(null);
+  const [additionalPaymentError, setAdditionalPaymentError] = useState('');
+  const [externalCostEdit, setExternalCostEdit] = useState(null);
+  const [externalCostRemoval, setExternalCostRemoval] = useState(null);
+  const [externalCostError, setExternalCostError] = useState('');
+  const [savingExternalCost, setSavingExternalCost] = useState(false);
+  const externalCostSavingRef = useRef(false);
   const service = useMemo(
     () => services.find((item) => String(item.id) === String(serviceId)),
     [serviceId, services],
   );
   const metrics = useMemo(() => serviceDetailMetrics(service || {}), [service]);
   const checklist = useMemo(() => serviceChecklist(service || {}), [service]);
+  const externalOnly = isExternalOnlyService(service || {});
   const displayAssignments = useMemo(
     () => (teamRows.length || service ? teamRows : []),
     [service, teamRows],
@@ -390,29 +413,39 @@ export default function ServiceDetail() {
       amount,
     };
   }, [assignmentGroups, service]);
-  const externalCosts = useMemo(() => safeJsonArray(service?.externalCosts), [service]);
-  const externalTotals = useMemo(() => externalCostsTotals(externalCosts), [externalCosts]);
+  const externalCostItems = useMemo(() => {
+    try { return { rows: externalCostRowsForEditing(service?.externalCosts), error: '' }; }
+    catch (err) { return { rows: [], error: err.message }; }
+  }, [service]);
+  const canEditExternalCosts = hasPermission(user, PERMISSIONS.SERVICES_UPDATE);
   const totalRevenue = parseNumber(service?.totalRevenue);
-  const totalCost = parseNumber(service?.totalCost);
-  const staffCost = Math.max(0, totalCost - externalTotals.costAmount);
-  const taxAmount = eventTaxAmount(service);
-  const nonStaffExpenses = expensesIncludingEventTax(service, externalTotals.costAmount);
-  const expenses = staffCost + nonStaffExpenses;
-  const financialMargin = calculateFinancialMargin(totalRevenue, staffCost, nonStaffExpenses);
-  const profit = financialMargin.margin;
+  const costs = useMemo(() => eventCostSummary(service || {}), [service]);
+  const { staffCost } = costs;
+  const profit = costs.margin;
   const financialWarnings = eventFinancialWarnings(
     service || {},
     service?.assignments || [],
     { revenue: totalRevenue, staff: staffCost },
   );
   const rateHistory = useMemo(() => safeJsonArray(service?.rateHistory), [service?.rateHistory]);
-  const signalAmount = Math.min(totalRevenue, Math.max(0, parseNumber(billingDraft.signaledAmount)));
+  const signalAmount = Math.max(0, decimalValue(billingDraft.signaledAmount) || 0);
   const clientPaidAmount = billingDraft.billingStatus === 'paid'
-    ? totalRevenue
+    ? signalAmount + Math.max(0, decimalValue(billingDraft.remainingReceived) || 0)
     : billingDraft.billingStatus === 'partial70'
-      ? signalAmount
-      : 0;
-  const clientRemainingAmount = Math.max(0, totalRevenue - clientPaidAmount);
+      ? signalAmount + clientPaymentSummary(service || {}).remainingReceived
+      : clientPaymentSummary(service || {}).received;
+  const clientRemainingAmount = Number(Math.max(0, totalRevenue - clientPaidAmount).toFixed(2));
+  const signalReversalBlocker = clientSignalReversalBlocker(service || {});
+  const receiptReversalBlocker = clientReceiptReversalBlocker(service || {});
+  const recordedClientPayment = clientPaymentSummary(service || {});
+  const hasPriorSettlement = recordedClientPayment.remainingReceived > 0
+    || (service?.billingStatus === 'paid' && recordedClientPayment.received > 0);
+  const paymentAssessment = clientPaymentAssessment(service || {}, {
+    total: totalRevenue, received: clientPaidAmount, outstanding: clientRemainingAmount,
+  });
+  const paymentRecord = readClientPaymentRecord(service?.clientPaymentRecord);
+  const canReverseClientReceipts = hasPermission(user, PERMISSIONS.SERVICES_UPDATE)
+    && hasPermission(user, PERMISSIONS.FINANCE_UPDATE_PAYMENTS);
   const activeCollaborators = useMemo(
     () => (collaborators || [])
       .filter((collaborator) => collaborator.status !== 'inactive')
@@ -443,12 +476,7 @@ export default function ServiceDetail() {
     setCollapsedRoles(new Set());
     setNewRoleName('');
     setNewRoleQty('1');
-    setBillingDraft({
-      billingStatus: service.billingStatus || 'pending',
-      signaledAmount: service.signaledAmount ? String(service.signaledAmount).replace('.', ',') : '',
-      signaledAt: service.signaledAt ? String(service.signaledAt).slice(0, 10) : '',
-      remainingPaymentDate: service.remainingPaymentDate ? String(service.remainingPaymentDate).slice(0, 10) : '',
-    });
+    setBillingDraft(clientPaymentDraft(service));
     setBillingError('');
     setActiveTeamCollaboratorPickerKey(null);
     setTeamCollaboratorPickerPlacement(null);
@@ -456,44 +484,144 @@ export default function ServiceDetail() {
   }, [service]);
 
   function updateBillingDraft(patch) {
-    setBillingDraft((current) => ({ ...current, ...patch }));
+    setBillingDraft((current) => ({ ...current,
+      ...(patch.billingStatus === 'paid' && current.billingStatus !== 'paid' ? {
+        remainingReceived: String(Number(Math.max(0, totalRevenue - (decimalValue(current.signaledAmount) || 0)).toFixed(2))).replace('.', ','),
+      } : {}), ...patch }));
     setBillingError('');
   }
 
   async function saveClientPayment() {
-    if (!service || savingBilling) return;
-    const status = billingDraft.billingStatus || 'pending';
-    const signal = Number(signalAmount.toFixed(2));
-    if (status === 'partial70' && signal <= 0) {
-      setBillingError('Indica o valor sinalizado pelo cliente.');
-      return;
-    }
-    if (status === 'partial70' && !billingDraft.signaledAt) {
-      setBillingError('Indica a data da sinalização.');
+    if (!service || savingBilling || reversingSignal || billingReversalRef.current) return;
+    let payload;
+    try {
+      payload = buildClientPaymentPayload(billingDraft, service);
+    } catch (err) {
+      setBillingError(err.message);
       return;
     }
 
     setSavingBilling(true);
     setBillingError('');
     try {
-      const today = new Date();
-      const todayInput = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       await api(`/services/${service.id}`, {
         method: 'PUT',
-        body: JSON.stringify({
-          billingStatus: status,
-          signaledAmount: status === 'partial70' || status === 'paid' ? signal : 0,
-          paidAmount: status === 'paid' ? totalRevenue : status === 'partial70' ? signal : 0,
-          signaledAt: billingDraft.signaledAt || null,
-          billingPaymentDate: status === 'paid' ? todayInput : null,
-          remainingPaymentDate: status === 'partial70' ? (billingDraft.remainingPaymentDate || null) : null,
-        }),
+        body: JSON.stringify(payload),
       });
       await reload();
+      window.dispatchEvent(new window.Event('extrasolutio:client-payment-changed'));
     } catch (err) {
       setBillingError(err.message || 'Não foi possível guardar o pagamento.');
     } finally {
       setSavingBilling(false);
+    }
+  }
+
+  async function saveAdditionalClientPayment(event) {
+    event.preventDefault();
+    if (savingBilling || billingReversalRef.current || !additionalPayment) return;
+    billingReversalRef.current = true;
+    setSavingBilling(true); setAdditionalPaymentError('');
+    try {
+      await api(`/services/${service.id}/client-payment/receive-additional`, {
+        method: 'POST', body: JSON.stringify({ ...additionalPayment }),
+      });
+      await reload(); setAdditionalPayment(null);
+      window.dispatchEvent(new window.Event('extrasolutio:client-payment-changed'));
+      toast.success('Recebimento adicional registado. Os pagamentos anteriores foram mantidos.');
+    } catch (err) { setAdditionalPaymentError(err.message || 'Não foi possível registar o recebimento.'); }
+    finally { billingReversalRef.current = false; setSavingBilling(false); }
+  }
+
+  async function revertClientSignal(allReceipts = false) {
+    if (!service || savingBilling || reversingSignal || billingReversalRef.current) return;
+    const blocker = allReceipts ? receiptReversalBlocker : signalReversalBlocker;
+    if (blocker) { setBillingError(blocker); return; }
+    if (allReceipts && !canReverseClientReceipts) return;
+    const confirmation = allReceipts
+      ? `Reverter todos os recebimentos de ${service.name}?\nSinalização: ${money.format(recordedClientPayment.signal)}\nRecebimentos posteriores: ${money.format(recordedClientPayment.remainingReceived)}\nTotal recebido a anular: ${money.format(recordedClientPayment.received)}\n\nO serviço ficará Pendente, com ${money.format(totalRevenue)} por receber. O valor do serviço não muda. Esta ação corrige os registos; não efetua um reembolso. Confirma que foram registados por engano ou em simulação?`
+      : 'Tem a certeza de que pretende reverter esta sinalização? Os valores do pagamento serão recalculados.';
+    if (!window.confirm(confirmation)) return;
+    billingReversalRef.current = true;
+    setReversingSignal(true);
+    setBillingError('');
+    try {
+      await api(`/services/${service.id}/client-payment/${allReceipts ? 'reverse-receipts' : 'reverse-signal'}`, {
+        method: 'POST', body: JSON.stringify({ updatedAt: service.updatedAt || null,
+          ...(allReceipts ? { confirmedReceived: recordedClientPayment.received, confirmedSignal: recordedClientPayment.signal } : {}) }),
+      });
+      await reload();
+      toast.success(allReceipts ? 'Recebimentos revertidos. O serviço ficou pendente de pagamento.' : 'Sinalização revertida.');
+      window.dispatchEvent(new window.Event('extrasolutio:client-payment-changed'));
+    } catch (err) {
+      setBillingError(err.message || 'Não foi possível reverter a sinalização.');
+    } finally {
+      billingReversalRef.current = false;
+      setReversingSignal(false);
+    }
+  }
+
+  function openExternalCost(item = null) {
+    if (!service || savingExternalCost) return;
+    const id = item?.id || (globalThis.crypto?.randomUUID?.() || `external-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const normalized = item ? normalizeExternalCosts([item])[0] || {} : null;
+    const draft = item ? { ...normalized, id, costAmount: String(normalized.costAmount ?? '') }
+      : { ...createEmptyExternalCost(), id };
+    setExternalCostEdit({ costId: item?.id || null, draft, updatedAt: service.updatedAt });
+    setExternalCostError('');
+  }
+
+  function closeExternalCost() {
+    if (!externalCostSavingRef.current) { setExternalCostEdit(null); setExternalCostError(''); }
+  }
+
+  function closeExternalCostRemoval() {
+    if (!externalCostSavingRef.current) { setExternalCostRemoval(null); setExternalCostError(''); }
+  }
+
+  async function confirmExternalCostRemoval() {
+    if (!externalCostRemoval || !service || externalCostSavingRef.current) return;
+    externalCostSavingRef.current = true;
+    setSavingExternalCost(true);
+    setExternalCostError('');
+    try {
+      await api(`/services/${service.id}/external-costs/${encodeURIComponent(externalCostRemoval.item.id)}`, {
+        method: 'DELETE', body: JSON.stringify({ updatedAt: externalCostRemoval.updatedAt }),
+      });
+      await reload();
+      setExternalCostRemoval(null);
+      toast.success('Custo externo eliminado. Totais do evento atualizados.');
+    } catch (err) {
+      setExternalCostError(err.message || 'Não foi possível eliminar o custo externo.');
+    } finally {
+      externalCostSavingRef.current = false;
+      setSavingExternalCost(false);
+    }
+  }
+
+  async function saveExternalCost(event) {
+    event.preventDefault();
+    if (!externalCostEdit || !service || externalCostSavingRef.current) return;
+    let cost;
+    try { cost = validateExternalCostDraft(externalCostEdit.draft); }
+    catch (err) { setExternalCostError(err.message); return; }
+    externalCostSavingRef.current = true;
+    setSavingExternalCost(true);
+    setExternalCostError('');
+    try {
+      const suffix = externalCostEdit.costId ? `/${encodeURIComponent(externalCostEdit.costId)}` : '';
+      await api(`/services/${service.id}/external-costs${suffix}`, {
+        method: externalCostEdit.costId ? 'PUT' : 'POST',
+        body: JSON.stringify({ cost, updatedAt: externalCostEdit.updatedAt }),
+      });
+      await reload();
+      setExternalCostEdit(null);
+      toast.success('Custo externo guardado. Totais do evento atualizados.');
+    } catch (err) {
+      setExternalCostError(err.message || 'Não foi possível guardar o custo externo.');
+    } finally {
+      externalCostSavingRef.current = false;
+      setSavingExternalCost(false);
     }
   }
 
@@ -1127,10 +1255,10 @@ export default function ServiceDetail() {
               <Copy size={16} />
               Duplicar evento
             </Link>
-            <Link className="secondary-button" to={`/time-validation?eventId=${service.id}`}>
+            {!externalOnly && <Link className="secondary-button" to={`/time-validation?eventId=${service.id}`}>
               <Clock size={16} />
               Validação de Horas
-            </Link>
+            </Link>}
             <Link className="secondary-button" to={`/finance?area=${financeArea}&eventId=${service.id}`}>
               <WalletCards size={16} />
               Financeiro
@@ -1143,7 +1271,7 @@ export default function ServiceDetail() {
               className="command-button"
               type="button"
               onClick={saveCurrentTab}
-              disabled={savingTeam || savingBilling || (activeTab === 'team' && currentDayCancelled)}
+              disabled={savingTeam || savingBilling || savingExternalCost || (activeTab === 'team' && currentDayCancelled)}
             >
               <Save size={16} />
               Guardar alterações
@@ -1164,9 +1292,16 @@ export default function ServiceDetail() {
         </div>
 
         <div className="service-detail-progress-grid">
-          <ProgressStat label="Equipa" value={`${metrics.confirmed}/${metrics.requested || metrics.assigned}`} detail="confirmados" tone={metrics.teamComplete ? 'success' : 'warning'} />
-          <ProgressStat label="Staff" value={`${metrics.staffFilled}/${metrics.assigned}`} detail={metrics.staffAcceptedComplete ? 'horários aceites' : 'horários guardados'} tone={metrics.staffHoursComplete ? 'success' : 'warning'} />
-          <ProgressStat label="Cliente" value={`${metrics.clientFilled}/${metrics.assigned}`} detail="horários preenchidos" tone={metrics.clientHoursComplete ? 'success' : 'warning'} />
+          {externalOnly ? <>
+            <ProgressStat label="Operação" value="Parceiro externo" detail="Sem Staff próprio" tone="info" />
+            <ProgressStat label="Execução" value={service.status === 'finalized' ? 'Concluída' : 'Por concluir'}
+              detail={service.status === 'finalized' ? 'Serviço realizado' : 'Serviço ainda não finalizado'}
+              tone={service.status === 'finalized' ? 'success' : 'warning'} />
+          </> : <>
+            <ProgressStat label="Equipa" value={`${metrics.confirmed}/${metrics.requested || metrics.assigned}`} detail="confirmados" tone={metrics.teamComplete ? 'success' : 'warning'} />
+            <ProgressStat label="Staff" value={`${metrics.staffFilled}/${metrics.assigned}`} detail={metrics.staffAcceptedComplete ? 'horários aceites' : 'horários guardados'} tone={metrics.staffHoursComplete ? 'success' : 'warning'} />
+            <ProgressStat label="Cliente" value={`${metrics.clientFilled}/${metrics.assigned}`} detail="horários preenchidos" tone={metrics.clientHoursComplete ? 'success' : 'warning'} />
+          </>}
           <ProgressStat label="Valor" value={money.format(totalRevenue)} detail="previsto/validado" tone="info" />
         </div>
       </div>
@@ -1869,17 +2004,56 @@ export default function ServiceDetail() {
 
       {activeTab === 'costs' ? (
         <div className="service-detail-grid">
-          <Card title="Resumo financeiro" className="service-detail-card">
-            <div className="service-detail-finance-grid">
-              <div><span>Horas Reais</span><strong>{durationHours(parseNumber(service?.realHours))}</strong></div>
-              <div><span>Horas Faturáveis</span><strong>{durationHours(parseNumber(service?.billableHours))}</strong></div>
-              <div><span>Staff</span><strong>{money.format(staffCost)}</strong></div>
-              <div><span>Custo Real Parceiros</span><strong>{money.format(externalTotals.costAmount)}</strong></div>
-              <div className={profit >= 0 ? 'service-detail-profit--positive' : 'service-detail-profit--negative'}><span>Margem %</span><strong>{financialMargin.marginPct.toFixed(1).replace('.', ',')}%</strong></div>
-              <div className={profit >= 0 ? 'service-detail-profit--positive' : 'service-detail-profit--negative'}><span>Margem €</span><strong>{money.format(profit)}</strong></div>
-              <div><span>Parceiros cobrados ao cliente</span><strong>{money.format(externalTotals.chargeAmount)}</strong></div>
-              <div><span>Receita</span><strong>{money.format(totalRevenue)}</strong></div>
-              <div><span>Despesas</span><strong>{money.format(expenses)}</strong><small>Inclui IVA: {money.format(taxAmount)}</small></div>
+          <Card title="Resumo financeiro" className="service-detail-card service-detail-cost-summary">
+            <div className="event-finance-hours">
+              <div><Clock size={20} aria-hidden="true" /><span>Horas Reais<strong data-finance-metric="Horas Reais">{durationHours(parseNumber(service?.realHours))}</strong></span></div>
+              <div><Clock size={20} aria-hidden="true" /><span>Horas Faturáveis<strong data-finance-metric="Horas Faturáveis">{durationHours(parseNumber(service?.billableHours))}</strong></span></div>
+            </div>
+            <table className="event-finance-comparison" aria-label="Comparação de custos internos e valores cobrados ao cliente">
+              <thead><tr>
+                <th scope="col">Componente</th>
+                <th scope="col"><WalletCards size={16} aria-hidden="true" />Custos internos</th>
+                <th scope="col"><ReceiptText size={16} aria-hidden="true" />Cobrado ao cliente<small>Sem IVA de venda</small></th>
+              </tr></thead>
+              <tbody>
+                <tr><th scope="row">Staff</th>
+                  <td><strong data-finance-metric="Custo Staff">{money.format(staffCost)}</strong></td>
+                  <td><strong data-finance-metric="Staff cobrado ao cliente">{costs.staffSale === null ? 'Por discriminar' : money.format(costs.staffSale)}</strong></td>
+                </tr>
+                <tr><th scope="row">Parceiros</th>
+                  <td><strong data-finance-metric="Custo Real Parceiros">{money.format(costs.partnerCost)}</strong></td>
+                  <td><strong data-finance-metric="Parceiros cobrados ao cliente">{money.format(costs.partnerSale)}</strong></td>
+                </tr>
+                {costs.travelSale !== 0 ? <tr><th scope="row">Deslocação</th>
+                  <td><span className="muted" title="Não discriminado separadamente nos custos internos">—</span></td>
+                  <td><strong data-finance-metric="Deslocação cobrada ao cliente">{money.format(costs.travelSale)}</strong></td>
+                </tr> : null}
+                {Math.abs(costs.undiscriminated) >= 0.01 ? <tr><th scope="row">Valor por discriminar<small>No total guardado</small></th>
+                  <td><span className="muted">—</span></td>
+                  <td><strong data-finance-metric="Valor por discriminar no total guardado">{money.format(costs.undiscriminated)}</strong></td>
+                </tr> : null}
+              </tbody>
+              <tfoot><tr><th scope="row">Totais</th>
+                <td><strong data-finance-metric="Despesas">{money.format(costs.expenses)}</strong></td>
+                <td><strong>{money.format(costs.netSale)}</strong></td>
+              </tr></tfoot>
+            </table>
+            <dl className="event-finance-invoice">
+              <div><dt>Venda sem IVA</dt><dd><strong data-finance-metric="Venda sem IVA">{money.format(costs.netSale)}</strong></dd></div>
+              <div><dt>+ IVA de venda</dt><dd><strong data-finance-metric="IVA de venda">{money.format(costs.tax)}</strong></dd>
+                {costs.taxBreakdown ? <dd className="service-detail-vat-breakdown">
+                  <span>Staff: {money.format(costs.taxBreakdown.staffTax)}</span>
+                  <span>Parceiros: {money.format(costs.taxBreakdown.partnerTax)}</span>
+                  {costs.taxBreakdown.travelTax !== 0 ? <span>Deslocações: {money.format(costs.taxBreakdown.travelTax)}</span> : null}
+                </dd> : null}
+              </div>
+              <div className="event-finance-invoice-total"><dt>Total a cobrar ao cliente</dt><dd><strong data-finance-metric="Receita com IVA">{money.format(totalRevenue)}</strong></dd></div>
+            </dl>
+            <div className={`event-finance-result ${profit >= 0 ? 'service-detail-profit--positive' : 'service-detail-profit--negative'}`}>
+              <div><span>Margem do evento</span><strong data-finance-metric="Margem €">{money.format(profit)}</strong>
+                <small>{money.format(costs.netSale)} − {money.format(costs.expenses)}</small>
+              </div>
+              <div><strong data-finance-metric="Margem %">{costs.marginPct.toFixed(1).replace('.', ',')}%</strong><small>Sobre receita com IVA</small></div>
             </div>
             {financialWarnings.length ? (
               <div className="service-financial-warnings" role="status">
@@ -1888,24 +2062,34 @@ export default function ServiceDetail() {
             ) : null}
           </Card>
           <Card title="Pagamento do cliente" className="service-detail-card service-detail-payment-card">
+            <ClientPaymentReference total={totalRevenue} />
+            <dl className="event-payment-balance">
+              <div><dt>{paymentAssessment.assessed ? 'Total final apurado' : 'Total previsto atual'}</dt><dd>{money.format(totalRevenue)}</dd></div>
+              {paymentAssessment.expectedTotal !== null && Math.abs(paymentAssessment.expectedTotal - totalRevenue) >= 0.01 ? (
+                <div><dt>Total de referência preservado</dt><dd>{money.format(paymentAssessment.expectedTotal)}</dd></div>
+              ) : null}
+              <div><dt>Total recebido registado</dt><dd>{money.format(recordedClientPayment.received)}</dd></div>
+              {paymentAssessment.excess > 0 ? <div><dt>Recebido em excesso</dt><dd>{money.format(paymentAssessment.excess)}</dd></div> : null}
+            </dl>
             <div className="service-detail-payment-summary">
               <div>
-                <span>Valor em falta</span>
+                <span>{hasPriorSettlement && clientRemainingAmount > 0 ? 'Valor adicional em falta' : 'Valor atualmente em falta'}</span>
                 <strong className={clientRemainingAmount > 0 ? 'service-detail-payment-due' : 'service-detail-payment-paid'}>
                   {money.format(clientRemainingAmount)}
                 </strong>
               </div>
-              <Badge tone={billingDraft.billingStatus === 'paid' ? 'success' : billingDraft.billingStatus === 'partial70' ? 'warning' : 'neutral'}>
-                {billingDraft.billingStatus === 'partial70' ? 'Sinalização' : billingDraft.billingStatus === 'paid' ? 'Pago' : billingDraft.billingStatus === 'invoiced' ? 'Faturado' : 'Pendente'}
+              <Badge tone={paymentAssessment.fullyReceived && !paymentAssessment.excess ? 'success' : clientPaidAmount > 0 ? 'warning' : 'neutral'}>
+                {paymentAssessment.label}
               </Badge>
             </div>
+            {!paymentAssessment.assessed && recordedClientPayment.received > 0 ? <p className="muted">Evento ainda sujeito a apuramento final após validação das horas.</p> : null}
             <div className="service-detail-payment-grid">
               <label>Estado do pagamento
                 <select value={billingDraft.billingStatus} onChange={(event) => updateBillingDraft({ billingStatus: event.target.value })}>
                   <option value="pending">Pendente</option>
                   <option value="partial70">Sinalização</option>
                   <option value="invoiced">Faturado</option>
-                  <option value="paid">Pago</option>
+                  <option value="paid">{clientRemainingAmount > 0 ? 'Recebido antecipadamente' : paymentAssessment.assessed ? 'Pago' : 'Previsto totalmente recebido'}</option>
                 </select>
               </label>
               <label>Valor total
@@ -1927,40 +2111,109 @@ export default function ServiceDetail() {
                   <input type="date" value={billingDraft.signaledAt} onChange={(event) => updateBillingDraft({ signaledAt: event.target.value })} />
                 </label>
               ) : null}
-              {billingDraft.billingStatus === 'partial70' ? (
-                <label>Data do restante pagamento
+              {billingDraft.billingStatus === 'partial70' || billingDraft.billingStatus === 'paid' || billingDraft.remainingPaymentDate ? (
+                <label>Data prevista do restante pagamento
                   <input type="date" value={billingDraft.remainingPaymentDate} onChange={(event) => updateBillingDraft({ remainingPaymentDate: event.target.value })} />
                 </label>
               ) : null}
+              {billingDraft.billingStatus === 'paid' ? (
+                <>
+                  <label>{signalAmount > 0 ? paymentRecord?.entries.some((entry) => entry.type === 'adjustment') ? 'Recebido após sinalização' : 'Valor restante recebido' : 'Valor recebido'}
+                    <input inputMode="decimal" value={billingDraft.remainingReceived} placeholder="Ex: 94,50"
+                      onChange={(event) => updateBillingDraft({ remainingReceived: event.target.value })} />
+                  </label>
+                  <label>{paymentRecord?.entries.some((entry) => entry.type === 'adjustment') ? 'Data do último recebimento' : 'Data efetiva do recebimento'}
+                    <input type="date" value={billingDraft.billingPaymentDate}
+                      onChange={(event) => updateBillingDraft({ billingPaymentDate: event.target.value })} />
+                  </label>
+                  <label>Total recebido
+                    <input value={money.format(clientPaidAmount)} readOnly />
+                  </label>
+                </>
+              ) : null}
             </div>
             {billingError ? <p className="form-error">{billingError}</p> : null}
+            {paymentRecord?.entries.length ? <details className="event-payment-history"><summary>Histórico de recebimentos</summary>
+              <ul>{paymentRecord.entries.map((entry) => <li key={entry.id}>
+                <span>{({ signal: 'Sinalização', remaining: 'Restante previsto', adjustment: 'Acerto final', correction: 'Correção', reversal: 'Reversão' })[entry.type] || 'Recebimento'}
+                  <small>{entry.receivedAt ? formatDate(entry.receivedAt) : 'Data não registada'}</small></span>
+                <strong>{money.format(entry.amount)}</strong>
+              </li>)}</ul>
+            </details> : null}
+            {parseNumber(service.signaledAmount) > 0 && signalReversalBlocker ? <p className="muted">{signalReversalBlocker}</p> : null}
             <div className="service-detail-card-actions service-detail-payment-actions">
               <span className="muted">Regista aqui a sinalização recebida e o valor que ainda falta cobrar.</span>
-              <button className="command-button" type="button" onClick={saveClientPayment} disabled={savingBilling}>
+              {parseNumber(service.signaledAmount) > 0 ? (
+                <button className="secondary-button" type="button" onClick={() => revertClientSignal()}
+                  disabled={savingBilling || reversingSignal || Boolean(signalReversalBlocker)} title={signalReversalBlocker || 'Anular a sinalização registada'}>
+                  <RotateCcw size={15} />{reversingSignal ? 'A reverter...' : 'Reverter sinalização'}
+                </button>
+              ) : null}
+              {canReverseClientReceipts && signalReversalBlocker && !receiptReversalBlocker ? (
+                <button className="secondary-button" type="button" onClick={() => revertClientSignal(true)}
+                  disabled={savingBilling || reversingSignal}>
+                  <RotateCcw size={15} />{reversingSignal ? 'A reverter...' : 'Reverter recebimentos'}
+                </button>
+              ) : null}
+              {billingDraft.billingStatus === 'partial70' && clientRemainingAmount > 0 ? (
+                <button className="secondary-button" type="button" disabled={savingBilling || reversingSignal}
+                  onClick={() => updateBillingDraft({ billingStatus: 'paid' })}>
+                  <WalletCards size={15} />Registar pagamento restante
+                </button>
+              ) : null}
+              {canReverseClientReceipts && hasPriorSettlement && recordedClientPayment.outstanding > 0 ? (
+                <button className="secondary-button" type="button" disabled={savingBilling || reversingSignal}
+                  onClick={() => { setAdditionalPaymentError(''); setAdditionalPayment({ amount: String(recordedClientPayment.outstanding).replace('.', ','),
+                    receivedAt: new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Lisbon', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
+                    updatedAt: service.updatedAt }); }}>
+                  <WalletCards size={15} />Registar pagamento adicional
+                </button>
+              ) : null}
+              <button className="command-button" type="button" onClick={saveClientPayment} disabled={savingBilling || reversingSignal}>
                 <Save size={15} />
                 {savingBilling ? 'A guardar...' : 'Guardar pagamento'}
               </button>
             </div>
           </Card>
-          <Card title="Custos externos/parceiros" className="service-detail-card">
-            {externalCosts.length ? (
+          <Card title="Custos externos/parceiros" className="service-detail-card service-detail-external-card"
+            action={canEditExternalCosts ? <button className="secondary-button" type="button"
+              onClick={() => openExternalCost()} disabled={savingExternalCost || Boolean(externalCostItems.error)}>
+              <Plus size={15} />Adicionar custo externo/parceiro
+            </button> : null}>
+            {externalCostItems.error ? <p className="form-error">{externalCostItems.error}</p> : null}
+            {externalCostItems.rows.length ? (
               <div className="service-detail-external-list">
-                {externalCosts.map((item, index) => (
-                  <div key={`${item.type || 'custo'}-${index}`}>
-                    <div>
-                      <strong>{item.supplier || item.type || 'Custo externo'}</strong>
-                      <span>{item.description || '-'}</span>
-                    </div>
-                    <strong>{money.format(parseNumber(item.chargeAmount || item.costAmount))}</strong>
-                  </div>
-                ))}
+                {externalCostItems.rows.map((item) => {
+                  const calculated = normalizeExternalCosts([item])[0] || {};
+                  return <article className="service-detail-external-item" key={item.id}>
+                    <header>
+                      <div><strong>{item.supplier || item.type || 'Custo externo'}</strong><small>{item.type} · {item.description || 'Sem descrição'}</small></div>
+                      {canEditExternalCosts ? <div className="service-detail-external-actions"><button className="secondary-button" type="button"
+                        aria-label={`Editar custo externo ${item.supplier || item.type || item.id}`}
+                        onClick={() => openExternalCost(item)} disabled={savingExternalCost}>
+                        <Edit3 size={15} />Editar
+                      </button><button className="icon-button icon-button--danger" type="button"
+                        title="Eliminar custo externo/parceiro" aria-label={`Eliminar custo externo ${item.supplier || item.type || item.id}`}
+                        disabled={savingExternalCost} onClick={() => {
+                          setExternalCostError(''); setExternalCostRemoval({ item, updatedAt: service.updatedAt });
+                        }}><Trash2 size={16} /></button></div> : null}
+                    </header>
+                    <dl>
+                      <div><dt>Custo parceiro</dt><dd>{money.format(calculated.costAmount || 0)}</dd></div>
+                      <div><dt>Margem ({calculated.marginPercent || 0}%)</dt><dd>{money.format(calculated.marginAmount || 0)}</dd></div>
+                      <div><dt>Venda sem IVA</dt><dd>{money.format(calculated.chargeAmount || 0)}</dd></div>
+                      <div><dt>IVA</dt><dd>{money.format(calculated.taxAmount || 0)}</dd></div>
+                      <div><dt>Total com IVA</dt><dd>{money.format(calculated.grossAmount || 0)}</dd></div>
+                    </dl>
+                  </article>;
+                })}
               </div>
             ) : (
               <EmptyState
                 compact
                 icon={WalletCards}
                 title="Sem custos externos registados"
-                description="Quando existirem parceiros, catering ou material externo, ficam aqui para consulta."
+                description="Não existem parceiros ou serviços externos associados."
               />
             )}
           </Card>
@@ -2010,15 +2263,61 @@ export default function ServiceDetail() {
         </Card>
       ) : null}
 
-      <div className="service-detail-mobile-actions" aria-label="Ações do Evento/Serviço">
+      {additionalPayment ? <Modal title="Registar pagamento adicional" onClose={() => { if (!savingBilling) setAdditionalPayment(null); }}>
+        <form className="event-additional-payment-form" onSubmit={saveAdditionalClientPayment}>
+          <p>Já recebido: <strong>{money.format(recordedClientPayment.received)}</strong>. Em falta: <strong>{money.format(recordedClientPayment.outstanding)}</strong>.</p>
+          <div className="form-grid">
+            <label>Valor adicional recebido<input inputMode="decimal" value={additionalPayment.amount} disabled={savingBilling}
+              onChange={(event) => setAdditionalPayment({ ...additionalPayment, amount: event.target.value })} /></label>
+            <label>Data do novo recebimento<input type="date" value={additionalPayment.receivedAt} disabled={savingBilling}
+              onChange={(event) => setAdditionalPayment({ ...additionalPayment, receivedAt: event.target.value })} /></label>
+          </div>
+          {additionalPaymentError ? <p className="form-error" role="alert">{additionalPaymentError}</p> : null}
+          <div className="form-actions">
+            <button className="secondary-button" type="button" disabled={savingBilling} onClick={() => setAdditionalPayment(null)}>Cancelar</button>
+            <button className="command-button" type="submit" disabled={savingBilling}><Save size={15} />{savingBilling ? 'A guardar...' : 'Registar recebimento'}</button>
+          </div>
+        </form>
+      </Modal> : null}
+
+      {externalCostRemoval ? <Modal title="Eliminar custo externo/parceiro?" onClose={closeExternalCostRemoval}>
+        <p>Tem a certeza de que pretende eliminar este custo externo/parceiro? Esta ação irá atualizar os cálculos financeiros do evento.</p>
+        <p><strong>{externalCostRemoval.item.supplier || externalCostRemoval.item.type || 'Custo externo'}</strong></p>
+        {externalCostError ? <p className="form-error" role="alert">{externalCostError}</p> : null}
+        <div className="form-actions">
+          <button className="secondary-button" type="button" onClick={closeExternalCostRemoval} disabled={savingExternalCost}>Cancelar</button>
+          <button className="secondary-button secondary-button--danger" type="button" onClick={confirmExternalCostRemoval} disabled={savingExternalCost}>
+            <Trash2 size={15} />{savingExternalCost ? 'A eliminar...' : 'Eliminar'}
+          </button>
+        </div>
+      </Modal> : null}
+
+      {externalCostEdit ? <Modal title={externalCostEdit.costId ? 'Editar custo externo/parceiro' : 'Adicionar custo externo/parceiro'}
+        onClose={closeExternalCost}>
+        <form className="service-detail-external-form" onSubmit={saveExternalCost} noValidate>
+          <fieldset disabled={savingExternalCost}>
+            <ExternalCostsEditor value={[externalCostEdit.draft]} allowAdd={false} allowRemove={false} showGrossTotal
+              onChange={(rows) => { setExternalCostEdit((current) => ({ ...current, draft: rows[0] })); setExternalCostError(''); }} />
+          </fieldset>
+          {externalCostError ? <p className="form-error" role="alert">{externalCostError}</p> : null}
+          <div className="form-actions">
+            <button className="secondary-button" type="button" onClick={closeExternalCost} disabled={savingExternalCost}>Cancelar</button>
+            <button className="command-button" type="submit" disabled={savingExternalCost}>
+              <Save size={15} />{savingExternalCost ? 'A guardar...' : 'Guardar custo'}
+            </button>
+          </div>
+        </form>
+      </Modal> : null}
+
+      {!additionalPayment && !externalCostEdit && !externalCostRemoval ? <div className="service-detail-mobile-actions" aria-label="Ações do Evento/Serviço">
         <button className="secondary-button" type="button" onClick={() => navigate('/services')}>
           Voltar
         </button>
-        <button className="command-button" type="button" onClick={saveCurrentTab} disabled={savingTeam || savingBilling}>
+        <button className="command-button" type="button" onClick={saveCurrentTab} disabled={savingTeam || savingBilling || savingExternalCost}>
           <Save size={16} />
           {savingTeam || savingBilling ? 'A guardar...' : 'Guardar alterações'}
         </button>
-      </div>
+      </div> : null}
 
     </div>
   );

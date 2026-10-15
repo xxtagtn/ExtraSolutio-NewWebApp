@@ -6,7 +6,7 @@ const planningFields = [
   'uniform', 'uniformOther', 'meetingPoint', 'onsiteContactName', 'onsiteContactPhone',
   'travelExpenseEnabled', 'travelExpenseAmount', 'travelType', 'travelPeople',
   'km', 'kmRate', 'durationHours', 'travelStaffHourlyRate', 'split5050',
-  'travelManualAmount', 'workLocationsEnabled', 'vatRateSnapshot',
+  'travelManualAmount', 'workLocationsEnabled', 'vatRateSnapshot', 'staffVatRateSnapshot',
 ];
 
 export function emptyAssignmentForRole(role, assignmentDate = '') {

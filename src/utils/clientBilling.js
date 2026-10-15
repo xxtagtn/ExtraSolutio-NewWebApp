@@ -2,6 +2,9 @@ import {
   effectiveInvoiceDueDate,
   invoiceIsIssued,
 } from '../../shared/invoiceLifecycle.js';
+import { invoiceEventIds } from './clientFinancialSummary.js';
+import { externalServiceCanArchive, isExternalOnlyService } from './externalServiceWorkflow.js';
+import { isFinanceReadyEvent } from './financeReadiness.js';
 
 function selectedPeriodParts(period) {
   const [year, month] = String(period || '').split('-').map(Number);
@@ -199,7 +202,8 @@ export function billingEventIdsForRow(row) {
 
 export function billingStatusForRow(row) {
   const services = rowBillingServices(row);
-  const statuses = services.map((service) => String(service?.billingStatus || 'pending'));
+  const statuses = services.map((service) => service.billingStatus === 'paid' && num(service.financial?.receivable) > 0
+    ? 'partial70' : String(service?.billingStatus || 'pending'));
   if (!statuses.length) return 'pending';
   if (statuses.every((status) => status === statuses[0])) return statuses[0];
   if (statuses.includes('pending')) return 'pending';
@@ -228,7 +232,7 @@ export function billingPaymentDateForRow(row) {
   return dates[0] || null;
 }
 
-export function splitClientBillingRows(rows) {
+export function splitClientBillingRows(rows, { now, timeZone } = {}) {
   return (rows || []).reduce((result, row) => {
     const hasServiceEvents = billingEventIdsForRow(row).length > 0;
     const isUnregisteredClientWithoutInvoice = Boolean(
@@ -238,7 +242,9 @@ export function splitClientBillingRows(rows) {
     );
     const isArchived = hasServiceEvents
       && billingStatusForRow(row) === 'paid'
-      && !isUnregisteredClientWithoutInvoice;
+      && rowBillingServices(row).every((service) => service.financial?.hasInvoice || !service.status || isFinanceReadyEvent(service))
+      && rowBillingServices(row).filter(isExternalOnlyService).every((event) => externalServiceCanArchive(event, now, timeZone))
+      && (!isUnregisteredClientWithoutInvoice || rowBillingServices(row).every(isExternalOnlyService));
     if (isArchived) {
       result.archivedRows.push(row);
     } else {
@@ -256,6 +262,22 @@ export function clientBillingRowsForActiveEvents(rows) {
       if (byName) return byName;
       return new Date(a?.nextDueDate || 0).getTime() - new Date(b?.nextDueDate || 0).getTime();
     });
+}
+
+export function externalClientBillingRows(events = [], invoices = []) {
+  return events.filter(isExternalOnlyService).map((event) => {
+    const client = event.client || { id: event.clientId || `unregistered-${event.id}`, name: event.clientName || 'Cliente por associar' };
+    const linked = invoices.filter((invoice) => invoiceEventIds(invoice).includes(Number(event.id)) && invoiceIsIssued(invoice));
+    return {
+      ...client, id: client.id || event.clientId || `unregistered-${event.id}`,
+      isUnregisteredClient: !event.clientId, rowId: `external-event:${event.id}`,
+      billingPeriodLabel: event.name, billingGroups: [], nonInvoicedServices: [event], invoices: linked,
+      actionableService: event, actionableInvoice: linked[0] || null, invoicesCount: linked.length,
+      invoiceDebt: event.billingStatus === 'invoiced' ? num(event.financial?.receivable) : 0,
+      pendingBilling: ['pending', 'partial70'].includes(event.billingStatus) ? num(event.financial?.receivable) : 0,
+      totalOpen: num(event.financial?.receivable), nextDueDate: null, overdueDays: 0,
+    };
+  });
 }
 
 export function isDateInBillingPeriod(value, period) {

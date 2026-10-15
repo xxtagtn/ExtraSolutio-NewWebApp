@@ -1337,14 +1337,15 @@ export default function TimeValidation() {
   }
 
   function validationBodyFor(row, merged, mode = 'auto') {
-    const realClientHours = clientRealHoursFor(merged);
-    const clientHours = clientHoursFor(merged, row.event);
     const staffHours = staffHoursFor(merged, row.event);
     const persistence = validationPersistenceFields(
       merged,
       mode,
       validationStatusFor(row.event, merged),
     );
+    const currentSources = { ...merged, ...persistence, clientRealHours: 0, clientBillableHours: 0 };
+    const realClientHours = clientRealHoursFor(currentSources);
+    const clientHours = clientHoursFor(currentSources, row.event);
 
     return {
       eventId: merged.eventId,

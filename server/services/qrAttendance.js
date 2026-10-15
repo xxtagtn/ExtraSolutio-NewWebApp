@@ -1,4 +1,5 @@
 import { roundedBillableHours } from '../../src/utils/serviceFinance.js';
+import { assignmentDerivedHours } from '../../src/utils/assignmentDerivedHours.js';
 import {
   QR_CHECK_ACTIONS,
   formatServerTime,
@@ -97,7 +98,7 @@ export async function readPublicQrForConsultation(client, token, { now = new Dat
   return { qrCode, access };
 }
 
-export async function registerPublicQr(prisma, token, action, { now = new Date(), audit = {}, resolveQr, serializable = false, allowExpiredCheckout } = {}) {
+export async function registerPublicQr(prisma, token, action, { now = new Date(), audit = {}, resolveQr, serializable = false, allowExpiredCheckout, afterWrite } = {}) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
@@ -134,6 +135,7 @@ export async function registerPublicQr(prisma, token, action, { now = new Date()
             staffPayableHours: hoursWorked,
             totalPay: Number((hoursWorked * Number(assignment.hourlyRate || 0)).toFixed(2)),
           });
+          Object.assign(data, assignmentDerivedHours({ ...assignment, ...data }, qrCode.event || assignment.event || {}));
         } else {
           throw publicQrError(400, 'Ação inválida para este QR Code.', 'QR_ACTION_INVALID');
         }
@@ -165,6 +167,7 @@ export async function registerPublicQr(prisma, token, action, { now = new Date()
             userAgent: audit.userAgent || '',
           },
         });
+        await afterWrite?.(tx, qrCode);
         return tx.qrCheckCode.findUnique({ where: { id: qrCode.id }, include: qrInclude });
       }, serializable ? { isolationLevel: 'Serializable' } : undefined);
     } catch (error) {

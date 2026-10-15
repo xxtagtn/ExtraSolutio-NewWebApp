@@ -107,7 +107,7 @@ test('includes an external-only event after its billing is processed', () => {
   }), true);
 });
 
-test('keeps pending external-only events in forecast', () => {
+test('makes pending external-only events processable without fabricating staff validation', () => {
   assert.equal(isFinanceReadyEvent({
     status: 'drafting',
     billingStatus: 'pending',
@@ -115,7 +115,7 @@ test('keeps pending external-only events in forecast', () => {
     externalCosts: JSON.stringify([
       { id: 'external-1', supplier: 'Fun Ride', costAmount: 790 },
     ]),
-  }), false);
+  }), true);
 });
 
 test('does not bypass operational validation when staff exists', () => {
@@ -144,7 +144,7 @@ test('splits events between forecast and processable finance buckets', () => {
       id: 4,
       status: 'drafting',
       billingStatus: 'paid',
-      externalCosts: '[{"id":"external-1"}]',
+      externalCosts: '[{"id":"external-1","costAmount":100}]',
       assignments: [],
     },
   ]);

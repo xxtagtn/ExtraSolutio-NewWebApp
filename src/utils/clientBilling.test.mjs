@@ -223,6 +223,16 @@ test('splits fully paid service rows into archive rows', () => {
   assert.deepEqual(result.archivedRows.map((row) => row.rowId), ['client:8:group:paid']);
 });
 
+test('a prepaid Staff event remains active until assessed, and an additional balance is not archived', () => {
+  const event = { id: 99, status: 'team_complete', billingStatus: 'paid', financial: { received: 986.46, receivable: 0 } };
+  const row = { rowId: 'advance-qa', billingGroups: [{ events: [event] }] };
+  assert.equal(splitClientBillingRows([row]).activeRows.length, 1);
+  event.status = 'finalized';
+  assert.equal(splitClientBillingRows([row]).archivedRows.length, 1);
+  event.financial.receivable = 30;
+  assert.equal(splitClientBillingRows([row]).activeRows.length, 1);
+});
+
 test('keeps a paid unregistered client without an invoice visible for billing', () => {
   const paidWithoutInvoice = {
     rowId: 'unregistered-event:50',

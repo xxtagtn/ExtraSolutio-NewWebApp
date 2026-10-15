@@ -328,6 +328,7 @@ model Event {
   signaledAt    DateTime?        @db.DateTime(3)
   signaledAmount Decimal         @default(0) @db.Decimal(12, 2)
   paidAmount Decimal             @default(0) @db.Decimal(12, 2)
+  clientPaymentRecord String?     @db.LongText
   remainingPaymentDate DateTime? @db.DateTime(3)
   status       String            @default("pending") @db.VarChar(40)
   statusMode   String            @default("automatic") @db.VarChar(20)
@@ -335,6 +336,7 @@ model Event {
   totalRevenue Decimal           @default(0) @db.Decimal(12, 2)
   billingAdjustment Decimal      @default(0) @db.Decimal(12, 2)
   vatRateSnapshot Decimal        @default(0) @db.Decimal(8, 4)
+  staffVatRateSnapshot Decimal?  @db.Decimal(8, 4)
   taxAmount    Decimal           @default(0) @db.Decimal(12, 2)
   notes        String?           @db.Text
   createdAt    DateTime          @default(now()) @db.DateTime(3)

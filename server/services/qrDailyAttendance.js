@@ -142,9 +142,9 @@ export function publicDailyPunchPayload(state) {
     ...(state.checkoutReceipt ? { checkoutReceipt: state.checkoutReceipt } : {}) };
 }
 
-export async function registerDailyQr(db, token, action, request = {}, { now = new Date(), audit = {}, rowFilter, authorize, allowExpiredCheckout, readAfterWrite = true } = {}) {
+export async function registerDailyQr(db, token, action, request = {}, { now = new Date(), audit = {}, rowFilter, authorize, allowExpiredCheckout, readAfterWrite = true, afterWrite } = {}) {
   const updated = await registerPublicQr(db, token, action, {
-    now, audit, serializable: true,
+    now, audit, serializable: true, afterWrite,
     allowExpiredCheckout: allowExpiredCheckout ? (qr) => allowExpiredCheckout(qr.assignment) : undefined,
     resolveQr: async (tx) => {
       if (authorize) await authorize(tx);

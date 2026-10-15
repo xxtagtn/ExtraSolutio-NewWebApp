@@ -11,10 +11,15 @@ import {
 } from '../../src/utils/eventCancelledDays.js';
 import { isBillableEventAssignment } from '../../src/utils/eventFinancialRules.js';
 import { calculateEventTotals } from '../utils/eventTotals.js';
+import { acceptedStaffHourCachePatch } from '../../src/utils/assignmentDerivedHours.js';
+import { clientPaymentRecordPatch } from './clientPaymentRecord.js';
 import { assertPaidStaffTravelUnchanged } from '../utils/staffTravelProtection.js';
 import { normalizeStaffTravel, staffTravelHoursConfigured } from '../../src/utils/staffTravel.js';
+import { externalServiceCanArchive, externalServiceCompletionBlocker, externalServiceIsSettled, isExternalOnlyService } from '../../src/utils/externalServiceWorkflow.js';
+import { invoiceIsIssued, invoiceIsPaid } from '../../shared/invoiceLifecycle.js';
 import {
   eventRevenueIsLocked,
+  invoiceEventIds,
   issuedInvoiceForEvent,
 } from '../utils/eventInvoiceProtection.js';
 
@@ -44,8 +49,10 @@ export function isEventWorkflowManual(event = {}) {
 
 export function deriveEventWorkflowStatus(event = {}, now = new Date()) {
   const status = normalizedStatus(event.status);
+  if (externalServiceCanArchive(event, now, process.env.APP_TIMEZONE || 'Europe/Lisbon')) return SERVICE_STATUS.finalized;
   if (isEventWorkflowManual(event)) return status || SERVICE_STATUS.drafting;
   if (status === SERVICE_STATUS.finalized || status === 'cancelled') return status;
+  if (isExternalOnlyService(event)) return nextAutomaticServiceStatus({ ...event, status }, now);
 
   const validationStage = new Set([
     SERVICE_STATUS.toValidateStaff,
@@ -73,13 +80,13 @@ function appendValidatedHoursMarker(notes) {
     .join('\n');
 }
 
-async function withTransaction(prisma, callback) {
-  if (typeof prisma.$transaction === 'function') return prisma.$transaction(callback);
+async function withTransaction(prisma, callback, options) {
+  if (typeof prisma.$transaction === 'function') return prisma.$transaction(callback, options);
   return callback(prisma);
 }
 
 async function loadEvent(client, id) {
-  return client.event.findUnique({
+  const event = await client.event.findUnique({
     where: { id },
     include: {
       client: true,
@@ -87,6 +94,16 @@ async function loadEvent(client, id) {
       invoices: true,
     },
   });
+  if (event && isExternalOnlyService(event) && client.invoice?.findMany) {
+    const linked = await client.invoice.findMany({
+      where: { OR: [{ eventId: id }, { eventIds: { contains: String(id) } }] },
+      select: { id: true, eventId: true, eventIds: true, status: true, issueDate: true },
+    });
+    const invoices = new Map((event.invoices || []).map((invoice) => [invoice.id, invoice]));
+    for (const invoice of linked) if (invoiceEventIds(invoice).includes(id) && !invoices.has(invoice.id)) invoices.set(invoice.id, invoice);
+    event.invoices = [...invoices.values()];
+  }
+  return event;
 }
 
 function publicWorkflowError(statusCode, message) {
@@ -294,18 +311,84 @@ export async function synchronizeEventWorkflow(prisma, eventId, {
     if (!event) return null;
 
     const data = {};
-    const nextStatus = deriveEventWorkflowStatus(event, now);
+    const externalOnly = isExternalOnlyService(event);
+    const issued = externalOnly ? (event.invoices || []).filter(invoiceIsIssued) : [];
+    if (issued.length) {
+      const billingStatus = issued.every(invoiceIsPaid) ? 'paid' : 'invoiced';
+      if (event.billingStatus !== billingStatus) {
+        data.billingStatus = billingStatus;
+        const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+          timeZone: process.env.APP_TIMEZONE || 'Europe/Lisbon', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(now).filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
+        data.billingPaymentDate = billingStatus === 'paid' ? event.billingPaymentDate || new Date(`${eventDayKey(parts)}T00:00:00Z`) : null;
+      }
+    }
+    const nextStatus = deriveEventWorkflowStatus({ ...event, ...data }, now);
     if (nextStatus && nextStatus !== event.status) data.status = nextStatus;
 
     if (recalculateTotals) {
       const issuedInvoice = await issuedInvoiceForEvent(client, id, event.invoices);
+      const preserveClientTotals = eventRevenueIsLocked(event) || Boolean(issuedInvoice);
+      if (!preserveClientTotals) {
+        for (const assignment of event.assignments) {
+          const patch = acceptedStaffHourCachePatch(assignment, event);
+          if (Object.keys(patch).length) {
+            await client.eventAssignment.update({ where: { id: assignment.id }, data: patch });
+            Object.assign(assignment, patch);
+          }
+        }
+      }
       Object.assign(data, calculateEventTotals(event, event.assignments, {
-        preserveClientTotals: eventRevenueIsLocked(event) || Boolean(issuedInvoice),
+        preserveClientTotals,
       }));
+      if (!preserveClientTotals) Object.assign(data, clientPaymentRecordPatch(event, data));
     }
 
-    if (!Object.keys(data).length) return event;
-    return client.event.update({ where: { id }, data, include: { assignments: true } });
+    let result = event;
+    if (Object.keys(data).length) {
+      if (externalOnly) {
+        const changed = await client.event.updateMany({
+          where: { id, updatedAt: event.updatedAt, status: event.status, assignments: { none: {} } }, data,
+        });
+        if (changed.count !== 1) throw publicWorkflowError(409, 'O evento foi alterado. Atualiza a página e confirma novamente.');
+        result = await loadEvent(client, id);
+      } else result = await client.event.update({ where: { id }, data, include: { assignments: true } });
+    }
+    return externalOnly ? { ...result, externalService: { only: true, settled: externalServiceIsSettled({ ...event, ...data }),
+      settledByInvoice: issued.length > 0 && issued.every(invoiceIsPaid) } } : result;
+  });
+}
+
+export async function externalServiceForRead(prisma, row) {
+  if (!isExternalOnlyService(row)) return row;
+  const synced = await synchronizeEventWorkflow(prisma, row.id);
+  return { ...row, status: synced.status, statusMode: synced.statusMode, billingStatus: synced.billingStatus,
+    billingPaymentDate: synced.billingPaymentDate, updatedAt: synced.updatedAt, externalService: synced.externalService };
+}
+
+export async function synchronizeExternalInvoiceEvents(client, invoice) {
+  for (const id of invoiceEventIds(invoice)) {
+    const event = await loadEvent(client, id);
+    if (!event || !isExternalOnlyService(event)) continue;
+    if (['cancelled', 'void'].includes(String(invoice.status || '').toLowerCase())
+      && !(event.invoices || []).some(invoiceIsIssued)) {
+      const changed = await client.event.updateMany({
+        where: { id, updatedAt: event.updatedAt, status: event.status, assignments: { none: {} } },
+        data: { billingStatus: 'pending', billingPaymentDate: null },
+      });
+      if (changed.count !== 1) throw publicWorkflowError(409, 'O evento foi alterado. Atualiza a página e confirma novamente.');
+    }
+    await synchronizeEventWorkflow(client, id);
+  }
+}
+
+export async function persistInvoiceWithExternalWorkflow(prisma, { id, data, include, existing }) {
+  return withTransaction(prisma, async (client) => {
+    const invoice = id ? await client.invoice.update({ where: { id }, data, include })
+      : await client.invoice.create({ data, include });
+    await synchronizeExternalInvoiceEvents(client, invoice);
+    if (existing) await synchronizeExternalInvoiceEvents(client, existing);
+    return client.invoice.findUnique({ where: { id: invoice.id }, include });
   });
 }
 
@@ -352,6 +435,30 @@ export async function markEventValidated(prisma, eventId, notes) {
       include: { assignments: true },
     });
   });
+}
+
+export async function completeExternalService(prisma, eventId, { now = new Date() } = {}) {
+  const id = Number(eventId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  try {
+    return await withTransaction(prisma, async (client) => {
+      const event = await loadEvent(client, id);
+      if (!event) return null;
+      const blocker = externalServiceCompletionBlocker(event, now, process.env.APP_TIMEZONE || 'Europe/Lisbon');
+      if (blocker) throw publicWorkflowError(409, blocker);
+      if (normalizedStatus(event.status) === SERVICE_STATUS.finalized) return event;
+      // Only operational fields change; invoiced/paid amounts must remain byte-for-byte intact.
+      const changed = await client.event.updateMany({
+        where: { id, updatedAt: event.updatedAt, status: event.status, assignments: { none: {} } },
+        data: { status: SERVICE_STATUS.finalized, statusMode: EVENT_WORKFLOW_MODE.manual },
+      });
+      if (changed.count !== 1) throw publicWorkflowError(409, 'O evento foi alterado. Atualiza a página e confirma novamente.');
+      return loadEvent(client, id);
+    }, { isolationLevel: 'Serializable' });
+  } catch (error) {
+    if (error.code === 'P2034') throw publicWorkflowError(409, 'O evento foi alterado. Atualiza a página e confirma novamente.');
+    throw error;
+  }
 }
 
 export async function reopenEventValidation(prisma, eventId, notes, { assignmentIds } = {}) {

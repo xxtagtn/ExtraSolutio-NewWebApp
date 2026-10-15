@@ -1,4 +1,5 @@
 import { externalCostsTotals } from '../../src/utils/externalCosts.js';
+import { calculateEventSalesTax } from '../../src/utils/eventSalesTax.js';
 import {
   assignmentEventDay,
   activeEventAssignments,
@@ -11,7 +12,7 @@ import {
   clientRealHours,
   decimalValue,
   roundedBillableHours,
-  staffWorkedHours,
+  staffPaymentHours,
 } from '../../src/utils/serviceFinance.js';
 import {
   billableEventAssignments,
@@ -109,6 +110,7 @@ export function assignmentHasRecordedHours(assignment = {}) {
 
 export function calculateEventTotals(event = {}, assignments = event.assignments || [], {
   preserveClientTotals = false,
+  preserveUnstructuredBudget = true,
 } = {}) {
   const billableAssignments = billableEventAssignments(activeEventAssignments(event, assignments));
   const vacancies = requiredVacancies(event, billableAssignments);
@@ -126,7 +128,7 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
       event.endTime,
       event.minimumHoursSnapshot,
     );
-    const staffHours = staffWorkedHours(assignment, event.startTime, event.endTime);
+    const staffHours = staffPaymentHours(assignment, event.startTime, event.endTime);
     const clientRate = clientRateForAssignment(assignment, event);
     const staffRate = numberValue(assignment.hourlyRate);
     const explicitStaffTotal = numberValue(assignment.totalPay);
@@ -161,8 +163,9 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
   const externalTotals = externalCostsTotals(event.externalCosts);
   const ownServicesRevenue = assignmentRevenue + travelRevenue;
   const calculatedNetRevenue = ownServicesRevenue + externalTotals.chargeAmount;
-  const calculatedTax = (ownServicesRevenue * (numberValue(event.vatRateSnapshot) / 100))
-    + externalTotals.taxAmount;
+  const { taxAmount: calculatedTax } = calculateEventSalesTax(event, {
+    staffSale: assignmentRevenue, travelSale: travelRevenue, partnerTax: externalTotals.taxAmount,
+  });
   const calculatedGrossRevenue = calculatedNetRevenue + calculatedTax;
   const calculatedCost = assignmentCost + externalTotals.costAmount;
 
@@ -174,7 +177,7 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
   const importedBudgetWithoutStructure = !hasRevenueStructure
     && /\[BUDGET_REF:[^\]]+\]/i.test(String(event.notes || ''));
   const preserveCommercialSnapshot = preserveClientTotals
-    || importedBudgetWithoutStructure
+    || (preserveUnstructuredBudget && importedBudgetWithoutStructure)
     || (!clientPricingComplete && numberValue(event.totalRevenue) > 0);
   const preserveCostSnapshot = !staffPricingComplete
     && hasCostStructure

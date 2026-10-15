@@ -4,6 +4,7 @@ import {
   isBudgetCompositionValid,
 } from '../../src/utils/budgetComposition.js';
 import { normalizeExternalCosts } from '../../src/utils/externalCosts.js';
+import { normalizeStaffVatRate } from '../../src/utils/eventSalesTax.js';
 import { normalizeAssignmentDrafts } from '../../src/utils/serviceAssignmentDrafts.js';
 import { normalizeTravelCars } from '../../src/utils/travelCalculator.js';
 import { travelConfiguration } from '../../src/utils/staffTravel.js';
@@ -33,7 +34,7 @@ export function createCrudRouter(model, fields, options = {}) {
   const updateMiddlewares = Array.isArray(updateMiddleware) ? updateMiddleware : [updateMiddleware];
   const deleteMiddlewares = Array.isArray(deleteMiddleware) ? deleteMiddleware : [deleteMiddleware];
   const serializeRow = options.serializeRow ?? ((row) => row);
-  const serializeRows = options.serializeRows ?? ((rows, req) => rows.map((row) => serializeRow(row, req)));
+  const serializeRows = options.serializeRows ?? ((rows, req) => Promise.all(rows.map((row) => serializeRow(row, req))));
 
   router.get('/', ...readMiddlewares, asyncHandler(async (req, res) => {
     const pagination = parsePaginationQuery(req.query, options.pagination);
@@ -45,7 +46,7 @@ export function createCrudRouter(model, fields, options = {}) {
       include,
       ...(pagination.enabled ? { skip: pagination.skip, take: pagination.take } : {}),
     });
-    const serializedRows = serializeRows(rows, req);
+    const serializedRows = await serializeRows(rows, req);
     if (!pagination.enabled) return res.json(serializedRows);
 
     const total = await model.count({ ...(where ? { where } : {}) });
@@ -62,14 +63,14 @@ export function createCrudRouter(model, fields, options = {}) {
     if (!id) return;
     const row = await model.findUnique({ where: { id }, include });
     if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
-    return res.json(serializeRow(row, req));
+    return res.json(await serializeRow(row, req));
   }));
 
   router.post('/', ...createMiddlewares, asyncHandler(async (req, res) => {
     const data = await (options.normalizeCreate?.(req.body) ?? pick(req.body, fields));
-    const row = await model.create({ data, include });
+    const row = options.performCreate ? await options.performCreate({ data, include, model, body: req.body }) : await model.create({ data, include });
     await options.afterCreate?.({ row, data, body: req.body });
-    res.status(201).json(serializeRow(row, req));
+    res.status(201).json(await serializeRow(row, req));
   }));
 
   router.put('/:id', ...updateMiddlewares, asyncHandler(async (req, res) => {
@@ -84,7 +85,7 @@ export function createCrudRouter(model, fields, options = {}) {
       ? await options.performUpdate({ id, data, existing, include, body: req.body, model })
       : await model.update({ where: { id }, data, include });
     await options.afterUpdate?.({ id, row, existing, data, body: req.body });
-    res.json(serializeRow(row, req));
+    res.json(await serializeRow(row, req));
   }));
 
   router.delete('/:id', ...deleteMiddlewares, asyncHandler(async (req, res) => {
@@ -227,6 +228,7 @@ export function normalizeEvent(input) {
     totalRevenue: parseDecimal(input.totalRevenue),
     billingAdjustment: parseDecimal(input.billingAdjustment),
     vatRateSnapshot: parseDecimal(input.vatRateSnapshot),
+    staffVatRateSnapshot: normalizeStaffVatRate(input.staffVatRateSnapshot),
     taxAmount: parseDecimal(input.taxAmount),
     travelExpenseAmount: parseDecimal(input.travelExpenseAmount),
     travelPeople: asInt(input.travelPeople),

@@ -20,6 +20,13 @@ export function prepaymentDepositAmount(totalValue, client = null) {
   return Number((total * (rule.percent / 100)).toFixed(2));
 }
 
+export function prepaymentReferenceAmounts(totalValue) {
+  const totalCents = Math.max(0, Math.round((decimalValue(totalValue) || 0) * 100));
+  // Reuse the policy calculator in cents; the complement absorbs monetary rounding.
+  const seventyCents = Math.round(prepaymentDepositAmount(totalCents, { prepaymentPercent: 70 }));
+  return { total: totalCents / 100, seventy: seventyCents / 100, thirty: (totalCents - seventyCents) / 100 };
+}
+
 export function buildPrepaymentSummary({
   total = 0,
   serviceDate = '',
@@ -40,9 +47,9 @@ export function buildPrepaymentSummary({
   ).toFixed(2));
   const manualPaidAmount = decimalValue(storedPaidAmount) || 0;
   const paidAmount = status === 'paid'
-    ? totalAmount
+    ? manualPaidAmount > 0 ? manualPaidAmount : totalAmount
     : status === 'partial70'
-      ? Number(Math.min(totalAmount, manualPaidAmount > 0 ? manualPaidAmount : resolvedSignaledAmount).toFixed(2))
+      ? Number((manualPaidAmount > 0 ? manualPaidAmount : resolvedSignaledAmount).toFixed(2))
       : 0;
 
   return {

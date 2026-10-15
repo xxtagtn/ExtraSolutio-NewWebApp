@@ -1,14 +1,19 @@
 ﻿import { ChevronDown, ChevronRight, LayoutTemplate, Plus, Save, Trash2, Users } from 'lucide-react';
-import { CarFront } from 'lucide-react';
+import { CarFront, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import ExternalCostsEditor from '../components/Finance/ExternalCostsEditor.jsx';
+import StaffVatControl from '../components/Finance/StaffVatControl.jsx';
+import { calculateEventSalesTax } from '../utils/eventSalesTax.js';
+import { CLIENT_PAYMENT_FIELDS, clientPaymentFieldsUnchanged } from '../utils/clientPayment.js';
+import { readClientPaymentRecord } from '../utils/clientPaymentRecord.js';
 import StaffTravelAutomaticSummary from '../components/Finance/StaffTravelAutomaticSummary.jsx';
 import { normalizeStaffTravel, staffTravelCompensation, travelConfiguration } from '../utils/staffTravel.js';
 import Modal from '../components/UI/Modal.jsx';
 import SourceBadge from '../components/UI/SourceBadge.jsx';
+import IconButton from '../components/UI/IconButton.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
@@ -74,6 +79,7 @@ import {
   travelCarsFromSource,
 } from '../utils/serviceTemplateForm.js';
 import { requiredStaffTotal } from '../utils/serviceRequirements.js';
+import { searchServices } from '../utils/serviceSearch.js';
 import {
   buildServiceDuplicateForm,
   createDuplicatePeriodDraft,
@@ -199,6 +205,7 @@ function emptyForm() {
     remainingPaymentDate: '',
     totalRevenue: '',
     vatRateSnapshot: 0,
+    staffVatRateSnapshot: null,
     taxAmount: 0,
     externalCosts: [],
     realHours: 0,
@@ -473,6 +480,7 @@ function toForm(row) {
     remainingPaymentDate: row.remainingPaymentDate ? String(row.remainingPaymentDate).slice(0, 10) : '',
     totalRevenue: row.totalRevenue === undefined || row.totalRevenue === null ? '' : formatMoneyInline(row.totalRevenue),
     vatRateSnapshot: Number(row.vatRateSnapshot || 0),
+    staffVatRateSnapshot: row.staffVatRateSnapshot == null ? null : Number(row.staffVatRateSnapshot),
     taxAmount: Number(row.taxAmount || 0),
     externalCosts: normalizeExternalCosts(row.externalCosts),
     realHours: Number(row.realHours || 0),
@@ -518,6 +526,8 @@ export default function Services() {
   const [fromDate, setFromDate] = useState('');
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const eventSearchRef = useRef(null);
   const [listScope, setListScope] = useState('active');
   const [archiveMonth, setArchiveMonth] = useState('');
   const [archiveYear, setArchiveYear] = useState('');
@@ -548,14 +558,14 @@ export default function Services() {
   const [templateError, setTemplateError] = useState('');
   const [statusSyncing, setStatusSyncing] = useState(false);
 
-  const rows = useMemo(() => data.filter((row) => {
+  const rows = useMemo(() => searchServices(data.filter((row) => {
     const byArchive = listScope === 'archive' ? isArchivedService(row) : !isArchivedService(row);
     const byDate = fromDate ? dateOnly(eventRangeEnd(row)) >= fromDate : true;
     const byClient = clientFilter ? String(row.clientId) === clientFilter : true;
     const byStatus = statusFilter ? serviceStatusForDisplay(row) === statusFilter : true;
     const byArchivePeriod = listScope !== 'archive' || eventOverlapsMonth(row, archiveMonth, archiveYear);
     return byArchive && byDate && byClient && byStatus && byArchivePeriod;
-  }), [data, listScope, fromDate, clientFilter, statusFilter, archiveMonth, archiveYear]);
+  }), searchQuery), [data, listScope, fromDate, clientFilter, statusFilter, archiveMonth, archiveYear, searchQuery]);
 
   const archiveYears = useMemo(() => {
     const years = new Set([String(new Date().getFullYear())]);
@@ -584,7 +594,7 @@ export default function Services() {
 
   useEffect(() => {
     setArchivePage(1);
-  }, [archiveMonth, archiveYear, archivePageSize, clientFilter, fromDate, listScope, statusFilter]);
+  }, [archiveMonth, archiveYear, archivePageSize, clientFilter, fromDate, listScope, statusFilter, searchQuery]);
 
   useEffect(() => {
     setArchivePage((currentPage) => Math.min(currentPage, archiveTotalPages));
@@ -719,23 +729,29 @@ export default function Services() {
     const expectedWithoutTravel = hasAssignments ? expectedRevenue : expectedRevenueByRoles;
     const expectedOwnRevenue = expectedWithoutTravel + travelExpenseAmount;
     const calculatedOwnRevenue = revenueWithoutTravel + travelExpenseAmount;
-    const vatRate = Number(form.vatRateSnapshot || 0);
-    const calculatedExpectedTax = (expectedOwnRevenue * (vatRate / 100)) + externalTotals.taxAmount;
-    const calculatedTax = (calculatedOwnRevenue * (vatRate / 100)) + externalTotals.taxAmount;
+    const taxSettings = { vatRateSnapshot: form.vatRateSnapshot, staffVatRateSnapshot: form.staffVatRateSnapshot };
+    const calculatedExpectedTax = calculateEventSalesTax(taxSettings, {
+      staffSale: expectedWithoutTravel, travelSale: travelExpenseAmount, partnerTax: externalTotals.taxAmount,
+    }).taxAmount;
+    const calculatedTax = calculateEventSalesTax(taxSettings, {
+      staffSale: revenueWithoutTravel, travelSale: travelExpenseAmount, partnerTax: externalTotals.taxAmount,
+    }).taxAmount;
     const storedTax = Number(form.taxAmount || 0);
-    const resolvedTax = calculatedTax > 0 ? calculatedTax : Math.max(0, storedTax);
-    const resolvedExpectedTax = calculatedExpectedTax > 0 ? calculatedExpectedTax : Math.max(0, storedTax);
+    const taxSourcesAvailable = hasAssignments || form.requiredRoles.length > 0 || form.externalCosts.length > 0
+      || travelExpenseAmount > 0 || form._financialConfigurationChanged;
+    const resolvedTax = taxSourcesAvailable ? calculatedTax : Math.max(0, storedTax);
+    const resolvedExpectedTax = taxSourcesAvailable ? calculatedExpectedTax : Math.max(0, storedTax);
     const calculatedExpectedRevenue = expectedOwnRevenue + externalTotals.chargeAmount + resolvedExpectedTax;
     const calculatedTotalRevenue = calculatedOwnRevenue + externalTotals.chargeAmount + resolvedTax;
     const resolvedTotalRevenue = resolveEventRevenue({
       calculatedTotalRevenue,
       calculatedExpectedRevenue,
-      storedTotalRevenue: form.totalRevenue,
+      storedTotalRevenue: form._financialConfigurationChanged ? 0 : form.totalRevenue,
     });
     const resolvedExpectedRevenue = resolveEventRevenue({
       calculatedTotalRevenue: calculatedExpectedRevenue,
       calculatedExpectedRevenue,
-      storedTotalRevenue: form.totalRevenue,
+      storedTotalRevenue: form._financialConfigurationChanged ? 0 : form.totalRevenue,
     });
     const staffCost = Number(totalCost.toFixed(2));
     const operationalExpenses = Number(externalTotals.costAmount.toFixed(2));
@@ -769,7 +785,7 @@ export default function Services() {
       realHours: Number(realHours.toFixed(2)),
       billableHours: Number(billableHours.toFixed(2)),
     };
-  }, [form.requiredRoles, form.rateHistory, form.assignments, form.externalCosts, form.isContinuous, form.date, form.endDate, form.startTime, form.endTime, eventDays, minimumHoursSnapshot, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, selectedClient, form.totalRevenue, form.taxAmount, form.vatRateSnapshot, form.travelCars, form.staffTravel, form.split5050, form.status]);
+  }, [form.requiredRoles, form.rateHistory, form.assignments, form.externalCosts, form.isContinuous, form.date, form.endDate, form.startTime, form.endTime, eventDays, minimumHoursSnapshot, travelExpenseAmount, formAssignmentClientHours, formAssignmentClientRealHours, formAssignmentStaffHours, collaboratorsById, selectedClient, form.totalRevenue, form.taxAmount, form.vatRateSnapshot, form.staffVatRateSnapshot, form._financialConfigurationChanged, form.travelCars, form.staffTravel, form.split5050, form.status]);
   const prepaymentSummary = buildPrepaymentSummary({
     total: financials.totalRevenue || financials.expectedRevenue || 0,
     serviceDate: form.date,
@@ -798,7 +814,7 @@ export default function Services() {
       billingStatus,
       signaledAmount: billingStatus === 'pending' ? '' : formatMoneyInline(nextSummary.signaledAmount),
       paidAmount: billingStatus === 'pending' ? '' : formatMoneyInline(nextSummary.paidAmount),
-      remainingPaymentDate: billingStatus === 'partial70' ? nextSummary.remainingPaymentDate : '',
+      remainingPaymentDate: billingStatus === 'partial70' ? nextSummary.remainingPaymentDate : billingStatus === 'paid' ? form.remainingPaymentDate : '',
     });
   }
 
@@ -1459,15 +1475,21 @@ export default function Services() {
         travelCars: travelConfiguration(travelCars, form.staffTravel || []),
         split5050: Boolean(form.split5050),
         travelManualAmount: form.travelType === 'manual' ? (parseMoney(form.travelManualAmount) || 0) : 0,
-        signaledAmount: ['partial70', 'paid'].includes(form.billingStatus) ? prepaymentForPayload.signaledAmount : 0,
+        signaledAmount: editing?.billingStatus === 'paid' && form.billingStatus === 'paid'
+          ? (parseMoney(form.signaledAmount) || 0) : ['partial70', 'paid'].includes(form.billingStatus) ? prepaymentForPayload.signaledAmount : 0,
         paidAmount: form.billingStatus === 'paid'
           ? prepaymentForPayload.total
           : form.billingStatus === 'partial70'
             ? prepaymentForPayload.paidAmount
             : 0,
-        signaledAt: form.billingStatus === 'partial70' ? (form.signaledAt || null) : null,
-        remainingPaymentDate: form.billingStatus === 'partial70' ? prepaymentForPayload.remainingPaymentDate : null,
+        signaledAt: ['partial70', 'paid'].includes(form.billingStatus) ? (form.signaledAt || null) : null,
+        remainingPaymentDate: form.billingStatus === 'partial70' ? prepaymentForPayload.remainingPaymentDate
+          : form.billingStatus === 'paid' ? (form.remainingPaymentDate || null) : null,
       };
+      if (editing && clientPaymentFieldsUnchanged(form, editing)) {
+        // Editing service prices must not rewrite receipts or a concurrent payment.
+        for (const field of CLIENT_PAYMENT_FIELDS) delete payload[field];
+      }
       const saved = await api(`/services${editing ? `/${editing.id}` : ''}`, {
         method: editing ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
@@ -1683,6 +1705,7 @@ export default function Services() {
     <div className="page">
       <Card
         title="Eventos/Serviços"
+        className="services-list-card"
         action={(
           <button className="command-button" type="button" onClick={openCreate}>
             <Plus size={17} />
@@ -1709,13 +1732,22 @@ export default function Services() {
             Arquivo ({archiveCount})
           </button>
         </div>
-        <div className={`filters ${listScope === 'archive' ? 'services-archive-filters' : ''}`}>
-          <input className="form-control" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
-          <select className="form-control" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}>
+        <div className={`filters services-list-filters ${listScope === 'archive' ? 'services-archive-filters' : ''}`}>
+          <div className="services-list-search">
+            <Search size={17} aria-hidden="true" />
+            <input ref={eventSearchRef} className="form-control" type="search" aria-label="Pesquisar eventos e serviços"
+              placeholder="Pesquisar por evento, nome, data ou número..." value={searchQuery}
+              onChange={(event) => { setSearchQuery(event.target.value); setArchivePage(1); }} />
+            {searchQuery ? <IconButton label="Limpar pesquisa" onClick={() => {
+              setSearchQuery(''); setArchivePage(1); eventSearchRef.current?.focus();
+            }}><X size={16} /></IconButton> : null}
+          </div>
+          <input className="form-control" type="date" aria-label="Eventos a partir de" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+          <select className="form-control" aria-label="Filtrar por cliente" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}>
             <option value="">Todos os clientes</option>
             {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
           </select>
-          <select className="form-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <select className="form-control" aria-label="Filtrar por estado" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="">Todos os estados</option>
             {operationalStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
@@ -1737,7 +1769,8 @@ export default function Services() {
         </div>
         {error ? <p className="notice">{error}</p> : null}
         {loading ? <p className="muted">A carregar...</p> : null}
-        {!loading && !rows.length ? <p className="muted">Nenhum evento/serviço encontrado.</p> : null}
+        {!loading && searchQuery.trim() && rows.length > 0 ? <p className="muted services-search-count" role="status">{rows.length} evento(s) encontrado(s)</p> : null}
+        {!loading && !rows.length ? <p className="muted">{searchQuery.trim() ? 'Não foram encontrados eventos para esta pesquisa.' : 'Nenhum evento/serviço encontrado.'}</p> : null}
         <div className="service-card-list">
           {visibleRows.map((row) => {
             const requestedTotal = requiredStaffTotal(row);
@@ -1940,6 +1973,8 @@ export default function Services() {
                 </section>
 
                 <section className="service-form-section">
+                  {!editing ? <StaffVatControl event={form}
+                    onChange={(staffVatRateSnapshot) => setForm((current) => ({ ...current, staffVatRateSnapshot, _financialConfigurationChanged: true }))} /> : null}
                   <h3>Cliente e local</h3>
                   <div className="form-grid">
                     <label>Cliente registado (opcional)
@@ -2540,6 +2575,10 @@ export default function Services() {
               <div className="service-tab-panel">
                 <section className="service-form-section">
                   <h3>Financeiro</h3>
+                  <StaffVatControl event={form}
+                    disabled={Boolean(editing && (editing.billingStatus === 'invoiced' || editing.status === 'invoiced'
+                      || readClientPaymentRecord(editing.clientPaymentRecord)?.legacyInvoiced))}
+                    onChange={(staffVatRateSnapshot) => setForm((current) => ({ ...current, staffVatRateSnapshot, _financialConfigurationChanged: true }))} />
                   <div className="service-finance-grid">
                     <div><span>Horas Reais</span><strong>{durationHours(financials.realHours)}</strong></div>
                     <div><span>Horas Faturáveis</span><strong>{durationHours(financials.billableHours)}</strong></div>
@@ -2568,7 +2607,8 @@ export default function Services() {
                     </div>
                     <ExternalCostsEditor
                       value={form.externalCosts}
-                      onChange={(externalCosts) => setForm((current) => ({ ...current, externalCosts }))}
+                      confirmRemove
+                      onChange={(externalCosts) => setForm((current) => ({ ...current, externalCosts, _financialConfigurationChanged: true }))}
                     />
                   </div>
                 </section>
@@ -2584,7 +2624,7 @@ export default function Services() {
                   {removing ? 'A eliminar...' : 'Eliminar'}
                 </button>
               ) : null}
-              {editing && isArchivedService(form) ? (
+              {editing && isArchivedService({ ...form, assignments: editing.assignments || [], externalService: editing.externalService }) ? (
                 <button className="secondary-button" type="button" onClick={restoreEventFromArchive} disabled={saving || removing}>
                   Retirar do arquivo
                 </button>

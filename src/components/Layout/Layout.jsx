@@ -23,7 +23,7 @@ export default function Layout() {
   const location = useLocation();
   const communicationPage = location.pathname.replace(/\/$/, '') === '/communication';
   const { data: remoteOverview } = useCommunicationData(communicationPage ? `/notifications/overview?day=${notificationReferenceDate.toDateString()}` : null);
-  const { data: services } = useApi('/services', [], { enabled: !communicationPage });
+  const { data: services, reload: reloadServices } = useApi('/services', [], { enabled: !communicationPage });
   const { data: budgets } = useApi('/budgets', [], { enabled: !communicationPage });
   const { data: invoices } = useApi('/invoices', [], { enabled: !communicationPage });
   const { data: collaborators } = useApi('/collaborators?light=1', [], { enabled: !communicationPage });
@@ -31,6 +31,12 @@ export default function Layout() {
 
   const reminders = useMemo(() => communicationPage ? (remoteOverview?.reminders || []) : layoutPaymentReminders(services), [communicationPage, remoteOverview, services]);
   const showReminder = reminders.length > 0 && !dismissed;
+
+  useEffect(() => {
+    const refreshPayments = () => reloadServices({ background: true });
+    window.addEventListener('extrasolutio:client-payment-changed', refreshPayments);
+    return () => window.removeEventListener('extrasolutio:client-payment-changed', refreshPayments);
+  }, [reloadServices]);
 
   const notifications = useMemo(() => {
     const result = remoteOverview?.notifications;

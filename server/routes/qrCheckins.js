@@ -10,6 +10,7 @@ import { publicDailyPunchPayload, readDailyQr, registerDailyQr } from '../servic
 import { createDailyQrToken } from '../utils/qrDailyToken.js';
 import { createMonthlyPunchToken, monthlyPunchCycle } from '../utils/qrMonthlyToken.js';
 import { readMonthlyPunchQr, registerMonthlyPunchQr } from '../services/qrMonthlyPunching.js';
+import { synchronizeEventWorkflow } from '../services/eventWorkflow.js';
 import {
   QR_CHECK_ACTIONS,
   qrCodeStateForAssignment,
@@ -103,6 +104,7 @@ function publicPayload(req, qrCode) {
 
 export const qrPublicRouter = Router();
 export const qrCodesRouter = Router();
+const refreshPunchFinancials = (client, qr) => synchronizeEventWorkflow(client, qr.eventId, { recalculateTotals: true });
 
 qrCodesRouter.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store');
@@ -120,7 +122,7 @@ qrPublicRouter.get('/month/:token', asyncHandler(async (req, res) => {
 }));
 for (const [path, action] of [['check-in', QR_CHECK_ACTIONS.checkIn], ['check-out', QR_CHECK_ACTIONS.checkOut]]) {
   qrPublicRouter.post(`/month/:token/${path}`, asyncHandler(async (req, res) => {
-    res.json(await registerMonthlyPunchQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req) }));
+    res.json(await registerMonthlyPunchQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials }));
   }));
 }
 const monthlyDisabled = (_req, res) => res.status(410).json({ message: 'Os links mensais antigos foram desativados. Pede o novo link de picagens.' });
@@ -133,7 +135,7 @@ qrPublicRouter.get('/day/:token', asyncHandler(async (req, res) => {
 
 for (const [path, action] of [['check-in', QR_CHECK_ACTIONS.checkIn], ['check-out', QR_CHECK_ACTIONS.checkOut]]) {
   qrPublicRouter.post(`/day/:token/${path}`, asyncHandler(async (req, res) => {
-    res.json(publicDailyPunchPayload(await registerDailyQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req) })));
+    res.json(publicDailyPunchPayload(await registerDailyQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials })));
   }));
 }
 
@@ -143,12 +145,12 @@ qrPublicRouter.get('/:token', asyncHandler(async (req, res) => {
 }));
 
 qrPublicRouter.post('/:token/check-in', asyncHandler(async (req, res) => {
-  const updated = await registerPublicQr(prisma, req.params.token, QR_CHECK_ACTIONS.checkIn, { audit: requestAuditMeta(req) });
+  const updated = await registerPublicQr(prisma, req.params.token, QR_CHECK_ACTIONS.checkIn, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials });
   res.json(publicPayload(req, updated));
 }));
 
 qrPublicRouter.post('/:token/check-out', asyncHandler(async (req, res) => {
-  const updated = await registerPublicQr(prisma, req.params.token, QR_CHECK_ACTIONS.checkOut, { audit: requestAuditMeta(req) });
+  const updated = await registerPublicQr(prisma, req.params.token, QR_CHECK_ACTIONS.checkOut, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials });
   res.json({ ...publicPayload(req, updated), checkoutReceipt: publicQrCheckoutReceipt(updated) });
 }));
 

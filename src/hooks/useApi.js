@@ -5,38 +5,39 @@ import { isSameApiData } from '../utils/apiDataEquality.js';
 
 export { invalidateApiCache };
 
-export function useApi(path, fallback = [], { enabled = true } = {}) {
+export function useApi(path, fallback = [], { enabled = true, revalidateOnFocus = false } = {}) {
   const cached = readApiCache(path);
   const [data, setData] = useState(cached === undefined ? fallback : cached);
   const [loading, setLoading] = useState(cached === undefined);
   const [error, setError] = useState('');
   const activeRef = useRef(true);
+  const requestRef = useRef(0);
 
   const load = useCallback(({ background = false } = {}) => {
     if (!enabled) return () => {};
     let active = true;
+    const requestId = ++requestRef.current;
     if (!background) {
       setLoading(readApiCache(path) === undefined);
     }
     setError('');
 
-    api(path)
+    const cancel = () => { active = false; };
+    cancel.done = api(path)
       .then((result) => {
-        writeApiCache(path, result);
-        if (active && activeRef.current) {
+        if (active && activeRef.current && requestId === requestRef.current) {
+          writeApiCache(path, result);
           setData((current) => (isSameApiData(current, result) ? current : result));
         }
+        return result;
       })
       .catch((err) => {
-        if (active && activeRef.current) setError(err.message);
+        if (active && activeRef.current && requestId === requestRef.current) setError(err.message);
       })
       .finally(() => {
-        if (active && activeRef.current) setLoading(false);
+        if (active && activeRef.current && requestId === requestRef.current) setLoading(false);
       });
-
-    return () => {
-      active = false;
-    };
+    return cancel;
   }, [path, enabled]);
 
   useEffect(() => {
@@ -59,8 +60,19 @@ export function useApi(path, fallback = [], { enabled = true } = {}) {
 
   const reload = useCallback(({ background = false } = {}) => {
     if (!background) invalidateApiCache(path);
-    return load({ background });
+    return load({ background }).done;
   }, [load, path]);
+
+  useEffect(() => {
+    if (!enabled || !revalidateOnFocus) return undefined;
+    const refresh = () => { if (document.visibilityState === 'visible') reload({ background: true }); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [enabled, reload, revalidateOnFocus]);
 
   return { data: enabled ? data : fallback, loading: enabled && loading, error: enabled ? error : '', reload };
 }

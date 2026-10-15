@@ -107,13 +107,13 @@ export async function readMonthlyPunchQr(db, token, { now = new Date() } = {}) {
   };
 }
 
-export async function registerMonthlyPunchQr(db, token, action, request = {}, { now = new Date(), audit = {} } = {}) {
+export async function registerMonthlyPunchQr(db, token, action, request = {}, { now = new Date(), audit = {}, afterWrite } = {}) {
   const { collaboratorId, cycle, expired } = identity(token, now);
   if (expired && action !== 'check_out') throw expiredLink();
   const current = await readMonthlyPunchQr(db, token, { now });
   if (!current.activeDay) throw publicQrError(409, 'Não existem serviços disponíveis para picar neste momento.', 'QR_NOT_ACTIVE');
   const registered = await registerDailyQr(db, createDailyQrToken(collaboratorId, current.activeDay), action, request, {
-    now, audit, rowFilter: expired ? (row) => closingShift(row, cycle, now, false) : monthlyQrEligible,
+    now, audit, afterWrite, rowFilter: expired ? (row) => closingShift(row, cycle, now, false) : monthlyQrEligible,
     allowExpiredCheckout: expired ? undefined : (row) => openMonthlyCheckout(row, cycle, now),
     // The monthly response selects the next day; the closed daily link may now be expired.
     readAfterWrite: false,

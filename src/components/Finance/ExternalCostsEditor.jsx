@@ -12,6 +12,10 @@ export default function ExternalCostsEditor({
   value = [],
   onChange,
   keepAtLeastOne = false,
+  allowAdd = true,
+  allowRemove = true,
+  showGrossTotal = false,
+  confirmRemove = false,
 }) {
   const costs = Array.isArray(value) ? value : [];
 
@@ -26,18 +30,19 @@ export default function ExternalCostsEditor({
   }
 
   function removeCost(index) {
+    if (confirmRemove && !window.confirm('Eliminar custo externo/parceiro?\n\nTem a certeza de que pretende eliminar este custo externo/parceiro? Esta ação irá atualizar os cálculos financeiros do evento.')) return;
     const next = costs.filter((_, itemIndex) => itemIndex !== index);
     onChange(next.length || !keepAtLeastOne ? next : [createEmptyExternalCost()]);
   }
 
   return (
     <div className="external-costs-editor">
-      <div className="budget-category-actions">
+      {allowAdd && <div className="budget-category-actions">
         <button className="secondary-button" type="button" onClick={addCost}>
           <Plus size={15} />
           Adicionar custo externo
         </button>
-      </div>
+      </div>}
 
       {costs.map((item, index) => {
         const calculated = normalizeExternalCosts([item])[0] || {};
@@ -45,19 +50,20 @@ export default function ExternalCostsEditor({
           <div className="budget-category" key={item.id || index}>
             <header>
               <strong>Custo externo {index + 1}</strong>
-              <button
+              {allowRemove && <button
                 type="button"
                 className="icon-button icon-button--danger"
                 onClick={() => removeCost(index)}
                 aria-label={`Remover custo externo ${index + 1}`}
               >
                 <Trash2 size={15} />
-              </button>
+              </button>}
             </header>
             <div className="budget-category-grid budget-external-grid">
               <label>Tipo
                 <select value={item.type || ''} onChange={(event) => updateCost(index, { type: event.target.value })}>
                   <option value="">Selecionar</option>
+                  {item.type && !EXTERNAL_COST_TYPE_OPTIONS.includes(item.type) ? <option value={item.type}>{item.type}</option> : null}
                   {EXTERNAL_COST_TYPE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </label>
@@ -65,10 +71,10 @@ export default function ExternalCostsEditor({
                 <input value={item.supplier || ''} onChange={(event) => updateCost(index, { supplier: event.target.value })} />
               </label>
               <label>Custo parceiro
-                <input type="number" min="0" step="any" value={item.costAmount || ''} onChange={(event) => updateCost(index, { costAmount: event.target.value })} />
+                <input type="number" min="0" step="any" value={item.costAmount ?? ''} onChange={(event) => updateCost(index, { costAmount: event.target.value })} />
               </label>
               <label>Margem %
-                <input type="number" min="0" step="any" value={item.marginPercent || ''} onChange={(event) => updateCost(index, { marginPercent: event.target.value })} />
+                <input type="number" min="0" step="any" value={item.marginPercent ?? ''} onChange={(event) => updateCost(index, { marginPercent: event.target.value })} />
               </label>
               <label>IVA
                 <select
@@ -79,10 +85,11 @@ export default function ExternalCostsEditor({
                 </select>
               </label>
               <div className="budget-external-result">
-                <span>Valor cliente</span>
+                <span>{showGrossTotal ? 'Venda sem IVA' : 'Valor cliente'}</span>
                 <strong>{money.format(calculated.chargeAmount || 0)}</strong>
                 <small>Margem: {money.format(calculated.marginAmount || 0)}</small>
                 <small>IVA: {money.format(calculated.taxAmount || 0)}</small>
+                {showGrossTotal ? <small>Total com IVA: {money.format(calculated.grossAmount || 0)}</small> : null}
               </div>
               <label className="span-2">Descrição
                 <input value={item.description || ''} onChange={(event) => updateCost(index, { description: event.target.value })} />

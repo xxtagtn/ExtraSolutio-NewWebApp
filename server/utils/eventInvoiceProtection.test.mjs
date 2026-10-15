@@ -28,6 +28,9 @@ test('classifies only revenue-affecting updates as protected', () => {
   assert.equal(hasAssignmentRevenueImpact({ plannedCheckOut: '18:00' }), true);
   assert.equal(hasAssignmentRevenueImpact({ paymentStatus: 'paid' }), false);
   assert.equal(eventRevenueIsLocked({ billingStatus: 'invoiced' }), true);
+  assert.equal(eventRevenueIsLocked({ billingStatus: 'paid' }), false);
+  assert.equal(eventRevenueIsLocked({ status: 'paid', billingStatus: 'paid' }), false);
+  assert.equal(eventRevenueIsLocked({ billingStatus: 'paid', clientPaymentRecord: '{"version":1,"entries":[],"legacyInvoiced":true}' }), true);
   assert.equal(eventRevenueIsLocked({ status: 'finalized', billingStatus: 'pending' }), false);
 });
 

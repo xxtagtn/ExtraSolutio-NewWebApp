@@ -1,6 +1,7 @@
 import { normalizeAssignmentDrafts } from './serviceAssignmentDrafts.js';
 import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
 import { requiredStaffTotal } from './serviceRequirements.js';
+import { isExternalOnlyService } from './externalServiceWorkflow.js';
 
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 export const MANUAL_TEAM_ROLE = 'Sem função';
@@ -84,6 +85,14 @@ export function serviceDetailMetrics(event = {}) {
 }
 
 export function serviceChecklist(event = {}) {
+  if (isExternalOnlyService(event)) {
+    const completed = normalizeStatus(event.status) === 'finalized';
+    return [
+      { id: 'external', label: 'Execução por parceiro/custo externo', done: true, detail: 'Sem operação de Staff própria' },
+      { id: 'execution', label: 'Serviço realizado', done: completed,
+        detail: completed ? 'Serviço concluído' : 'A aguardar conclusão do serviço' },
+    ];
+  }
   const metrics = serviceDetailMetrics(event);
   return [
     {

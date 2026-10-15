@@ -16,6 +16,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
+import { clientPaymentSummary } from '../utils/clientPayment.js';
 import Modal from '../components/UI/Modal.jsx';
 import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
@@ -27,12 +28,14 @@ import {
   billingValueForRow,
   clientBillingRowsForActiveEvents,
   expandClientBillingRows,
+  externalClientBillingRows,
   filterBillingGroupsByPeriod,
   filterInvoicesByPeriod,
   filterServicesByPeriod,
   splitClientBillingRows,
 } from '../utils/clientBilling.js';
 import { externalCostsTotals, normalizeExternalCosts } from '../utils/externalCosts.js';
+import { externalServiceCanArchive, isExternalOnlyService } from '../utils/externalServiceWorkflow.js';
 import { eventTaxAmount } from '../utils/eventTax.js';
 import { buildFinanceEventDescriptors } from '../utils/financeEventIdentity.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
@@ -329,7 +332,7 @@ function eventFinancialRow(event, invoices, expenses) {
   const { margin, marginPct } = calculateFinancialMargin(revenue, staff, operational);
   const paidByInvoice = eventInvoices.filter(invoiceIsPaid).reduce((sum, invoice) => sum + num(invoice.total), 0);
   const paidBySignal = num(event.paidAmount);
-  const received = Math.max(paidByInvoice, event.billingStatus === 'paid' ? revenue : paidBySignal);
+  const received = Math.max(paidByInvoice, clientPaymentSummary(event).received, paidBySignal);
   const receivable = Math.max(0, revenue - received);
   return {
     ...event,
@@ -465,9 +468,11 @@ function ClientFinancialEventTable({
   updatingClientAdjustmentEventId,
 }) {
   const navigate = useNavigate();
-  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedEventRecord, setSelectedEvent] = useState(null);
   const shownInvoiceIds = new Set();
   const events = row?.events || [];
+  const selectedEvent = selectedEventRecord
+    ? events.find((event) => String(event.id) === String(selectedEventRecord.id)) || selectedEventRecord : null;
   const eventDescriptors = buildFinanceEventDescriptors(events);
   const linkedInvoiceIds = new Set(events.map((event) => event.invoice?.id).filter(Boolean));
   const standaloneInvoices = (row?.invoices || []).filter((invoice) => !linkedInvoiceIds.has(invoice.id));
@@ -1091,8 +1096,9 @@ function topItems(items, count = 5) {
 }
 
 export default function Accounting() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: services, loading, error, reload } = useApi('/services', []);
+  const { data: services, loading, error, reload } = useApi('/services', [], { revalidateOnFocus: true });
   const { data: invoices, reload: reloadInvoices } = useApi('/invoices', []);
   const { data: clients } = useApi('/clients', []);
   const { data: transactions, reload: reloadTransactions } = useApi('/transactions', []);
@@ -1235,8 +1241,15 @@ export default function Accounting() {
   );
 
   const clientFinancialRows = useMemo(
-    () => buildClientFinancialSummary({ events: currentEventRows, invoices, clients, period: selectedMonth }),
-    [clients, currentEventRows, invoices, selectedMonth],
+    () => buildClientFinancialSummary({
+      events: currentEventRows.filter((event) => !externalServiceCanArchive(event)),
+      invoices: invoices.filter((invoice) => {
+        const ids = parseInvoiceEventIds(invoice);
+        return !ids.length || !ids.every((id) => services.some((event) => Number(event.id) === id && externalServiceCanArchive(event)));
+      }),
+      clients, period: selectedMonth,
+    }),
+    [clients, currentEventRows, invoices, selectedMonth, services],
   );
 
   const clientFinancialOptions = useMemo(
@@ -1312,6 +1325,7 @@ export default function Accounting() {
 
   const buildClientRowsForPeriod = useCallback((period, sourceEventRows = eventRows, sourceBillingGroups = billingGroups) => {
     const periodEventRows = filterServicesByPeriod(sourceEventRows, period);
+    const regularEventRows = periodEventRows.filter((event) => !isExternalOnlyService(event));
 
     const registeredClientRows = clients.flatMap((client) => {
       const clientInvoices = invoices.filter((invoice) => Number(invoice.clientId) === Number(client.id));
@@ -1319,7 +1333,11 @@ export default function Accounting() {
       const issuedInvoices = periodInvoices.filter(invoiceIsIssued);
       const unpaidInvoices = issuedInvoices.filter((invoice) => !invoiceIsPaid(invoice));
       const clientGroups = filterBillingGroupsByPeriod(
-        sourceBillingGroups.filter((group) => Number(group.client?.id) === Number(client.id)),
+        sourceBillingGroups.filter((group) => Number(group.client?.id) === Number(client.id)).map((group) => {
+          const events = group.events.filter((event) => !isExternalOnlyService(event));
+          return events.length === group.events.length ? group : { ...group, events,
+            total: events.reduce((sum, event) => sum + eventRevenue(event), 0) };
+        }).filter((group) => group.events.length),
         period,
       );
       const overdue = unpaidInvoices
@@ -1331,7 +1349,7 @@ export default function Accounting() {
         .sort((a, b) => b.days - a.days)[0];
       const invoiceDebt = unpaidInvoices.reduce((sum, invoice) => sum + num(invoice.total), 0);
       const pendingBilling = clientGroups.reduce((sum, group) => sum + num(group.total), 0);
-      const nonInvoicedServices = periodEventRows
+      const nonInvoicedServices = regularEventRows
         .filter((event) => Number(event.clientId) === Number(client.id) && !event.financial.hasInvoice)
         .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
       const actionableService = nonInvoicedServices[0] || null;
@@ -1361,7 +1379,7 @@ export default function Accounting() {
       return expandClientBillingRows(clientRow, { overdueDaysFromDate: dayDiffFromToday });
     });
 
-    const unregisteredEventRows = periodEventRows
+    const unregisteredEventRows = regularEventRows
       .filter((event) => !event.clientId && String(event.clientName || '').trim())
       .map((event) => {
         const displayName = String(event.clientName).trim();
@@ -1403,7 +1421,7 @@ export default function Accounting() {
         };
       });
 
-    return [...registeredClientRows, ...unregisteredEventRows].sort((a, b) => {
+    return [...registeredClientRows, ...unregisteredEventRows, ...externalClientBillingRows(periodEventRows, invoices)].sort((a, b) => {
       const aDate = a.nextDueDate ? new Date(a.nextDueDate).getTime() : Number.POSITIVE_INFINITY;
       const bDate = b.nextDueDate ? new Date(b.nextDueDate).getTime() : Number.POSITIVE_INFINITY;
       const dateDiff = aDate - bDate;
@@ -2129,6 +2147,7 @@ export default function Accounting() {
         method: 'PUT',
         body: JSON.stringify({ billingStatus, billingPaymentDate }),
       })));
+      window.dispatchEvent(new window.Event('extrasolutio:client-payment-changed'));
       reload();
     } finally {
       setUpdatingEventId(null);
@@ -2503,7 +2522,7 @@ export default function Accounting() {
                 <span className="finance-readiness-icon"><ReceiptText size={18} /></span>
                 <div>
                   <small>Faturação processável</small>
-                  <h2>Eventos finalizados</h2>
+                  <h2>Serviços processáveis</h2>
                 </div>
                 <Badge tone="success">{clientRows.length} linha(s)</Badge>
               </header>
@@ -2511,7 +2530,7 @@ export default function Accounting() {
                 <div><span>Pronto a faturar</span><strong>{money.format(readyFinanceSummary.billing)}</strong></div>
                 <div><span>Em aberto</span><strong>{money.format(clientRows.reduce((sum, client) => sum + client.totalOpen, 0))}</strong></div>
               </div>
-              <p className="muted">A tabela abaixo permite alterar estados apenas para eventos finalizados.</p>
+              <p className="muted">Eventos finalizados e serviços exclusivamente externos disponíveis para tratamento financeiro.</p>
             </section>
           </div>
 
@@ -2841,7 +2860,10 @@ export default function Accounting() {
                                   <header>
                                     <div>
                                       <small>Evento/Serviço pago</small>
-                                      <strong>{service.name}</strong>
+                                      {isExternalOnlyService(service) ? <button className="finance-client-event-open" type="button"
+                                        onClick={() => navigate(`/services/${service.id}`)}>{service.name}</button> : <strong>{service.name}</strong>}
+                                      {isExternalOnlyService(service) && client.invoices.length > 0
+                                        ? <small>{client.invoices.map((invoice) => invoice.number).filter(Boolean).join(' · ')}</small> : null}
                                     </div>
                                     <Badge tone="success">{statusLabel(BILLING_STATUS, service.billingStatus || 'paid')}</Badge>
                                     <span>Sem vencimento calculado pelo evento</span>

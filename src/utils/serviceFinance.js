@@ -1,3 +1,5 @@
+import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
+
 export function decimalValue(value) {
   if (value === '' || value === null || value === undefined) return null;
   const raw = String(value)
@@ -79,7 +81,9 @@ export function clientRealHours(assignment) {
   if (hasCompleteTimePair(assignment?.clientCheckIn, assignment?.clientCheckOut)) return clientReported;
 
   const explicit = decimalValue(assignment?.clientRealHours) || 0;
-  if (explicit > 0) return explicit;
+  const acceptedStaffClocks = isStaffAcceptedValidationStatus(assignment?.validationStatus)
+    && hasCompleteTimePair(assignment?.checkIn, assignment?.checkOut);
+  if (explicit > 0 && !acceptedStaffClocks) return explicit;
 
   const checked = roundedBillableHours(assignment?.checkIn, assignment?.checkOut);
   if (hasCompleteTimePair(assignment?.checkIn, assignment?.checkOut)) return checked;

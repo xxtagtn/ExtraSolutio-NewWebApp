@@ -1,6 +1,7 @@
 import { birthdayNotification } from './birthdays.js';
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { prepaymentRemainingReminderDate } from './prepaymentPolicy.js';
+import { clientPaymentSummary } from './clientPayment.js';
 import { staffPaymentTiming } from './staffPayment.js';
 import {
   activeEventAssignments,
@@ -41,7 +42,9 @@ function startOfDay(value) {
 }
 
 export function layoutPaymentReminders(services = [], now = new Date()) {
-  return services.filter((service) => service.billingStatus === 'partial70' && isToday(prepaymentRemainingReminderDate(service), now));
+  return services.filter((service) => service.billingStatus === 'partial70'
+    && (service.totalRevenue == null || clientPaymentSummary(service).outstanding > 0)
+    && isToday(prepaymentRemainingReminderDate(service), now));
 }
 
 export function buildLayoutNotifications({ budgets = [], invoices = [], services = [], collaborators = [], ignoredNotifications = [], now = new Date() } = {}) {

@@ -140,7 +140,7 @@ test('sums every day and split shift using the single historical event rate', ()
 
   assert.equal(totals.totalRevenue, 166.25);
   assert.equal(totals.billableHours, 17.5);
-  assert.equal(totals.totalCost, 72);
+  assert.equal(totals.totalCost, 140, 'Includes client-real payment hours exactly as Finance Staff does');
 });
 
 test('includes collaborator VAT and payment adjustments in Staff cost', () => {

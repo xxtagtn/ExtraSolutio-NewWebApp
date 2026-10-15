@@ -55,12 +55,24 @@ import {
 import { asyncHandler } from '../utils/http.js';
 import {
   cancelEventDay,
+  completeExternalService,
+  externalServiceForRead,
   markEventValidated,
   reactivateEventDay,
   reopenEventValidation,
   setManualEventStatus,
   synchronizeEventWorkflow,
+  persistInvoiceWithExternalWorkflow,
 } from '../services/eventWorkflow.js';
+import { isExternalOnlyService } from '../../src/utils/externalServiceWorkflow.js';
+import { assertClientSignalHistoryPreserved, isClientPaymentOnlyUpdate, isDetailedClientPaymentUpdate, validateClientPaymentUpdate } from '../../src/utils/clientPayment.js';
+import { linkedClientInvoices, receiveAdditionalClientPayment, reverseClientReceipts, reverseClientSignal } from '../services/clientPayment.js';
+import { clientPaymentRecordPatch } from '../services/clientPaymentRecord.js';
+import { saveEventExternalCost, deleteEventExternalCost } from '../services/externalCostEditing.js';
+import { checkedEventFinancialTotals } from '../services/eventFinancialChange.js';
+import { normalizeExternalCosts } from '../../src/utils/externalCosts.js';
+import { eventFinancialsForRead } from '../services/eventFinancialReconciliation.js';
+import { assignmentDerivedHours, assignmentHoursSourceChanged } from '../../src/utils/assignmentDerivedHours.js';
 import {
   eventDayKey,
   isEventDayCancelled,
@@ -116,6 +128,7 @@ const financialEventFields = [
   'totalRevenue',
   'billingAdjustment',
   'vatRateSnapshot',
+  'staffVatRateSnapshot',
   'taxAmount',
   'rateHistory',
   'travelExpenseAmount',
@@ -126,6 +139,7 @@ const financialEventFields = [
   'signaledAt',
   'signaledAmount',
   'paidAmount',
+  'clientPaymentRecord',
   'remainingPaymentDate',
 ];
 const financialAssignmentFields = [
@@ -376,6 +390,10 @@ async function normalizeAssignmentCreate(input) {
   await assertAssignmentDayIsActive(data);
   await assertAssignmentWorkLocationIsValid(data);
   await assertNoAssignmentConflict(prisma, data);
+  if (assignmentHoursSourceChanged(data)) {
+    const event = await prisma.event.findUnique({ where: { id: Number(data.eventId) } });
+    Object.assign(data, assignmentDerivedHours(data, event || {}));
+  }
   return data;
 }
 
@@ -406,11 +424,17 @@ async function normalizeAssignmentUpdate(input, existing) {
   if (assignmentConflictNeedsCheck(data, existing)) {
     await assertNoAssignmentConflict(prisma, data, existing);
   }
+  if (assignmentHoursSourceChanged(data, existing)) {
+    const event = await prisma.event.findUnique({ where: { id: Number(merged.eventId) } });
+    Object.assign(data, assignmentDerivedHours(merged, event || {}));
+  }
   return data;
 }
 
-async function updateServiceWithRangeReconciliation({ id, data, existing, include }) {
+async function updateServiceWithRangeReconciliation({ id, data, existing, include, body }) {
   const reconciled = reconcileEventRangeData(existing, data);
+  const financialConfigurationWrite = data.staffVatRateSnapshot !== undefined || data.externalCosts !== undefined
+    || ['billingStatus', 'signaledAmount', 'paidAmount', 'signaledAt'].some((field) => body[field] !== undefined);
   return prisma.$transaction(async (tx) => {
     const assignments = await tx.eventAssignment.findMany({ where: { eventId: id } });
     assertStaffTravelConfiguration(existing, reconciled.nextEvent, assignments);
@@ -443,7 +467,55 @@ async function updateServiceWithRangeReconciliation({ id, data, existing, includ
         data: { [change.field]: change.next },
       });
     }
-    return tx.event.update({ where: { id }, data: reconciled.data, include });
+    let payment = null;
+    if (isDetailedClientPaymentUpdate(body) || ['signaledAmount', 'paidAmount', 'signaledAt'].some((field) => body[field] !== undefined)) {
+      const current = await tx.event.findUnique({ where: { id }, include: { invoices: true } });
+      if (!current) {
+        const error = new Error('Evento/Serviço não encontrado.');
+        error.statusCode = 404;
+        error.expose = true;
+        throw error;
+      }
+      assertClientSignalHistoryPreserved(body, current, await linkedClientInvoices(tx, current));
+      if (isDetailedClientPaymentUpdate(body)) payment = validateClientPaymentUpdate(body, current);
+    }
+    let updateData = payment ? { ...reconciled.data, ...normalizeEvent(payment) } : reconciled.data;
+    const staffVatChanged = reconciled.data.staffVatRateSnapshot !== undefined
+      && String(reconciled.data.staffVatRateSnapshot ?? '') !== String(existing.staffVatRateSnapshot ?? '');
+    const externalCostsChanged = reconciled.data.externalCosts !== undefined
+      && JSON.stringify(normalizeExternalCosts(reconciled.data.externalCosts)) !== JSON.stringify(normalizeExternalCosts(existing.externalCosts));
+    if (staffVatChanged || externalCostsChanged) {
+      const current = await tx.event.findUnique({ where: { id }, include: { ...serviceListInclude, invoices: true } });
+      if (!current) {
+        const error = new Error('Evento/Serviço não encontrado.'); error.statusCode = 404; error.expose = true; throw error;
+      }
+      await assertEventRevenueEditable(tx, id, current.invoices, current);
+      if (current.updatedAt.getTime() !== existing.updatedAt.getTime()) {
+        const error = new Error('O evento foi alterado. Atualiza a página antes de alterar os dados financeiros.');
+        error.statusCode = 409; error.expose = true; throw error;
+      }
+      const removedLastPartner = externalCostsChanged && normalizeExternalCosts(current.externalCosts).length > 0
+        && normalizeExternalCosts(updateData.externalCosts).length === 0;
+      updateData = { ...updateData, ...checkedEventFinancialTotals(current, { ...current, ...updateData }, {
+        preserveUnstructuredBudget: !removedLastPartner, requireKnownPreviousTotal: removedLastPartner,
+      }) };
+    }
+    const paymentCurrent = await tx.event.findUnique({ where: { id } });
+    const legacyInvoiced = paymentCurrent.billingStatus === 'invoiced'
+      && !(await linkedClientInvoices(tx, paymentCurrent)).some(invoiceIsIssued);
+    Object.assign(updateData, clientPaymentRecordPatch(paymentCurrent, updateData, { legacyInvoiced }));
+    const row = await tx.event.update({ where: { id }, data: updateData, include });
+    if (!isExternalOnlyService(row)) return row;
+    // Status-only writes preserve money; ordinary edits keep the existing totals engine.
+    const recalculateTotals = !isClientPaymentOnlyUpdate(body);
+    const synced = await synchronizeEventWorkflow(tx, id, { recalculateTotals });
+    return { ...await tx.event.findUnique({ where: { id }, include }), externalService: synced.externalService };
+  }, financialConfigurationWrite ? { isolationLevel: 'Serializable' } : undefined).catch((error) => {
+    if (error.code === 'P2034') {
+      error.message = 'O evento foi alterado. Atualiza a página antes de alterar os dados financeiros.';
+      error.statusCode = 409; error.expose = true;
+    }
+    throw error;
   });
 }
 
@@ -610,6 +682,64 @@ apiRouter.post('/services/:id/workflow/status', servicesUpdate, asyncHandler(asy
   const event = await setManualEventStatus(prisma, id, req.body?.status, {
     notes: req.body?.notes,
   });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/external-costs', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await saveEventExternalCost(prisma, id, { cost: req.body?.cost, updatedAt: req.body?.updatedAt });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.put('/services/:id/external-costs/:costId', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await saveEventExternalCost(prisma, id, { cost: req.body?.cost, costId: req.params.costId, updatedAt: req.body?.updatedAt });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.delete('/services/:id/external-costs/:costId', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await deleteEventExternalCost(prisma, id, { costId: req.params.costId, updatedAt: req.body?.updatedAt });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/client-payment/reverse-signal', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await reverseClientSignal(prisma, id, { updatedAt: req.body?.updatedAt });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/client-payment/reverse-receipts', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await reverseClientReceipts(prisma, id, {
+    updatedAt: req.body?.updatedAt, confirmedReceived: req.body?.confirmedReceived, confirmedSignal: req.body?.confirmedSignal,
+  });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/client-payment/receive-additional', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await receiveAdditionalClientPayment(prisma, id, req.body || {});
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/workflow/complete-external', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await completeExternalService(prisma, id);
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   return res.json(maskEventForRole(event, req.user));
 }));
@@ -790,7 +920,12 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   deleteMiddleware: servicesDelete,
   buildWhere: buildServiceWhere,
   buildOrderBy: () => ({ date: 'desc' }),
-  serializeRow: (row, req) => maskEventForRole(withCurrentStaffVatCost(row), req.user),
+  serializeRow: async (row, req) => maskEventForRole(withCurrentStaffVatCost(await eventFinancialsForRead(prisma, await externalServiceForRead(prisma, row))), req.user),
+  serializeRows: async (rows, req) => {
+    const result = [];
+    for (const row of rows) result.push(maskEventForRole(withCurrentStaffVatCost(await eventFinancialsForRead(prisma, await externalServiceForRead(prisma, row))), req.user));
+    return result;
+  },
   normalizeCreate: normalizeServiceCreate,
   normalizeUpdate: normalizeServiceUpdate,
   loadExistingForUpdate: true,
@@ -798,8 +933,8 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   afterCreate: async ({ row }) => {
     await synchronizeEventWorkflow(prisma, row.id, { recalculateTotals: true });
   },
-  afterUpdate: async ({ id }) => {
-    await synchronizeEventWorkflow(prisma, id, { recalculateTotals: true });
+  afterUpdate: async ({ id, row, body }) => {
+    if (!isExternalOnlyService(row)) await synchronizeEventWorkflow(prisma, id, { recalculateTotals: !isDetailedClientPaymentUpdate(body) });
   },
 }));
 
@@ -957,6 +1092,8 @@ apiRouter.use('/invoices', createCrudRouter(prisma.invoice, [
   normalizeCreate: normalizeInvoiceLifecycle,
   normalizeUpdate: normalizeInvoiceLifecycle,
   loadExistingForUpdate: true,
+  performCreate: (input) => persistInvoiceWithExternalWorkflow(prisma, input),
+  performUpdate: (input) => persistInvoiceWithExternalWorkflow(prisma, input),
 }));
 
 apiRouter.use('/invoice-items', createCrudRouter(prisma.invoiceItem, [

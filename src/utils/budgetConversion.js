@@ -130,6 +130,7 @@ export function buildBudgetConversionDraft(row = {}) {
     externalCosts,
     totalRevenue: numberValue(row.totalAmount || row.amount),
     vatRateSnapshot: numberValue(row.vatRate),
+    staffVatRateSnapshot: [0, 23].includes(numberValue(row.vatRate)) ? numberValue(row.vatRate) : null,
     taxAmount: numberValue(row.taxAmount) || externalCostsTotals(externalCosts).taxAmount,
   };
 }
@@ -180,6 +181,7 @@ export function buildEventPayloadFromBudgetConversion(draft = {}, clientId) {
     externalCosts: normalizeExternalCosts(draft.externalCosts),
     totalRevenue: numberValue(draft.totalRevenue),
     vatRateSnapshot: numberValue(draft.vatRateSnapshot),
+    staffVatRateSnapshot: draft.staffVatRateSnapshot ?? null,
     taxAmount: numberValue(draft.taxAmount),
     notes: draft.budgetReference ? `[BUDGET_REF:${draft.budgetReference}]` : '',
   };

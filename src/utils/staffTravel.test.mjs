@@ -149,7 +149,9 @@ test('first car automatically applies to every confirmed collaborator, once per 
   assert.equal(staffTravelCompensation(first, source, assignments).amount, 10);
   assert.equal(staffTravelCompensation(split, source, assignments).amount, 0);
   assert.equal(staffTravelCompensation(other, source, assignments).amount, 12.5);
-  assert.equal(calculateEventTotals(source, assignments).totalCost, 317.5);
+  assert.equal(calculateEventTotals(source, assignments).totalCost, 377.5);
+  assert.equal(calculateEventTotals(source, assignments).totalCost,
+    assignments.reduce((sum, row) => sum + staffAssignmentPaymentTotal(row, source), 0));
 });
 
 test('matches the Finance example and keeps paid compensation as a snapshot', async () => {

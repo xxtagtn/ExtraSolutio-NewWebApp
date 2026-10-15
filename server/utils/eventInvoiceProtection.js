@@ -1,4 +1,5 @@
 import { invoiceIsIssued } from '../../shared/invoiceLifecycle.js';
+import { readClientPaymentRecord } from '../../src/utils/clientPaymentRecord.js';
 
 const EVENT_FINANCIAL_FIELDS = new Set([
   'clientId',
@@ -22,6 +23,7 @@ const EVENT_FINANCIAL_FIELDS = new Set([
   'travelManualAmount',
   'externalCosts',
   'vatRateSnapshot',
+  'staffVatRateSnapshot',
 ]);
 
 const ASSIGNMENT_REVENUE_FIELDS = new Set([
@@ -43,8 +45,8 @@ const ASSIGNMENT_REVENUE_FIELDS = new Set([
   'status',
 ]);
 
-const LOCKED_BILLING_STATUSES = new Set(['invoiced', 'paid']);
-const LOCKED_EVENT_STATUSES = new Set(['invoiced', 'paid']);
+const LOCKED_BILLING_STATUSES = new Set(['invoiced']);
+const LOCKED_EVENT_STATUSES = new Set(['invoiced']);
 
 function parsedEventIds(value) {
   if (!value) return [];
@@ -70,7 +72,8 @@ export function invoiceIsIssuedForEvent(invoice = {}, eventId) {
 
 export function eventRevenueIsLocked(event = {}) {
   return LOCKED_BILLING_STATUSES.has(String(event.billingStatus || '').trim().toLowerCase())
-    || LOCKED_EVENT_STATUSES.has(String(event.status || '').trim().toLowerCase());
+    || LOCKED_EVENT_STATUSES.has(String(event.status || '').trim().toLowerCase())
+    || readClientPaymentRecord(event.clientPaymentRecord)?.legacyInvoiced === true;
 }
 
 export function hasEventFinancialImpact(input = {}) {
@@ -111,7 +114,7 @@ export async function assertEventRevenueEditable(prisma, eventId, knownInvoices 
   if (!Number.isInteger(id) || id <= 0) return;
   const event = knownEvent || await prisma.event.findUnique({
     where: { id },
-    select: { id: true, status: true, billingStatus: true },
+    select: { id: true, status: true, billingStatus: true, clientPaymentRecord: true },
   });
   if (eventRevenueIsLocked(event)) {
     const error = new Error(

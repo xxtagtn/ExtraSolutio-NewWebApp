@@ -565,6 +565,10 @@ function calculatedPayload(row, assignment, event) {
     ...assignment,
     clientCheckIn: row.clientCheckIn,
     clientCheckOut: row.clientCheckOut,
+    validatedCheckIn: null,
+    validatedCheckOut: null,
+    clientRealHours: 0,
+    clientBillableHours: 0,
   };
   const clientReal = clientRealHours(merged);
   const clientBillable = clientChargeHours(
