@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../prisma.js';
 import { effectivePermissionsForUser } from '../../src/utils/accessPermissions.js';
 import { canAccessRole, normalizeRole, ROLES } from '../security/roles.js';
+import { credentialVersionMatches } from '../security/sessionTokens.js';
 
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -12,11 +13,12 @@ export async function requireAuth(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     const user = await prisma.user.findUnique({
       where: { id: payload.id },
       select: {
         id: true,
+        password: true,
         email: true,
         name: true,
         photo: true,
@@ -33,7 +35,14 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ message: 'Utilizador inválido.' });
     }
 
-    const normalizedUser = { ...user, role: normalizeRole(user.role) };
+    if (!credentialVersionMatches(payload.cv, user)) {
+      return res.status(401).json({ message: 'Login Expirado' });
+    }
+
+    const publicUser = { ...user };
+    delete publicUser.password;
+    const normalizedUser = { ...publicUser, role: normalizeRole(user.role) };
+    req.authCredentialVersion = payload.cv;
     req.user = { ...normalizedUser, permissions: effectivePermissionsForUser(normalizedUser) };
     return next();
   } catch (error) {

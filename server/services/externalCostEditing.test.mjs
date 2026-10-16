@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import { once } from 'node:events';
-import jwt from 'jsonwebtoken';
+import { issueSessionToken } from '../security/sessionTokens.js';
 import { normalizeExternalCosts } from '../../src/utils/externalCosts.js';
 import { calculateEventTotals } from '../utils/eventTotals.js';
 import { buildBudgetConversionDraft, buildEventPayloadFromBudgetConversion } from '../../src/utils/budgetConversion.js';
@@ -36,7 +36,7 @@ before(async () => {
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   base = `http://127.0.0.1:${server.address().port}/api/services`;
-  headers = { Authorization: `Bearer ${jwt.sign({ id: admin.id }, process.env.JWT_SECRET)}`, 'Content-Type': 'application/json' };
+  headers = { Authorization: `Bearer ${issueSessionToken(admin)}`, 'Content-Type': 'application/json' };
 });
 after(async () => {
   if (server) await new Promise((done) => server.close(done));
@@ -169,7 +169,7 @@ test('HTTP invoice protections, grouped invoice links and permissions cannot be 
   const viewer = await db.user.create({ data: { email: 'external-cost-viewer@example.test', name: 'QA reader', role: 'operations', password: 'qa',
     permissionOverrides: '{"deny":["services.update"]}' } });
   assert.equal((await request(event, partner({ id: 'no-permission' }), null,
-    { ...headers, Authorization: `Bearer ${jwt.sign({ id: viewer.id }, process.env.JWT_SECRET)}` })).status, 403);
+    { ...headers, Authorization: `Bearer ${issueSessionToken(viewer)}` })).status, 403);
 });
 
 test('HTTP validation, stale versions, duplicate IDs and cross-event IDs do not change existing records', async () => {
@@ -238,7 +238,7 @@ test('HTTP deletion rejects stale, missing, invalid-ID and unauthorized requests
   const viewer = await db.user.create({ data: { email: 'cost-delete-viewer@example.test', name: 'Reader', password: 'qa', role: 'operations',
     permissionOverrides: '{"deny":["services.update"]}' } });
   assert.equal((await removeRequest(event, 'partner-1', { ...headers,
-    Authorization: `Bearer ${jwt.sign({ id: viewer.id }, process.env.JWT_SECRET)}` })).status, 403);
+    Authorization: `Bearer ${issueSessionToken(viewer)}` })).status, 403);
   assert.deepEqual(await read(event.id), before);
 });
 

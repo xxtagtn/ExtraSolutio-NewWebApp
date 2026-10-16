@@ -3467,8 +3467,55 @@ th {
   font-size: 0.82rem;
 }
 
-.collab-filters {
-  grid-template-columns: 1.05fr minmax(240px, 1fr) minmax(180px, 0.7fr);
+.collaborators-list-card {
+  container: collaborator-list / inline-size;
+}
+
+.collaborator-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.collaborators-list-card > .card__header {
+  flex-wrap: wrap;
+}
+
+.filters.collab-filters {
+  grid-template-columns: minmax(240px, 2fr) repeat(3, minmax(120px, 1fr));
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.filters.collab-filters--with-zone {
+  grid-template-columns: minmax(240px, 2fr) repeat(4, minmax(120px, 1fr));
+}
+
+.filters.collab-filters > .form-control {
+  width: 100%;
+  min-width: 0;
+}
+
+.collaborator-search-status {
+  min-height: 20px;
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+}
+
+@container collaborator-list (max-width: 960px) {
+  .filters.collab-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .collaborator-search {
+    grid-column: 1 / -1;
+  }
+}
+
+@container collaborator-list (max-width: 300px) {
+  .filters.collab-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .collaborator-gender-summary {

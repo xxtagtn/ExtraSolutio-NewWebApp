@@ -1,5 +1,4 @@
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { setInterval } from 'node:timers';
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
@@ -9,12 +8,12 @@ import { publicRole } from '../security/roles.js';
 import { effectivePermissionsForUser } from '../../src/utils/accessPermissions.js';
 import { asyncHandler } from '../utils/http.js';
 import { normalizeUserPhoto } from '../../src/utils/userProfile.js';
+import { issueSessionToken } from '../security/sessionTokens.js';
 
 export const authRouter = Router();
 
 const LOGIN_WINDOW_MS = Number(process.env.LOGIN_WINDOW_MINUTES || 15) * 60 * 1000;
 const LOGIN_MAX_FAILURES = Number(process.env.LOGIN_MAX_FAILURES || 5);
-const TOKEN_TTL = process.env.JWT_EXPIRES_IN || '4h';
 const authUserSelect = {
   id: true,
   email: true,
@@ -97,14 +96,6 @@ function publicUser(user) {
   return { ...output, permissions: effectivePermissionsForUser(user) };
 }
 
-function issueToken(user) {
-  return jwt.sign(
-    { id: user.id, email: user.email, role: publicRole(user.role) },
-    process.env.JWT_SECRET,
-    { expiresIn: TOKEN_TTL },
-  );
-}
-
 authRouter.post('/login', asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
@@ -131,7 +122,7 @@ authRouter.post('/login', asyncHandler(async (req, res) => {
 
   loginThrottle.clear(key);
 
-  const token = issueToken(user);
+  const token = issueSessionToken(user);
 
   return res.json({
     token,
@@ -144,7 +135,7 @@ authRouter.get('/me', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 authRouter.post('/refresh', requireAuth, asyncHandler(async (req, res) => {
-  const token = issueToken(req.user);
+  const token = issueSessionToken(req.user, { version: req.authCredentialVersion });
   return res.json({ token, user: publicUser(req.user) });
 }));
 
@@ -197,5 +188,9 @@ authRouter.put('/password', requireAuth, asyncHandler(async (req, res) => {
     data: { password: hashedPassword },
   });
 
-  return res.json({ message: 'Password alterada com sucesso.' });
+  return res.json({
+    message: 'Password alterada com sucesso.',
+    token: issueSessionToken({ ...req.user, password: hashedPassword }),
+    user: req.user,
+  });
 }));

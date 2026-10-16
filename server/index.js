@@ -1,5 +1,4 @@
 import './config/env.js';
-import { fileURLToPath, URL } from 'node:url';
 import cors from 'cors';
 import express from 'express';
 import { apiRouter } from './routes/index.js';
@@ -7,11 +6,11 @@ import { startBackupScheduler } from './utils/backupScheduler.js';
 import { startWhatsAppReminderScheduler } from './utils/whatsappReminderScheduler.js';
 import { startAttendancePushScheduler } from './services/attendancePush.js';
 import { prisma } from './prisma.js';
-
-const uploadsDir = fileURLToPath(new URL('../public/uploads', import.meta.url));
+import { captureWhatsAppBody } from './security/whatsappSignature.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
+const host = process.env.NODE_ENV === 'production' ? '127.0.0.1' : undefined;
 
 const corsOrigins = String(process.env.CORS_ORIGINS || '')
   .split(',')
@@ -19,11 +18,8 @@ const corsOrigins = String(process.env.CORS_ORIGINS || '')
   .filter(Boolean);
 
 app.use(cors(corsOrigins.length ? { origin: corsOrigins } : {}));
-app.use(express.json({ limit: '8mb' }));
-app.use('/uploads', express.static(uploadsDir, {
-  fallthrough: true,
-  maxAge: '7d',
-}));
+app.use(express.json({ limit: '8mb', verify: captureWhatsAppBody }));
+app.use('/uploads', (_req, res) => res.set('Cache-Control', 'no-store').sendStatus(404));
 app.use('/api', apiRouter);
 
 app.use((error, _req, res, _next) => {
@@ -53,9 +49,8 @@ app.use((error, _req, res, _next) => {
   });
 });
 
-app.listen(port, () => {
+app.listen(port, host, () => {
   console.log(`API ExtraSolutio em http://localhost:${port}`);
-  console.log(`Base de dados: ${process.env.DATABASE_URL}`);
   if (corsOrigins.length) {
     console.log(`CORS restrito a: ${corsOrigins.join(', ')}`);
   }

@@ -10,6 +10,7 @@ import { deleteStoredPhoto, parsePhotoDataUri, resolvePhotoForStorage, resolvePh
 import { computeShortName } from '../../src/utils/collaboratorName.js';
 import { collaboratorRoleOptions } from '../../src/utils/collaboratorRoles.js';
 import { buildCollaboratorGenderSummary } from '../../src/utils/collaboratorGenderSummary.js';
+import { filterCollaborators } from '../../src/utils/collaboratorFilters.js';
 
 export const collaboratorsRouter = Router();
 
@@ -36,11 +37,6 @@ const SENSITIVE_FIELDS = [
 
 collaboratorsRouter.use(requirePermission(PERMISSIONS.COLLABORATORS_VIEW));
 
-function stringContains(value) {
-  const text = String(value || '').trim();
-  return text ? { contains: text } : null;
-}
-
 function toOptionalBoolean(value) {
   if (value === undefined || value === null || value === '') return undefined;
   return value === true || value === 'true' || value === '1' || value === 1;
@@ -48,16 +44,6 @@ function toOptionalBoolean(value) {
 
 function buildCollaboratorWhere(query) {
   const where = {};
-  const search = stringContains(query.search || query.q || query.name);
-  if (search) {
-    where.OR = [
-      { name: search },
-      { shortName: search },
-      { email: search },
-      { phone: search },
-      { nif: search },
-    ];
-  }
   if (query.status) where.status = String(query.status);
   if (query.role) where.roles = { some: { role: String(query.role) } };
   const hasOwnCar = toOptionalBoolean(query.ownCar);
@@ -195,17 +181,42 @@ collaboratorsRouter.get('/', asyncHandler(async (req, res) => {
   const light = req.query.light === '1' || req.query.light === 'true';
   const pagination = parsePaginationQuery(req.query, { defaultPageSize: 10, maxPageSize: 100 });
   const where = buildCollaboratorWhere(req.query);
-  const rows = await prisma.collaborator.findMany({
-    where,
-    orderBy: [{ isPreferred: 'desc' }, { name: 'asc' }],
-    ...(pagination.enabled ? { skip: (pagination.page - 1) * pagination.pageSize, take: pagination.pageSize } : {}),
-    ...(light
-      ? { select: collaboratorLightSelect }
-      : { include: { roles: { orderBy: { role: 'asc' } } } }),
-  });
+  const search = String(req.query.search || req.query.q || req.query.name || '').trim();
+  const zoneFilter = String(req.query.zone || '').trim();
+  const includeSensitive = canViewSensitiveCollaboratorData(req.user);
+  if (zoneFilter && !includeSensitive) return res.status(403).json({ message: 'Sem permissão para consultar esta informação.' });
+  const projection = light
+    ? { select: collaboratorLightSelect }
+    : { include: { roles: { orderBy: { role: 'asc' } } } };
+  const orderBy = [{ isPreferred: 'desc' }, { name: 'asc' }, { id: 'asc' }];
+  let rows, total;
+  if (search || zoneFilter) {
+    // Portable accent folding (SQLite and MariaDB) before pagination, without photos or payroll data.
+    const candidates = await prisma.collaborator.findMany({
+      where, orderBy,
+      select: {
+        id: true, name: true, shortName: true, email: true, phone: true, availability: true,
+        category: true, status: true, hasOwnCar: true, roles: { select: { role: true } },
+        ...(includeSensitive ? { notes: true, residenceArea: true, nif: true } : {}),
+      },
+    });
+    const matches = filterCollaborators(candidates, { search, zoneFilter }, { includeSensitive });
+    total = matches.length;
+    const ids = (pagination.enabled ? matches.slice(pagination.skip, pagination.skip + pagination.take) : matches).map(row => row.id);
+    const pageRows = ids.length ? await prisma.collaborator.findMany({ where: { id: { in: ids } }, ...projection }) : [];
+    const byId = new Map(pageRows.map(row => [row.id, row]));
+    rows = ids.map(id => byId.get(id)).filter(Boolean);
+  } else {
+    rows = await prisma.collaborator.findMany({
+      where,
+      orderBy,
+      ...(pagination.enabled ? { skip: (pagination.page - 1) * pagination.pageSize, take: pagination.pageSize } : {}),
+      ...projection,
+    });
+    if (pagination.enabled) total = await prisma.collaborator.count({ where });
+  }
   const items = rows.map((row) => toOutput(row, req.user));
   if (!pagination.enabled) return res.json(items);
-  const total = await prisma.collaborator.count({ where });
   return res.json(buildPaginatedPayload({ items, total, page: pagination.page, pageSize: pagination.pageSize }));
 }));
 

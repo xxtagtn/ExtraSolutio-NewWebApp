@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import { once } from 'node:events';
-import jwt from 'jsonwebtoken';
+import { issueSessionToken } from '../security/sessionTokens.js';
 import { buildBudgetConversionDraft, buildEventPayloadFromBudgetConversion } from '../../src/utils/budgetConversion.js';
 import { isArchivedService } from '../../src/utils/serviceStatus.js';
 import { isFinanceReadyEvent } from '../../src/utils/financeReadiness.js';
@@ -185,7 +185,7 @@ test('real HTTP endpoint enforces authentication, edit permission, eligibility a
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
   const send = (id, user) => fetch(`${base}/api/services/${id}/workflow/complete-external`, {
-    method: 'POST', headers: user ? { Authorization: `Bearer ${jwt.sign({ id: user.id }, process.env.JWT_SECRET)}` } : {},
+    method: 'POST', headers: user ? { Authorization: `Bearer ${issueSessionToken(user)}` } : {},
   });
   try {
     assert.equal((await send(event.id)).status, 401);
@@ -221,7 +221,8 @@ test('HTTP 30 July budget service: pending -> invoiced -> paid synchronizes both
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}/api`;
-  const headers = { Authorization: `Bearer ${jwt.sign({ id: admin.id }, process.env.JWT_SECRET)}`, 'Content-Type': 'application/json' };
+  // This lifecycle fixture deliberately advances the clock by several months.
+  const headers = { Authorization: `Bearer ${issueSessionToken(admin, { expiresIn: '1y' })}`, 'Content-Type': 'application/json' };
   const get = async (id = event.id) => (await fetch(`${base}/services/${id}`, { headers })).json();
   const put = (path, body) => fetch(`${base}${path}`, { method: 'PUT', headers, body: JSON.stringify(body) });
   try {
@@ -284,7 +285,7 @@ test('invoice paid/cancelled status updates external billing atomically but neve
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   const url = `http://127.0.0.1:${server.address().port}/api/invoices/${invoice.id}`;
-  const headers = { Authorization: `Bearer ${jwt.sign({ id: admin.id }, process.env.JWT_SECRET)}`, 'Content-Type': 'application/json' };
+  const headers = { Authorization: `Bearer ${issueSessionToken(admin)}`, 'Content-Type': 'application/json' };
   try {
     const failing = { $transaction: (callback) => db.$transaction((tx) => callback({
       invoice: tx.invoice,

@@ -32,10 +32,10 @@ export function AuthProvider({ children }) {
     setAuth(null);
   }
 
-  function updateUser(user) {
+  function updateUser(user, token) {
     const current = validStoredAuth();
     if (!current) return;
-    const nextAuth = { ...current, user };
+    const nextAuth = { ...current, user, ...(token ? { token } : {}) };
     setStoredAuth(nextAuth);
   }
 

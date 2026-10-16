@@ -153,6 +153,7 @@ WHATSAPP_PHONE_NUMBER_ID=""
 WHATSAPP_BUSINESS_ACCOUNT_ID=""
 WHATSAPP_ACCESS_TOKEN=""
 WHATSAPP_WEBHOOK_VERIFY_TOKEN=""
+WHATSAPP_APP_SECRET=""
 
 # WhatsApp automation is disabled by default. Keep false for manual-only operation.
 WHATSAPP_REMINDER_ENABLED="false"
@@ -285,10 +286,15 @@ Se a API não arrancar, verificar primeiro `journalctl`. Os erros mais comuns s�
 
 ## 7. Configurar o Apache
 
+Para a correção de segurança e publicação sem migrações, consultar primeiro
+`docs/security-fixes-deployment.md`. O exemplo abaixo pressupõe um certificado
+TLS já válido (secção 8); reutilizar os caminhos de certificado do VirtualHost
+Certbot existente, sem os substituir indiscriminadamente.
+
 Ativar módulos necessários:
 
 ```bash
-sudo a2enmod proxy proxy_http rewrite headers expires
+sudo a2enmod ssl proxy proxy_http rewrite headers expires
 ```
 
 Criar o VirtualHost:
@@ -300,8 +306,11 @@ sudo nano /etc/apache2/sites-available/esgestao.ddns.net.conf
 Conteúdo:
 
 ```apache
-<VirtualHost *:80>
+<VirtualHost *:443>
     ServerName esgestao.ddns.net
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/esgestao.ddns.net/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/esgestao.ddns.net/privkey.pem
 
     DocumentRoot /var/www/esgestao.ddns.net/dist
 
@@ -323,13 +332,9 @@ Conteúdo:
     ProxyPass        /api/     http://127.0.0.1:3001/api/
     ProxyPassReverse /api/     http://127.0.0.1:3001/api/
 
-    # Fotografias persistidas pelo backend em public/uploads.
-    ProxyPass        /uploads/ http://127.0.0.1:3001/uploads/
-    ProxyPassReverse /uploads/ http://127.0.0.1:3001/uploads/
-
-    Header always set X-Content-Type-Options "nosniff"
-    Header always set X-Frame-Options "SAMEORIGIN"
-    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    # Fotografias: apenas /api/uploads, com sessão e permissão.
+    # Bloqueia também os antigos URLs públicos e adiciona HSTS inicial de 1 dia.
+    Include /var/www/esgestao.ddns.net/deploy/apache/esgestao-https-security.conf
 
     # O manifesto e o service worker devem ser sempre revalidados. Os restantes
     # assets do Vite mantêm cache forte através do hash no nome do ficheiro.
@@ -342,6 +347,9 @@ Conteúdo:
     ErrorLog  ${APACHE_LOG_DIR}/esgestao-error.log
     CustomLog ${APACHE_LOG_DIR}/esgestao-access.log combined
 </VirtualHost>
+
+# O porto 80 serve apenas o redirecionamento para HTTPS.
+Include /var/www/esgestao.ddns.net/deploy/apache/esgestao-http.conf
 ```
 
 Ativar o site e validar a configuração:
@@ -357,7 +365,11 @@ O `RewriteRule` é necessário para que URLs internas do React Router funcionem 
 
 ## 8. HTTPS com Let's Encrypt
 
-Depois de o DNS estar a apontar para o servidor e o site HTTP responder:
+Numa instalação nova, obter/configurar o certificado com Certbot antes de
+ativar o VirtualHost TLS acima. Num servidor já online, preservar o certificado
+e o VirtualHost existentes; aplicar apenas os ajustes descritos no guia de segurança.
+
+Depois de o DNS estar a apontar para o servidor:
 
 ```bash
 sudo apt install -y certbot python3-certbot-apache

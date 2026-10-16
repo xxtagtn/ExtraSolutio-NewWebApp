@@ -61,6 +61,7 @@ export default function Profile() {
         method: 'PUT',
         body: JSON.stringify({ currentPassword, newPassword }),
       });
+      if (result.token && result.user) updateUser(result.user, result.token);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');

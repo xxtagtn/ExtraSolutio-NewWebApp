@@ -18,6 +18,7 @@ function apiOrigin() {
 
 function imageSource(rawValue) {
   const raw = String(rawValue || '');
+  if (raw.startsWith('/uploads/collaborators/')) return raw;
   if (raw.startsWith('/uploads/')) {
     return `${apiOrigin()}${raw}`;
   }

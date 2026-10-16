@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import { once } from 'node:events';
-import jwt from 'jsonwebtoken';
+import { issueSessionToken } from '../security/sessionTokens.js';
 import { eventCostSummary } from '../../src/utils/eventCostSummary.js';
 import { buildClientFinancialSummary } from '../../src/utils/clientFinancialSummary.js';
 import { staffAssignmentPaymentTotal } from '../../src/utils/staffPayment.js';
@@ -39,7 +39,7 @@ before(async () => {
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   base = `http://127.0.0.1:${server.address().port}/api`;
-  headers = { Authorization: `Bearer ${jwt.sign({ id: admin.id }, process.env.JWT_SECRET)}`, 'Content-Type': 'application/json' };
+  headers = { Authorization: `Bearer ${issueSessionToken(admin)}`, 'Content-Type': 'application/json' };
 });
 after(async () => {
   if (server) await new Promise((done) => server.close(done));

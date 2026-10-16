@@ -1,8 +1,9 @@
-import { ChevronLeft, ChevronRight, Edit2, Minus, Plus, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit2, Minus, Plus, RotateCcw, Search, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
+import CollaboratorImage from '../components/UI/CollaboratorImage.jsx';
 import IconButton from '../components/UI/IconButton.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
@@ -31,7 +32,6 @@ import { isAssignmentOnCancelledDay } from '../utils/eventCancelledDays.js';
 const PHOTO_VIEWER_BASE_WIDTH = 420;
 const PHOTO_VIEWER_MAX_ZOOM = 2;
 const PHOTO_VIEWER_ZOOM_STEP = 0.1;
-const OWN_CAR_ROLE_FILTER = '__own_car__';
 
 function pageNumbersFor(currentPage, totalPages) {
   const safeTotal = Math.max(1, Number(totalPages) || 1);
@@ -165,7 +165,7 @@ function LazyCollaboratorPhoto({
           onClick={() => onOpen(photo || previewPhoto, row.shortName || row.name)}
           aria-label={`Ampliar foto de ${row.name}`}
         >
-          <img
+          <CollaboratorImage
             src={previewPhoto}
             alt={`Foto de ${row.name}`}
             loading="lazy"
@@ -185,6 +185,10 @@ export default function Collaborators() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [nameFilter, setNameFilter] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [zoneFilter, setZoneFilter] = useState('');
+  const [debouncedZone, setDebouncedZone] = useState('');
+  const [ownCarFilter, setOwnCarFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -195,13 +199,14 @@ export default function Collaborators() {
       page: String(currentPage),
       pageSize: String(pageSize),
     });
-    const search = nameFilter.trim();
+    const search = debouncedSearch;
     if (search) params.set('search', search);
     if (statusFilter) params.set('status', statusFilter);
-    if (roleFilter === OWN_CAR_ROLE_FILTER) params.set('ownCar', '1');
-    else if (roleFilter) params.set('role', roleFilter);
+    if (roleFilter) params.set('role', roleFilter);
+    if (ownCarFilter) params.set('ownCar', ownCarFilter);
+    if (debouncedZone) params.set('zone', debouncedZone);
     return `/collaborators?${params.toString()}`;
-  }, [currentPage, nameFilter, pageSize, roleFilter, statusFilter]);
+  }, [currentPage, debouncedSearch, debouncedZone, ownCarFilter, pageSize, roleFilter, statusFilter]);
   const { data: collaboratorPayload, loading, error, reload } = useApi(collaboratorQuery, {
     items: [],
     total: 0,
@@ -370,16 +375,17 @@ export default function Collaborators() {
     const baseRows = hasServerPagination
       ? data
       : filterCollaborators(data, {
-        nameFilter,
-        roleFilter: roleFilter === OWN_CAR_ROLE_FILTER ? '' : roleFilter,
+        search: debouncedSearch,
+        roleFilter,
         statusFilter,
-        ownCarOnly: roleFilter === OWN_CAR_ROLE_FILTER,
-      });
+        ownCarFilter,
+        zoneFilter: canViewGenderSummary ? debouncedZone : '',
+      }, { includeSensitive: canViewGenderSummary });
     return [...baseRows].sort((a, b) => {
       if (Boolean(a.isPreferred) !== Boolean(b.isPreferred)) return a.isPreferred ? -1 : 1;
       return String(a.name || '').localeCompare(String(b.name || ''), 'pt');
     });
-  }, [data, hasServerPagination, nameFilter, roleFilter, statusFilter]);
+  }, [canViewGenderSummary, data, debouncedSearch, debouncedZone, hasServerPagination, ownCarFilter, roleFilter, statusFilter]);
 
   const pagination = useMemo(
     () => {
@@ -403,8 +409,32 @@ export default function Collaborators() {
   );
 
   useEffect(() => {
+    if (nameFilter.trim() === debouncedSearch && zoneFilter.trim() === debouncedZone) return undefined;
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(nameFilter.trim());
+      setDebouncedZone(zoneFilter.trim());
+      setCurrentPage(1);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [debouncedSearch, debouncedZone, nameFilter, zoneFilter]);
+
+  const searchPending = nameFilter.trim() !== debouncedSearch || zoneFilter.trim() !== debouncedZone;
+  const filtersActive = Boolean(nameFilter || roleFilter || statusFilter || ownCarFilter || zoneFilter);
+
+  function clearSearch() {
+    setNameFilter('');
+    setDebouncedSearch('');
     setCurrentPage(1);
-  }, [nameFilter, pageSize, roleFilter, statusFilter]);
+  }
+
+  function clearFilters() {
+    clearSearch();
+    setZoneFilter('');
+    setDebouncedZone('');
+    setRoleFilter('');
+    setStatusFilter('');
+    setOwnCarFilter('');
+  }
 
   useEffect(() => {
     const nextPage = hasServerPagination
@@ -617,7 +647,12 @@ export default function Collaborators() {
 
   return (
     <div className="page">
-      <Card title="Colaboradores" action={<button className="command-button" type="button" onClick={openCreate}><Plus size={17} />Novo Colaborador</button>}>
+      <Card title="Colaboradores" className="collaborators-list-card" action={(
+        <div className="collaborator-list-actions">
+          <IconButton label="Limpar filtros" disabled={!filtersActive} onClick={clearFilters}><RotateCcw size={17} /></IconButton>
+          <button className="command-button" type="button" onClick={openCreate}><Plus size={17} />Novo Colaborador</button>
+        </div>
+      )}>
         {canViewGenderSummary && Number(genderSummary?.total) > 0 ? (
           <section className="collaborator-gender-summary" aria-label="Distribuição dos colaboradores ativos">
             <div className="collaborator-gender-summary__total">
@@ -669,23 +704,37 @@ export default function Collaborators() {
             </div>
           </section>
         ) : null}
-        <div className="filters collab-filters">
-          <input className="form-control" placeholder="Pesquisar por nome..." value={nameFilter} onChange={(event) => setNameFilter(event.target.value)} />
-          <select className="form-control" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+        <div className={`filters collab-filters${canViewGenderSummary ? ' collab-filters--with-zone' : ''}`}>
+          <div className="services-list-search collaborator-search">
+            <Search size={17} aria-hidden="true" />
+            <input className="form-control" type="search" aria-label="Pesquisar colaboradores" autoComplete="off"
+              placeholder={canViewGenderSummary ? 'Nome, função, notas...' : 'Nome ou função...'}
+              value={nameFilter} onChange={(event) => setNameFilter(event.target.value)} />
+            {nameFilter ? <IconButton label="Limpar pesquisa" onClick={clearSearch}><X size={16} /></IconButton> : null}
+          </div>
+          <select aria-label="Função" className="form-control" value={roleFilter} onChange={(event) => { setRoleFilter(event.target.value); setCurrentPage(1); }}>
             <option value="">Todas as funções</option>
             {mergedRoleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
-            <option value={OWN_CAR_ROLE_FILTER}>Tem carro próprio</option>
           </select>
-          <select className="form-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <select aria-label="Estado do colaborador" className="form-control" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setCurrentPage(1); }}>
             <option value="">Todos os estados</option>
             <option value="active">Ativo</option>
             <option value="inactive">Inativo</option>
             <option value="paused">Pausado</option>
           </select>
+          {canViewGenderSummary ? <input className="form-control collab-zone-filter" aria-label="Zona de residência" placeholder="Zona de residência" value={zoneFilter} onChange={(event) => setZoneFilter(event.target.value)} /> : null}
+          <select aria-label="Viatura própria" className="form-control" value={ownCarFilter} onChange={(event) => { setOwnCarFilter(event.target.value); setCurrentPage(1); }}>
+            <option value="">Todas as viaturas</option>
+            <option value="true">Com viatura</option>
+            <option value="false">Sem viatura</option>
+          </select>
         </div>
+        <p className="collaborator-search-status muted" role="status" aria-live="polite">
+          {loading || searchPending ? 'A pesquisar...' : `${pagination.totalItems} ${pagination.totalItems === 1 ? 'colaborador' : 'colaboradores'}`}
+        </p>
         {error ? <p className="notice">{error}</p> : null}
-        <div className="collab-details-list">
-          {(loading ? [] : pagination.items).map((row) => {
+        <div className="collab-details-list" aria-busy={loading || searchPending}>
+          {pagination.items.map((row) => {
             const stats = eventStatsByCollaborator.get(Number(row.id)) || { confirmed: 0, refused: 0, missedJustified: 0, missedUnjustified: 0 };
             const detail = collaboratorDetails[String(row.id)];
             const displayRow = mergeCollaboratorDetail(row, detail);
@@ -771,9 +820,9 @@ export default function Collaborators() {
               </article>
             );
           })}
-          {!loading && rows.length === 0 ? <p className="muted">Nenhum colaborador encontrado.</p> : null}
+          {!loading && !searchPending && rows.length === 0 ? <p className="muted">Nenhum colaborador encontrado.</p> : null}
         </div>
-        {!loading && rows.length > 0 ? (
+        {rows.length > 0 ? (
           <div className="collab-pagination">
             <span className="collab-pagination__summary">
               A mostrar {pagination.startItem}-{pagination.endItem} de {pagination.totalItems}
@@ -783,7 +832,7 @@ export default function Collaborators() {
               <select
                 className="form-control"
                 value={pageSize}
-                onChange={(event) => setPageSize(Number(event.target.value))}
+                onChange={(event) => { setPageSize(Number(event.target.value)); setCurrentPage(1); }}
               >
                 <option value={10}>10</option>
                 <option value={20}>20</option>
@@ -796,7 +845,7 @@ export default function Collaborators() {
                 className="icon-button"
                 aria-label="Página anterior"
                 title="Página anterior"
-                disabled={pagination.currentPage <= 1}
+                disabled={loading || searchPending || pagination.currentPage <= 1}
                 onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
               >
                 <ChevronLeft size={17} />
@@ -806,6 +855,7 @@ export default function Collaborators() {
                   type="button"
                   className={`collab-pagination__page${pageNumber === pagination.currentPage ? ' is-active' : ''}`}
                   aria-current={pageNumber === pagination.currentPage ? 'page' : undefined}
+                  disabled={loading || searchPending}
                   key={pageNumber}
                   onClick={() => setCurrentPage(pageNumber)}
                 >
@@ -817,7 +867,7 @@ export default function Collaborators() {
                 className="icon-button"
                 aria-label="Página seguinte"
                 title="Página seguinte"
-                disabled={pagination.currentPage >= pagination.totalPages}
+                disabled={loading || searchPending || pagination.currentPage >= pagination.totalPages}
                 onClick={() => setCurrentPage((page) => Math.min(pagination.totalPages, page + 1))}
               >
                 <ChevronRight size={17} />
@@ -914,7 +964,7 @@ export default function Collaborators() {
                       onClick={() => openPhotoViewer(form.photo, form.shortName || form.name || 'Colaborador')}
                       aria-label="Ampliar fotografia do colaborador"
                     >
-                      <img alt="Fotografia colaborador" src={form.photo} />
+                      <CollaboratorImage alt="Fotografia colaborador" src={form.photo} />
                     </button>
                   ) : <span>Sem fotografia (3x4)</span>}
                 </div>
@@ -965,7 +1015,7 @@ export default function Collaborators() {
               <button className="secondary-button" type="button" onClick={() => setPhotoZoom(1)}>Repor</button>
             </div>
             <div className="photo-viewer__frame">
-              <img
+              <CollaboratorImage
                 src={photoViewer.photo}
                 alt={`Fotografia de ${photoViewer.name}`}
                 style={{

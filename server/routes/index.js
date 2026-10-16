@@ -19,6 +19,7 @@ import {
   normalizeClient,
 } from './crud.js';
 import { authRouter } from './auth.js';
+import { createPrivateUploadsRouter } from './privateUploads.js';
 import { backupsRouter } from './backups.js';
 import { requireAuth } from '../middleware/auth.js';
 import { canViewFinancialData, canViewSensitiveCollaboratorData } from '../security/roles.js';
@@ -583,6 +584,7 @@ apiRouter.get('/health', (_req, res) => {
 apiRouter.use('/whatsapp', whatsappWebhookRouter);
 
 apiRouter.use(requireAuth);
+apiRouter.use('/uploads', createPrivateUploadsRouter());
 apiRouter.use('/push', createPushRouter(prisma));
 
 apiRouter.use('/users', usersRouter);

@@ -46,7 +46,7 @@ export async function refreshStoredAuth() {
   return request.promise;
 }
 
-export async function api(path, options = {}) {
+async function request(path, options = {}, responseType = 'json') {
   const isLogin = path === '/auth/login';
   let auth = isLogin ? null : getStoredAuth();
   if (auth && sessionExpired(auth)) throw expire(auth);
@@ -73,5 +73,8 @@ export async function api(path, options = {}) {
   const method = String(options.method || 'GET').toUpperCase();
   if (method !== 'GET') invalidateApiCache();
   if (response.status === 204) return null;
-  return response.json();
+  return responseType === 'blob' ? response.blob() : response.json();
 }
+
+export const api = (path, options = {}) => request(path, options);
+export const apiBlob = (path, options = {}) => request(path, options, 'blob');

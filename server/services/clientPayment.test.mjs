@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import { once } from 'node:events';
-import jwt from 'jsonwebtoken';
+import { issueSessionToken } from '../security/sessionTokens.js';
 import { clientPaymentDraft, clientPaymentSummary, buildClientPaymentPayload } from '../../src/utils/clientPayment.js';
 import { receiveAdditionalClientPayment, reverseClientReceipts, reverseClientSignal } from './clientPayment.js';
 
@@ -35,7 +35,7 @@ before(async () => {
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   base = `http://127.0.0.1:${server.address().port}/api/services`;
-  headers = { Authorization: `Bearer ${jwt.sign({ id: admin.id }, process.env.JWT_SECRET)}`, 'Content-Type': 'application/json' };
+  headers = { Authorization: `Bearer ${issueSessionToken(admin)}`, 'Content-Type': 'application/json' };
 });
 after(async () => {
   if (server) await new Promise((done) => server.close(done));
@@ -189,7 +189,7 @@ test('HTTP reversal enforces permission and stale-view protection without touchi
   assert.equal((await reverse(event, { 'Content-Type': 'application/json' })).status, 401);
   const viewer = await db.user.create({ data: { name: 'Viewer QA', email: 'signal-viewer@example.test', password: 'qa', role: 'operations',
     permissionOverrides: '{"deny":["services.update"]}' } });
-  const viewerHeaders = { ...headers, Authorization: `Bearer ${jwt.sign({ id: viewer.id }, process.env.JWT_SECRET)}` };
+  const viewerHeaders = { ...headers, Authorization: `Bearer ${issueSessionToken(viewer)}` };
   assert.equal((await reverse(event, viewerHeaders)).status, 403);
   assert.equal((await reverse({ ...event, updatedAt: '2000-01-01T00:00:00Z' })).status, 409);
   assert.deepEqual(await stored(event.id), original);
@@ -244,7 +244,7 @@ test('HTTP receipt correction requires current amounts, version, financial permi
   assert.equal((await reverseReceipts(event, {}, { 'Content-Type': 'application/json' })).status, 401);
   const operator = await db.user.create({ data: { name: 'Operation QA', email: 'receipts-operator@example.test', password: 'qa', role: 'operations',
     permissionOverrides: '{"deny":["finance.updatePayments"]}' } });
-  const limited = { ...headers, Authorization: `Bearer ${jwt.sign({ id: operator.id }, process.env.JWT_SECRET)}` };
+  const limited = { ...headers, Authorization: `Bearer ${issueSessionToken(operator)}` };
   assert.equal((await reverseReceipts(event, {}, limited)).status, 403);
   for (const grouped of [false, true]) {
     const issuedEvent = await fixture({ billingStatus: 'paid', paidAmount: 252 });
@@ -297,7 +297,7 @@ test('additional receipt rejects invalid values, stale data and unauthorized use
   assert.equal((await send({ updatedAt: '2000-01-01' })).status, 409);
   assert.equal((await send({}, { 'Content-Type': 'application/json' })).status, 401);
   const operator = await db.user.findUnique({ where: { email: 'receipts-operator@example.test' } });
-  const limited = { ...headers, Authorization: `Bearer ${jwt.sign({ id: operator.id }, process.env.JWT_SECRET)}` };
+  const limited = { ...headers, Authorization: `Bearer ${issueSessionToken(operator)}` };
   assert.equal((await send({}, limited)).status, 403); assert.deepEqual(await stored(event.id), before);
   const failing = { $transaction: (callback) => db.$transaction((tx) => {
     let reads = 0;

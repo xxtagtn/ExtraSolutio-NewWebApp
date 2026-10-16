@@ -3,6 +3,7 @@ import { asyncHandler } from '../utils/http.js';
 import { processWhatsAppIncomingMessages } from '../utils/whatsappInbound.js';
 import { sendWhatsAppTemplateMessage } from '../utils/whatsappClient.js';
 import { applyWhatsAppDeliveryStatuses } from '../utils/whatsappDeliveryStatus.js';
+import { requireWhatsAppSignature } from '../security/whatsappSignature.js';
 
 function webhookVerifyToken() {
   return String(process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '');
@@ -22,7 +23,7 @@ whatsappWebhookRouter.get('/webhook', (req, res) => {
   return res.sendStatus(403);
 });
 
-whatsappWebhookRouter.post('/webhook', (req, res) => {
+whatsappWebhookRouter.post('/webhook', requireWhatsAppSignature, (req, res) => {
   // Meta expects a quick 2xx response for webhook deliveries.
   const changes = (Array.isArray(req.body?.entry) ? req.body.entry : [])
     .flatMap((entry) => Array.isArray(entry?.changes) ? entry.changes : [])
