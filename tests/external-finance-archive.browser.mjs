@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir } from 'node:fs/promises';
 import { synchronizeEventWorkflow } from '../server/services/eventWorkflow.js';
+import { receiveAdditionalClientPayment, setClientCommercialStatus } from '../server/services/clientPayment.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -50,7 +51,13 @@ try {
       if (!url.pathname.startsWith('/api/')) return url.origin === new URL(base).origin ? route.continue() : route.abort();
       const path = url.pathname.slice(4);
       let body = [];
-      if (request.method() === 'PUT') {
+      if (path.endsWith('/client-payment/commercial-status')) {
+        writes.push('invoiced');
+        body = await setClientCommercialStatus(database, Number(path.split('/')[2]), request.postDataJSON(), { id: 1, name: 'QA' });
+      } else if (path.endsWith('/client-payment/receive')) {
+        writes.push('receive');
+        body = await receiveAdditionalClientPayment(database, Number(path.split('/')[2]), request.postDataJSON());
+      } else if (request.method() === 'PUT') {
         assert.match(path, /^\/services\/\d+$/);
         const id = Number(path.split('/').at(-1));
         const patch = request.postDataJSON();
@@ -74,16 +81,22 @@ try {
     await summary.waitFor(); await summary.click();
     const eventRow = page.locator('.finance-client-event-row').filter({ hasText: 'Parceiro QA 42' });
     await eventRow.waitFor();
-    const status = eventRow.locator('select.finance-client-status-select');
-    assert.equal(await status.inputValue(), 'pending');
+    await eventRow.getByText('Pendente', { exact: true }).waitFor();
     await page.screenshot({ path: `${output}/pending-${width}.png`, fullPage: true });
-    await status.selectOption('invoiced');
-    await page.waitForFunction(() => document.querySelector('.finance-client-status-select')?.value === 'invoiced');
+    await eventRow.getByRole('button', { name: 'Gerir recebimentos', exact: true }).click();
+    const manager = page.getByRole('dialog', { name: 'Gerir recebimentos', exact: true });
+    await manager.getByLabel('Estado financeiro', { exact: true }).selectOption('invoiced');
+    await manager.getByLabel('Data de emissão', { exact: true }).fill('2026-10-10');
+    await manager.getByRole('button', { name: 'Guardar faturação', exact: true }).click();
+    await manager.locator('.finance-receipt-manager-heading').getByText('Faturado', { exact: true }).waitFor();
     assert.notEqual(stored[0].status, 'finalized');
-    await status.selectOption('paid');
+    await manager.getByRole('button', { name: 'Registar recebimento', exact: true }).click();
+    const editor = page.getByRole('dialog', { name: 'Registar recebimento', exact: true });
+    await editor.getByRole('button', { name: 'Guardar recebimento', exact: true }).click(); await manager.waitFor();
+    await manager.getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('.finance-client-event-row'));
     assert.equal(stored[0].status, 'finalized');
-    assert.deepEqual(writes, ['invoiced', 'paid']);
+    assert.deepEqual(writes, ['invoiced', 'receive']);
     for (const field of ['externalCosts', 'totalCost', 'totalRevenue', 'taxAmount', 'vatRateSnapshot', 'billingAdjustment', 'notes']) {
       assert.deepEqual(stored[0][field], money[field], field);
     }

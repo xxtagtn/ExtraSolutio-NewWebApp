@@ -14,6 +14,7 @@ export function clientPaymentAssessment(event = {}, summary = {}) {
   const fullyReceived = summary.total > 0 && outstanding === 0;
   const label = excess > 0 ? 'Recebido em excesso' : fullyReceived
     ? assessed ? 'Pago' : 'Previsto totalmente recebido'
-    : summary.received > 0 ? 'Parcialmente recebido' : event.billingStatus === 'invoiced' ? 'Faturado' : 'Pendente';
+    : record?.commercialStatus === 'invoiced' || event.billingStatus === 'invoiced' ? 'Faturado'
+      : summary.received > 0 ? 'Parcialmente recebido' : 'Pendente';
   return { assessed, excess, fullyReceived, label, expectedTotal: record?.expectedTotal ?? null };
 }

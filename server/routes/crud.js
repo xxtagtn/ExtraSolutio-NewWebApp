@@ -82,7 +82,7 @@ export function createCrudRouter(model, fields, options = {}) {
     if (options.loadExistingForUpdate && !existing) return res.status(404).json({ message: 'Registo não encontrado.' });
     const data = await (options.normalizeUpdate?.(req.body, existing) ?? pick(req.body, fields));
     const row = options.performUpdate
-      ? await options.performUpdate({ id, data, existing, include, body: req.body, model })
+      ? await options.performUpdate({ id, data, existing, include, body: req.body, model, req })
       : await model.update({ where: { id }, data, include });
     await options.afterUpdate?.({ id, row, existing, data, body: req.body });
     res.json(await serializeRow(row, req));

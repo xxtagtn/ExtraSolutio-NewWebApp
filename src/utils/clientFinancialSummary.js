@@ -5,6 +5,7 @@ import {
 } from '../../shared/invoiceLifecycle.js';
 import { externalCostsTotals } from './externalCosts.js';
 import { eventTaxAmount } from './eventTax.js';
+import { clientPaymentSummary } from './clientPayment.js';
 
 const CLOSED_INVOICE_STATUSES = new Set(['cancelled', 'void']);
 
@@ -121,7 +122,7 @@ function roundSummary(row) {
     adjustments: Number(row.adjustments.toFixed(2)),
     billedOpen: Number(row.billedOpen.toFixed(2)),
     received: Number(row.received.toFixed(2)),
-    total: Number((row.pendingBilling + row.billedOpen + row.received).toFixed(2)),
+    total: Number(row.total.toFixed(2)),
     invoiceIds: undefined,
   };
 }
@@ -150,6 +151,7 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
   }
 
   const summaries = new Map();
+  const receiptOffsets = new Map();
 
   for (const event of events || []) {
     const summary = ensureSummary(summaries, event, clientsById);
@@ -161,6 +163,9 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
     const billingStatus = eventBillingState(event);
 
     summary.eventCount += 1;
+    const received = clientPaymentSummary({ ...event, invoices: linkedInvoices }).received;
+    summary.received += received;
+    receiptOffsets.set(eventId, received);
     summary.adjustments += adjustment;
     summary.events.push({
       ...event,
@@ -173,6 +178,7 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
 
     if (!linkedInvoices.some((invoice) => invoiceIsIssued(invoice))) {
       summary.pendingBilling += adjustedRevenue;
+      summary.total += adjustedRevenue;
     }
   }
 
@@ -192,7 +198,17 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
     const total = numberValue(invoice.total);
     summary.invoiceIds.add(invoice.id);
     summary.invoices.push(invoice);
-    if (invoiceIsPaid(invoice)) summary.received += total;
+    summary.total += total;
+    if (invoiceIsPaid(invoice)) {
+      let alreadyCounted = 0;
+      for (const id of linkedIds) {
+        const available = receiptOffsets.get(id) || 0;
+        const used = Math.min(available, Math.max(0, total - alreadyCounted));
+        alreadyCounted += used;
+        receiptOffsets.set(id, available - used);
+      }
+      summary.received += Math.max(0, total - alreadyCounted);
+    }
     else summary.billedOpen += total;
   }
 

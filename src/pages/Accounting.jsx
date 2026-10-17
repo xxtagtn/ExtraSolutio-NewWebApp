@@ -11,12 +11,19 @@ import {
   TrendingUp,
   CheckCircle2,
   Hourglass,
+  TriangleAlert,
 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import { clientPaymentSummary } from '../utils/clientPayment.js';
+import { clientFinancialState } from '../utils/clientFinancialState.js';
+import { shouldShowClientPaymentAlert } from '../utils/clientPaymentAlert.js';
+import { clientPaymentDeadline } from '../utils/clientPaymentDeadline.js';
+import { clientPaymentAdjustment } from '../utils/clientPaymentAdjustment.js';
+import { clientReceiptTaxSummary } from '../utils/clientReceiptTax.js';
+import ClientReceiptManager from '../components/Finance/ClientReceiptManager.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
@@ -35,7 +42,7 @@ import {
   splitClientBillingRows,
 } from '../utils/clientBilling.js';
 import { externalCostsTotals, normalizeExternalCosts } from '../utils/externalCosts.js';
-import { externalServiceCanArchive, isExternalOnlyService } from '../utils/externalServiceWorkflow.js';
+import { isExternalOnlyService } from '../utils/externalServiceWorkflow.js';
 import { eventTaxAmount } from '../utils/eventTax.js';
 import { buildFinanceEventDescriptors } from '../utils/financeEventIdentity.js';
 import { splitFinanceReadiness } from '../utils/financeReadiness.js';
@@ -333,7 +340,7 @@ function eventFinancialRow(event, invoices, expenses) {
   const paidByInvoice = eventInvoices.filter(invoiceIsPaid).reduce((sum, invoice) => sum + num(invoice.total), 0);
   const paidBySignal = num(event.paidAmount);
   const received = Math.max(paidByInvoice, clientPaymentSummary(event).received, paidBySignal);
-  const receivable = Math.max(0, revenue - received);
+  const receivable = Math.max(0, clientPaymentSummary(event).total - received);
   return {
     ...event,
     financial: {
@@ -458,18 +465,16 @@ function statusLabel(options, value) {
 
 function ClientFinancialEventTable({
   row,
+  onManageReceipts,
   onInvoiceStatusChange,
-  onEventBillingStatusChange,
   clientAdjustmentDraftFor,
   onClientAdjustmentDraftChange,
   onClientAdjustmentSave,
   updatingInvoiceId,
-  updatingEventId,
   updatingClientAdjustmentEventId,
 }) {
   const navigate = useNavigate();
   const [selectedEventRecord, setSelectedEvent] = useState(null);
-  const shownInvoiceIds = new Set();
   const events = row?.events || [];
   const selectedEvent = selectedEventRecord
     ? events.find((event) => String(event.id) === String(selectedEventRecord.id)) || selectedEventRecord : null;
@@ -494,13 +499,11 @@ function ClientFinancialEventTable({
 
   const renderEvent = (event) => {
     const invoice = event.invoice;
-    const invoiceKey = invoice?.id ? String(invoice.id) : '';
-    const showInvoiceAction = Boolean(invoice && !shownInvoiceIds.has(invoiceKey));
-    if (showInvoiceAction) shownInvoiceIds.add(invoiceKey);
-
-    const invoiceStatus = invoice?.status || '';
-    const billingStatus = event.billingStatus || 'pending';
-    const dueDate = invoice ? effectiveInvoiceDueDate(invoice, invoice.client || event.client) : null;
+    const payment = clientFinancialState(event);
+    const showPaymentAlert = shouldShowClientPaymentAlert(event, { payment });
+    const paymentTax = clientReceiptTaxSummary(event, payment.received);
+    const adjustment = clientPaymentAdjustment(event, payment.received);
+    const deadline = clientPaymentDeadline(event, { payment });
     const eventStatus = operationalStatusLabel(event.status || event.operationalStatus || event.serviceStatus);
     const descriptor = eventDescriptors.get(String(event.id)) || {};
     const operationalSummary = descriptor.operationalSummary || {};
@@ -547,8 +550,8 @@ function ClientFinancialEventTable({
             <small className="finance-client-event-operational">{operationalParts.join(' · ')}</small>
           ) : null}
         </div>
-        <span>{event.date ? date.format(new Date(event.date)) : '-'}</span>
         <div className="finance-client-event-adjustment" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+          <strong>{money.format(event.displayValue)}</strong>
           {invoice ? (
             <span className="muted" title="A fatura já foi emitida.">-</span>
           ) : (
@@ -568,30 +571,19 @@ function ClientFinancialEventTable({
             />
           )}
         </div>
-        <strong>{money.format(event.displayValue)}</strong>
-        <span>
-          <Badge tone={invoice ? (invoiceIsPaid(invoice) ? 'success' : 'warning') : billingStatus === 'paid' ? 'success' : 'warning'}>
-            {invoice ? statusLabel(INVOICE_STATUS, invoiceStatus) : statusLabel(BILLING_STATUS, billingStatus)}
-          </Badge>
-        </span>
-        <span>{dueDate ? date.format(new Date(dueDate)) : '-'}</span>
+        <strong className="finance-client-received">{money.format(payment.received)}</strong>
+        <div className={`finance-client-outstanding${showPaymentAlert ? ' finance-client-missing' : ''}`}><strong>{money.format(payment.outstanding)}</strong>
+          {payment.missingPayment && paymentTax.outstanding ? <small>{money.format(paymentTax.outstanding.base)} + {money.format(paymentTax.outstanding.tax)} IVA</small> : null}</div>
+        <div><Badge tone={payment.status === 'paid' ? 'success' : 'warning'}>{showPaymentAlert ? <><TriangleAlert size={13} /> Pagamento em falta</> : payment.label}</Badge>
+          {showPaymentAlert ? <small className="finance-client-payment-state">{payment.label}</small> : null}
+          {adjustment?.available ? <small className="finance-client-payment-state">Ajuste após validação de horas</small> : null}</div>
+        <div className="finance-client-deadline" data-deadline-status={deadline.status}>
+          <span>{deadline.dueDate ? date.format(deadline.dueDate) : '-'}</span>
+          {deadline.label ? <small>{deadline.label}</small> : null}
+        </div>
         <span className="finance-client-event-status">{eventStatus}</span>
         <div className="finance-client-event-action">
-          {invoice && showInvoiceAction ? statusSelect(
-            invoiceStatus || 'issued',
-            INVOICE_STATUS,
-            `payment-state payment-state--${invoiceStatus === 'paid' ? 'paid' : invoiceStatus === 'issued' ? 'pending' : 'awaiting_data'} finance-client-status-select`,
-            updatingInvoiceId === invoice.id,
-            (nextStatus) => onInvoiceStatusChange(invoice, nextStatus),
-          ) : null}
-          {invoice && !showInvoiceAction ? <small className="muted">Mesma fatura</small> : null}
-          {!invoice ? statusSelect(
-            billingStatus,
-            BILLING_STATUS,
-            `payment-state payment-state--${billingStatus} finance-client-status-select`,
-            updatingEventId === event.id,
-            (nextStatus) => onEventBillingStatusChange(event.id, nextStatus),
-          ) : null}
+          <button className="secondary-button" type="button" onClick={() => onManageReceipts(event.id)}><ReceiptText size={15} />Gerir recebimentos</button>
         </div>
       </article>
     );
@@ -623,10 +615,10 @@ function ClientFinancialEventTable({
     <div className="finance-client-event-table">
       <div className="finance-client-event-head">
         <span>Evento/Serviço</span>
-        <span>Data</span>
-        <span>Ajustes</span>
-        <span>Valor</span>
-        <span>Estado da faturação</span>
+        <span>Valor total</span>
+        <span>Recebido</span>
+        <span>Por receber</span>
+        <span>Pagamento</span>
         <span>Vencimento</span>
         <span>Estado do evento</span>
         <span>Ação</span>
@@ -638,9 +630,9 @@ function ClientFinancialEventTable({
             <strong>{invoice.number || invoice.description || `Fatura #${invoice.id}`}</strong>
             <small>Fatura sem evento associado no período</small>
           </div>
-          <span>{invoice.issueDate ? date.format(new Date(invoice.issueDate)) : '-'}</span>
-          <span className="muted">-</span>
           <strong>{money.format(invoice.total)}</strong>
+          <strong>{money.format(invoiceIsPaid(invoice) ? invoice.total : 0)}</strong>
+          <strong>{money.format(invoiceIsPaid(invoice) ? 0 : invoice.total)}</strong>
           <span><Badge tone={invoiceIsPaid(invoice) ? 'success' : 'warning'}>{statusLabel(INVOICE_STATUS, invoice.status)}</Badge></span>
           <span>{effectiveInvoiceDueDate(invoice, invoice.client) ? date.format(effectiveInvoiceDueDate(invoice, invoice.client)) : '-'}</span>
           <span className="muted">-</span>
@@ -925,18 +917,17 @@ function ClientFinancialEventTable({
 
 function ClientFinancialWorkspace({
   rows,
+  onManageReceipts,
   options,
   selectedClientKey,
   onClientChange,
   expandedClientKey,
   onToggleClient,
   onInvoiceStatusChange,
-  onEventBillingStatusChange,
   clientAdjustmentDraftFor,
   onClientAdjustmentDraftChange,
   onClientAdjustmentSave,
   updatingInvoiceId,
-  updatingEventId,
   updatingClientAdjustmentEventId,
 }) {
   const visibleRows = selectedClientKey === 'all'
@@ -998,13 +989,12 @@ function ClientFinancialWorkspace({
           </header>
           <ClientFinancialEventTable
             row={selectedRow}
+            onManageReceipts={onManageReceipts}
             onInvoiceStatusChange={onInvoiceStatusChange}
-            onEventBillingStatusChange={onEventBillingStatusChange}
             clientAdjustmentDraftFor={clientAdjustmentDraftFor}
             onClientAdjustmentDraftChange={onClientAdjustmentDraftChange}
             onClientAdjustmentSave={onClientAdjustmentSave}
             updatingInvoiceId={updatingInvoiceId}
-            updatingEventId={updatingEventId}
             updatingClientAdjustmentEventId={updatingClientAdjustmentEventId}
           />
         </section>
@@ -1052,13 +1042,12 @@ function ClientFinancialWorkspace({
                         <td colSpan={7}>
                           <ClientFinancialEventTable
                             row={row}
+                            onManageReceipts={onManageReceipts}
                             onInvoiceStatusChange={onInvoiceStatusChange}
-                            onEventBillingStatusChange={onEventBillingStatusChange}
                             clientAdjustmentDraftFor={clientAdjustmentDraftFor}
                             onClientAdjustmentDraftChange={onClientAdjustmentDraftChange}
                             onClientAdjustmentSave={onClientAdjustmentSave}
                             updatingInvoiceId={updatingInvoiceId}
-                            updatingEventId={updatingEventId}
                             updatingClientAdjustmentEventId={updatingClientAdjustmentEventId}
                           />
                         </td>
@@ -1109,6 +1098,7 @@ export default function Accounting() {
   const [selectedMonth, setSelectedMonth] = useState(() => monthInputValue());
   const [selectedFinanceClientKey, setSelectedFinanceClientKey] = useState('all');
   const [expandedFinanceClientKey, setExpandedFinanceClientKey] = useState(null);
+  const [managedEventId, setManagedEventId] = useState(null);
   const [archiveMonth, setArchiveMonth] = useState(() => `${new Date().getFullYear()}-00`);
   const [archiveClientId, setArchiveClientId] = useState('all');
   const [staffFilters, setStaffFilters] = useState({ eventId: 'all', collaboratorId: 'all', date: '' });
@@ -1239,43 +1229,6 @@ export default function Accounting() {
     () => filterServicesByPeriod(eventRows, selectedMonth),
     [eventRows, selectedMonth],
   );
-
-  const clientFinancialRows = useMemo(
-    () => buildClientFinancialSummary({
-      events: currentEventRows.filter((event) => !externalServiceCanArchive(event)),
-      invoices: invoices.filter((invoice) => {
-        const ids = parseInvoiceEventIds(invoice);
-        return !ids.length || !ids.every((id) => services.some((event) => Number(event.id) === id && externalServiceCanArchive(event)));
-      }),
-      clients, period: selectedMonth,
-    }),
-    [clients, currentEventRows, invoices, selectedMonth, services],
-  );
-
-  const clientFinancialOptions = useMemo(
-    () => {
-      const optionMap = new Map();
-      for (const client of clients) {
-        if (client?.status === 'inactive') continue;
-        optionMap.set(`client:${client.id}`, { key: `client:${client.id}`, label: client.name });
-      }
-      for (const row of clientFinancialRows) {
-        if (row.clientStatus === 'inactive') continue;
-        optionMap.set(row.key, { key: row.key, label: row.clientName });
-      }
-      return [...optionMap.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-PT', { sensitivity: 'base' }));
-    },
-    [clientFinancialRows, clients],
-  );
-
-  useEffect(() => {
-    if (selectedFinanceClientKey !== 'all' && !clientFinancialOptions.some((option) => option.key === selectedFinanceClientKey)) {
-      setSelectedFinanceClientKey('all');
-    }
-    if (expandedFinanceClientKey && !clientFinancialRows.some((row) => row.key === expandedFinanceClientKey)) {
-      setExpandedFinanceClientKey(null);
-    }
-  }, [clientFinancialOptions, clientFinancialRows, expandedFinanceClientKey, selectedFinanceClientKey]);
 
   const currentForecastEventRows = useMemo(
     () => filterServicesByPeriod(forecastEventRows, selectedMonth),
@@ -1421,7 +1374,16 @@ export default function Accounting() {
         };
       });
 
-    return [...registeredClientRows, ...unregisteredEventRows, ...externalClientBillingRows(periodEventRows, invoices)].sort((a, b) => {
+    const invoicedEventRows = invoices.filter(invoiceIsIssued).flatMap((invoice) => {
+      const linked = regularEventRows.filter((event) => invoiceIncludesEvent(invoice, event.id));
+      if (!linked.length) return [];
+      const client = clients.find((item) => Number(item.id) === Number(invoice.clientId)) || linked[0].client || {};
+      return [{ ...client, rowId: `invoice-events:${invoice.id}`, invoices: [invoice], billingGroups: [],
+        nonInvoicedServices: linked.map((event) => ({ ...event, invoices: [invoice] })),
+        actionableInvoice: invoice, actionableService: linked[0], invoicesCount: 1, invoiceDebt: invoiceIsPaid(invoice) ? 0 : num(invoice.total),
+        pendingBilling: 0, totalOpen: invoiceIsPaid(invoice) ? 0 : num(invoice.total), nextDueDate: effectiveInvoiceDueDate(invoice, client) }];
+    });
+    return [...registeredClientRows, ...unregisteredEventRows, ...invoicedEventRows, ...externalClientBillingRows(periodEventRows, invoices)].sort((a, b) => {
       const aDate = a.nextDueDate ? new Date(a.nextDueDate).getTime() : Number.POSITIVE_INFINITY;
       const bDate = b.nextDueDate ? new Date(b.nextDueDate).getTime() : Number.POSITIVE_INFINITY;
       const dateDiff = aDate - bDate;
@@ -1503,6 +1465,30 @@ export default function Accounting() {
     () => archivedClientRows.filter((row) => archiveClientId === 'all' || String(row.id) === archiveClientId),
     [archiveClientId, archivedClientRows],
   );
+
+  const clientFinancialRows = useMemo(() => {
+    const archived = splitClientBillingRows(selectedPeriodClientRows).archivedRows;
+    const archivedIds = new Set(archived.flatMap((row) => billingEventIdsForRow(row)));
+    return buildClientFinancialSummary({
+      events: currentEventRows.filter((event) => !archivedIds.has(Number(event.id))),
+      invoices: invoices.filter((invoice) => {
+        const ids = parseInvoiceEventIds(invoice);
+        return !ids.length || !ids.every((id) => archivedIds.has(Number(id)));
+      }), clients, period: selectedMonth,
+    });
+  }, [clients, currentEventRows, invoices, selectedMonth, selectedPeriodClientRows]);
+
+  const clientFinancialOptions = useMemo(() => {
+    const optionMap = new Map();
+    for (const client of clients) if (client?.status !== 'inactive') optionMap.set(`client:${client.id}`, { key: `client:${client.id}`, label: client.name });
+    for (const row of clientFinancialRows) if (row.clientStatus !== 'inactive') optionMap.set(row.key, { key: row.key, label: row.clientName });
+    return [...optionMap.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-PT', { sensitivity: 'base' }));
+  }, [clientFinancialRows, clients]);
+
+  useEffect(() => {
+    if (selectedFinanceClientKey !== 'all' && !clientFinancialOptions.some((option) => option.key === selectedFinanceClientKey)) setSelectedFinanceClientKey('all');
+    if (expandedFinanceClientKey && !clientFinancialRows.some((row) => row.key === expandedFinanceClientKey)) setExpandedFinanceClientKey(null);
+  }, [clientFinancialOptions, clientFinancialRows, expandedFinanceClientKey, selectedFinanceClientKey]);
 
   const allPaymentStaffEntries = useMemo(() => financeServices
     .flatMap((event) => billableAssignments(event).map((assignment) => ({ ...assignment, event, _financeReady: true })))
@@ -2099,7 +2085,7 @@ export default function Accounting() {
         ...prev,
         [String(event.id)]: adjustmentInputValue(parsed),
       }));
-      await reload();
+      await reload({ background: true });
     } finally {
       setUpdatingClientAdjustmentEventId(null);
     }
@@ -2168,8 +2154,8 @@ export default function Accounting() {
         method: 'PUT',
         body: JSON.stringify({ billingStatus: nextBillingStatus, billingPaymentDate }),
       })));
-      reloadInvoices();
-      reload();
+      await reloadInvoices({ background: true });
+      await reload({ background: true });
     } finally {
       setUpdatingInvoiceId(null);
     }
@@ -2536,6 +2522,7 @@ export default function Accounting() {
 
           <ClientFinancialWorkspace
             rows={clientFinancialRows}
+            onManageReceipts={setManagedEventId}
             options={clientFinancialOptions}
             selectedClientKey={selectedFinanceClientKey}
             onClientChange={(value) => {
@@ -2545,12 +2532,10 @@ export default function Accounting() {
             expandedClientKey={expandedFinanceClientKey}
             onToggleClient={(key) => setExpandedFinanceClientKey((current) => (current === key ? null : key))}
             onInvoiceStatusChange={updateInvoiceStatus}
-            onEventBillingStatusChange={(eventId, status) => updateEventBillingStatus([eventId], status, eventId)}
             clientAdjustmentDraftFor={clientAdjustmentDraftFor}
             onClientAdjustmentDraftChange={updateClientAdjustmentDraft}
             onClientAdjustmentSave={saveClientBillingAdjustment}
             updatingInvoiceId={updatingInvoiceId}
-            updatingEventId={updatingEventId}
             updatingClientAdjustmentEventId={updatingClientAdjustmentEventId}
           />
 
@@ -2675,6 +2660,7 @@ export default function Accounting() {
                                           <small>{service.eventType || service.location || '-'}</small>
                                         </div>
                                         <span>{money.format(service.financial?.revenue || eventRevenue(service))}</span>
+                                        <button className="secondary-button" type="button" onClick={() => setManagedEventId(service.id)}><ReceiptText size={15} />Gerir recebimentos</button>
                                       </div>
                                     ))}
                                   </div>
@@ -2787,12 +2773,10 @@ export default function Accounting() {
                     client.billingGroups.flatMap((group) => group.events.map((event) => Number(event.id))),
                   );
                   const billingEventIds = billingEventIdsForRow(client);
-                  const billingStatus = billingStatusForRow(client);
                   const billingValue = billingValueForRow(client);
                   const billingPaymentDate = billingPaymentDateForRow(client);
                   const standaloneServices = client.nonInvoicedServices.filter((event) => !groupedEventIds.has(Number(event.id)));
                   const hasDetails = client.billingGroups.length || client.invoices.length || standaloneServices.length;
-                  const updateKey = `archive:${client.rowId}`;
 
                   return (
                     <Fragment key={client.rowId}>
@@ -2811,15 +2795,7 @@ export default function Accounting() {
                         <td>{money.format(billingValue)}</td>
                         <td>{billingPaymentDate ? date.format(billingPaymentDate) : '-'}</td>
                         <td>
-                          <select
-                            className={`payment-state payment-state--${billingStatus}`}
-                            value={billingStatus}
-                            disabled={updatingEventId === updateKey}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={(event) => updateEventBillingStatus(billingEventIds, event.target.value, updateKey)}
-                          >
-                            {BILLING_STATUS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                          </select>
+                          <Badge tone="success">Totalmente Pago</Badge>
                         </td>
                       </tr>
                       {isExpanded ? (
@@ -2849,6 +2825,7 @@ export default function Accounting() {
                                           <small>{service.eventType || service.location || '-'}</small>
                                         </div>
                                         <span>{money.format(service.financial?.revenue || eventRevenue(service))}</span>
+                                        <button className="secondary-button" type="button" onClick={() => setManagedEventId(service.id)}><ReceiptText size={15} />Gerir recebimentos</button>
                                       </div>
                                     ))}
                                   </div>
@@ -2868,6 +2845,7 @@ export default function Accounting() {
                                     <Badge tone="success">{statusLabel(BILLING_STATUS, service.billingStatus || 'paid')}</Badge>
                                     <span>Sem vencimento calculado pelo evento</span>
                                     <strong>{money.format(service.financial?.revenue || 0)}</strong>
+                                    <button className="secondary-button" type="button" onClick={() => setManagedEventId(service.id)}><ReceiptText size={15} />Gerir recebimentos</button>
                                   </header>
                                 </article>
                               ))}
@@ -3695,6 +3673,11 @@ export default function Accounting() {
         </Card>
       ) : null}
 
+      {managedEventId && services.some((event) => Number(event.id) === Number(managedEventId)) ? <ClientReceiptManager
+        key={managedEventId} event={services.find((event) => Number(event.id) === Number(managedEventId))}
+        invoices={invoices.filter((invoice) => invoiceIncludesEvent(invoice, managedEventId))}
+        onClose={() => setManagedEventId(null)} onInvoiceStatusChange={updateInvoiceStatus}
+        onChanged={async () => { await reload({ background: true }); await reloadInvoices({ background: true }); }} /> : null}
       {paymentNotesAssignment ? (
         <Modal title="Notas internas do pagamento" onClose={closePaymentNotes}>
           <div className="resource-form finance-payment-notes-form">

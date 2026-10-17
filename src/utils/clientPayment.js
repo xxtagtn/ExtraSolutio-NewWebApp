@@ -1,6 +1,7 @@
 import { decimalValue } from './serviceFinance.js';
 import { invoiceIsIssued, invoiceIsPaid } from '../../shared/invoiceLifecycle.js';
 import { readClientPaymentRecord } from './clientPaymentRecord.js';
+import { clientPaymentTotal } from './clientPaymentTotal.js';
 
 export const CLIENT_PAYMENT_FIELDS = ['billingStatus', 'signaledAmount', 'paidAmount', 'signaledAt', 'remainingPaymentDate', 'billingPaymentDate'];
 
@@ -43,7 +44,7 @@ function moneyInput(value, label) {
 }
 
 export function clientPaymentSummary(event = {}) {
-  const total = Math.max(0, cents(event.totalRevenue));
+  const total = cents(clientPaymentTotal(event));
   const signal = Math.max(0, cents(event.signaledAmount));
   const stored = Math.max(0, cents(event.paidAmount));
   // Older status-only payments recorded settlement without a cumulative amount.
@@ -82,10 +83,21 @@ export function buildClientSignalReversal(event, invoices = event.invoices || []
     signaledAmount: 0, paidAmount: 0, signaledAt: null };
 }
 
-export function clientReceiptReversalBlocker(event = {}, invoices = event.invoices || []) {
+export function clientReceiptInvoiceBlocker(event = {}, invoices = event.invoices || []) {
   if (event.billingStatus === 'invoiced' || readClientPaymentRecord(event.clientPaymentRecord)?.legacyInvoiced || invoices.some(invoiceIsIssued)) {
     return 'Este serviço tem faturação emitida. A correção dos recebimentos deve ser tratada no Financeiro, mantendo a fatura.';
   }
+  return '';
+}
+
+export function clientReceiptRegistrationBlocker(event = {}, invoices = event.invoices || []) {
+  // A legacy invoiced label locks pricing/corrections, not new incoming cash.
+  return invoices.some(invoiceIsIssued) ? clientReceiptInvoiceBlocker(event, invoices) : '';
+}
+
+export function clientReceiptReversalBlocker(event = {}, invoices = event.invoices || []) {
+  const invoiceBlocker = clientReceiptInvoiceBlocker(event, invoices);
+  if (invoiceBlocker) return invoiceBlocker;
   const summary = clientPaymentSummary(event);
   if (summary.received <= 0 && summary.signal <= 0) return 'Este serviço não tem recebimentos registados para reverter.';
   return '';
@@ -117,7 +129,7 @@ export function assertClientSignalHistoryPreserved(input, existing, invoices = e
 
 export function buildClientPaymentPayload(draft, event = {}) {
   const status = draft.billingStatus || 'pending';
-  const total = Math.max(0, cents(event.totalRevenue));
+  const total = cents(clientPaymentTotal(event));
   const signal = moneyInput(draft.signaledAmount, 'valor sinalizado');
   const signaledAt = dateOnly(draft.signaledAt);
   const dueDate = dateOnly(draft.remainingPaymentDate);
@@ -189,7 +201,7 @@ export function validateClientPaymentUpdate(input, existing) {
   if (!isDetailedClientPaymentUpdate(input)) return;
   const merged = { ...existing, ...input };
   const draft = clientPaymentDraft(merged);
-  const received = input.paidAmount === undefined ? cents(existing.totalRevenue) : moneyInput(input.paidAmount, 'valor recebido');
+  const received = input.paidAmount === undefined ? cents(clientPaymentTotal(existing)) : moneyInput(input.paidAmount, 'valor recebido');
   draft.remainingReceived = (received - moneyInput(merged.signaledAmount, 'valor sinalizado')) / 100;
   const canonical = buildClientPaymentPayload(draft, existing);
   if (cents(canonical.paidAmount) !== received) {

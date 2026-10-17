@@ -65,7 +65,8 @@ test('external issued invoice settlement remains authoritative without treating 
   const saved = await synchronizeEventWorkflow(db, unissued.id, { now });
   assert.equal(saved.externalService.settledByInvoice, false);
   assert.equal(clientPaymentSummary({ ...saved, totalRevenue: 1506 }).received, 1476);
-  assert.equal(clientPaymentSummary({ ...saved, totalRevenue: 1506 }).outstanding, 30);
+  assert.equal(clientPaymentSummary({ ...saved, totalRevenue: 1506 }).outstanding, 42.5,
+    'The existing pre-invoice 12.50 billing adjustment is still due, without changing the 1476 actually received');
 });
 
 test('external services finalize independently of pending/invoiced/received/payment states and preserve every non-operational field', async () => {

@@ -68,7 +68,7 @@ try {
     assert.equal(await card.getByText('Sobre receita com IVA', { exact: true }).count(), 1);
     assert.equal(await card.getByText('Total a cobrar ao cliente', { exact: true }).count(), 1);
     assert.equal(await metrics.count(), 12);
-    assert.equal(await page.locator('.service-detail-payment-card').getByLabel('Valor total', { exact: true }).inputValue(), money(808.9));
+    assert.equal(await page.locator('.service-detail-payment-card [data-payment-metric="total"] .payment-metric-gross').textContent(), money(808.9));
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
     assert.equal(await card.evaluate((element) => element.scrollWidth > element.clientWidth + 1), false);
     const clipped = await card.locator('th, td, dt, dd, .event-finance-result > div, .event-finance-hours span').evaluateAll((elements) => elements.filter((element) => element.scrollWidth > element.clientWidth + 1)

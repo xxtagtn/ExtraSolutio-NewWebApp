@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
   History,
   MapPin,
+  MoreHorizontal,
   Plus,
   ReceiptText,
   Save,
@@ -24,11 +25,18 @@ import {
   WalletCards,
   RotateCcw,
 } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import ClientPaymentReference from '../components/UI/ClientPaymentReference.jsx';
+import ClientPaymentAdjustment from '../components/UI/ClientPaymentAdjustment.jsx';
+import ClientReceiptEditor from '../components/Finance/ClientReceiptEditor.jsx';
+import ClientReceiptAllocation, { receiptAllocationInput } from '../components/Finance/ClientReceiptAllocation.jsx';
+import ClientPaymentTax from '../components/UI/ClientPaymentTax.jsx';
+import { receiptMovements, receiptCanDelete, receiptTypeLabels } from '../utils/clientReceiptMovements.js';
+import { clientReceiptTaxSummary } from '../utils/clientReceiptTax.js';
+import { clientPaymentAdjustment, paymentFinancialSnapshot } from '../utils/clientPaymentAdjustment.js';
 import Modal from '../components/UI/Modal.jsx';
 import ExternalCostsEditor from '../components/Finance/ExternalCostsEditor.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
@@ -38,7 +46,7 @@ import { useApi } from '../hooks/useApi.js';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { isExternalOnlyService } from '../utils/externalServiceWorkflow.js';
-import { buildClientPaymentPayload, clientPaymentDraft, clientPaymentSummary, clientReceiptReversalBlocker, clientSignalReversalBlocker } from '../utils/clientPayment.js';
+import { buildClientPaymentPayload, clientPaymentDraft, clientPaymentSummary, clientReceiptInvoiceBlocker, clientReceiptReversalBlocker, clientSignalReversalBlocker } from '../utils/clientPayment.js';
 import { clientPaymentAssessment, readClientPaymentRecord } from '../utils/clientPaymentRecord.js';
 import { api } from '../utils/api.js';
 import { filterCollaboratorOptions } from '../utils/collaboratorSearch.js';
@@ -322,7 +330,11 @@ export default function ServiceDetail() {
   const [savingBilling, setSavingBilling] = useState(false);
   const [reversingSignal, setReversingSignal] = useState(false);
   const billingReversalRef = useRef(false);
+  const paymentScrollRef = useRef(null);
   const [billingError, setBillingError] = useState('');
+  const [paymentEditor, setPaymentEditor] = useState(null);
+  const [receiptAction, setReceiptAction] = useState(null);
+  const [receiptAllocation, setReceiptAllocation] = useState({ enabled: false, amounts: {} });
   const [additionalPayment, setAdditionalPayment] = useState(null);
   const [additionalPaymentError, setAdditionalPaymentError] = useState('');
   const [externalCostEdit, setExternalCostEdit] = useState(null);
@@ -419,6 +431,7 @@ export default function ServiceDetail() {
   }, [service]);
   const canEditExternalCosts = hasPermission(user, PERMISSIONS.SERVICES_UPDATE);
   const totalRevenue = parseNumber(service?.totalRevenue);
+  const clientPaymentTotal = clientPaymentSummary(service || {}).total;
   const costs = useMemo(() => eventCostSummary(service || {}), [service]);
   const { staffCost } = costs;
   const profit = costs.margin;
@@ -434,18 +447,44 @@ export default function ServiceDetail() {
     : billingDraft.billingStatus === 'partial70'
       ? signalAmount + clientPaymentSummary(service || {}).remainingReceived
       : clientPaymentSummary(service || {}).received;
-  const clientRemainingAmount = Number(Math.max(0, totalRevenue - clientPaidAmount).toFixed(2));
+  const clientRemainingAmount = Number(Math.max(0, clientPaymentTotal - clientPaidAmount).toFixed(2));
   const signalReversalBlocker = clientSignalReversalBlocker(service || {});
   const receiptReversalBlocker = clientReceiptReversalBlocker(service || {});
+  const receiptActionBlocker = clientReceiptInvoiceBlocker(service || {});
   const recordedClientPayment = clientPaymentSummary(service || {});
   const hasPriorSettlement = recordedClientPayment.remainingReceived > 0
     || (service?.billingStatus === 'paid' && recordedClientPayment.received > 0);
   const paymentAssessment = clientPaymentAssessment(service || {}, {
-    total: totalRevenue, received: clientPaidAmount, outstanding: clientRemainingAmount,
+    total: clientPaymentTotal, received: clientPaidAmount, outstanding: clientRemainingAmount,
   });
   const paymentRecord = readClientPaymentRecord(service?.clientPaymentRecord);
+  const recordedAssessment = clientPaymentAssessment(service || {}, recordedClientPayment);
+  const receivedPercent = clientPaymentTotal > 0 ? Math.round(recordedClientPayment.received / clientPaymentTotal * 100) : 0;
+  const receiptProjection = receiptMovements(paymentRecord);
+  const receiptsManaged = Boolean(paymentRecord?.entries.some((entry) => entry.operation));
+  const receiptTax = clientReceiptTaxSummary(service || {}, recordedClientPayment.received);
+  const receiptSalesSnapshot = paymentFinancialSnapshot(service || {});
+  const displayedReceipts = (paymentRecord?.entries.length ? receiptProjection.reliable ? receiptProjection.rows : paymentRecord.entries : [
+    ...(recordedClientPayment.signal > 0 && recordedClientPayment.received > 0 ? [{ id: 'legacy-signal', type: 'signal',
+      amount: Math.min(recordedClientPayment.signal, recordedClientPayment.received), receivedAt: service?.signaledAt }] : []),
+    ...(recordedClientPayment.remainingReceived > 0 ? [{ id: 'legacy-remaining', type: 'remaining',
+      amount: recordedClientPayment.remainingReceived, receivedAt: service?.billingPaymentDate }] : []),
+  ]).filter((entry) => entry.voided !== 'delete');
+  const originalAdditionalBreakdown = clientPaymentAdjustment(service || {}, recordedClientPayment.received);
+  const additionalBreakdown = hasPriorSettlement && recordedClientPayment.outstanding > 0
+    ? receiptTax.outstanding ? { available: true, ...receiptTax.outstanding, receivedTowards: 0, outstanding: recordedClientPayment.outstanding,
+      components: originalAdditionalBreakdown?.base === receiptTax.outstanding.base && originalAdditionalBreakdown?.tax === receiptTax.outstanding.tax
+        ? originalAdditionalBreakdown?.components || [] : [] }
+      : paymentRecord?.entries.some((entry) => entry.operation) ? { available: false }
+        : clientPaymentAdjustment(service || {}, recordedClientPayment.received) : null;
   const canReverseClientReceipts = hasPermission(user, PERMISSIONS.SERVICES_UPDATE)
     && hasPermission(user, PERMISSIONS.FINANCE_UPDATE_PAYMENTS);
+  useLayoutEffect(() => {
+    if (paymentEditor || additionalPayment || receiptAction || !paymentScrollRef.current) return;
+    const position = paymentScrollRef.current;
+    paymentScrollRef.current = null;
+    window.scrollTo({ ...position, behavior: 'instant' });
+  }, [paymentEditor, additionalPayment, receiptAction]);
   const activeCollaborators = useMemo(
     () => (collaborators || [])
       .filter((collaborator) => collaborator.status !== 'inactive')
@@ -486,9 +525,39 @@ export default function ServiceDetail() {
   function updateBillingDraft(patch) {
     setBillingDraft((current) => ({ ...current,
       ...(patch.billingStatus === 'paid' && current.billingStatus !== 'paid' ? {
-        remainingReceived: String(Number(Math.max(0, totalRevenue - (decimalValue(current.signaledAmount) || 0)).toFixed(2))).replace('.', ','),
+        remainingReceived: String(Number(Math.max(0, clientPaymentTotal - (decimalValue(current.signaledAmount) || 0)).toFixed(2))).replace('.', ','),
       } : {}), ...patch }));
     setBillingError('');
+  }
+
+  function openPaymentEditor(mode = 'settings') {
+    if (savingBilling || reversingSignal) return;
+    const draft = clientPaymentDraft(service);
+    if (mode === 'receipt') {
+      draft.billingStatus = recordedClientPayment.signal > 0 ? 'paid' : 'partial70';
+      if (draft.billingStatus === 'paid') draft.remainingReceived = String(recordedClientPayment.outstanding).replace('.', ',');
+    }
+    setBillingDraft(draft);
+    setBillingError('');
+    setPaymentEditor(mode);
+    setReceiptAllocation({ enabled: false, amounts: {} });
+  }
+
+  function closePaymentEditor() {
+    if (savingBilling || billingReversalRef.current) return;
+    setPaymentEditor(null);
+    setBillingDraft(clientPaymentDraft(service));
+    setBillingError('');
+  }
+
+  function registerClientReceipt() {
+    setReceiptAllocation({ enabled: false, amounts: {} });
+    if (hasPriorSettlement) {
+      setAdditionalPaymentError('');
+      setAdditionalPayment({ amount: String(recordedClientPayment.outstanding).replace('.', ','),
+        receivedAt: new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Lisbon', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
+        updatedAt: service.updatedAt });
+    } else openPaymentEditor('receipt');
   }
 
   async function saveClientPayment() {
@@ -496,24 +565,34 @@ export default function ServiceDetail() {
     let payload;
     try {
       payload = buildClientPaymentPayload(billingDraft, service);
+      if (receiptAllocation.enabled) {
+        payload.receiptAllocations = receiptAllocationInput(receiptSalesSnapshot, receiptAllocation);
+        payload.receiptAllocationUpdatedAt = service.updatedAt;
+      }
     } catch (err) {
       setBillingError(err.message);
       return;
     }
 
     setSavingBilling(true);
+    billingReversalRef.current = true;
+    paymentScrollRef.current = { left: window.scrollX, top: window.scrollY };
     setBillingError('');
     try {
       await api(`/services/${service.id}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
-      await reload();
+      await reload({ background: true });
+      setPaymentEditor(null);
+      toast.success('Pagamento guardado.');
       window.dispatchEvent(new window.Event('extrasolutio:client-payment-changed'));
     } catch (err) {
+      paymentScrollRef.current = null;
       setBillingError(err.message || 'Não foi possível guardar o pagamento.');
     } finally {
       setSavingBilling(false);
+      billingReversalRef.current = false;
     }
   }
 
@@ -521,15 +600,33 @@ export default function ServiceDetail() {
     event.preventDefault();
     if (savingBilling || billingReversalRef.current || !additionalPayment) return;
     billingReversalRef.current = true;
+    paymentScrollRef.current = { left: window.scrollX, top: window.scrollY };
     setSavingBilling(true); setAdditionalPaymentError('');
     try {
       await api(`/services/${service.id}/client-payment/receive-additional`, {
-        method: 'POST', body: JSON.stringify({ ...additionalPayment }),
+        method: 'POST', body: JSON.stringify({ ...additionalPayment,
+          ...(receiptAllocation.enabled ? { receiptAllocations: receiptAllocationInput(receiptSalesSnapshot, receiptAllocation) } : {}) }),
       });
-      await reload(); setAdditionalPayment(null);
+      await reload({ background: true }); setAdditionalPayment(null);
       window.dispatchEvent(new window.Event('extrasolutio:client-payment-changed'));
       toast.success('Recebimento adicional registado. Os pagamentos anteriores foram mantidos.');
-    } catch (err) { setAdditionalPaymentError(err.message || 'Não foi possível registar o recebimento.'); }
+    } catch (err) { paymentScrollRef.current = null; setAdditionalPaymentError(err.message || 'Não foi possível registar o recebimento.'); }
+    finally { billingReversalRef.current = false; setSavingBilling(false); }
+  }
+
+  async function saveReceiptMovement(payload) {
+    if (!receiptAction || billingReversalRef.current) return;
+    billingReversalRef.current = true; setSavingBilling(true);
+    paymentScrollRef.current = { left: window.scrollX, top: window.scrollY };
+    try {
+      await api(`/services/${service.id}/client-payment/movements/${encodeURIComponent(receiptAction.movement.id)}`, {
+        method: 'POST', body: JSON.stringify({ ...payload, updatedAt: receiptAction.updatedAt, revision: receiptAction.revision,
+          confirmedAmount: receiptAction.movement.amount }),
+      });
+      await reload({ background: true }); setReceiptAction(null);
+      window.dispatchEvent(new window.Event('extrasolutio:client-payment-changed'));
+      toast.success('Recebimento atualizado. Os restantes movimentos foram mantidos.');
+    } catch (err) { paymentScrollRef.current = null; throw err; }
     finally { billingReversalRef.current = false; setSavingBilling(false); }
   }
 
@@ -539,7 +636,7 @@ export default function ServiceDetail() {
     if (blocker) { setBillingError(blocker); return; }
     if (allReceipts && !canReverseClientReceipts) return;
     const confirmation = allReceipts
-      ? `Reverter todos os recebimentos de ${service.name}?\nSinalização: ${money.format(recordedClientPayment.signal)}\nRecebimentos posteriores: ${money.format(recordedClientPayment.remainingReceived)}\nTotal recebido a anular: ${money.format(recordedClientPayment.received)}\n\nO serviço ficará Pendente, com ${money.format(totalRevenue)} por receber. O valor do serviço não muda. Esta ação corrige os registos; não efetua um reembolso. Confirma que foram registados por engano ou em simulação?`
+      ? `Reverter todos os recebimentos de ${service.name}?\nEsta ação irá reverter TODOS os recebimentos registados neste evento. Pretende continuar?\nSinalização: ${money.format(recordedClientPayment.signal)}\nRecebimentos posteriores: ${money.format(recordedClientPayment.remainingReceived)}\nTotal recebido a anular: ${money.format(recordedClientPayment.received)}\n\nO serviço ficará Pendente, com ${money.format(totalRevenue)} por receber. O valor do serviço não muda. Esta ação corrige os registos; não efetua um reembolso. Confirma que foram registados por engano ou em simulação?`
       : 'Tem a certeza de que pretende reverter esta sinalização? Os valores do pagamento serão recalculados.';
     if (!window.confirm(confirmation)) return;
     billingReversalRef.current = true;
@@ -1211,7 +1308,7 @@ export default function ServiceDetail() {
 
   async function saveCurrentTab() {
     if (activeTab === 'costs') {
-      await saveClientPayment();
+      openPaymentEditor();
       return;
     }
     await saveTeamRows();
@@ -1267,7 +1364,7 @@ export default function ServiceDetail() {
               <Trash2 size={16} />
               Eliminar evento
             </button>
-            <button
+            {activeTab !== 'costs' ? <button
               className="command-button"
               type="button"
               onClick={saveCurrentTab}
@@ -1275,7 +1372,7 @@ export default function ServiceDetail() {
             >
               <Save size={16} />
               Guardar alterações
-            </button>
+            </button> : null}
           </div>
         </div>
 
@@ -2061,120 +2158,129 @@ export default function ServiceDetail() {
               </div>
             ) : null}
           </Card>
-          <Card title="Pagamento do cliente" className="service-detail-card service-detail-payment-card">
-            <ClientPaymentReference total={totalRevenue} />
-            <dl className="event-payment-balance">
-              <div><dt>{paymentAssessment.assessed ? 'Total final apurado' : 'Total previsto atual'}</dt><dd>{money.format(totalRevenue)}</dd></div>
-              {paymentAssessment.expectedTotal !== null && Math.abs(paymentAssessment.expectedTotal - totalRevenue) >= 0.01 ? (
-                <div><dt>Total de referência preservado</dt><dd>{money.format(paymentAssessment.expectedTotal)}</dd></div>
-              ) : null}
-              <div><dt>Total recebido registado</dt><dd>{money.format(recordedClientPayment.received)}</dd></div>
-              {paymentAssessment.excess > 0 ? <div><dt>Recebido em excesso</dt><dd>{money.format(paymentAssessment.excess)}</dd></div> : null}
+          <Card title="Pagamento do cliente" className="service-detail-card service-detail-payment-card payment-overview"
+            action={<div className="payment-overview-heading-actions">
+              <Badge tone={recordedAssessment.fullyReceived && !recordedAssessment.excess ? 'success' : recordedClientPayment.received > 0 ? 'warning' : 'neutral'}>{recordedAssessment.label}</Badge>
+              {canEditExternalCosts ? <button className="icon-button" type="button" title="Editar pagamento" aria-label="Editar pagamento"
+                disabled={savingBilling || reversingSignal} onClick={() => openPaymentEditor()}><Edit3 size={16} /></button> : null}
+            </div>}>
+            <p className="payment-overview-caption">{recordedAssessment.assessed ? 'Total final apurado' : 'Total previsto · sujeito a validação'}</p>
+            <dl className="payment-overview-totals">
+              <div data-payment-metric="total"><dt>Total do evento</dt><ClientPaymentTax value={receiptTax.total} total={clientPaymentTotal} /></div>
+              <div data-payment-metric="received"><dt>Recebido</dt><ClientPaymentTax value={receiptTax.received} total={recordedClientPayment.received} /></div>
+              <div data-payment-metric="outstanding"><dt>Por receber</dt><ClientPaymentTax value={receiptTax.outstanding} total={recordedClientPayment.outstanding} /></div>
             </dl>
-            <div className="service-detail-payment-summary">
-              <div>
-                <span>{hasPriorSettlement && clientRemainingAmount > 0 ? 'Valor adicional em falta' : 'Valor atualmente em falta'}</span>
-                <strong className={clientRemainingAmount > 0 ? 'service-detail-payment-due' : 'service-detail-payment-paid'}>
-                  {money.format(clientRemainingAmount)}
-                </strong>
+            <div className="payment-overview-progress">
+              <progress max="100" value={Math.min(100, Math.max(0, receivedPercent))} aria-label="Percentagem recebida" />
+              <span>{receivedPercent}% recebido</span>
+            </div>
+            {recordedAssessment.excess > 0 ? <p className="payment-overview-excess" role="status">Recebido em excesso: <strong>{money.format(recordedAssessment.excess)}</strong></p> : null}
+            {additionalBreakdown ? <div className="service-detail-payment-summary">
+              <div><span>Valor adicional em falta</span><ClientPaymentAdjustment breakdown={additionalBreakdown} />
+                <span className="client-adjustment-total-label">Total a receber · com IVA aplicável</span>
+                <strong className="service-detail-payment-due">{money.format(recordedClientPayment.outstanding)}</strong>
               </div>
-              <Badge tone={paymentAssessment.fullyReceived && !paymentAssessment.excess ? 'success' : clientPaidAmount > 0 ? 'warning' : 'neutral'}>
-                {paymentAssessment.label}
-              </Badge>
-            </div>
-            {!paymentAssessment.assessed && recordedClientPayment.received > 0 ? <p className="muted">Evento ainda sujeito a apuramento final após validação das horas.</p> : null}
-            <div className="service-detail-payment-grid">
-              <label>Estado do pagamento
-                <select value={billingDraft.billingStatus} onChange={(event) => updateBillingDraft({ billingStatus: event.target.value })}>
-                  <option value="pending">Pendente</option>
-                  <option value="partial70">Sinalização</option>
-                  <option value="invoiced">Faturado</option>
-                  <option value="paid">{clientRemainingAmount > 0 ? 'Recebido antecipadamente' : paymentAssessment.assessed ? 'Pago' : 'Previsto totalmente recebido'}</option>
-                </select>
-              </label>
-              <label>Valor total
-                <input value={money.format(totalRevenue)} readOnly />
-              </label>
-              <label>Valor sinalizado
-                <input
-                  inputMode="decimal"
-                  value={billingDraft.signaledAmount}
-                  placeholder="Ex: 700,00"
-                  onChange={(event) => updateBillingDraft({ signaledAmount: event.target.value })}
-                />
-              </label>
-              <label>Valor em falta
-                <input value={money.format(clientRemainingAmount)} readOnly />
-              </label>
-              {billingDraft.billingStatus === 'partial70' || signalAmount > 0 ? (
-                <label>Data da sinalização
-                  <input type="date" value={billingDraft.signaledAt} onChange={(event) => updateBillingDraft({ signaledAt: event.target.value })} />
-                </label>
-              ) : null}
-              {billingDraft.billingStatus === 'partial70' || billingDraft.billingStatus === 'paid' || billingDraft.remainingPaymentDate ? (
-                <label>Data prevista do restante pagamento
-                  <input type="date" value={billingDraft.remainingPaymentDate} onChange={(event) => updateBillingDraft({ remainingPaymentDate: event.target.value })} />
-                </label>
-              ) : null}
-              {billingDraft.billingStatus === 'paid' ? (
-                <>
-                  <label>{signalAmount > 0 ? paymentRecord?.entries.some((entry) => entry.type === 'adjustment') ? 'Recebido após sinalização' : 'Valor restante recebido' : 'Valor recebido'}
-                    <input inputMode="decimal" value={billingDraft.remainingReceived} placeholder="Ex: 94,50"
-                      onChange={(event) => updateBillingDraft({ remainingReceived: event.target.value })} />
-                  </label>
-                  <label>{paymentRecord?.entries.some((entry) => entry.type === 'adjustment') ? 'Data do último recebimento' : 'Data efetiva do recebimento'}
-                    <input type="date" value={billingDraft.billingPaymentDate}
-                      onChange={(event) => updateBillingDraft({ billingPaymentDate: event.target.value })} />
-                  </label>
-                  <label>Total recebido
-                    <input value={money.format(clientPaidAmount)} readOnly />
-                  </label>
-                </>
-              ) : null}
-            </div>
-            {billingError ? <p className="form-error">{billingError}</p> : null}
-            {paymentRecord?.entries.length ? <details className="event-payment-history"><summary>Histórico de recebimentos</summary>
-              <ul>{paymentRecord.entries.map((entry) => <li key={entry.id}>
-                <span>{({ signal: 'Sinalização', remaining: 'Restante previsto', adjustment: 'Acerto final', correction: 'Correção', reversal: 'Reversão' })[entry.type] || 'Recebimento'}
-                  <small>{entry.receivedAt ? formatDate(entry.receivedAt) : 'Data não registada'}</small></span>
-                <strong>{money.format(entry.amount)}</strong>
-              </li>)}</ul>
-            </details> : null}
-            {parseNumber(service.signaledAmount) > 0 && signalReversalBlocker ? <p className="muted">{signalReversalBlocker}</p> : null}
-            <div className="service-detail-card-actions service-detail-payment-actions">
-              <span className="muted">Regista aqui a sinalização recebida e o valor que ainda falta cobrar.</span>
-              {parseNumber(service.signaledAmount) > 0 ? (
-                <button className="secondary-button" type="button" onClick={() => revertClientSignal()}
+            </div> : null}
+            {recordedClientPayment.outstanding > 0 ? <section className="payment-overview-next" aria-label="Próximo recebimento">
+              <div><h3>Próximo recebimento</h3><strong>{money.format(recordedClientPayment.outstanding)}</strong>
+                <span><CalendarClock size={15} />{service.remainingPaymentDate ? `Previsto: ${formatDate(service.remainingPaymentDate)}` : 'Sem data prevista'}</span></div>
+              {canEditExternalCosts && (!hasPriorSettlement || canReverseClientReceipts) ? <button className="command-button" type="button"
+                onClick={registerClientReceipt} disabled={savingBilling || reversingSignal}><Plus size={16} />Registar recebimento</button> : null}
+            </section> : null}
+            <details className="event-payment-history payment-overview-receipts" aria-label="Recebimentos registados">
+              <summary>Recebimentos registados</summary>
+              {displayedReceipts.length ? <ul>{displayedReceipts.map((entry) => <li key={entry.id}>
+                <span className="payment-receipt-icon" aria-hidden="true">{entry.voided || entry.amount < 0 ? <RotateCcw size={16} /> : <CheckCircle2 size={16} />}</span>
+                <span className="payment-receipt-description">{receiptTypeLabels[entry.type] || 'Recebimento'}
+                  <small>{entry.receivedAt ? formatDate(entry.receivedAt) : 'Data não registada'}</small>
+                  {entry.description ? <small>{entry.description}</small> : null}
+                  {entry.voided ? <small>{entry.voided === 'delete' ? 'Eliminado' : 'Revertido'}{entry.voidedAt ? ` em ${formatDate(entry.voidedAt)}` : ''}</small> : null}</span>
+                <strong className={entry.voided || entry.amount < 0 ? 'payment-receipt-reversed' : ''}>{money.format(entry.amount)}</strong>
+                {canReverseClientReceipts && entry.voided !== 'delete' && entry.amount > 0 && (receiptProjection.reliable || !paymentRecord) ? <details className="receipt-actions">
+                  <summary aria-label={`Ações de ${receiptTypeLabels[entry.type] || 'recebimento'}`} title="Ações do recebimento"><MoreHorizontal size={17} /></summary>
+                  <div>{[...(entry.voided ? [] : ['edit', 'reverse']), ...(receiptCanDelete(paymentRecord, entry) ? ['delete'] : [])].map((action) => <button type="button" key={action}
+                    disabled={savingBilling || Boolean(receiptActionBlocker)} title={receiptActionBlocker || undefined}
+                    onClick={(event) => {
+                      event.currentTarget.closest('details').removeAttribute('open');
+                      setReceiptAction({ movement: entry, action, updatedAt: service.updatedAt, revision: paymentRecord?.entries.length || 0 });
+                    }}>{action === 'edit' ? <Edit3 size={14} /> : action === 'delete' ? <Trash2 size={14} /> : <RotateCcw size={14} />}
+                    {action === 'edit' ? 'Editar' : action === 'delete' ? 'Eliminar' : 'Reverter'}</button>)}</div>
+                </details> : null}
+                {entry.financialAdjustment ? <details className="client-adjustment-history"><summary>Detalhe do acerto{entry.amount !== entry.financialAdjustment.total ? ' de referência' : ''}</summary>
+                  <ClientPaymentAdjustment breakdown={entry.financialAdjustment} history />
+                </details> : null}
+              </li>)}</ul> : <p className="muted">Sem recebimentos registados.</p>}
+            </details>
+            <details className="payment-overview-reference"><summary>Referência 70% / 30%</summary><ClientPaymentReference total={clientPaymentTotal} /></details>
+            <details className="payment-overview-corrections"><summary>Histórico e correções</summary>
+              {paymentRecord?.entries.length ? <ol className="receipt-audit">{paymentRecord.entries.map((entry) => <li key={entry.id}>
+                <span>{formatDate(entry.recordedAt || entry.receivedAt)}{entry.actor?.name ? ` · ${entry.actor.name}` : ''}</span>
+                <strong>{entry.operation === 'edit' ? 'Recebimento corrigido' : entry.operation === 'reverse' ? 'Recebimento revertido' : entry.operation === 'delete' ? 'Recebimento eliminado'
+                  : entry.type === 'reversal' ? 'Recebimentos revertidos' : `${receiptTypeLabels[entry.type] || 'Correção'} registado`}</strong>
+                <span>{entry.operation === 'edit' ? `${money.format(entry.before?.amount || 0)} → ${money.format(entry.replacement.amount)}` : money.format(entry.amount)}</span>
+                {entry.operation === 'delete' && entry.before?.voided === 'reverse' ? <small>Registo já revertido removido da lista · {money.format(entry.before.amount)} · sem alteração dos totais</small> : null}
+                {entry.operation === 'edit' ? <small>{entry.before?.receivedAt ? formatDate(entry.before.receivedAt) : 'Sem data'} → {formatDate(entry.replacement.receivedAt)}</small> : null}
+                {entry.operation === 'edit' && entry.before?.type !== entry.replacement.type ? <small>{receiptTypeLabels[entry.before?.type] || 'Recebimento'} → {receiptTypeLabels[entry.replacement.type]}</small> : null}
+                {entry.operation === 'edit' && (entry.before?.description || '') !== (entry.replacement.description || '') ? <small>Descrição: {entry.before?.description || 'Sem descrição'} → {entry.replacement.description || 'Sem descrição'}</small> : null}
+              </li>)}</ol> : null}
+              <dl className="event-payment-balance">
+                {recordedAssessment.expectedTotal !== null && Math.abs(recordedAssessment.expectedTotal - totalRevenue) >= 0.01 ? (
+                  <div><dt>Total de referência preservado</dt><dd>{money.format(recordedAssessment.expectedTotal)}</dd></div>
+                ) : null}
+                {service.signaledAt ? <div><dt>Data da sinalização</dt><dd>{formatDate(service.signaledAt)}</dd></div> : null}
+                {service.billingPaymentDate ? <div><dt>Data do último recebimento</dt><dd>{formatDate(service.billingPaymentDate)}</dd></div> : null}
+              </dl>
+              {parseNumber(service.signaledAmount) > 0 && signalReversalBlocker ? <p className="muted">{signalReversalBlocker}</p> : null}
+              <div className="service-detail-card-actions service-detail-payment-actions">
+                {canEditExternalCosts ? <button className="secondary-button" type="button" onClick={() => openPaymentEditor()} disabled={savingBilling || reversingSignal}><Edit3 size={15} />Editar dados do pagamento</button> : null}
+                {canEditExternalCosts && parseNumber(service.signaledAmount) > 0 ? <button className="secondary-button" type="button" onClick={() => revertClientSignal()}
                   disabled={savingBilling || reversingSignal || Boolean(signalReversalBlocker)} title={signalReversalBlocker || 'Anular a sinalização registada'}>
-                  <RotateCcw size={15} />{reversingSignal ? 'A reverter...' : 'Reverter sinalização'}
-                </button>
-              ) : null}
-              {canReverseClientReceipts && signalReversalBlocker && !receiptReversalBlocker ? (
-                <button className="secondary-button" type="button" onClick={() => revertClientSignal(true)}
-                  disabled={savingBilling || reversingSignal}>
-                  <RotateCcw size={15} />{reversingSignal ? 'A reverter...' : 'Reverter recebimentos'}
-                </button>
-              ) : null}
-              {billingDraft.billingStatus === 'partial70' && clientRemainingAmount > 0 ? (
-                <button className="secondary-button" type="button" disabled={savingBilling || reversingSignal}
-                  onClick={() => updateBillingDraft({ billingStatus: 'paid' })}>
-                  <WalletCards size={15} />Registar pagamento restante
-                </button>
-              ) : null}
-              {canReverseClientReceipts && hasPriorSettlement && recordedClientPayment.outstanding > 0 ? (
-                <button className="secondary-button" type="button" disabled={savingBilling || reversingSignal}
-                  onClick={() => { setAdditionalPaymentError(''); setAdditionalPayment({ amount: String(recordedClientPayment.outstanding).replace('.', ','),
-                    receivedAt: new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Lisbon', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
-                    updatedAt: service.updatedAt }); }}>
-                  <WalletCards size={15} />Registar pagamento adicional
-                </button>
-              ) : null}
-              <button className="command-button" type="button" onClick={saveClientPayment} disabled={savingBilling || reversingSignal}>
-                <Save size={15} />
-                {savingBilling ? 'A guardar...' : 'Guardar pagamento'}
-              </button>
-            </div>
+                  <RotateCcw size={15} />{reversingSignal ? 'A reverter...' : 'Reverter sinalização'}</button> : null}
+                {canReverseClientReceipts && signalReversalBlocker && !receiptReversalBlocker ? <button className="secondary-button" type="button" onClick={() => revertClientSignal(true)}
+                  disabled={savingBilling || reversingSignal}><RotateCcw size={15} />{reversingSignal ? 'A reverter...' : 'Reverter todos os recebimentos'}</button> : null}
+              </div>
+            </details>
+            {billingError && !paymentEditor ? <p className="form-error" role="alert">{billingError}</p> : null}
+            {paymentEditor ? <Modal title={paymentEditor === 'receipt' ? 'Registar recebimento' : 'Editar pagamento'} onClose={closePaymentEditor} preventFocusScroll>
+              <form className="event-additional-payment-form" onSubmit={(event) => { event.preventDefault(); saveClientPayment(); }}>
+                <p className="payment-editor-balance">Total: <strong>{money.format(clientPaymentTotal)}</strong> · Por receber: <strong>{money.format(recordedClientPayment.outstanding)}</strong></p>
+                <div className="service-detail-payment-grid">
+                  <label>{paymentEditor === 'receipt' ? 'Tipo de recebimento' : 'Estado do pagamento'}
+                    <select value={billingDraft.billingStatus} disabled={savingBilling || (paymentEditor === 'settings' && receiptsManaged)} onChange={(event) => updateBillingDraft({ billingStatus: event.target.value })}>
+                      {paymentEditor === 'settings' ? <option value="pending">Pendente</option> : null}
+                      <option value="partial70">Sinalização</option>
+                      {paymentEditor === 'settings' ? <option value="invoiced">Faturado</option> : null}
+                      <option value="paid">{paymentEditor === 'receipt' ? recordedClientPayment.signal > 0 ? 'Pagamento restante' : 'Pagamento integral' : clientRemainingAmount > 0 ? 'Recebido antecipadamente' : paymentAssessment.assessed ? 'Pago' : 'Previsto totalmente recebido'}</option>
+                    </select>
+                  </label>
+                  {paymentEditor === 'settings' ? <label>Valor total<input value={money.format(clientPaymentTotal)} readOnly /></label> : null}
+                  {paymentEditor === 'settings' || billingDraft.billingStatus === 'partial70' ? <label>Valor sinalizado
+                    <input inputMode="decimal" value={billingDraft.signaledAmount} disabled={savingBilling} readOnly={paymentEditor === 'settings' && receiptsManaged} placeholder="Ex: 700,00" onChange={(event) => updateBillingDraft({ signaledAmount: event.target.value })} />
+                  </label> : null}
+                  {paymentEditor === 'settings' ? <label>Valor em falta<input value={money.format(clientRemainingAmount)} readOnly /></label> : null}
+                  {(paymentEditor === 'settings' && signalAmount > 0) || billingDraft.billingStatus === 'partial70' ? <label>Data da sinalização
+                    <input type="date" value={billingDraft.signaledAt} disabled={savingBilling} readOnly={paymentEditor === 'settings' && receiptsManaged} onChange={(event) => updateBillingDraft({ signaledAt: event.target.value })} /></label> : null}
+                  {paymentEditor === 'settings' || billingDraft.billingStatus === 'partial70' ? <label>Data prevista do restante pagamento
+                    <input type="date" value={billingDraft.remainingPaymentDate} disabled={savingBilling} onChange={(event) => updateBillingDraft({ remainingPaymentDate: event.target.value })} /></label> : null}
+                  {billingDraft.billingStatus === 'paid' ? <>
+                    <label>{signalAmount > 0 ? paymentRecord?.entries.some((entry) => entry.type === 'adjustment') ? 'Recebido após sinalização' : 'Valor restante recebido' : 'Valor recebido'}
+                      <input inputMode="decimal" value={billingDraft.remainingReceived} disabled={savingBilling} readOnly={paymentEditor === 'settings' && receiptsManaged} placeholder="Ex: 94,50" onChange={(event) => updateBillingDraft({ remainingReceived: event.target.value })} /></label>
+                    <label>{paymentRecord?.entries.some((entry) => entry.type === 'adjustment') ? 'Data do último recebimento' : 'Data efetiva do recebimento'}
+                      <input type="date" value={billingDraft.billingPaymentDate} disabled={savingBilling} readOnly={paymentEditor === 'settings' && receiptsManaged} onChange={(event) => updateBillingDraft({ billingPaymentDate: event.target.value })} /></label>
+                    {paymentEditor === 'settings' ? <label>Total recebido<input value={money.format(clientPaidAmount)} readOnly /></label> : null}
+                  </> : null}
+                </div>
+                {paymentEditor === 'receipt' ? <ClientReceiptAllocation snapshot={receiptSalesSnapshot} value={receiptAllocation} onChange={setReceiptAllocation} disabled={savingBilling} /> : null}
+                {billingError ? <p className="form-error" role="alert">{billingError}</p> : null}
+                <div className="form-actions service-detail-payment-actions">
+                  <button className="secondary-button" type="button" disabled={savingBilling} onClick={closePaymentEditor}>Cancelar</button>
+                  <button className="command-button" type="submit" disabled={savingBilling}><Save size={15} />{savingBilling ? 'A guardar...' : 'Guardar pagamento'}</button>
+                </div>
+              </form>
+            </Modal> : null}
           </Card>
+          {receiptAction ? <ClientReceiptEditor event={service} movement={receiptAction.movement} action={receiptAction.action} saving={savingBilling}
+            onSubmit={saveReceiptMovement} onClose={() => { if (!savingBilling) setReceiptAction(null); }} /> : null}
           <Card title="Custos externos/parceiros" className="service-detail-card service-detail-external-card"
             action={canEditExternalCosts ? <button className="secondary-button" type="button"
               onClick={() => openExternalCost()} disabled={savingExternalCost || Boolean(externalCostItems.error)}>
@@ -2263,9 +2369,11 @@ export default function ServiceDetail() {
         </Card>
       ) : null}
 
-      {additionalPayment ? <Modal title="Registar pagamento adicional" onClose={() => { if (!savingBilling) setAdditionalPayment(null); }}>
+      {additionalPayment ? <Modal title="Registar pagamento adicional" onClose={() => { if (!savingBilling) setAdditionalPayment(null); }} preventFocusScroll>
         <form className="event-additional-payment-form" onSubmit={saveAdditionalClientPayment}>
           <p>Já recebido: <strong>{money.format(recordedClientPayment.received)}</strong>. Em falta: <strong>{money.format(recordedClientPayment.outstanding)}</strong>.</p>
+          {additionalBreakdown ? <ClientPaymentAdjustment breakdown={additionalBreakdown} /> : null}
+          <ClientReceiptAllocation snapshot={receiptSalesSnapshot} value={receiptAllocation} onChange={setReceiptAllocation} disabled={savingBilling} />
           <div className="form-grid">
             <label>Valor adicional recebido<input inputMode="decimal" value={additionalPayment.amount} disabled={savingBilling}
               onChange={(event) => setAdditionalPayment({ ...additionalPayment, amount: event.target.value })} /></label>
@@ -2309,7 +2417,7 @@ export default function ServiceDetail() {
         </form>
       </Modal> : null}
 
-      {!additionalPayment && !externalCostEdit && !externalCostRemoval ? <div className="service-detail-mobile-actions" aria-label="Ações do Evento/Serviço">
+      {activeTab !== 'costs' && !paymentEditor && !additionalPayment && !externalCostEdit && !externalCostRemoval ? <div className="service-detail-mobile-actions" aria-label="Ações do Evento/Serviço">
         <button className="secondary-button" type="button" onClick={() => navigate('/services')}>
           Voltar
         </button>

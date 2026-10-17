@@ -134,7 +134,7 @@ try {
     await open(); await noOverflow(page, card);
     await card.screenshot({ path: `${output}/partners-${width}.png` });
     const summary = page.locator('.service-detail-payment-card');
-    assert.equal(await summary.getByLabel('Valor total', { exact: true }).inputValue(), money(stored.totalRevenue));
+    assert.equal(await summary.locator('[data-payment-metric="total"] .payment-metric-gross').textContent(), money(stored.totalRevenue));
     await context.close();
     console.log(`External cost edit/add/persistence, multiple VAT rates, double-submit, validation, failed/stale saves and unchanged receipts passed at ${width}px.`);
   }

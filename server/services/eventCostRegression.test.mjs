@@ -20,6 +20,7 @@ import { buildBudgetConversionDraft, buildEventPayloadFromBudgetConversion } fro
 import { buildClientPaymentPayload, clientPaymentDraft, clientPaymentSummary } from '../../src/utils/clientPayment.js';
 import { clientPaymentAssessment, readClientPaymentRecord } from '../../src/utils/clientPaymentRecord.js';
 import { prepaymentReferenceAmounts } from '../../src/utils/prepaymentPolicy.js';
+import { clientPaymentAdjustment } from '../../src/utils/clientPaymentAdjustment.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'es-staff-client-price-'));
 const database = join(directory, 'test.db'), datasourceUrl = `file:${database.replaceAll('\\', '/')}`;
@@ -452,6 +453,47 @@ async function advanceFixture({ vat = 0, settle = true, paidDate = '2026-11-08' 
   }
   return { event, initialTotal, reference };
 }
+
+test('HTTP exact additional VAT regression persists 28 base + 6.44 tax without changing previous receipts', async () => {
+  const client = await db.client.create({ data: { name: `Acerto IVA QA ${++sequence}`, billingMethod: 'per_event',
+    roleRates: '[{"role":"Emp.Mesa","rate":14}]' } });
+  let event = await request('/services', 'POST', { name: 'Acerto fiscal QA', clientId: client.id, date: '2026-11-15',
+    startTime: '10:00', endTime: '16:00', statusMode: 'manual', status: 'team_complete', staffVatRateSnapshot: 23,
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 3, agreedRate: 14 }], externalCosts: [
+      { id: 'flowers', type: 'Outro', supplier: 'Flores QA', costAmount: 500, marginPercent: 10, vatType: 'standard_23' },
+      { id: 'napkins', type: 'Material', costAmount: 300, marginPercent: 10, vatType: 'standard_23' },
+    ] });
+  for (let i = 0; i < 3; i += 1) {
+    const person = await newCollaborator();
+    await request('/assignments', 'POST', { eventId: event.id, collaboratorId: person.id, role: 'Emp.Mesa',
+      status: 'confirmed', assignmentDate: '2026-11-15', plannedCheckIn: '10:00', plannedCheckOut: '16:00', hourlyRate: 8 });
+  }
+  event = await request(`/services/${event.id}`);
+  assert.equal(Number(event.totalRevenue), 1392.36);
+  event = await request(`/services/${event.id}`, 'PUT', buildClientPaymentPayload({ ...clientPaymentDraft(event),
+    billingStatus: 'partial70', signaledAmount: '200', signaledAt: '2026-10-16', remainingPaymentDate: '2026-10-20' }, event));
+  event = await request(`/services/${event.id}`, 'PUT', buildClientPaymentPayload({ ...clientPaymentDraft(event),
+    billingStatus: 'paid', remainingReceived: '1192,36', billingPaymentDate: '2026-10-20' }, event));
+  const original = readClientPaymentRecord(event.clientPaymentRecord);
+  assert.equal(original.settledFinancials.base, 1132);
+  await patchAssignment(event.assignments[0], { checkIn: '10:00', checkOut: '18:00', clientCheckIn: '10:00', clientCheckOut: '18:00' });
+  const updated = await request(`/services/${event.id}`);
+  assert.equal(Number(updated.totalRevenue), 1426.8);
+  const breakdown = clientPaymentAdjustment(updated, clientPaymentSummary(updated).received);
+  assert.deepEqual([breakdown.base, breakdown.tax, breakdown.outstanding], [28, 6.44, 34.44]);
+  assert.deepEqual(readClientPaymentRecord(updated.clientPaymentRecord), original);
+  const paid = await request(`/services/${event.id}/client-payment/receive-additional`, 'POST', {
+    updatedAt: updated.updatedAt, amount: '34,44', receivedAt: '2026-10-21',
+  });
+  assert.equal(clientPaymentSummary(paid).received, 1426.8); assert.equal(clientPaymentSummary(paid).outstanding, 0);
+  const reopened = await request(`/services/${event.id}`);
+  const history = readClientPaymentRecord(reopened.clientPaymentRecord);
+  assert.deepEqual(history.entries.slice(0, 2), original.entries);
+  assert.deepEqual(history.entries.at(-1).financialAdjustment, breakdown);
+  assert.equal(reopened.externalCosts, event.externalCosts);
+  assert.deepEqual(reopened.assignments.map((row) => Number(row.hourlyRate)), [8, 8, 8]);
+  assert.equal(reopened.signaledAt, event.signaledAt);
+});
 
 async function advanceHours(event, { firstIn = '10:00', secondOut = '16:00', clientOnly = false, validated = false } = {}) {
   for (const [index, row] of event.assignments.entries()) {

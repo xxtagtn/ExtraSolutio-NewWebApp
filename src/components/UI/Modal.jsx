@@ -11,7 +11,7 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
-export default function Modal({ title, children, onClose, size = 'default', stableDesktop = false }) {
+export default function Modal({ title, children, onClose, size = 'default', stableDesktop = false, preventFocusScroll = false }) {
   const dialogRef = useRef(null);
   const previousFocusRef = useRef(null);
 
@@ -19,7 +19,7 @@ export default function Modal({ title, children, onClose, size = 'default', stab
     previousFocusRef.current = document.activeElement;
     const dialog = dialogRef.current;
     const firstField = dialog?.querySelector('input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])');
-    (firstField || dialog?.querySelector(FOCUSABLE_SELECTOR))?.focus();
+    (firstField || dialog?.querySelector(FOCUSABLE_SELECTOR))?.focus({ preventScroll: preventFocusScroll });
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -27,10 +27,10 @@ export default function Modal({ title, children, onClose, size = 'default', stab
     return () => {
       document.body.style.overflow = previousOverflow;
       if (previousFocusRef.current instanceof window.HTMLElement) {
-        previousFocusRef.current.focus();
+        previousFocusRef.current.focus({ preventScroll: preventFocusScroll });
       }
     };
-  }, []);
+  }, [preventFocusScroll]);
 
   useEffect(() => {
     function onKeyDown(event) {

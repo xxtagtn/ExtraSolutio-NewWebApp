@@ -45,14 +45,26 @@ async function setup(width, patch = {}) {
 try {
   for (const width of [320, 390, 768, 1440]) {
     const f = await setup(width), { page, card } = f;
+    assert.equal(await card.locator('input, select').count(), 0, 'Default card is a read-only overview');
+    const receipts = card.locator('.payment-overview-receipts');
+    assert.equal(await receipts.evaluate((element) => element.open), false, 'Receipt history starts collapsed');
+    await receipts.locator(':scope > summary').click();
+    await receipts.locator('li').first().waitFor();
+    await receipts.locator(':scope > summary').focus();
+    await page.keyboard.press('Space');
+    assert.equal(await receipts.evaluate((element) => element.open), false, 'History can be collapsed with the keyboard');
+    assert.equal(f.writes.length, 0, 'Opening and closing history does not write payment data');
+    assert.match(await card.locator('[data-payment-metric="outstanding"] dd').textContent(), /94,50/);
+    await card.screenshot({ path: `${output}/overview-${width}.png` });
+    await card.getByRole('button', { name: 'Editar pagamento', exact: true }).click();
     assert.equal(await card.getByLabel('Estado do pagamento').inputValue(), 'partial70');
     assert.match(await card.getByLabel('Valor em falta', { exact: true }).inputValue(), /94,50/);
     await card.getByLabel('Data prevista do restante pagamento').fill('2026-10-13');
     await card.getByRole('button', { name: 'Guardar pagamento' }).click();
-    await page.waitForFunction(() => document.querySelector('.service-detail-payment-actions button.command-button')?.textContent.includes('Guardar pagamento'));
+    await page.getByRole('dialog', { name: 'Editar pagamento', exact: true }).waitFor({ state: 'detached' });
     assert.equal(f.writes.length, 1); assert.equal(f.stored.paidAmount, 157.5); assert.equal(f.stored.billingStatus, 'partial70');
     assert.equal(f.stored.billingPaymentDate, null);
-    await card.getByRole('button', { name: 'Registar pagamento restante' }).click();
+    await card.getByRole('button', { name: 'Registar recebimento', exact: true }).click();
     assert.equal(await card.getByLabel('Valor restante recebido').inputValue(), '94,5');
     await card.getByRole('button', { name: 'Guardar pagamento' }).click();
     await card.getByText('Indica a data efetiva do recebimento.', { exact: true }).waitFor();
@@ -63,13 +75,14 @@ try {
     await card.getByText(/Para marcar como Pago/).waitFor(); assert.equal(f.writes.length, 1);
     await card.getByLabel('Valor restante recebido').fill('94,50');
     await card.getByRole('button', { name: 'Guardar pagamento' }).click();
-    await page.waitForFunction(() => document.querySelector('.service-detail-payment-grid select')?.value === 'paid'
-      && !document.querySelector('.service-detail-payment-card .form-error'));
+    await page.getByRole('dialog', { name: 'Registar recebimento', exact: true }).waitFor({ state: 'detached' });
     assert.equal(f.stored.paidAmount, 252); assert.equal(f.stored.signaledAmount, 157.5);
     assert.equal(f.stored.signaledAt, '2026-10-09'); assert.equal(f.stored.remainingPaymentDate, '2026-10-13');
     assert.equal(f.stored.billingPaymentDate, '2026-10-14');
     await page.goto(`${base}/services/42?tab=costs`);
     await card.waitFor();
+    assert.equal(await card.getByRole('button', { name: 'Registar recebimento', exact: true }).count(), 0);
+    await card.getByRole('button', { name: 'Editar pagamento', exact: true }).click();
     assert.match(await card.getByLabel('Valor em falta', { exact: true }).inputValue(), /0,00/);
     assert.equal(await card.getByLabel('Data da sinalização').inputValue(), '2026-10-09');
     assert.equal(await card.getByLabel('Data efetiva do recebimento').inputValue(), '2026-10-14');
@@ -77,7 +90,7 @@ try {
     assert.equal(await card.getByLabel('Valor restante recebido').inputValue(), '94,5');
     assert.match(await card.getByLabel('Total recebido').inputValue(), /252,00/);
     await card.getByRole('button', { name: 'Guardar pagamento' }).click();
-    await page.waitForFunction(() => document.querySelector('.service-detail-payment-actions button.command-button')?.textContent.includes('Guardar pagamento'));
+    await page.getByRole('dialog', { name: 'Editar pagamento', exact: true }).waitFor({ state: 'detached' });
     assert.equal(f.stored.paidAmount, 252); assert.equal(clientPaymentSummary(f.stored).outstanding, 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.equal(await card.locator('button').evaluateAll((buttons) => buttons.some((button) => button.scrollWidth > button.clientWidth + 1)), false);
@@ -86,10 +99,48 @@ try {
     console.log(`Partial receipt, actual settlement, validation, reopening, preserved history and layout passed at ${width}px`);
   }
   const legacy = await setup(390, { billingStatus: 'paid', paidAmount: 0, billingPaymentDate: null });
+  await legacy.card.getByRole('button', { name: 'Editar pagamento', exact: true }).click();
   assert.equal(await legacy.card.getByLabel('Valor restante recebido').inputValue(), '94,5');
   assert.equal(await legacy.card.getByLabel('Data efetiva do recebimento').inputValue(), '');
   assert.equal(legacy.writes.length, 0); assert.equal(legacy.stored.paidAmount, 0);
   await legacy.context.close();
+  for (const width of [320, 390, 768, 1440]) {
+    const f = await setup(width, { billingStatus: 'pending', paidAmount: 0, signaledAmount: 0, signaledAt: null, remainingPaymentDate: null });
+    const { page, card } = f;
+    await card.getByRole('button', { name: 'Registar recebimento', exact: true }).click();
+    const receipt = page.getByRole('dialog', { name: 'Registar recebimento', exact: true });
+    assert.equal(await receipt.getByLabel('Tipo de recebimento').inputValue(), 'partial70');
+    await receipt.getByLabel('Valor sinalizado', { exact: true }).fill('100');
+    assert.match(await card.locator('[data-payment-metric="received"] dd').textContent(), /0,00/, 'Unsaved form cannot change the recorded overview');
+    await receipt.getByRole('button', { name: 'Cancelar', exact: true }).click(); assert.equal(f.writes.length, 0);
+    await card.getByRole('button', { name: 'Registar recebimento', exact: true }).click();
+    assert.equal(await receipt.getByLabel('Valor sinalizado', { exact: true }).inputValue(), '', 'Cancelled form is reset');
+    await receipt.getByRole('button', { name: 'Guardar pagamento', exact: true }).click();
+    await receipt.getByRole('alert').waitFor(); assert.equal(f.writes.length, 0);
+    await receipt.getByLabel('Valor sinalizado', { exact: true }).fill('100');
+    await receipt.getByLabel('Data da sinalização').fill('2026-10-14');
+    await receipt.getByLabel('Data prevista do restante pagamento').fill('2026-10-20');
+    await receipt.getByRole('button', { name: 'Guardar pagamento', exact: true }).evaluate((button) => { button.click(); button.click(); });
+    await receipt.waitFor({ state: 'detached' }); assert.equal(f.writes.length, 1);
+    assert.equal(f.stored.paidAmount, 100); assert.equal(f.stored.signaledAmount, 100);
+    assert.match(await card.locator('[data-payment-metric="outstanding"] dd').textContent(), /152,00/);
+    await card.locator('.payment-overview-reference > summary').click();
+    assert.equal(await card.locator('.client-payment-reference dd').count(), 3);
+    await card.getByRole('button', { name: 'Editar pagamento', exact: true }).click();
+    await page.keyboard.press('Escape'); await page.getByRole('dialog').waitFor({ state: 'detached' });
+    assert.equal(f.writes.length, 1);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    await f.context.close();
+  }
+  const integral = await setup(390, { billingStatus: 'pending', paidAmount: 0, signaledAmount: 0, signaledAt: null, remainingPaymentDate: null });
+  await integral.card.getByRole('button', { name: 'Registar recebimento', exact: true }).click();
+  const receipt = integral.page.getByRole('dialog', { name: 'Registar recebimento', exact: true });
+  await receipt.getByLabel('Tipo de recebimento').selectOption('paid');
+  await receipt.getByLabel('Data efetiva do recebimento').fill('2026-10-14');
+  await receipt.getByRole('button', { name: 'Guardar pagamento', exact: true }).click();
+  await receipt.waitFor({ state: 'detached' }); assert.equal(integral.stored.paidAmount, 252);
+  assert.equal(integral.stored.signaledAmount, 0); assert.equal(integral.writes.length, 1);
+  await integral.context.close();
   const edit = await setup(390, { billingStatus: 'paid', paidAmount: 252, billingPaymentDate: '2026-10-14',
     externalCosts: '[{"type":"Catering","supplier":"QA","costAmount":200,"marginPercent":26,"vatType":"none"}]',
     totalCost: 200, taxAmount: 0, vatRateSnapshot: 0 });

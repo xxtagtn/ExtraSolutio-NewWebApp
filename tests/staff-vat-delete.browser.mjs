@@ -84,8 +84,8 @@ try {
     await summary.getByText(`Staff: ${money(64.4)}`, { exact: true }).waitFor();
     await summary.getByText(`Parceiros: ${money(98.9)}`, { exact: true }).waitFor();
     const payment = page.locator('.service-detail-payment-card');
-    assert.equal(await payment.getByLabel('Valor total', { exact: true }).inputValue(), money(873.3));
-    assert.equal(await payment.getByLabel('Valor em falta', { exact: true }).inputValue(), money(773.3));
+    assert.equal(await payment.locator('[data-payment-metric="total"] .payment-metric-gross').textContent(), money(873.3));
+    assert.equal(await payment.locator('[data-payment-metric="outstanding"] .payment-metric-gross').textContent(), money(773.3));
     const reference = payment.getByLabel('Referência 70% e 30%'); assert.ok((await reference.textContent()).includes(money(611.31)));
     const external = page.locator('.service-detail-external-card');
     const remove = () => external.getByRole('button', { name: 'Eliminar custo externo Parceiro QA', exact: true }).click();
@@ -105,7 +105,7 @@ try {
     assert.equal(writes.filter((row) => row.method === 'DELETE').length, beforeDelete + 1);
     await external.getByText('Sem custos externos registados', { exact: true }).waitFor();
     assert.equal(stored.totalRevenue, 344.4); assert.equal(stored.taxAmount, 64.4); assert.equal(stored.totalCost, 224);
-    assert.equal(stored.paidAmount, 100); assert.equal(await payment.getByLabel('Valor em falta', { exact: true }).inputValue(), money(244.4));
+    assert.equal(stored.paidAmount, 100); assert.equal(await payment.locator('[data-payment-metric="outstanding"] .payment-metric-gross').textContent(), money(244.4));
     await page.goto(`${base}/finance?area=clients&eventId=42`);
     await page.locator('.finance-client-summary-row').filter({ hasText: client.name }).click();
     const financeRow = page.locator('.finance-client-event-row').filter({ hasText: stored.name }); await financeRow.waitFor();

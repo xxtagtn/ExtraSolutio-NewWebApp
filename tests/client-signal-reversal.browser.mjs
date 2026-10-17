@@ -55,6 +55,7 @@ async function setup(width, patch = {}, invoices = []) {
   });
   await page.goto(`${base}/services/42?tab=costs`);
   const card = page.locator('.service-detail-payment-card'); await card.waitFor();
+  await card.locator('.payment-overview-corrections > summary').click();
   return { context, page, card, stored, writes, fail: () => { failNext = true; } };
 }
 
@@ -62,14 +63,18 @@ try {
   for (const width of [320, 390, 768, 1440]) {
     const f = await setup(width), { page, card } = f;
     const original = structuredClone(f.stored);
+    await card.getByRole('button', { name: 'Editar pagamento', exact: true }).click();
     await card.getByLabel('Valor sinalizado', { exact: true }).fill('157,50');
     await card.getByLabel('Data da sinalização').fill('2026-10-10');
     await card.getByLabel('Data prevista do restante pagamento').fill('2026-10-20');
     assert.match(await card.getByLabel('Valor em falta', { exact: true }).inputValue(), /94,50/);
     await card.getByRole('button', { name: 'Guardar pagamento' }).click();
-    await page.waitForFunction(() => document.querySelector('.service-detail-payment-actions button.command-button')?.textContent.includes('Guardar pagamento'));
+    await page.getByRole('dialog', { name: 'Editar pagamento', exact: true }).waitFor({ state: 'detached' });
     assert.equal(f.stored.signaledAmount, 157.5); assert.equal(f.stored.paidAmount, 157.5);
     assert.equal(f.stored.signaledAt, '2026-10-10'); assert.equal(f.stored.remainingPaymentDate, '2026-10-20');
+    if (!await card.locator('.payment-overview-corrections').evaluate((element) => element.open)) {
+      await card.locator('.payment-overview-corrections > summary').click();
+    }
     const reverse = card.getByRole('button', { name: 'Reverter sinalização' });
     page.once('dialog', (dialog) => { assert.match(dialog.message(), /reverter esta sinalização/); return dialog.dismiss(); });
     await reverse.click(); assert.equal(f.writes.length, 1, 'Cancel does not send a reversal');
@@ -77,9 +82,9 @@ try {
     await card.getByText('Falha QA controlada', { exact: true }).waitFor();
     assert.equal(f.stored.paidAmount, 157.5);
     page.once('dialog', (dialog) => dialog.accept()); await reverse.click();
-    await page.waitForFunction(() => document.querySelector('.service-detail-payment-grid select')?.value === 'pending');
+    await page.waitForFunction(() => document.querySelector('[data-payment-metric="received"] dd')?.textContent.includes('0,00'));
     assert.equal(f.stored.signaledAmount, 0); assert.equal(f.stored.paidAmount, 0); assert.equal(f.stored.signaledAt, null);
-    assert.match(await card.getByLabel('Valor em falta', { exact: true }).inputValue(), /252,00/);
+    assert.match(await card.locator('[data-payment-metric="outstanding"] dd').textContent(), /252,00/);
     assert.equal(await reverse.count(), 0);
     for (const field of ['totalRevenue', 'totalCost', 'taxAmount', 'vatRateSnapshot', 'status', 'requiredRoles', 'assignments', 'externalCosts']) {
       assert.deepEqual(f.stored[field], original[field]);
@@ -90,7 +95,8 @@ try {
     await card.screenshot({ path: `${output}/reversed-${width}.png` });
     await page.goto(`${base}/finance?area=clients&eventId=42`);
     await page.locator('.finance-client-summary-row').filter({ hasText: 'Cliente QA' }).click();
-    assert.equal(await page.locator('.finance-client-event-row .finance-client-status-select').inputValue(), 'pending');
+    await page.locator('.finance-client-event-row .finance-client-payment-state').getByText('Pendente', { exact: true }).waitFor();
+    assert.equal(await page.locator('.finance-client-event-row').getByRole('button', { name: 'Gerir recebimentos', exact: true }).count(), 1);
     assert.equal(await page.locator('.client-payment-reference').count(), 0);
     await f.context.close();
     console.log(`Costs edit/date correction, cancel, failed write, reversal and Finance consistency passed at ${width}px`);
@@ -111,8 +117,8 @@ try {
     const f = await setup(width, { name: 'Particular - Rita Antunes QA', billingStatus: 'pending', totalRevenue: 1252.14,
       signaledAmount: 816.23, paidAmount: 1166.04, signaledAt: null, billingPaymentDate: '2026-07-27' });
     const { page, card } = f, original = structuredClone(f.stored);
-    assert.match(await card.locator('.event-payment-balance > div').filter({ hasText: 'Total recebido registado' }).textContent(), /1166,04/);
-    const reverseAll = card.getByRole('button', { name: 'Reverter recebimentos', exact: true });
+    assert.match(await card.locator('[data-payment-metric="received"] dd').textContent(), /1166,04/);
+    const reverseAll = card.getByRole('button', { name: 'Reverter todos os recebimentos', exact: true });
     const confirmation = (dialog) => {
       assert.match(dialog.message(), /Reverter todos os recebimentos/);
       assert.match(dialog.message(), /816,23/); assert.match(dialog.message(), /349,81/);
@@ -126,14 +132,13 @@ try {
     page.on('dialog', (dialog) => { confirmation(dialog); return dialog.accept(); });
     const before = f.writes.length;
     await reverseAll.evaluate((button) => { button.click(); button.click(); });
-    await page.waitForFunction(() => [...document.querySelectorAll('.event-payment-balance > div')]
-      .some((row) => row.textContent.includes('Total recebido registado') && row.querySelector('dd')?.textContent.includes('0,00')));
-    await card.getByRole('button', { name: 'Reverter recebimentos', exact: true }).waitFor({ state: 'detached' });
+    await page.waitForFunction(() => document.querySelector('[data-payment-metric="received"] dd')?.textContent.includes('0,00'));
+    await card.getByRole('button', { name: 'Reverter todos os recebimentos', exact: true }).waitFor({ state: 'detached' });
     assert.equal(f.writes.length, before + 1, 'double click sends one explicit correction');
     assert.equal(f.stored.paidAmount, 0); assert.equal(f.stored.signaledAmount, 0);
     assert.equal(f.stored.signaledAt, null); assert.equal(f.stored.billingPaymentDate, null);
     assert.equal(f.stored.billingStatus, 'pending');
-    assert.match(await card.getByLabel('Valor em falta', { exact: true }).inputValue(), /1252,14/);
+    assert.match(await card.locator('[data-payment-metric="outstanding"] dd').textContent(), /1252,14/);
     assert.equal(f.stored.totalRevenue, original.totalRevenue); assert.equal(f.stored.taxAmount, original.taxAmount);
     assert.equal(f.stored.totalCost, original.totalCost); assert.equal(f.stored.status, original.status);
     assert.equal(f.stored.remainingPaymentDate, original.remainingPaymentDate);
@@ -144,7 +149,7 @@ try {
   }
   const locked = await setup(390, { paidAmount: 200 }, [{ status: 'issued', issueDate: '2026-10-14' }]);
   locked.page.once('dialog', (dialog) => dialog.accept());
-  await locked.card.getByRole('button', { name: 'Reverter recebimentos', exact: true }).click();
+  await locked.card.getByRole('button', { name: 'Reverter todos os recebimentos', exact: true }).click();
   await locked.card.locator('.form-error').filter({ hasText: /faturação emitida/ }).waitFor();
   assert.equal(locked.stored.paidAmount, 200); await locked.context.close();
   assert.deepEqual(errors, []);

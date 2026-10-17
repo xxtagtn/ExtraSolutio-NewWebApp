@@ -5,6 +5,8 @@ import {
 import { invoiceEventIds } from './clientFinancialSummary.js';
 import { externalServiceCanArchive, isExternalOnlyService } from './externalServiceWorkflow.js';
 import { isFinanceReadyEvent } from './financeReadiness.js';
+import { clientFinancialState } from './clientFinancialState.js';
+import { clientPaymentTotal } from './clientPaymentTotal.js';
 
 function selectedPeriodParts(period) {
   const [year, month] = String(period || '').split('-').map(Number);
@@ -47,6 +49,7 @@ function firstActionableService(services) {
 }
 
 function serviceValue(service) {
+  if (service.totalRevenue != null) return clientPaymentTotal(service);
   return num(service?.financial?.receivable || service?.financial?.revenue || 0);
 }
 
@@ -202,8 +205,12 @@ export function billingEventIdsForRow(row) {
 
 export function billingStatusForRow(row) {
   const services = rowBillingServices(row);
-  const statuses = services.map((service) => service.billingStatus === 'paid' && num(service.financial?.receivable) > 0
-    ? 'partial70' : String(service?.billingStatus || 'pending'));
+  const statuses = services.map((service) => {
+    const state = clientFinancialState(service);
+    if (service.totalRevenue != null) return state.status === 'paid' ? 'paid' : state.status === 'invoiced' ? 'invoiced'
+      : ['signaled', 'partial'].includes(state.status) ? 'partial70' : 'pending';
+    return service.billingStatus === 'paid' && num(service.financial?.receivable) > 0 ? 'partial70' : String(service?.billingStatus || 'pending');
+  });
   if (!statuses.length) return 'pending';
   if (statuses.every((status) => status === statuses[0])) return statuses[0];
   if (statuses.includes('pending')) return 'pending';
@@ -242,7 +249,7 @@ export function splitClientBillingRows(rows, { now, timeZone } = {}) {
     );
     const isArchived = hasServiceEvents
       && billingStatusForRow(row) === 'paid'
-      && rowBillingServices(row).every((service) => service.financial?.hasInvoice || !service.status || isFinanceReadyEvent(service))
+      && rowBillingServices(row).every((service) => !service.status || isFinanceReadyEvent(service))
       && rowBillingServices(row).filter(isExternalOnlyService).every((event) => externalServiceCanArchive(event, now, timeZone))
       && (!isUnregisteredClientWithoutInvoice || rowBillingServices(row).every(isExternalOnlyService));
     if (isArchived) {

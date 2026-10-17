@@ -18,6 +18,7 @@ const fixture = (patch = {}) => ({ id: 42, name: 'Referencia cliente QA', date: 
   remainingPaymentDate: '2026-10-14', billingPaymentDate: null, billingAdjustment: 0, ...patch });
 const currency = (value) => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(value);
 async function assertReference(locator, total, seventy, thirty) {
+  if (!await locator.isVisible()) await locator.locator('..').locator(':scope > summary').click();
   await locator.waitFor();
   assert.deepEqual(await locator.locator('dd').allTextContents(), [currency(total), currency(seventy), currency(thirty)]);
   assert.equal(await locator.locator('input, select, button').count(), 0, 'References cannot change payment data');

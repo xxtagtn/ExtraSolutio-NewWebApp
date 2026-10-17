@@ -67,7 +67,8 @@ import {
 } from '../services/eventWorkflow.js';
 import { isExternalOnlyService } from '../../src/utils/externalServiceWorkflow.js';
 import { assertClientSignalHistoryPreserved, isClientPaymentOnlyUpdate, isDetailedClientPaymentUpdate, validateClientPaymentUpdate } from '../../src/utils/clientPayment.js';
-import { linkedClientInvoices, receiveAdditionalClientPayment, reverseClientReceipts, reverseClientSignal } from '../services/clientPayment.js';
+import { linkedClientInvoices, receiveAdditionalClientPayment, reverseClientReceipts, reverseClientSignal, setClientCommercialStatus } from '../services/clientPayment.js';
+import { changeClientReceipt } from '../services/clientReceiptMovements.js';
 import { clientPaymentRecordPatch } from '../services/clientPaymentRecord.js';
 import { saveEventExternalCost, deleteEventExternalCost } from '../services/externalCostEditing.js';
 import { checkedEventFinancialTotals } from '../services/eventFinancialChange.js';
@@ -432,7 +433,8 @@ async function normalizeAssignmentUpdate(input, existing) {
   return data;
 }
 
-async function updateServiceWithRangeReconciliation({ id, data, existing, include, body }) {
+async function updateServiceWithRangeReconciliation({ id, data, existing, include, body, req }) {
+  const { receiptAllocations, receiptAllocationUpdatedAt, ...paymentBody } = body;
   const reconciled = reconcileEventRangeData(existing, data);
   const financialConfigurationWrite = data.staffVatRateSnapshot !== undefined || data.externalCosts !== undefined
     || ['billingStatus', 'signaledAmount', 'paidAmount', 'signaledAt'].some((field) => body[field] !== undefined);
@@ -469,7 +471,7 @@ async function updateServiceWithRangeReconciliation({ id, data, existing, includ
       });
     }
     let payment = null;
-    if (isDetailedClientPaymentUpdate(body) || ['signaledAmount', 'paidAmount', 'signaledAt'].some((field) => body[field] !== undefined)) {
+    if (isDetailedClientPaymentUpdate(paymentBody) || ['signaledAmount', 'paidAmount', 'signaledAt'].some((field) => paymentBody[field] !== undefined)) {
       const current = await tx.event.findUnique({ where: { id }, include: { invoices: true } });
       if (!current) {
         const error = new Error('Evento/Serviço não encontrado.');
@@ -477,8 +479,12 @@ async function updateServiceWithRangeReconciliation({ id, data, existing, includ
         error.expose = true;
         throw error;
       }
-      assertClientSignalHistoryPreserved(body, current, await linkedClientInvoices(tx, current));
-      if (isDetailedClientPaymentUpdate(body)) payment = validateClientPaymentUpdate(body, current);
+      if (receiptAllocations !== undefined && (!receiptAllocationUpdatedAt || new Date(receiptAllocationUpdatedAt).getTime() !== current.updatedAt.getTime())) {
+        const error = new Error('O evento foi alterado. Atualiza a página antes de distribuir o recebimento.');
+        error.statusCode = 409; error.expose = true; throw error;
+      }
+      assertClientSignalHistoryPreserved(paymentBody, current, await linkedClientInvoices(tx, current));
+      if (isDetailedClientPaymentUpdate(paymentBody)) payment = validateClientPaymentUpdate(paymentBody, current);
     }
     let updateData = payment ? { ...reconciled.data, ...normalizeEvent(payment) } : reconciled.data;
     const staffVatChanged = reconciled.data.staffVatRateSnapshot !== undefined
@@ -504,11 +510,11 @@ async function updateServiceWithRangeReconciliation({ id, data, existing, includ
     const paymentCurrent = await tx.event.findUnique({ where: { id } });
     const legacyInvoiced = paymentCurrent.billingStatus === 'invoiced'
       && !(await linkedClientInvoices(tx, paymentCurrent)).some(invoiceIsIssued);
-    Object.assign(updateData, clientPaymentRecordPatch(paymentCurrent, updateData, { legacyInvoiced }));
+    Object.assign(updateData, clientPaymentRecordPatch(paymentCurrent, updateData, { legacyInvoiced, allocations: receiptAllocations, actor: req?.user }));
     const row = await tx.event.update({ where: { id }, data: updateData, include });
     if (!isExternalOnlyService(row)) return row;
     // Status-only writes preserve money; ordinary edits keep the existing totals engine.
-    const recalculateTotals = !isClientPaymentOnlyUpdate(body);
+    const recalculateTotals = !isClientPaymentOnlyUpdate(paymentBody);
     const synced = await synchronizeEventWorkflow(tx, id, { recalculateTotals });
     return { ...await tx.event.findUnique({ where: { id }, include }), externalService: synced.externalService };
   }, financialConfigurationWrite ? { isolationLevel: 'Serializable' } : undefined).catch((error) => {
@@ -715,7 +721,7 @@ apiRouter.delete('/services/:id/external-costs/:costId', servicesUpdate, asyncHa
 apiRouter.post('/services/:id/client-payment/reverse-signal', servicesUpdate, asyncHandler(async (req, res) => {
   const id = workflowEventId(req, res);
   if (!id) return;
-  const event = await reverseClientSignal(prisma, id, { updatedAt: req.body?.updatedAt });
+  const event = await reverseClientSignal(prisma, id, { updatedAt: req.body?.updatedAt, actor: req.user });
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   return res.json(maskEventForRole(event, req.user));
 }));
@@ -725,6 +731,7 @@ apiRouter.post('/services/:id/client-payment/reverse-receipts', servicesUpdate, 
   if (!id) return;
   const event = await reverseClientReceipts(prisma, id, {
     updatedAt: req.body?.updatedAt, confirmedReceived: req.body?.confirmedReceived, confirmedSignal: req.body?.confirmedSignal,
+    actor: req.user,
   });
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   return res.json(maskEventForRole(event, req.user));
@@ -733,7 +740,32 @@ apiRouter.post('/services/:id/client-payment/reverse-receipts', servicesUpdate, 
 apiRouter.post('/services/:id/client-payment/receive-additional', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
   const id = workflowEventId(req, res);
   if (!id) return;
-  const event = await receiveAdditionalClientPayment(prisma, id, req.body || {});
+  const event = await receiveAdditionalClientPayment(prisma, id, { ...req.body, actor: req.user });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/client-payment/movements/:movementId', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await changeClientReceipt(prisma, id, req.params.movementId, req.body || {}, req.user);
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/client-payment/receive', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  if (!Number.isInteger(req.body?.revision)) return res.status(422).json({ message: 'Atualiza os recebimentos antes de continuar.' });
+  const event = await receiveAdditionalClientPayment(prisma, id, { ...req.body, receiptAllocations: req.body?.allocations, actor: req.user });
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/client-payment/commercial-status', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await setClientCommercialStatus(prisma, id, req.body || {}, req.user);
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   return res.json(maskEventForRole(event, req.user));
 }));
@@ -936,7 +968,10 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
     await synchronizeEventWorkflow(prisma, row.id, { recalculateTotals: true });
   },
   afterUpdate: async ({ id, row, body }) => {
-    if (!isExternalOnlyService(row)) await synchronizeEventWorkflow(prisma, id, { recalculateTotals: !isDetailedClientPaymentUpdate(body) });
+    const paymentBody = { ...body };
+    delete paymentBody.receiptAllocations;
+    delete paymentBody.receiptAllocationUpdatedAt;
+    if (!isExternalOnlyService(row)) await synchronizeEventWorkflow(prisma, id, { recalculateTotals: !isDetailedClientPaymentUpdate(paymentBody) });
   },
 }));
 
