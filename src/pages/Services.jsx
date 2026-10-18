@@ -17,6 +17,7 @@ import IconButton from '../components/UI/IconButton.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { useCollaboratorPickerPosition } from '../hooks/useCollaboratorPickerPosition.js';
 import { api } from '../utils/api.js';
 import {
   ASSIGNMENT_OVERLAP_MESSAGE,
@@ -550,6 +551,7 @@ export default function Services() {
   const [statusManualOverride, setStatusManualOverride] = useState(false);
   const [activeCollaboratorPickerIndex, setActiveCollaboratorPickerIndex] = useState(null);
   const [collaboratorPickerPlacement, setCollaboratorPickerPlacement] = useState(null);
+  const positionCollaboratorPicker = useCollaboratorPickerPosition(activeCollaboratorPickerIndex !== null, setCollaboratorPickerPlacement);
   const collaboratorSearchRef = useRef(null);
   const [activeAdvanceIndex, setActiveAdvanceIndex] = useState(null);
   const [selectedTeamDay, setSelectedTeamDay] = useState('');
@@ -1068,22 +1070,7 @@ export default function Services() {
       return;
     }
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const viewportHeight = window.innerHeight || 720;
-    const gap = 6;
-    const edgePadding = 16;
-    const spaceBelow = viewportHeight - rect.bottom - edgePadding;
-    const spaceAbove = rect.top - edgePadding;
-    const openAbove = spaceBelow < 220 && spaceAbove > spaceBelow;
-    const availableSpace = Math.max(160, (openAbove ? spaceAbove : spaceBelow) - gap);
-
-    setCollaboratorPickerPlacement({
-      left: Math.max(edgePadding, rect.left),
-      top: openAbove ? undefined : rect.bottom + gap,
-      bottom: openAbove ? viewportHeight - rect.top + gap : undefined,
-      width: rect.width,
-      maxHeight: Math.min(320, availableSpace),
-    });
+    positionCollaboratorPicker(event.currentTarget);
     setActiveCollaboratorPickerIndex(index);
   }
 
@@ -2432,6 +2419,10 @@ export default function Services() {
                                         <input
                                           ref={collaboratorSearchRef}
                                           type="text"
+                                          aria-label="Pesquisar colaborador para alocar"
+                                          autoComplete="off"
+                                          autoCapitalize="none"
+                                          spellCheck={false}
                                           placeholder="Filtrar por nome"
                                           value={assignment.collaboratorSearch || ''}
                                           onChange={(event) => updateAssignment(assignment.index, { collaboratorSearch: event.target.value })}

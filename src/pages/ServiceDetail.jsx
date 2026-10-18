@@ -43,6 +43,7 @@ import EmptyState from '../components/UI/EmptyState.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { useCollaboratorPickerPosition } from '../hooks/useCollaboratorPickerPosition.js';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { isExternalOnlyService } from '../utils/externalServiceWorkflow.js';
@@ -359,6 +360,7 @@ export default function ServiceDetail() {
   const [selectedDay, setSelectedDay] = useState('');
   const [activeTeamCollaboratorPickerKey, setActiveTeamCollaboratorPickerKey] = useState(null);
   const [teamCollaboratorPickerPlacement, setTeamCollaboratorPickerPlacement] = useState(null);
+  const positionTeamCollaboratorPicker = useCollaboratorPickerPosition(activeTeamCollaboratorPickerKey !== null, setTeamCollaboratorPickerPlacement);
   const teamCollaboratorSearchRef = useRef(null);
   const currentDay = selectedDay && days.includes(selectedDay) ? selectedDay : days[0] || '';
   const currentDayCancelled = useMemo(
@@ -944,22 +946,7 @@ export default function ServiceDetail() {
       return;
     }
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const viewportHeight = window.innerHeight || 720;
-    const gap = 6;
-    const edgePadding = 16;
-    const spaceBelow = viewportHeight - rect.bottom - edgePadding;
-    const spaceAbove = rect.top - edgePadding;
-    const openAbove = spaceBelow < 220 && spaceAbove > spaceBelow;
-    const availableSpace = Math.max(160, (openAbove ? spaceAbove : spaceBelow) - gap);
-
-    setTeamCollaboratorPickerPlacement({
-      left: Math.max(edgePadding, rect.left),
-      top: openAbove ? undefined : rect.bottom + gap,
-      bottom: openAbove ? viewportHeight - rect.top + gap : undefined,
-      width: rect.width,
-      maxHeight: Math.min(320, availableSpace),
-    });
+    positionTeamCollaboratorPicker(event.currentTarget);
     setActiveTeamCollaboratorPickerKey(rowKey);
   }
 
@@ -1855,6 +1842,10 @@ export default function ServiceDetail() {
                               <input
                                 ref={teamCollaboratorSearchRef}
                                 type="text"
+                                aria-label="Pesquisar colaborador para alocar"
+                                autoComplete="off"
+                                autoCapitalize="none"
+                                spellCheck={false}
                                 placeholder="Filtrar por nome"
                                 value={assignment.collaboratorSearch || ''}
                                 onChange={(event) => updateTeamRow(assignment.rowKey, { collaboratorSearch: event.target.value })}
