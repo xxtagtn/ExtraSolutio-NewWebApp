@@ -11,6 +11,101 @@ import {
 const importedXlsx = await import('xlsx-js-style');
 const XLSX = importedXlsx.default || importedXlsx;
 
+function filterWorkbookRows(workLocationsEnabled = false) {
+  const event = { id: 100, name: 'Evento com filtros', client: { name: 'Cliente QA' },
+    date: '2026-10-16', workLocationsEnabled,
+    requiredRoles: [{ role: 'Mesa', agreedRate: 10.5 }, { role: 'Bar', agreedRate: 12.35 }] };
+  return [
+    { name: 'Ana', hours: 14, billable: 14, role: 'Mesa', day: '2026-10-16' },
+    { name: 'Bruno', hours: 6.5, billable: 8, role: 'Bar', day: '2026-10-16' },
+    { name: 'Carla', hours: 7.25, billable: 7.5, role: 'Mesa', day: '2026-10-16' },
+    { name: 'Ana', hours: 4, billable: 4, role: 'Mesa', day: '2026-10-17' },
+  ].map((row) => ({ event, assignment: { role: row.role, collaborator: { name: row.name, nif: `QA-${row.name}` },
+    checkIn: '10:00', checkOut: '18:00', workLocation: { name: 'Sala' } },
+    workDateKey: row.day, staffScheduleHours: row.hours, clientHours: row.billable }));
+}
+
+for (const workLocationsEnabled of [false, true]) {
+  test(`XLSX totals use filter-aware formulas and numeric duration/value cells (work locations: ${workLocationsEnabled})`, () => {
+    const input = filterWorkbookRows(workLocationsEnabled), before = structuredClone(input);
+    const workbook = createStaffScheduleWorkbook(input, { XLSX });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const hours = workLocationsEnabled ? 'K' : 'J';
+    const value = workLocationsEnabled ? 'M' : 'L';
+    const totalValue = workLocationsEnabled ? 'H4' : 'G4';
+    assert.equal(sheet.B4.f, `SUBTOTAL(109,${hours}7:${hours}10)`);
+    assert.equal(sheet[totalValue].f, `ROUND(SUBTOTAL(109,${value}7:${value}10),2)`);
+    assert.equal(sheet.B4.t, 'n');
+    assert.equal(sheet[totalValue].v, 366.55);
+    assert.equal(XLSX.utils.format_cell(sheet.B4), '31:45h', 'duration must not wrap at 24 hours');
+    assert.equal(sheet['!autofilter'].ref, `A6:${value}10`, 'hidden values must follow the filtered/sorted records');
+    assert.equal(sheet['!cols'].at(-1).hidden, true);
+    assert.equal(sheet[`${value}6`].v, 'Valor do serviço');
+    const data = buildStaffScheduleRows(input);
+    for (let i = 0; i < data.length; i += 1) {
+      assert.equal(sheet[`${hours}${i + 7}`].t, 'n');
+      assert.equal(sheet[`${hours}${i + 7}`].v, data[i].hours / 24);
+      assert.equal(sheet[`${value}${i + 7}`].v, data[i].totalValue);
+    }
+    assert.deepEqual(input, before);
+    const reopened = XLSX.read(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx', cellStyles: true }), { type: 'buffer', cellStyles: true, cellNF: true });
+    const restored = reopened.Sheets[reopened.SheetNames[0]];
+    assert.equal(restored.B4.f, sheet.B4.f);
+    assert.equal(restored[totalValue].f, sheet[totalValue].f);
+    assert.equal(restored.B4.v, sheet.B4.v);
+    assert.equal(restored[totalValue].v, 366.55);
+    assert.equal(restored['!autofilter'].ref, `A6:${value}10`);
+    assert.equal(restored['!cols'].at(-1).hidden, true);
+  });
+}
+
+test('XLSX single-collaborator exports, empty results and zero-value services retain valid totals', () => {
+  const rows = filterWorkbookRows().filter((row) => row.assignment.collaborator.name === 'Ana');
+  const workbook = createStaffScheduleWorkbook(rows, { XLSX });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  assert.equal(sheet.B4.f, 'SUBTOTAL(109,J7:J8)');
+  assert.equal(XLSX.utils.format_cell(sheet.B4), '18:00h');
+  assert.equal(sheet.G4.v, 189);
+  const zero = createStaffScheduleWorkbook([{ ...rows[0], staffScheduleHours: 0, clientHours: 0 }], { XLSX });
+  assert.equal(zero.Sheets[zero.SheetNames[0]].B4.v, 0);
+  assert.equal(zero.Sheets[zero.SheetNames[0]].G4.v, 0);
+  assert.deepEqual(createStaffScheduleWorkbook([], { XLSX }).SheetNames, ['Sem registos']);
+});
+
+test('XLSX totals use only the selected collaborators and restore full totals when selection is cleared', () => {
+  const input = filterWorkbookRows();
+  for (const [names, hours, value] of [
+    [['Ana'], 18, 189],
+    [['Ana', 'Bruno'], 24.5, 287.8],
+    [['Carla'], 7.25, 78.75],
+    [null, 31.75, 366.55],
+  ]) {
+    const selected = names ? input.filter((row) => names.includes(row.assignment.collaborator.name)) : input;
+    const workbook = createStaffScheduleWorkbook(selected, { XLSX });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    assert.equal(sheet.B4.v, hours / 24);
+    assert.equal(sheet.G4.v, value);
+    assert.equal(sheet.B4.f, `SUBTOTAL(109,J7:J${selected.length + 6})`);
+  }
+});
+
+test('XLSX print layout uses light gray shading and keeps data rows white', () => {
+  const workbook = createStaffScheduleWorkbook(filterWorkbookRows(), { XLSX });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  for (const cell of ['A1', 'A4', 'B4', 'F4', 'G4', 'A6', 'E6', 'J6']) {
+    assert.equal(sheet[cell].s.font.color.rgb, '111111');
+  }
+  assert.equal(sheet.A1.s.fill.fgColor.rgb, 'E2E2E2');
+  assert.equal(sheet.A4.s.fill.fgColor.rgb, 'F2F2F2');
+  assert.equal(sheet.G4.s.fill.fgColor.rgb, 'F2F2F2');
+  assert.equal(sheet.A6.s.fill.fgColor.rgb, 'EAEAEA');
+  assert.equal(sheet.E6.s.fill.fgColor.rgb, 'EAEAEA');
+  assert.equal(sheet.A7.s.fill.fgColor.rgb, 'FFFFFF');
+  assert.equal(sheet.E8.s.fill.fgColor.rgb, 'FFFFFF');
+  assert.equal(sheet.A6.s.border.bottom.style, 'thin');
+  assert.equal(sheet.F4.s.alignment.wrapText, true);
+});
+
 test('builds printable staff schedule rows from validation rows', () => {
   const rows = buildStaffScheduleRows([
     {
@@ -115,9 +210,10 @@ test('creates one worksheet per event with per-event totals at the top', () => {
   const continuousSheet = workbook.Sheets[workbook.SheetNames.find((name) => name.startsWith('Evento Cont'))];
   const values = XLSX.utils.sheet_to_json(continuousSheet, { header: 1, defval: '' }).flat().join('|');
   assert.equal(values.includes('Total de horas Staff'), true);
-  assert.equal(values.includes('5:00h'), true);
+  assert.equal(XLSX.utils.format_cell(continuousSheet.B4), '5:00h');
   assert.equal(values.includes('Valor total dos serviços'), true);
-  assert.equal(values.includes('50,00\u00a0€'), true);
+  assert.equal(continuousSheet.G4.v, 50);
+  assert.equal(continuousSheet.G4.t, 'n');
   assert.equal(values.includes('08/07/2026'), true);
   assert.equal(values.includes('09/07/2026'), true);
 });

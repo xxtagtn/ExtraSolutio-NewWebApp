@@ -27,13 +27,12 @@ const ATTENDANCE_PRINT = {
 };
 
 const COLORS = {
-  accent: '18BFB2',
-  accentDark: '0C605C',
-  border: '40525A',
-  dark: '0B1419',
-  darkSoft: '152329',
-  light: 'E8F1F2',
-  muted: 'A9B8BC',
+  text: '111111',
+  title: 'E2E2E2',
+  header: 'EAEAEA',
+  metadata: 'F2F2F2',
+  border: 'A6A6A6',
+  muted: '666666',
   white: 'FFFFFF',
 };
 
@@ -175,7 +174,7 @@ function setCell(sheet, address, value, style) {
 function metadataLabelStyle() {
   return {
     font: { bold: true, color: { rgb: COLORS.muted }, sz: 10 },
-    fill: { fgColor: { rgb: COLORS.darkSoft } },
+    fill: { patternType: 'solid', fgColor: { rgb: COLORS.metadata } },
     alignment: { vertical: 'center' },
     border: thinBorder(),
   };
@@ -183,8 +182,8 @@ function metadataLabelStyle() {
 
 function metadataValueStyle() {
   return {
-    font: { bold: true, color: { rgb: COLORS.white }, sz: 11 },
-    fill: { fgColor: { rgb: COLORS.dark } },
+    font: { bold: true, color: { rgb: COLORS.text }, sz: 11 },
+    fill: { patternType: 'solid', fgColor: { rgb: COLORS.white } },
     alignment: { vertical: 'center', wrapText: true },
     border: thinBorder(),
   };
@@ -225,31 +224,33 @@ export function createEventAttendanceWorkbook({
   const headerRowNumber = 8;
   const dataStartRowNumber = headerRowNumber + 1;
   const dataEndRowNumber = dataStartRowNumber + rows.length - 1;
+  const confirmationStart = dataEndRowNumber + 2;
+  const signatureEnd = confirmationStart + 2;
   const fitToHeight = rows.length <= ATTENDANCE_PRINT.singlePageRowLimit ? 1 : 0;
   const aoa = Array.from({ length: dataEndRowNumber }, () => []);
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
 
   const titleStyle = {
-    font: { bold: true, color: { rgb: COLORS.white }, sz: 16 },
-    fill: { fgColor: { rgb: COLORS.dark } },
+    font: { bold: true, color: { rgb: COLORS.text }, sz: 16 },
+    fill: { patternType: 'solid', fgColor: { rgb: COLORS.title } },
     alignment: { horizontal: 'left', vertical: 'center' },
     border: thinBorder(),
   };
   const brandStyle = {
-    font: { bold: true, color: { rgb: COLORS.accent }, sz: 10 },
-    fill: { fgColor: { rgb: COLORS.dark } },
+    font: { bold: true, color: { rgb: COLORS.muted }, sz: 10 },
+    fill: { patternType: 'solid', fgColor: { rgb: COLORS.white } },
     alignment: { horizontal: 'left', vertical: 'center' },
     border: thinBorder(),
   };
   const headerStyle = {
-    font: { bold: true, color: { rgb: COLORS.white }, sz: 9 },
-    fill: { fgColor: { rgb: COLORS.accentDark } },
+    font: { bold: true, color: { rgb: COLORS.text }, sz: 9 },
+    fill: { patternType: 'solid', fgColor: { rgb: COLORS.header } },
     alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
     border: thinBorder(),
   };
   const rowStyle = {
-    font: { color: { rgb: COLORS.dark }, sz: 9 },
-    fill: { fgColor: { rgb: COLORS.white } },
+    font: { color: { rgb: COLORS.text }, sz: 9 },
+    fill: { patternType: 'solid', fgColor: { rgb: COLORS.white } },
     alignment: { vertical: 'center', wrapText: true },
     border: thinBorder(),
   };
@@ -258,6 +259,10 @@ export function createEventAttendanceWorkbook({
     alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
   };
 
+  applyCellStyle(sheet, XLSX, `A1:J${signatureEnd}`, {
+    font: { color: { rgb: COLORS.text }, sz: 9 },
+    fill: { patternType: 'solid', fgColor: { rgb: COLORS.white } },
+  });
   merge(sheet, XLSX, 'A1:J1');
   merge(sheet, XLSX, 'A2:J2');
   setCell(sheet, 'A1', 'Folha de Registo de Horas', titleStyle);
@@ -302,7 +307,6 @@ export function createEventAttendanceWorkbook({
     });
   });
 
-  const confirmationStart = dataEndRowNumber + 2;
   merge(sheet, XLSX, `A${confirmationStart}:D${confirmationStart}`);
   merge(sheet, XLSX, `E${confirmationStart}:G${confirmationStart}`);
   merge(sheet, XLSX, `H${confirmationStart}:J${confirmationStart}`);
@@ -311,7 +315,6 @@ export function createEventAttendanceWorkbook({
   setCell(sheet, `H${confirmationStart}`, 'Observações gerais', headerStyle);
   applyCellStyle(sheet, XLSX, `A${confirmationStart}:J${confirmationStart}`, headerStyle);
 
-  const signatureEnd = confirmationStart + 2;
   merge(sheet, XLSX, `A${confirmationStart + 1}:D${signatureEnd}`);
   merge(sheet, XLSX, `E${confirmationStart + 1}:G${signatureEnd}`);
   merge(sheet, XLSX, `H${confirmationStart + 1}:J${signatureEnd}`);

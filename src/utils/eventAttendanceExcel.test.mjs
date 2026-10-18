@@ -140,6 +140,37 @@ test('creates a styled workbook with event metadata and attendance columns', () 
   );
 });
 
+test('uses light grayscale shading while leaving handwritten fields white', async () => {
+  const { workbook, sheet, fitToHeight } = createEventAttendanceWorkbook({
+    XLSX,
+    event: { name: 'Evento QA', date: '2026-08-01' },
+    assignments: [{ id: 1, collaboratorId: 1, role: 'Emp.Mesa', plannedCheckIn: '10:00', plannedCheckOut: '16:00' }],
+    collaborators,
+  });
+  assert.equal(sheet.A1.s.fill.fgColor.rgb, 'E2E2E2');
+  assert.equal(sheet.A1.s.font.color.rgb, '111111');
+  assert.equal(sheet.A2.s.fill.fgColor.rgb, 'FFFFFF');
+  assert.equal(sheet.A4.s.fill.fgColor.rgb, 'F2F2F2');
+  assert.equal(sheet.B4.s.fill.fgColor.rgb, 'FFFFFF');
+  assert.equal(sheet.A8.s.fill.fgColor.rgb, 'EAEAEA');
+  assert.equal(sheet.A11.s.fill.fgColor.rgb, 'EAEAEA');
+  for (const cell of ['A3', 'A7', 'A10']) assert.equal(sheet[cell].s.fill.fgColor.rgb, 'FFFFFF');
+  for (const cell of ['G9', 'H9', 'I9', 'J9', 'A12', 'E12', 'H12']) {
+    assert.equal(sheet[cell].v, '');
+    assert.equal(sheet[cell].s.fill.fgColor.rgb, 'FFFFFF');
+    assert.equal(sheet[cell].s.font.color.rgb, '111111');
+    assert.equal(sheet[cell].s.border.bottom.color.rgb, 'A6A6A6');
+  }
+  const content = await applyAttendancePrintSettings(XLSX.write(workbook, { type: 'array', bookType: 'xlsx', cellStyles: true }), fitToHeight);
+  const reopened = XLSX.read(content, { type: 'array', cellStyles: true });
+  const restored = reopened.Sheets['Registo de Horas'];
+  assert.equal(restored.A1.s.fgColor.rgb, 'E2E2E2');
+  assert.equal(restored.A8.s.fgColor.rgb, 'EAEAEA');
+  assert.equal(restored.I9.s.fgColor.rgb, 'FFFFFF');
+  assert.deepEqual(restored['!merges'], sheet['!merges']);
+  assert.equal(restored['!autofilter'].ref, sheet['!autofilter'].ref);
+});
+
 test('configures one-page printing for up to 30 collaborators and paginates larger sheets', () => {
   const assignments = Array.from({ length: 30 }, (_, index) => ({
     id: 100 + index,

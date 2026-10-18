@@ -477,12 +477,6 @@ function mergeWorkbookCells(XLSX, sheet, startRow, endRow, startColumn, endColum
   });
 }
 
-function workbookMoney(value) {
-  const parsed = Number(value || 0);
-  const safeValue = Number.isFinite(parsed) ? parsed : 0;
-  return `${safeValue.toFixed(2).replace('.', ',')}\u00a0\u20ac`;
-}
-
 /**
  * Creates a real XLSX workbook with one worksheet per event. Continuous
  * events are kept together, so all their service days share one worksheet.
@@ -512,6 +506,10 @@ export function createStaffScheduleWorkbook(rows, options = {}) {
     'Notas',
   ];
   const columnCount = headers.length;
+  const hoursColumn = workbookColumnName(XLSX, headers.indexOf('Total horas'));
+  const valueColumn = workbookColumnName(XLSX, columnCount);
+  const hoursFormat = '[h]:mm"h"';
+  const moneyFormat = '#,##0.00" \u20ac"';
   const rightLabelColumn = Math.max(2, Math.floor(columnCount / 2));
   const usedNames = new Set();
   const workbook = XLSX.utils.book_new();
@@ -531,9 +529,9 @@ export function createStaffScheduleWorkbook(rows, options = {}) {
       ['Horários registados pelo Staff', ...Array(columnCount - 1).fill('')],
       metadataRow('Evento/Serviço', group.eventName, 'Cliente', group.clientName),
       metadataRow('Período', workbookPeriod(group.rows), 'Local', workbookLocation(group.rows)),
-      metadataRow('Total de horas Staff', formatHours(groupHours), 'Valor total dos serviços', workbookMoney(groupValue)),
+      metadataRow('Total de horas Staff', groupHours / 24, 'Valor total dos serviços', groupValue),
       [],
-      headers,
+      [...headers, 'Valor do serviço'],
       ...group.rows.map((row) => [
         row.clientName,
         row.eventName,
@@ -545,32 +543,46 @@ export function createStaffScheduleWorkbook(rows, options = {}) {
         row.role,
         row.checkIn,
         row.checkOut,
-        formatHoursCell(row.hours),
+        row.hours / 24,
         row.notes || '-',
+        row.totalValue,
       ]),
     ];
     const sheet = XLSX.utils.aoa_to_sheet(data);
-    const lastColumn = workbookColumnName(XLSX, columnCount - 1);
     const lastRow = data.length;
+    sheet.B4 = { t: 'n', v: groupHours / 24, f: `SUBTOTAL(109,${hoursColumn}7:${hoursColumn}${lastRow})`, z: hoursFormat };
+    sheet[`${workbookColumnName(XLSX, rightLabelColumn + 1)}4`] = {
+      t: 'n', v: groupValue, f: `ROUND(SUBTOTAL(109,${valueColumn}7:${valueColumn}${lastRow}),2)`, z: moneyFormat,
+    };
+    for (let row = 7; row <= lastRow; row += 1) {
+      sheet[`${hoursColumn}${row}`].z = hoursFormat;
+      sheet[`${valueColumn}${row}`].z = moneyFormat;
+    }
     const labelStyle = {
-      font: { bold: true, color: { rgb: '64748B' } },
+      font: { bold: true, color: { rgb: '666666' } },
       alignment: { vertical: 'center' },
     };
     const titleStyle = {
-      font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 16 },
-      fill: { fgColor: { rgb: '0F766E' } },
+      font: { bold: true, color: { rgb: '111111' }, sz: 16 },
+      fill: { patternType: 'solid', fgColor: { rgb: 'E2E2E2' } },
       alignment: { vertical: 'center' },
     };
     const headerStyle = {
-      font: { bold: true, color: { rgb: 'FFFFFF' } },
-      fill: { fgColor: { rgb: '1F2937' } },
+      font: { bold: true, color: { rgb: '111111' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'EAEAEA' } },
+      border: { bottom: { style: 'thin', color: { rgb: 'A6A6A6' } } },
       alignment: { vertical: 'center', wrapText: true },
     };
     const summaryStyle = {
-      font: { bold: true, color: { rgb: '075985' } },
-      fill: { fgColor: { rgb: 'E0F2FE' } },
-      alignment: { vertical: 'center' },
+      font: { bold: true, color: { rgb: '111111' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'F2F2F2' } },
+      border: { top: { style: 'thin', color: { rgb: 'A6A6A6' } }, bottom: { style: 'thin', color: { rgb: 'A6A6A6' } } },
+      alignment: { vertical: 'center', wrapText: true },
     };
+    styleWorkbookRange(XLSX, sheet, 0, lastRow - 1, 0, columnCount, {
+      font: { color: { rgb: '111111' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFF' } },
+    });
     mergeWorkbookCells(XLSX, sheet, 0, 0, 0, columnCount - 1);
     styleWorkbookRange(XLSX, sheet, 0, 0, 0, columnCount - 1, titleStyle);
     styleWorkbookRange(XLSX, sheet, 1, 3, 0, 0, labelStyle);
@@ -590,9 +602,12 @@ export function createStaffScheduleWorkbook(rows, options = {}) {
       { wch: 14 },
       { wch: 14 },
       { wch: 34 },
+      { wch: 18, hidden: true },
     ];
-    sheet['!rows'] = [{ hpt: 26 }, { hpt: 20 }, { hpt: 20 }, { hpt: 24 }, { hpt: 8 }, { hpt: 22 }];
-    sheet['!autofilter'] = { ref: `A6:${lastColumn}${lastRow}` };
+    sheet['!rows'] = [{ hpt: 26 }, { hpt: 20 }, { hpt: 20 }, { hpt: 32 }, { hpt: 8 }, { hpt: 22 }];
+    // Keep the hidden per-service value inside the filter/sort range so it
+    // always follows its collaborator when Excel reorders the visible columns.
+    sheet['!autofilter'] = { ref: `A6:${valueColumn}${lastRow}` };
     sheet['!freeze'] = { xSplit: 0, ySplit: 6, topLeftCell: 'A7', activePane: 'bottomRight', state: 'frozen' };
     XLSX.utils.book_append_sheet(workbook, sheet, safeWorkbookSheetName(group.eventName, usedNames));
   }
