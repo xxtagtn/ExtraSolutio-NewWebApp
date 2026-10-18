@@ -1,5 +1,6 @@
 import { externalCostsTotals } from './externalCosts.js';
 import { eventTaxAmount } from './eventTax.js';
+import { eventInternalCosts } from './eventInternalCosts.js';
 import {
   effectiveInvoiceDueDate,
   invoiceIsIssued,
@@ -120,6 +121,7 @@ function rowFromEvent(event, invoices) {
   const revenue = eventRevenue(event);
   const external = eventExternalCost(event);
   const staff = eventStaffCost(event, external);
+  const costParts = eventInternalCosts(event, staff);
   const tax = eventTaxAmount(event);
   const margin = revenue - staff - external - tax;
   const marginPct = revenue > 0 ? Math.round((margin / revenue) * 1000) / 10 : 0;
@@ -148,6 +150,8 @@ function rowFromEvent(event, invoices) {
     billingState,
     revenue,
     staff,
+    travel: costParts.travelCost,
+    costBreakdownComplete: costParts.costBreakdownComplete,
     external,
     tax,
     totalCost: Number((staff + external + tax).toFixed(2)),
@@ -221,6 +225,8 @@ function buildClientRows(rows, today) {
       eventCount: 0,
       revenue: 0,
       staff: 0,
+      travel: 0,
+      costBreakdownComplete: true,
       external: 0,
       tax: 0,
       margin: 0,
@@ -234,6 +240,8 @@ function buildClientRows(rows, today) {
     current.eventCount += 1;
     current.revenue += row.revenue;
     current.staff += row.staff;
+    current.travel += row.travel;
+    current.costBreakdownComplete = current.costBreakdownComplete && row.costBreakdownComplete;
     current.external += row.external;
     current.tax += row.tax;
     current.margin += row.margin;
@@ -255,6 +263,7 @@ function buildClientRows(rows, today) {
         ...row,
         revenue: Number(row.revenue.toFixed(2)),
         staff: Number(row.staff.toFixed(2)),
+        travel: Number(row.travel.toFixed(2)),
         external: Number(row.external.toFixed(2)),
         tax: Number(row.tax.toFixed(2)),
         margin: Number(row.margin.toFixed(2)),

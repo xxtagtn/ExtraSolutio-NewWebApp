@@ -1,6 +1,7 @@
 import { activeEventDayKeys, eventDayKey } from './eventCancelledDays.js';
 import { decimalValue } from './serviceFinance.js';
 import { invoiceIsIssued, invoiceIsPaid } from '../../shared/invoiceLifecycle.js';
+import { paidInvoiceCoverage } from '../../shared/invoicePaymentCoverage.js';
 
 function configuredRows(value) {
   if (value == null || value === '') return [];
@@ -69,7 +70,8 @@ export function externalServiceIsSettled(event = {}) {
   if (!isExternalOnlyService(event)) return false;
   if (typeof event.externalService?.settled === 'boolean') return event.externalService.settled;
   const issued = (event.invoices || []).filter(invoiceIsIssued);
-  return issued.length ? issued.every(invoiceIsPaid) : String(event.billingStatus || '').toLowerCase() === 'paid';
+  return issued.length ? issued.every(invoiceIsPaid) && Number(event.totalRevenue) > 0 && paidInvoiceCoverage(event) >= Number(event.totalRevenue)
+    : String(event.billingStatus || '').toLowerCase() === 'paid';
 }
 
 export function externalServiceCanArchive(event = {}, now = new Date(), timeZone = 'Europe/Lisbon') {

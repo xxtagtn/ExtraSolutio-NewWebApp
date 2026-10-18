@@ -2,6 +2,7 @@ import { buildLayoutNotifications, layoutPaymentReminders } from '../../src/util
 import { hasPermission, PERMISSIONS } from '../../src/utils/accessPermissions.js';
 import { canViewFinancialData, canViewSensitiveCollaboratorData } from '../security/roles.js';
 import { applicationWallClock } from '../utils/eventTime.js';
+import { serializeInvoiceBillingRows } from './invoiceBilling.js';
 
 export async function readNotificationOverview(db, user, { now = applicationWallClock() } = {}) {
   const canFinance = canViewFinancialData(user);
@@ -23,14 +24,15 @@ export async function readNotificationOverview(db, user, { now = applicationWall
       select: { id: true, followUpHistory: true },
     }) : [],
     hasPermission(user, PERMISSIONS.FINANCE_VIEW) ? db.invoice.findMany({
-      select: { id: true, number: true, status: true, issueDate: true, client: { select: { paymentTerm: true, paymentTermDays: true } } },
+      select: { id: true, number: true, status: true, issueDate: true, eventId: true, eventIds: true,
+        client: { select: { billingMethod: true, paymentTerm: true, paymentTermDays: true } } },
     }) : [],
     hasPermission(user, PERMISSIONS.COLLABORATORS_VIEW) && canViewSensitiveCollaboratorData(user) ? db.collaborator.findMany({
       select: { id: true, name: true, shortName: true, birthDate: true, documentType: true, documentExpiry: true },
     }) : [],
   ]);
   // Reuse exactly the browser's notification rules with the same serialized dates.
-  const inputs = JSON.parse(JSON.stringify({ services, budgets, invoices, collaborators }));
+  const inputs = JSON.parse(JSON.stringify({ services, budgets, invoices: await serializeInvoiceBillingRows(db, invoices), collaborators }));
   return {
     notifications: buildLayoutNotifications({ ...inputs, now }),
     reminders: layoutPaymentReminders(inputs.services, now).map(({ id, name }) => ({ id, name })),

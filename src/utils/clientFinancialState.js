@@ -1,12 +1,14 @@
 import { clientPaymentSummary } from './clientPayment.js';
 import { readClientPaymentRecord } from './clientPaymentRecord.js';
 import { invoiceIsIssued, invoiceIsPaid } from '../../shared/invoiceLifecycle.js';
+import { paidInvoiceCoverage } from '../../shared/invoicePaymentCoverage.js';
 
 export function clientFinancialState(event = {}) {
   const invoices = (event.invoices || (event.invoice ? [event.invoice] : [])).filter(invoiceIsIssued);
   const summary = clientPaymentSummary(event);
-  const invoiceSettled = invoices.length > 0 && invoices.every(invoiceIsPaid);
-  const received = invoiceSettled ? Math.max(summary.received, summary.total) : summary.received;
+  const covered = Math.round(paidInvoiceCoverage(event) * 100) / 100;
+  const invoiceSettled = summary.total > 0 && covered >= summary.total && invoices.every(invoiceIsPaid);
+  const received = Math.max(summary.received, covered);
   const outstanding = Math.max(0, Math.round((summary.total - received) * 100) / 100);
   const record = readClientPaymentRecord(event.clientPaymentRecord);
   const manual = record?.commercialStatus === 'invoiced';

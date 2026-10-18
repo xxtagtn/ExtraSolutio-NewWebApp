@@ -35,6 +35,7 @@ import { availableFinancialYears } from '../utils/dashboardMetrics.js';
 import { date, money } from '../utils/formatters.js';
 import { SERVICE_STATUS, statusLabel } from '../utils/serviceStatus.js';
 import BalanceStaff from '../components/BalanceStaff.jsx';
+import InternalCostAmount from '../components/Finance/InternalCostAmount.jsx';
 import KpiCard from '../components/BalanceKpi.jsx';
 import { staffAnalysisYears } from '../utils/balanceStaff.js';
 import './balanceOverview.css';
@@ -191,7 +192,7 @@ function EventsTable({ rows, loading }) {
             <span data-label="Cliente">{row.clientName}</span>
             <span data-label="Data"><CalendarDays size={14} />{row.date ? date.format(row.date) : '-'}</span>
             <span data-label="Receita">{money.format(row.revenue)}</span>
-            <span data-label="Staff">{money.format(row.staff)}</span>
+            <span data-label="Staff"><InternalCostAmount total={row.staff} travel={row.travel} complete={row.costBreakdownComplete} /></span>
             <span data-label="Custos externos">{money.format(row.external)}</span>
             <span data-label="Margem">{money.format(row.margin)} <b>{formatPercent(row.marginPct)}</b></span>
             <span data-label="Estado"><em className={`balance-status balance-status--${statusTone(row.rawStatus)}`}>{statusText(row.rawStatus)}</em></span>
@@ -358,7 +359,7 @@ export default function Dashboard() {
             />
             <KpiCard
               icon={UsersRound}
-              label="Custo do staff"
+              label="Staff e deslocações"
               value={loading || error ? '—' : money.format(overview.kpis.staffToPay)}
               detail={loading || error ? 'No período selecionado' : comparisonLabel(overview.monthlySeries, selectedMonth, 'staff')}
               tone="staff"
@@ -449,7 +450,7 @@ export default function Dashboard() {
                 <button type="button" className="icon-button" aria-label="Fechar composição da margem" onClick={() => setMarginOpen(false)}><X size={18} /></button></header>
               <dl>
                 <div><dt>Receita do período</dt><dd>{financialValue(overview.kpis.validatedRevenue)}</dd></div>
-                <div><dt>Custo do staff</dt><dd>{financialValue(-overview.kpis.staffToPay || 0)}</dd></div>
+                <div><dt>Staff e deslocações</dt><dd>{financialValue(-overview.kpis.staffToPay || 0)}</dd></div>
                 <div><dt>Custos externos</dt><dd>{financialValue(-overview.kpis.externalCosts || 0)}</dd></div>
                 <div><dt>Impostos considerados</dt><dd>{financialValue(-overview.kpis.taxCosts || 0)}</dd></div>
                 <div className="balance-margin-total"><dt>Margem do período</dt><dd>{financialValue(overview.kpis.realMargin)}</dd></div>
@@ -535,7 +536,7 @@ export default function Dashboard() {
                     <strong>{row.clientName}</strong>
                     <span>{row.eventCount}</span>
                     <span>{money.format(row.revenue)}</span>
-                    <span>{money.format(row.staff)}</span>
+                    <span><InternalCostAmount total={row.staff} travel={row.travel} complete={row.costBreakdownComplete} /></span>
                     <span>{money.format(row.external)}</span>
                     <span className="balance-client-margin">
                       <b>{formatPercent(row.marginPct)}</b>

@@ -1,4 +1,6 @@
 import { isFinanceReadyEvent } from './financeReadiness.js';
+import { clientBillingPeriodForDay } from '../../shared/clientBillingCalendar.js';
+import { buildClientFinanceSnapshot } from './clientFinanceSnapshot.js';
 import { decimalValue } from './serviceFinance.js';
 import { staffPaymentTiming } from './staffPayment.js';
 import { prepaymentRemainingReminderDate } from './prepaymentPolicy.js';
@@ -17,7 +19,7 @@ const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified
 const CLOSED_SERVICE_STATUSES = new Set(['cancelled']);
 const PAID_BILLING_STATUSES = new Set(['paid']);
 const STAFF_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
-const PERIOD_BILLING_METHODS = new Set(['monthly', 'biweekly', 'custom']);
+const PERIOD_BILLING_METHODS = new Set(['monthly', 'biweekly']);
 const PRIORITY_ORDER = {
   critical: 0,
   high: 1,
@@ -56,16 +58,6 @@ function numeric(value) {
 function startOfDay(value) {
   const date = value instanceof Date ? new Date(value) : new Date(value);
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function addDays(value, days) {
-  const date = value instanceof Date ? new Date(value) : new Date(value);
-  date.setDate(date.getDate() + days);
-  return date;
-}
-
-function lastDayOfMonth(year, month) {
-  return new Date(year, month + 1, 0);
 }
 
 function monthPeriodLabel(value) {
@@ -154,19 +146,8 @@ function assignmentShiftStart(assignment, event) {
 }
 
 function billingIssueDateForEvent(event) {
-  const serviceDate = validDate(event?.date);
-  if (!serviceDate) return null;
-  const client = event?.client || {};
-  const method = client.billingMethod;
-  if (!method) return null;
-  const year = serviceDate.getFullYear();
-  const month = serviceDate.getMonth();
-  const day = serviceDate.getDate();
-
-  if (method === 'monthly' || method === 'custom') return lastDayOfMonth(year, month);
-  if (method === 'biweekly') return day <= 15 ? new Date(year, month, 15) : lastDayOfMonth(year, month);
-  if (method === 'prepaid') return startOfDay(serviceDate);
-  return addDays(serviceDate, 1);
+  const reference = event.billingPeriod?.referenceDate || clientBillingPeriodForDay(event?.date, event?.client || {})?.referenceDate;
+  return reference ? new Date(`${reference}T12:00:00`) : null;
 }
 
 function dateKey(value) {
@@ -358,8 +339,12 @@ function addStaffReminderActions(actions, services, today) {
 
 function addBillingActions(actions, services, today) {
   const groupedReadyToBill = new Map();
-
-  for (const event of services || []) {
+  const periodServices = (services || []).flatMap((event) => {
+    if (!['monthly', 'biweekly'].includes(event.client?.billingMethod)) return [event];
+    const finance = event.clientFinance || buildClientFinanceSnapshot(event, { now: today });
+    return finance.periods.map((period) => ({ ...event, billingPeriod: period, totalRevenue: period.total }));
+  });
+  for (const event of periodServices) {
     if (CLOSED_SERVICE_STATUSES.has(normalized(event?.status))) continue;
     if (numeric(event.totalRevenue) <= 0) continue;
 

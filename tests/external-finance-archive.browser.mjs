@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { mkdir } from 'node:fs/promises';
 import { synchronizeEventWorkflow } from '../server/services/eventWorkflow.js';
 import { receiveAdditionalClientPayment, setClientCommercialStatus } from '../server/services/clientPayment.js';
+import { updateClientFinancialMetadata } from '../server/services/clientFinancialMetadata.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -51,7 +52,10 @@ try {
       if (!url.pathname.startsWith('/api/')) return url.origin === new URL(base).origin ? route.continue() : route.abort();
       const path = url.pathname.slice(4);
       let body = [];
-      if (path.endsWith('/client-payment/commercial-status')) {
+      if (path.endsWith('/client-finance')) {
+        writes.push(request.postDataJSON().action);
+        body = await updateClientFinancialMetadata(database, Number(path.split('/')[2]), request.postDataJSON(), { id: 1, name: 'QA' });
+      } else if (path.endsWith('/client-payment/commercial-status')) {
         writes.push('invoiced');
         body = await setClientCommercialStatus(database, Number(path.split('/')[2]), request.postDataJSON(), { id: 1, name: 'QA' });
       } else if (path.endsWith('/client-payment/receive')) {
@@ -81,22 +85,26 @@ try {
     await summary.waitFor(); await summary.click();
     const eventRow = page.locator('.finance-client-event-row').filter({ hasText: 'Parceiro QA 42' });
     await eventRow.waitFor();
-    await eventRow.getByText('Pendente', { exact: true }).waitFor();
+    await eventRow.getByText('A aguardar pagamento', { exact: true }).waitFor();
     await page.screenshot({ path: `${output}/pending-${width}.png`, fullPage: true });
     await eventRow.getByRole('button', { name: 'Gerir recebimentos', exact: true }).click();
     const manager = page.getByRole('dialog', { name: 'Gerir recebimentos', exact: true });
     await manager.getByLabel('Estado financeiro', { exact: true }).selectOption('invoiced');
-    await manager.getByLabel('Data de emissão', { exact: true }).fill('2026-10-10');
+    assert.equal(await manager.getByLabel('Data de faturação / referência', { exact: true }).inputValue(), '2026-07-31');
     await manager.getByRole('button', { name: 'Guardar faturação', exact: true }).click();
-    await manager.locator('.finance-receipt-manager-heading').getByText('Faturado', { exact: true }).waitFor();
+    await manager.locator('.client-billing-periods header').getByText('Faturado', { exact: true }).waitFor();
     assert.notEqual(stored[0].status, 'finalized');
     await manager.getByRole('button', { name: 'Registar recebimento', exact: true }).click();
     const editor = page.getByRole('dialog', { name: 'Registar recebimento', exact: true });
     await editor.getByRole('button', { name: 'Guardar recebimento', exact: true }).click(); await manager.waitFor();
+    assert.equal(await eventRow.count(), 1, 'A paid service stays in the financial workspace until confirmed');
+    page.once('dialog', (dialog) => dialog.accept());
+    await manager.getByRole('button', { name: 'Arquivar serviço', exact: true }).click();
+    await manager.getByRole('button', { name: 'Restaurar serviço', exact: true }).click({ trial: true });
     await manager.getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('.finance-client-event-row'));
     assert.equal(stored[0].status, 'finalized');
-    assert.deepEqual(writes, ['invoiced', 'receive']);
+    assert.deepEqual(writes, ['invoiced', 'receive', 'archive']);
     for (const field of ['externalCosts', 'totalCost', 'totalRevenue', 'taxAmount', 'vatRateSnapshot', 'billingAdjustment', 'notes']) {
       assert.deepEqual(stored[0][field], money[field], field);
     }

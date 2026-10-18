@@ -20,35 +20,34 @@ test('FIC fortnightly billing with actual issue on 15/10 and immediate payment i
   assert.equal(shouldShowClientPaymentAlert(event, { today }), true);
 });
 
-test('the billing period never substitutes for the client payment term or the actual issue date', () => {
+test('fortnight reference plus client term overrides a later manual processing date', () => {
   const event = service({ client: { billingMethod: 'biweekly', paymentTerm: 'days_15' } });
   const result = deadline(event);
-  assert.equal(key(result.dueDate), '2026-10-30'); assert.equal(result.label, 'Dentro do prazo');
+  assert.equal(key(result.dueDate), '2026-10-30'); assert.equal(result.label, 'A aguardar pagamento');
   assert.equal(shouldShowClientPaymentAlert(event, { today }), false);
   const delayed = { ...event, clientPaymentRecord: { ...event.clientPaymentRecord, commercialIssueDate: '2026-10-20' } };
-  assert.equal(key(deadline(delayed).dueDate), '2026-11-04');
+  assert.equal(key(deadline(delayed).dueDate), '2026-10-30');
 });
 
-test('old manual and legacy invoiced events retain unknown dates until explicitly supplied', () => {
+test('configured periodic clients derive reference dates without changing historical records', () => {
   for (const record of [{ commercialStatus: 'invoiced' }, { legacyInvoiced: true }, {}]) {
     const event = service({ billingStatus: 'invoiced', clientPaymentRecord: { version: 1, entries: [], ...record } });
-    assert.equal(deadline(event).issueDate, null); assert.equal(deadline(event).dueDate, null);
-    assert.equal(deadline(event).label, 'Emissão por registar');
-    assert.equal(shouldShowClientPaymentAlert(event, { today }), false);
+    assert.equal(deadline(event).issueDate, '2026-10-15'); assert.equal(key(deadline(event).dueDate), '2026-10-15');
+    assert.equal(shouldShowClientPaymentAlert(event, { today }), true);
   }
 });
 
-test('an issued linked invoice always overrides a manually recorded date', () => {
+test('calendar reference is shared by manual commercial status and issued documents', () => {
   const event = service({ invoices: [{ status: 'issued', issueDate: '2026-10-19', dueDate: '2020-01-01' }] });
-  assert.equal(deadline(event).source, 'invoice'); assert.equal(key(deadline(event).dueDate), '2026-10-19');
-  assert.equal(deadline(event).label, 'Dentro do prazo');
+  assert.equal(deadline(event).source, 'calendar'); assert.equal(key(deadline(event).dueDate), '2026-10-15');
+  assert.equal(deadline(event).status, 'overdue');
 });
 
 test('SSH retains the configured 30-day term, even without a linked invoice entity', () => {
   const event = service({ client: { name: 'SSH', billingMethod: 'monthly', paymentTerm: 'days_30' } });
-  assert.equal(key(deadline(event).dueDate), '2026-11-14');
+  assert.equal(key(deadline(event).dueDate), '2026-11-30');
   assert.equal(deadline(event).status, 'within_term');
-  assert.equal(deadline(event, '2026-11-15').label, 'Vencida há 1 dia');
+  assert.equal(deadline(event, '2026-12-01').label, 'Vencida há 1 dia');
 });
 
 test('due today is not overdue; no money is created and full settlement clears the alert', () => {
@@ -57,11 +56,11 @@ test('due today is not overdue; no money is created and full settlement clears t
   assert.equal(shouldShowClientPaymentAlert(event, { today: '2026-10-15' }), false);
   assert.equal(clientPaymentSummary(event).received, 0);
   const paid = { ...event, paidAmount: 295.2, billingStatus: 'paid' };
-  assert.equal(deadline(paid).label, 'Liquidado'); assert.equal(shouldShowClientPaymentAlert(paid, { today }), false);
+  assert.equal(deadline(paid).label, 'Pago'); assert.equal(shouldShowClientPaymentAlert(paid, { today }), false);
 });
 
 test('missing conditions do not invent a deadline; custom terms and DST calendar days are respected', () => {
-  assert.equal(deadline(service({ client: {} })).label, 'Prazo por configurar');
+  assert.equal(deadline(service({ client: {} })).label, 'Data por configurar');
   const custom = service({ client: { paymentTerm: 'custom', paymentTermDays: 5 },
     clientPaymentRecord: { version: 1, entries: [], commercialStatus: 'invoiced', commercialIssueDate: '2026-10-24' } });
   assert.equal(key(deadline(custom).dueDate), '2026-10-29');

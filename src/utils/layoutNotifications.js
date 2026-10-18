@@ -109,7 +109,7 @@ export function buildLayoutNotifications({ budgets = [], invoices = [], services
     if (Number.isNaN(dueDate.getTime())) continue;
     const dueStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
     if (dueStart < todayStart) {
-      const days = Math.floor((todayStart.getTime() - dueStart.getTime()) / 86_400_000);
+      const days = Math.round((todayStart.getTime() - dueStart.getTime()) / 86_400_000);
       items.push({
         id: `invoice-overdue-${invoice.id}`,
         kind: 'invoice_overdue',

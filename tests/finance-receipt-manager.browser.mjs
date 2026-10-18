@@ -59,6 +59,12 @@ try {
       totalCost: 100, paidAmount: 0, signaledAmount: 0, requiredRoles: '[{"role":"Emp.Mesa","qty":4}]' } });
     const invoice = await db.invoice.create({ data: { number: `FIC-QA-${width}`, eventId: invoiced.id, clientId: client.id,
       status: 'issued', issueDate: new Date('2026-10-15'), subtotal: 240, taxAmount: 55.2, total: 295.2 } });
+    const allocationClient = await db.client.create({ data: { name: `Partner periods QA ${width}`, billingMethod: 'biweekly', paymentTerm: 'days_15' } });
+    let allocationEvent = await db.event.create({ data: { name: `Cross-period partner QA ${width}`, clientId: allocationClient.id,
+      date: new Date('2026-10-14'), endDate: new Date('2026-10-16'), isContinuous: true, status: 'finalized', statusMode: 'manual',
+      totalRevenue: 738, totalCost: 600, taxAmount: 138, requiredRoles: '[]', billingStatus: 'pending',
+      externalCosts: '[{"type":"Outro","supplier":"Partner QA","costAmount":600,"marginPercent":0,"vatType":"rate","vatRate":23}]' } });
+    allocationEvent = await apply(allocationEvent, { billingStatus: 'partial70', paidAmount: 100, signaledAmount: 100, signaledAt: new Date('2026-10-15') });
     const context = await browser.newContext({ viewport: { width, height: 1100 }, timezoneId: 'Europe/Lisbon' });
     await context.addInitScript((auth) => localStorage.setItem('extrasolutio.auth', JSON.stringify(auth)), {
       token, user: { id: user.id, name: user.name, role: 'admin' }, lastActivityAt: new Date('2026-10-17T12:00:00Z').getTime(), sessionId: `finance-manager-${width}`,
@@ -77,9 +83,9 @@ try {
     const eventRow = workspace.locator('.finance-client-event-row').filter({ hasText: event.name }); await eventRow.waitFor();
     assert.match(await eventRow.locator('.finance-client-missing').textContent(), /18,45/);
     assert.equal(await eventRow.getByText('Pagamento em falta', { exact: true }).count(), 1);
-    assert.equal(await page.getByText('Pagamento em falta', { exact: true }).count(), await workspace.locator('.finance-client-missing').count(), 'Only events with a balance have alerts, never a global strip');
+    assert.equal(await page.getByText('Pagamento em falta', { exact: true }).count() + await page.getByText('Fatura vencida', { exact: true }).count(), await workspace.locator('.finance-client-missing').count(), 'Only events with a balance have alerts, never a global strip');
     const prepaidRow = workspace.locator('.finance-client-event-row').filter({ hasText: prepaid.name });
-    assert.equal(await prepaidRow.getByText('Totalmente Pago', { exact: true }).count(), 1, 'Paid label appears only once');
+    assert.equal(await prepaidRow.getByText('Previsto totalmente recebido', { exact: true }).count(), 1, 'An advance payment never implies service completion');
     const bounds = await eventRow.evaluate((element) => {
       const row = element.getBoundingClientRect(), action = element.querySelector('.finance-client-event-action').getBoundingClientRect();
       return { rowRight: row.right, actionRight: action.right };
@@ -92,16 +98,15 @@ try {
     assert.match(await metric('received').textContent(), /1745,37/); assert.match(await metric('outstanding').textContent(), /18,45/);
     const beforeInvoice = writes;
     await manager.getByLabel('Estado financeiro', { exact: true }).selectOption('invoiced');
-    assert.equal(await manager.getByLabel('Data de emissão', { exact: true }).inputValue(), '', 'No invented default issue date');
+    assert.equal(await manager.getByLabel('Data de faturação / referência', { exact: true }).inputValue(), '2026-10-11', 'Configured per-event reference is calculated by the backend');
     assert.equal(writes, beforeInvoice, 'Selection alone does not persist an invoice date or status');
     await manager.locator('.finance-receipt-issue-form').getByRole('button', { name: 'Cancelar', exact: true }).click();
     assert.equal(writes, beforeInvoice, 'Cancelling leaves financial state unchanged');
     await manager.getByLabel('Estado financeiro', { exact: true }).selectOption('invoiced');
-    await manager.getByLabel('Data de emissão', { exact: true }).fill('2026-10-15');
     await manager.getByRole('button', { name: 'Guardar faturação', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.finance-receipt-manager-heading')?.textContent.includes('Faturado'));
+    await manager.locator('.client-billing-periods header').getByText('Faturado', { exact: true }).waitFor();
     await manager.getByText('Estado financeiro guardado.', { exact: true }).waitFor();
-    await eventRow.locator('.finance-client-deadline').getByText('Vencida há 2 dias', { exact: true }).waitFor();
+    await eventRow.locator('.finance-client-deadline').getByText('Vencida há 6 dias', { exact: true }).waitFor();
     assert.equal(await eventRow.getByText('Faturado', { exact: true }).count(), 1, 'Selection updates table without a second save action');
     await manager.getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.reload(); await workspace.waitFor();
@@ -110,28 +115,32 @@ try {
     await eventRow.getByRole('button', { name: 'Gerir recebimentos', exact: true }).click(); await manager.waitFor();
     await page.waitForFunction(() => document.querySelector('select[aria-label="Estado financeiro"]')?.value === 'invoiced');
     await manager.getByRole('button', { name: 'Editar emissão', exact: true }).click();
-    assert.equal(await manager.getByLabel('Data de emissão', { exact: true }).inputValue(), '2026-10-15');
-    await manager.getByLabel('Data de emissão', { exact: true }).fill('2026-10-16');
+    assert.equal(await manager.getByLabel('Data de faturação / referência', { exact: true }).inputValue(), '2026-10-11');
+    assert.equal(await manager.getByLabel('Data de faturação / referência', { exact: true }).evaluate((input) => input.readOnly), true);
     await manager.getByRole('button', { name: 'Guardar faturação', exact: true }).click();
-    await manager.locator('.finance-receipt-dates').getByText('Vencida há 1 dia', { exact: true }).waitFor();
+    await manager.locator('.client-billing-periods').getByText('Vencida há 6 dias', { exact: true }).waitFor();
     assert.match(page.url(), /\/finance/);
     await manager.screenshot({ path: `${output}/manager-${width}.png` });
     await manager.getByRole('button', { name: 'Registar recebimento', exact: true }).click();
     const editor = page.getByRole('dialog', { name: 'Registar recebimento', exact: true });
     await editor.getByLabel('Valor recebido', { exact: true }).fill('10'); await editor.getByLabel('Data do recebimento', { exact: true }).fill('2026-10-17');
     await editor.getByRole('button', { name: 'Guardar recebimento', exact: true }).click(); await manager.waitFor();
-    assert.match(await metric('outstanding').textContent(), /8,45/); assert.match(await manager.locator('.finance-receipt-manager-heading').textContent(), /Faturado/);
+    assert.match(await metric('outstanding').textContent(), /8,45/); await manager.locator('.client-billing-periods header').getByText('Faturado', { exact: true }).waitFor();
     await manager.getByRole('button', { name: 'Registar recebimento', exact: true }).click();
     await editor.getByLabel('Data do recebimento', { exact: true }).fill('2026-10-17');
     const before = writes;
     await editor.getByRole('button', { name: 'Guardar recebimento', exact: true }).evaluate((button) => { button.click(); button.click(); }); await manager.waitFor();
-    assert.equal(writes, before + 1); assert.match(await manager.locator('.finance-receipt-manager-heading').textContent(), /Totalmente Pago/);
+    assert.equal(writes, before + 1); await manager.locator('.finance-receipt-manager-heading').getByText('Pago', { exact: true }).waitFor();
     assert.match(await metric('outstanding').textContent(), /0,00/);
-    await manager.getByText('O valor devido está integralmente recebido. O estado Totalmente Pago tem prioridade sobre Faturado.', { exact: true }).waitFor();
-    assert.equal(await manager.getByLabel('Estado financeiro', { exact: true }).locator('option[value="invoiced"]').evaluate((option) => option.disabled), true, 'Full settlement cannot be downgraded by a commercial label');
+    assert.equal(await manager.getByLabel('Estado financeiro', { exact: true }).locator('option[value="invoiced"]').evaluate((option) => option.disabled), false, 'Billing and actual payment are independent');
     let saved = await db.event.findUnique({ where: { id: event.id } });
     assert.equal(Number(saved.paidAmount), 1763.82); assert.deepEqual(readClientPaymentRecord(saved.clientPaymentRecord).entries.slice(0, 2), original.entries);
     assert.equal(saved.status, 'finalized'); assert.equal(Number(saved.totalRevenue), 1763.82); assert.equal(Number(saved.taxAmount), 329.82);
+    assert.equal(await eventRow.count(), 1, 'Payment alone does not archive the event');
+    page.once('dialog', (dialog) => dialog.accept());
+    await manager.getByRole('button', { name: 'Arquivar serviço', exact: true }).click();
+    await manager.getByRole('button', { name: 'Restaurar serviço', exact: true }).waitFor();
+    await manager.getByRole('button', { name: 'Restaurar serviço', exact: true }).click({ trial: true });
     await manager.getByRole('button', { name: 'Fechar', exact: true }).click();
     assert.equal(await workspace.locator('.finance-client-event-row').filter({ hasText: event.name }).count(), 0, 'Fully settled ready event leaves active workspace');
     await page.getByRole('button', { name: 'Arquivo', exact: true }).click();
@@ -141,7 +150,7 @@ try {
     const lastRow = manager.locator('.finance-receipt-list li').last(); await lastRow.getByRole('button', { name: 'Reverter recebimento', exact: true }).click();
     const reverse = page.getByRole('dialog', { name: 'Reverter recebimento?', exact: true });
     await reverse.getByRole('button', { name: 'Reverter recebimento', exact: true }).click(); await manager.waitFor();
-    assert.match(await metric('outstanding').textContent(), /8,45/); assert.match(await manager.locator('.finance-receipt-manager-heading').textContent(), /Faturado/);
+    assert.match(await metric('outstanding').textContent(), /8,45/); await manager.locator('.client-billing-periods header').getByText('Faturado', { exact: true }).waitFor();
     saved = await db.event.findUnique({ where: { id: event.id } }); assert.equal(receiptMovements(saved.clientPaymentRecord).rows.at(-1).voided, 'reverse');
     await manager.getByRole('button', { name: 'Fechar', exact: true }).click();
     await page.getByRole('button', { name: 'Clientes', exact: true }).click();
@@ -153,20 +162,24 @@ try {
     const legacyRow = workspace.locator('.finance-client-event-row').filter({ hasText: legacy.name });
     await legacyRow.getByRole('button', { name: 'Gerir recebimentos', exact: true }).click(); await manager.waitFor();
     await manager.getByRole('button', { name: 'Registar emissão', exact: true }).click();
-    await manager.getByLabel('Data de emissão', { exact: true }).fill('2026-10-15');
+    assert.equal(await manager.getByLabel('Data de faturação / referência', { exact: true }).inputValue(), '2026-10-16');
     await manager.getByRole('button', { name: 'Guardar faturação', exact: true }).click();
-    await manager.locator('.finance-receipt-dates').getByText('Vencida há 2 dias', { exact: true }).waitFor();
+    await manager.locator('.client-billing-periods').getByText('Vencida há 1 dia', { exact: true }).waitFor();
     await manager.getByRole('button', { name: 'Liquidar saldo', exact: true }).click(); await editor.waitFor();
     assert.equal(await editor.getByLabel('Valor recebido', { exact: true }).inputValue(), '295,2');
     assert.equal(await editor.getByLabel('Tipo do movimento', { exact: true }).inputValue(), 'remaining');
     await editor.getByLabel('Data do recebimento', { exact: true }).fill('2026-10-17');
     await editor.getByRole('button', { name: 'Guardar recebimento', exact: true }).click(); await manager.waitFor();
-    await manager.locator('.finance-receipt-manager-heading').getByText('Totalmente Pago', { exact: true }).waitFor();
+    await manager.locator('.finance-receipt-manager-heading').getByText('Pago', { exact: true }).waitFor();
     saved = await db.event.findUnique({ where: { id: legacy.id } });
     assert.equal(Number(saved.paidAmount), 295.2); assert.equal(saved.status, 'finalized'); assert.equal(Number(saved.taxAmount), 55.2);
     assert.equal(readClientPaymentRecord(saved.clientPaymentRecord).legacyInvoiced, true);
     const paidEntries = receiptMovements(saved.clientPaymentRecord).rows;
     assert.equal(paidEntries.length, 1); assert.equal(paidEntries[0].amount, 295.2); assert.equal(paidEntries[0].type, 'remaining');
+    page.once('dialog', (dialog) => dialog.accept());
+    await manager.getByRole('button', { name: 'Arquivar serviço', exact: true }).click();
+    await manager.getByRole('button', { name: 'Restaurar serviço', exact: true }).waitFor();
+    await manager.getByRole('button', { name: 'Restaurar serviço', exact: true }).click({ trial: true });
     await manager.getByRole('button', { name: 'Fechar', exact: true }).click();
     assert.equal(await legacyRow.count(), 0, 'Finalized legacy event archives after the real payment');
     await page.reload(); await workspace.waitFor();
@@ -177,12 +190,39 @@ try {
     assert.equal(await manager.getByRole('button', { name: 'Liquidar saldo', exact: true }).count(), 0, 'Issued invoices retain their own settlement path');
     page.once('dialog', (dialog) => dialog.accept());
     await manager.getByRole('button', { name: 'Marcar fatura como paga', exact: true }).click();
-    await manager.locator('.finance-receipt-manager-heading').getByText('Totalmente Pago', { exact: true }).waitFor();
+    await manager.locator('.finance-receipt-manager-heading').getByText('Pago', { exact: true }).waitFor();
     assert.equal((await db.invoice.findUnique({ where: { id: invoice.id } })).status, 'paid');
     saved = await db.event.findUnique({ where: { id: invoiced.id } });
     assert.equal(Number(saved.paidAmount), 295.2); assert.equal(saved.status, 'finalized'); assert.equal(Number(saved.taxAmount), 55.2);
+    page.once('dialog', (dialog) => dialog.accept());
+    await manager.getByRole('button', { name: 'Arquivar serviço', exact: true }).click();
+    await manager.getByRole('button', { name: 'Restaurar serviço', exact: true }).waitFor();
+    await manager.getByRole('button', { name: 'Restaurar serviço', exact: true }).click({ trial: true });
     await manager.getByRole('button', { name: 'Fechar', exact: true }).click();
     assert.equal(await invoiceRow.count(), 0, 'Paid issued invoice and ready event archive through the existing workflow');
+    await workspace.locator('.finance-client-summary-row').filter({ hasText: allocationClient.name }).click();
+    const periodRows = workspace.locator('.finance-client-event-row').filter({ hasText: allocationEvent.name });
+    assert.equal(await periodRows.count(), 2); assert.match(await periodRows.first().textContent(), /Por repartir/);
+    await periodRows.first().getByRole('button', { name: 'Gerir recebimentos', exact: true }).click(); await manager.waitFor();
+    await manager.getByRole('button', { name: 'Repartir faturação', exact: true }).click();
+    for (const [index, gross, vat, received] of [[1, '295,20', '55,20', '100'], [2, '442,80', '82,80', '0']]) {
+      await manager.getByLabel(`Valor global com IVA ${index}`, { exact: true }).fill(gross);
+      await manager.getByLabel(`IVA incluído ${index}`, { exact: true }).fill(vat);
+      await manager.getByLabel(`Recebido neste período ${index}`, { exact: true }).fill(received);
+    }
+    await manager.screenshot({ path: `${output}/allocation-${width}.png` });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    await manager.getByRole('button', { name: 'Guardar repartição', exact: true }).click();
+    await manager.locator('.client-billing-allocation').waitFor({ state: 'detached' });
+    assert.equal(await manager.getByText('Repartição por confirmar. Os totais e os recebimentos do serviço estão preservados.', { exact: true }).count(), 0);
+    saved = await db.event.findUnique({ where: { id: allocationEvent.id }, include: { assignments: true } });
+    assert.equal(Number(saved.totalRevenue), 738); assert.equal(Number(saved.paidAmount), 100); assert.equal(saved.assignments.length, 0);
+    assert.equal(readClientPaymentRecord(saved.clientPaymentRecord).billingAllocation.periods.length, 2);
+    await manager.getByRole('button', { name: 'Fechar', exact: true }).click();
+    assert.match(await periodRows.first().textContent(), /295,20/); assert.match(await periodRows.last().textContent(), /442,80/);
+    await page.reload(); await workspace.waitFor();
+    await workspace.locator('.finance-client-summary-row').filter({ hasText: allocationClient.name }).click();
+    assert.equal(await periodRows.count(), 2); assert.match(await periodRows.first().textContent(), /295,20/);
     assert.match(page.url(), /\/finance/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
     await context.close(); console.log(`Finance manager: balances, manual state, cash, legacy/invoice settlement, archive, reversal and persistence passed at ${width}px.`);

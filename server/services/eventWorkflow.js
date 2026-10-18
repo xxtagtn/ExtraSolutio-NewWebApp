@@ -16,7 +16,9 @@ import { clientPaymentRecordPatch } from './clientPaymentRecord.js';
 import { assertPaidStaffTravelUnchanged } from '../utils/staffTravelProtection.js';
 import { normalizeStaffTravel, staffTravelHoursConfigured } from '../../src/utils/staffTravel.js';
 import { externalServiceCanArchive, externalServiceCompletionBlocker, externalServiceIsSettled, isExternalOnlyService } from '../../src/utils/externalServiceWorkflow.js';
-import { invoiceIsIssued, invoiceIsPaid } from '../../shared/invoiceLifecycle.js';
+import { invoiceIsIssued } from '../../shared/invoiceLifecycle.js';
+import { paidInvoiceCoverage } from '../../shared/invoicePaymentCoverage.js';
+import { withGroupedServiceInvoices } from './invoiceBilling.js';
 import {
   eventRevenueIsLocked,
   invoiceEventIds,
@@ -97,11 +99,12 @@ async function loadEvent(client, id) {
   if (event && isExternalOnlyService(event) && client.invoice?.findMany) {
     const linked = await client.invoice.findMany({
       where: { OR: [{ eventId: id }, { eventIds: { contains: String(id) } }] },
-      select: { id: true, eventId: true, eventIds: true, status: true, issueDate: true },
+      select: { id: true, eventId: true, eventIds: true, status: true, issueDate: true, total: true },
     });
     const invoices = new Map((event.invoices || []).map((invoice) => [invoice.id, invoice]));
     for (const invoice of linked) if (invoiceEventIds(invoice).includes(id) && !invoices.has(invoice.id)) invoices.set(invoice.id, invoice);
     event.invoices = [...invoices.values()];
+    if (client.event?.findMany) return (await withGroupedServiceInvoices(client, [event]))[0];
   }
   return event;
 }
@@ -314,7 +317,7 @@ export async function synchronizeEventWorkflow(prisma, eventId, {
     const externalOnly = isExternalOnlyService(event);
     const issued = externalOnly ? (event.invoices || []).filter(invoiceIsIssued) : [];
     if (issued.length) {
-      const billingStatus = issued.every(invoiceIsPaid) ? 'paid' : 'invoiced';
+      const billingStatus = Number(event.totalRevenue) > 0 && paidInvoiceCoverage(event) >= Number(event.totalRevenue) ? 'paid' : 'invoiced';
       if (event.billingStatus !== billingStatus) {
         data.billingStatus = billingStatus;
         const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -341,8 +344,9 @@ export async function synchronizeEventWorkflow(prisma, eventId, {
       Object.assign(data, calculateEventTotals(event, event.assignments, {
         preserveClientTotals,
       }));
-      if (!preserveClientTotals) Object.assign(data, clientPaymentRecordPatch(event, data));
     }
+
+    if (Object.keys(data).length) Object.assign(data, clientPaymentRecordPatch(event, data));
 
     let result = event;
     if (Object.keys(data).length) {
@@ -355,7 +359,7 @@ export async function synchronizeEventWorkflow(prisma, eventId, {
       } else result = await client.event.update({ where: { id }, data, include: { assignments: true } });
     }
     return externalOnly ? { ...result, externalService: { only: true, settled: externalServiceIsSettled({ ...event, ...data }),
-      settledByInvoice: issued.length > 0 && issued.every(invoiceIsPaid) } } : result;
+      settledByInvoice: issued.length > 0 && Number(event.totalRevenue) > 0 && paidInvoiceCoverage(event) >= Number(event.totalRevenue) } } : result;
   });
 }
 

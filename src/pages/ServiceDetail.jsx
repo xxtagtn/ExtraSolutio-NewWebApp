@@ -48,6 +48,8 @@ import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { isExternalOnlyService } from '../utils/externalServiceWorkflow.js';
 import { buildClientPaymentPayload, clientPaymentDraft, clientPaymentSummary, clientReceiptInvoiceBlocker, clientReceiptReversalBlocker, clientSignalReversalBlocker } from '../utils/clientPayment.js';
 import { clientPaymentAssessment, readClientPaymentRecord } from '../utils/clientPaymentRecord.js';
+import { buildClientFinanceSnapshot } from '../utils/clientFinanceSnapshot.js';
+import ClientBillingPeriods from '../components/Finance/ClientBillingPeriods.jsx';
 import { api } from '../utils/api.js';
 import { filterCollaboratorOptions } from '../utils/collaboratorSearch.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
@@ -438,7 +440,7 @@ export default function ServiceDetail() {
   const financialWarnings = eventFinancialWarnings(
     service || {},
     service?.assignments || [],
-    { revenue: totalRevenue, staff: staffCost },
+    { revenue: totalRevenue, staff: costs.staffInclusiveCost },
   );
   const rateHistory = useMemo(() => safeJsonArray(service?.rateHistory), [service?.rateHistory]);
   const signalAmount = Math.max(0, decimalValue(billingDraft.signaledAmount) || 0);
@@ -458,7 +460,10 @@ export default function ServiceDetail() {
     total: clientPaymentTotal, received: clientPaidAmount, outstanding: clientRemainingAmount,
   });
   const paymentRecord = readClientPaymentRecord(service?.clientPaymentRecord);
-  const recordedAssessment = clientPaymentAssessment(service || {}, recordedClientPayment);
+  const clientFinance = service?.clientFinance || buildClientFinanceSnapshot(service || {});
+  const originalAssessment = clientPaymentAssessment(service || {}, recordedClientPayment);
+  const recordedAssessment = { ...originalAssessment, assessed: clientFinance.completed,
+    label: originalAssessment.excess > 0 ? originalAssessment.label : clientFinance.paymentLabel };
   const receivedPercent = clientPaymentTotal > 0 ? Math.round(recordedClientPayment.received / clientPaymentTotal * 100) : 0;
   const receiptProjection = receiptMovements(paymentRecord);
   const receiptsManaged = Boolean(paymentRecord?.entries.some((entry) => entry.operation));
@@ -2113,7 +2118,7 @@ export default function ServiceDetail() {
                 <th scope="col"><ReceiptText size={16} aria-hidden="true" />Cobrado ao cliente<small>Sem IVA de venda</small></th>
               </tr></thead>
               <tbody>
-                <tr><th scope="row">Staff</th>
+                <tr><th scope="row">{costs.costBreakdownComplete ? 'Staff' : 'Staff e deslocação'}{!costs.costBreakdownComplete ? <small>Por discriminar no total guardado</small> : null}</th>
                   <td><strong data-finance-metric="Custo Staff">{money.format(staffCost)}</strong></td>
                   <td><strong data-finance-metric="Staff cobrado ao cliente">{costs.staffSale === null ? 'Por discriminar' : money.format(costs.staffSale)}</strong></td>
                 </tr>
@@ -2121,8 +2126,8 @@ export default function ServiceDetail() {
                   <td><strong data-finance-metric="Custo Real Parceiros">{money.format(costs.partnerCost)}</strong></td>
                   <td><strong data-finance-metric="Parceiros cobrados ao cliente">{money.format(costs.partnerSale)}</strong></td>
                 </tr>
-                {costs.travelSale !== 0 ? <tr><th scope="row">Deslocação</th>
-                  <td><span className="muted" title="Não discriminado separadamente nos custos internos">—</span></td>
+                {costs.travelSale !== 0 || costs.travelCost !== 0 ? <tr><th scope="row">Deslocação</th>
+                  <td><strong data-finance-metric="Custo Deslocação">{costs.costBreakdownComplete ? money.format(costs.travelCost) : 'Por discriminar'}</strong></td>
                   <td><strong data-finance-metric="Deslocação cobrada ao cliente">{money.format(costs.travelSale)}</strong></td>
                 </tr> : null}
                 {Math.abs(costs.undiscriminated) >= 0.01 ? <tr><th scope="row">Valor por discriminar<small>No total guardado</small></th>
@@ -2135,6 +2140,19 @@ export default function ServiceDetail() {
                 <td><strong>{money.format(costs.netSale)}</strong></td>
               </tr></tfoot>
             </table>
+            {costs.travelSale !== 0 || costs.travelCost !== 0 ? <details className="event-finance-travel-detail">
+              <summary>Detalhe da deslocação</summary>
+              <table className="event-finance-comparison" aria-label="Detalhe dos custos e venda de deslocação">
+                <thead><tr><th scope="col">Componente</th><th scope="col">Custos internos</th><th scope="col">Cliente · sem IVA</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">Carro / Km</th><td>{costs.costBreakdownComplete ? money.format(costs.travelCarCost) : 'Por discriminar'}</td><td>{money.format(costs.travelSaleBreakdown.kilometers)}</td></tr>
+                  <tr><th scope="row">Tempo de trajeto</th><td>{costs.costBreakdownComplete ? money.format(costs.travelTimeCost) : 'Por discriminar'}</td><td>{money.format(costs.travelSaleBreakdown.time)}</td></tr>
+                  {costs.travelSaleBreakdown.other !== 0 ? <tr><th scope="row">Outras deslocações / valor guardado</th><td>—</td><td>{money.format(costs.travelSaleBreakdown.other)}</td></tr> : null}
+                </tbody>
+                <tfoot><tr><th scope="row">Total deslocação</th><td>{costs.costBreakdownComplete ? money.format(costs.travelCost) : 'Por discriminar'}</td><td>{money.format(costs.travelSale)}</td></tr></tfoot>
+              </table>
+              {costs.travelMargin !== null ? <p>Margem da deslocação <strong data-finance-metric="Margem da deslocação">{money.format(costs.travelMargin)}</strong></p> : null}
+            </details> : null}
             <dl className="event-finance-invoice">
               <div><dt>Venda sem IVA</dt><dd><strong data-finance-metric="Venda sem IVA">{money.format(costs.netSale)}</strong></dd></div>
               <div><dt>+ IVA de venda</dt><dd><strong data-finance-metric="IVA de venda">{money.format(costs.tax)}</strong></dd>
@@ -2165,6 +2183,7 @@ export default function ServiceDetail() {
                 disabled={savingBilling || reversingSignal} onClick={() => openPaymentEditor()}><Edit3 size={16} /></button> : null}
             </div>}>
             <p className="payment-overview-caption">{recordedAssessment.assessed ? 'Total final apurado' : 'Total previsto · sujeito a validação'}</p>
+            <ClientBillingPeriods finance={clientFinance} />
             <dl className="payment-overview-totals">
               <div data-payment-metric="total"><dt>Total do evento</dt><ClientPaymentTax value={receiptTax.total} total={clientPaymentTotal} /></div>
               <div data-payment-metric="received"><dt>Recebido</dt><ClientPaymentTax value={receiptTax.received} total={recordedClientPayment.received} /></div>

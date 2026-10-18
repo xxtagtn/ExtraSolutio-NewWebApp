@@ -6,12 +6,14 @@ import { externalCostsTotals } from './externalCosts.js';
 import { financeEventOperationalSummary } from './financeEventIdentity.js';
 import { decimalValue } from './serviceFinance.js';
 import { calculateEventSalesTax } from './eventSalesTax.js';
+import { eventInternalCosts } from './eventInternalCosts.js';
+import { travelSaleBreakdown } from './travelCalculator.js';
 
 export function eventCostSummary(event = {}) {
   const external = externalCostsTotals(event.externalCosts);
   const revenue = decimalValue(event.totalRevenue) || 0;
   const totalCost = decimalValue(event.totalCost) || 0;
-  const staffCost = Math.max(0, totalCost - external.costAmount);
+  const internal = eventInternalCosts(event, Math.max(0, totalCost - external.costAmount));
   const tax = eventTaxAmount(event);
   const operational = financeEventOperationalSummary({ ...event, assignments: activeEventAssignments(event) });
   const reconciliation = buildClientEventReconciliation(event, operational);
@@ -20,18 +22,20 @@ export function eventCostSummary(event = {}) {
   const staffSale = pricingComplete ? reconciliation.dailyServiceSubtotal : null;
   const breakdown = calculateEventSalesTax(event, { staffSale: staffSale || 0, travelSale: reconciliation.travel, partnerTax: external.taxAmount });
   const taxBreakdown = staffSale !== null && Math.abs(breakdown.taxAmount - tax) < 0.01 ? breakdown : null;
-  const financialMargin = calculateFinancialMargin(revenue, staffCost, expensesIncludingEventTax(event, external.costAmount));
+  const financialMargin = calculateFinancialMargin(revenue, internal.staffInclusiveCost, expensesIncludingEventTax(event, external.costAmount));
   return {
-    staffCost,
+    ...internal,
     staffSale,
     partnerCost: external.costAmount,
     partnerSale: external.chargeAmount,
     travelSale: reconciliation.travel,
+    travelSaleBreakdown: travelSaleBreakdown(event, reconciliation.travel),
+    travelMargin: internal.costBreakdownComplete ? Number((reconciliation.travel - internal.travelCost).toFixed(2)) : null,
     netSale: Number((revenue - tax).toFixed(2)),
     tax,
     taxBreakdown,
     revenue,
-    expenses: Number((staffCost + external.costAmount).toFixed(2)),
+    expenses: Number((internal.staffInclusiveCost + external.costAmount).toFixed(2)),
     undiscriminated: reconciliation.undiscriminated,
     ...financialMargin,
   };

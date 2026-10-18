@@ -43,6 +43,7 @@ const billingMethodLabels = {
 
 const paymentTermLabels = {
   immediate: 'Pronto pagamento',
+  days_5: '5 dias',
   days_15: '15 dias',
   days_30: '30 dias',
   days_45: '45 dias',
@@ -636,6 +637,7 @@ export default function Clients() {
                 <select required value={form.paymentTerm} onChange={(event) => setForm({ ...form, paymentTerm: event.target.value })}>
                   <option value="" disabled>Selecionar</option>
                   <option value="immediate">Pronto pagamento</option>
+                  <option value="days_5">5 dias</option>
                   <option value="days_15">15 dias</option>
                   <option value="days_30">30 dias</option>
                   <option value="days_45">45 dias</option>

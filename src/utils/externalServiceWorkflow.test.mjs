@@ -59,10 +59,10 @@ test('archive requires an elapsed whole period, even after manual completion or 
 });
 
 test('issued invoices are authoritative for complete receipt; neither amounts nor partner payments suffice', () => {
-  const issued = { id: 1, issueDate: '2026-07-30', status: 'issued' };
-  assert.equal(externalServiceIsSettled(external({ billingStatus: 'paid', invoices: [issued] })), false);
+  const issued = { id: 1, issueDate: '2026-07-30', status: 'issued', total: 1476 };
+  assert.equal(externalServiceIsSettled(external({ totalRevenue: 1476, billingStatus: 'paid', invoices: [issued] })), false);
   for (const status of ['paid', 'settled', 'regularized']) {
-    assert.equal(externalServiceIsSettled(external({ invoices: [{ ...issued, status }] })), true);
+    assert.equal(externalServiceIsSettled(external({ totalRevenue: 1476, invoices: [{ ...issued, status }] })), true);
   }
   assert.equal(externalServiceIsSettled(external({ invoices: [{ ...issued, status: 'paid' }, issued] })), false);
   assert.equal(externalServiceIsSettled(external({ paidAmount: 1476 })), false);
@@ -118,7 +118,7 @@ test('Finance and Services share archive eligibility; external service values re
 });
 
 test('issued external invoices remain consultable in archive and unsettled invoices prevent archive', () => {
-  const event = external({ id: 5, billingStatus: 'paid', invoices: [{ id: 3, eventId: 5, issueDate: '2026-07-30', status: 'issued' }] });
+  const event = external({ id: 5, totalRevenue: 1476, billingStatus: 'paid', invoices: [{ id: 3, eventId: 5, issueDate: '2026-07-30', status: 'issued', total: 1476 }] });
   assert.equal(externalServiceCanArchive(event, now), false);
   const paid = { ...event, invoices: [{ ...event.invoices[0], status: 'paid' }] };
   const rows = externalClientBillingRows([paid], paid.invoices);

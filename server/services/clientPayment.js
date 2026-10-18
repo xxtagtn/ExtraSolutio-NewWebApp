@@ -7,6 +7,7 @@ import { readClientPaymentRecord } from '../../src/utils/clientPaymentRecord.js'
 import { clientPaymentSummary } from '../../src/utils/clientPayment.js';
 import { receiptTypeLabels } from '../../src/utils/clientReceiptMovements.js';
 import { normalizeCommercialIssueDate } from '../../src/utils/clientPaymentDeadline.js';
+import { clientBillingPeriodForDay } from '../../shared/clientBillingCalendar.js';
 
 function reversalError(message, statusCode = 409) {
   const error = new Error(message);
@@ -100,12 +101,13 @@ export async function receiveAdditionalClientPayment(prisma, eventId, { updatedA
 export async function setClientCommercialStatus(prisma, eventId, { updatedAt, revision, status, issueDate } = {}, actor = {}) {
   const id = Number(eventId);
   if (!Number.isInteger(id) || id <= 0 || !['automatic', 'invoiced'].includes(status)) throw reversalError('Seleciona um estado financeiro válido.', 422);
-  const date = status === 'invoiced' ? normalizeCommercialIssueDate(issueDate) : null;
-  if (status === 'invoiced' && !date) throw reversalError('Indica uma data de emissão válida.', 422);
   try {
     return await prisma.$transaction(async (tx) => {
-      const event = await tx.event.findUnique({ where: { id }, include: { invoices: true } });
+      const event = await tx.event.findUnique({ where: { id }, include: serviceListInclude });
       if (!event) return null;
+      const calendar = clientBillingPeriodForDay(event.date, event.client || {});
+      const date = status !== 'invoiced' ? null : calendar?.referenceDate || normalizeCommercialIssueDate(issueDate);
+      if (status === 'invoiced' && !date) throw reversalError('Indica uma data de emissão válida para estas condições comerciais.', 422);
       const original = readClientPaymentRecord(event.clientPaymentRecord);
       if (!updatedAt || new Date(updatedAt).getTime() !== event.updatedAt.getTime() || revision !== (original?.commercialChanges?.length || 0)) {
         throw reversalError('O evento foi alterado. Atualiza a página antes de continuar.');

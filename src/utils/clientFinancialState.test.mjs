@@ -92,3 +92,21 @@ test('legacy invoiced events accept new receipts without unlocking corrections o
   assert.equal(eventRevenueIsLocked(event), true);
   assert.notEqual(clientReceiptRegistrationBlocker({ ...event, invoices: [{ status: 'issued', issueDate: '2026-10-15' }] }), '');
 });
+
+test('paid partial invoices cover only their value, without doubling existing event cash', () => {
+  const event = { ...receiptEvent(0), totalRevenue: 100, invoices: [{ id: 5, eventId: 1, total: 10, status: 'paid', issueDate: '2026-10-10' }] };
+  assert.equal(clientFinancialState(event).received, 10);
+  assert.equal(clientFinancialState(event).outstanding, 90);
+  assert.equal(clientFinancialState({ ...event, paidAmount: 10 }).received, 10);
+  assert.equal(clientFinancialState(event).invoiceSettled, false);
+});
+
+test('an unallocated grouped partial invoice cannot count its whole value for each service', () => {
+  const events = [1, 2].map((id) => ({ ...receiptEvent(0), id, totalRevenue: 100 }));
+  const invoices = [{ id: 5, eventIds: '[1,2]', clientId: 1, total: 150, status: 'paid', issueDate: '2026-10-10' }];
+  const summary = buildClientFinancialSummary({ events, invoices, period: '2026-10' })[0];
+  assert.equal(summary.received, 150, 'Grouped cash remains visible once at client level');
+  assert.equal(summary.billedOpen, 50);
+  assert.equal(summary.unallocatedReceived, 150);
+  assert.equal(summary.events.every((event) => event.clientFinance.archive.canArchive === false), true);
+});

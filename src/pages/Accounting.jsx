@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Hourglass,
   TriangleAlert,
+  Archive,
 } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -21,12 +22,16 @@ import { clientPaymentSummary } from '../utils/clientPayment.js';
 import { clientFinancialState } from '../utils/clientFinancialState.js';
 import { shouldShowClientPaymentAlert } from '../utils/clientPaymentAlert.js';
 import { clientPaymentDeadline } from '../utils/clientPaymentDeadline.js';
+import { buildClientFinanceSnapshot } from '../utils/clientFinanceSnapshot.js';
+import { readClientPaymentRecord } from '../utils/clientPaymentRecord.js';
 import { clientPaymentAdjustment } from '../utils/clientPaymentAdjustment.js';
 import { clientReceiptTaxSummary } from '../utils/clientReceiptTax.js';
 import ClientReceiptManager from '../components/Finance/ClientReceiptManager.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import Stats from '../components/UI/Stats.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { useAuth } from '../hooks/useAuth.jsx';
+import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { api, isSessionExpiredError } from '../utils/api.js';
 import {
   billingEventIdsForRow,
@@ -51,6 +56,8 @@ import { decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
 import { staffAssignmentCostTotal, staffAssignmentOutstandingPay, staffAssignmentPaymentBalance } from '../utils/staffPayment.js';
 import StaffPaymentAmount from '../components/Finance/StaffPaymentAmount.jsx';
 import StaffTravelSummary from '../components/StaffTravelSummary.jsx';
+import InternalCostAmount from '../components/Finance/InternalCostAmount.jsx';
+import { eventInternalCosts } from '../utils/eventInternalCosts.js';
 import {
   buildClientEventReconciliation,
   buildClientFinancialSummary,
@@ -223,7 +230,7 @@ function dayDiffFromToday(value) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
-  return Math.floor((today.getTime() - targetDay.getTime()) / 86_400_000);
+  return Math.round((today.getTime() - targetDay.getTime()) / 86_400_000);
 }
 
 function billableAssignments(event) {
@@ -331,6 +338,7 @@ function eventFinancialRow(event, invoices, expenses) {
   const linkedExpenses = expenses.filter((expense) => Number(expense.referenceId) === Number(event.id));
   const revenue = eventRevenue(event);
   const staff = eventStaffCost(event);
+  const costParts = eventInternalCosts(event, staff);
   const externalTotals = externalCostsTotals(event.externalCosts);
   const tax = eventTaxAmount(event);
   const operational = externalTotals.costAmount
@@ -346,6 +354,8 @@ function eventFinancialRow(event, invoices, expenses) {
     financial: {
       revenue,
       staff,
+      travel: costParts.travelCost,
+      costBreakdownComplete: costParts.costBreakdownComplete,
       operational,
       tax,
       margin,
@@ -375,62 +385,12 @@ function invoiceIncludesEvent(invoice, eventId) {
   return parseInvoiceEventIds(invoice).includes(Number(eventId));
 }
 
-function addDays(value, days) {
-  const d = new Date(value);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function lastDayOfMonth(year, month) {
-  return new Date(year, month + 1, 0);
-}
-
-function groupKeyForEvent(event) {
+function groupKeyForEvent(event, period) {
   const client = event.client || {};
-  const method = String(client.billingMethod || '').trim();
-  const d = new Date(event.date);
-  const year = d.getFullYear();
-  const month = d.getMonth();
-  const day = d.getDate();
-
-  if (!method) {
-    return {
-      key: `${client.id || event.clientId || 'unregistered'}:unconfigured:${event.id}`,
-      label: `${client.name || event.clientName || 'Cliente'} · Condições comerciais por configurar`,
-      issueDate: d,
-    };
-  }
-
-  if (method === 'monthly') {
-    return {
-      key: `${client.id}:monthly:${year}-${month}`,
-      label: `${client.name} · ${monthLabel(monthInputValue(d))}`,
-      issueDate: lastDayOfMonth(year, month),
-    };
-  }
-
-  if (method === 'biweekly') {
-    const half = day <= 15 ? 1 : 2;
-    return {
-      key: `${client.id}:biweekly:${year}-${month}:${half}`,
-      label: `${client.name} · ${half === 1 ? '1.ª quinzena' : '2.ª quinzena'} ${monthLabel(monthInputValue(d))}`,
-      issueDate: half === 1 ? new Date(year, month, 15) : lastDayOfMonth(year, month),
-    };
-  }
-
-  if (method === 'custom') {
-    return {
-      key: `${client.id}:custom:${year}-${month}`,
-      label: `${client.name} · ${client.billingCustomRule || monthLabel(monthInputValue(d))}`,
-      issueDate: lastDayOfMonth(year, month),
-    };
-  }
-
-  return {
-    key: `${client.id}:${method}:${event.id}`,
-    label: `${client.name || 'Cliente'} · ${event.name}`,
-    issueDate: method === 'prepaid' ? new Date() : addDays(d, 1),
-  };
+  const periodic = ['monthly', 'biweekly'].includes(period.method);
+  return { key: `${client.id || event.clientId}:${period.key}${periodic ? '' : `:${event.id}`}`,
+    label: `${client.name || event.clientName || 'Cliente'} · ${periodic ? `${date.format(new Date(`${period.start}T12:00:00`))} - ${date.format(new Date(`${period.end}T12:00:00`))}` : event.name}`,
+    issueDate: period.referenceDate ? new Date(`${period.referenceDate}T12:00:00`) : null };
 }
 
 function buildBillingGroups(events, invoices) {
@@ -442,21 +402,25 @@ function buildBillingGroups(events, invoices) {
     if (CLOSED_BILLING_STATUSES.has(String(event.billingStatus || ''))) continue;
 
     const method = String(event.client?.billingMethod || '').trim() || 'unconfigured';
-    const info = groupKeyForEvent(event);
-    const current = groups.get(info.key) || {
-      key: info.key,
-      client: event.client,
-      method,
-      label: info.label,
-      issueDate: info.issueDate,
-      events: [],
-      total: 0,
-    };
-    current.events.push(event);
-    current.total += total;
-    groups.set(info.key, current);
+    const finance = event.clientFinance || buildClientFinanceSnapshot(event);
+    for (const period of finance.periods) {
+      const info = groupKeyForEvent(event, period);
+      const current = groups.get(info.key) || {
+        key: info.key,
+        client: event.client,
+        method,
+        label: info.label,
+        issueDate: info.issueDate,
+        events: [],
+        total: 0,
+      };
+      current.events.push({ ...event, billingPeriod: period });
+      current.total += Number(period.total || 0);
+      current.allocationRequired = current.allocationRequired || period.total === null;
+      groups.set(info.key, current);
+    }
   }
-  return [...groups.values()].sort((a, b) => a.issueDate.getTime() - b.issueDate.getTime());
+  return [...groups.values()].sort((a, b) => new Date(a.issueDate || 0).getTime() - new Date(b.issueDate || 0).getTime());
 }
 
 function statusLabel(options, value) {
@@ -466,6 +430,7 @@ function statusLabel(options, value) {
 function ClientFinancialEventTable({
   row,
   onManageReceipts,
+  onArchiveService,
   onInvoiceStatusChange,
   clientAdjustmentDraftFor,
   onClientAdjustmentDraftChange,
@@ -474,10 +439,12 @@ function ClientFinancialEventTable({
   updatingClientAdjustmentEventId,
 }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canArchive = hasPermission(user, PERMISSIONS.SERVICES_UPDATE) && hasPermission(user, PERMISSIONS.FINANCE_UPDATE_PAYMENTS);
   const [selectedEventRecord, setSelectedEvent] = useState(null);
   const events = row?.events || [];
   const selectedEvent = selectedEventRecord
-    ? events.find((event) => String(event.id) === String(selectedEventRecord.id)) || selectedEventRecord : null;
+    ? events.find((event) => String(event.id) === String(selectedEventRecord.id) && event.billingPeriod?.key === selectedEventRecord.billingPeriod?.key) || selectedEventRecord : null;
   const eventDescriptors = buildFinanceEventDescriptors(events);
   const linkedInvoiceIds = new Set(events.map((event) => event.invoice?.id).filter(Boolean));
   const standaloneInvoices = (row?.invoices || []).filter((invoice) => !linkedInvoiceIds.has(invoice.id));
@@ -500,6 +467,9 @@ function ClientFinancialEventTable({
   const renderEvent = (event) => {
     const invoice = event.invoice;
     const payment = clientFinancialState(event);
+    const finance = event.clientFinance || buildClientFinanceSnapshot(event);
+    const part = event.billingPeriod;
+    const receiptLabel = finance.paymentStatus === 'prepaid' ? finance.paymentLabel : part?.outstanding === 0 && part.total > 0 ? 'Pago' : part?.received > 0 ? 'Parcialmente pago' : finance.paymentLabel;
     const showPaymentAlert = shouldShowClientPaymentAlert(event, { payment });
     const paymentTax = clientReceiptTaxSummary(event, payment.received);
     const adjustment = clientPaymentAdjustment(event, payment.received);
@@ -528,7 +498,7 @@ function ClientFinancialEventTable({
 
     return (
       <article
-        key={`event-${event.id}`}
+        key={`event-${event.id}-${part?.key || ''}`}
         className="finance-client-event-row"
       >
         <div className="finance-client-event-name">
@@ -549,9 +519,10 @@ function ClientFinancialEventTable({
           {operationalParts.length ? (
             <small className="finance-client-event-operational">{operationalParts.join(' · ')}</small>
           ) : null}
+          {part && finance.periods.length > 1 ? <small className="finance-client-event-meta">{date.format(new Date(`${part.days[0]}T12:00:00`))}{part.days[0] !== part.days.at(-1) ? ` - ${date.format(new Date(`${part.days.at(-1)}T12:00:00`))}` : ''}</small> : null}
         </div>
         <div className="finance-client-event-adjustment" onClick={(clickEvent) => clickEvent.stopPropagation()}>
-          <strong>{money.format(event.displayValue)}</strong>
+          <strong>{event.displayValue === null ? 'Por repartir' : money.format(event.displayValue)}</strong>
           {invoice ? (
             <span className="muted" title="A fatura já foi emitida.">-</span>
           ) : (
@@ -571,19 +542,21 @@ function ClientFinancialEventTable({
             />
           )}
         </div>
-        <strong className="finance-client-received">{money.format(payment.received)}</strong>
-        <div className={`finance-client-outstanding${showPaymentAlert ? ' finance-client-missing' : ''}`}><strong>{money.format(payment.outstanding)}</strong>
-          {payment.missingPayment && paymentTax.outstanding ? <small>{money.format(paymentTax.outstanding.base)} + {money.format(paymentTax.outstanding.tax)} IVA</small> : null}</div>
-        <div><Badge tone={payment.status === 'paid' ? 'success' : 'warning'}>{showPaymentAlert ? <><TriangleAlert size={13} /> Pagamento em falta</> : payment.label}</Badge>
-          {showPaymentAlert ? <small className="finance-client-payment-state">{payment.label}</small> : null}
+        <strong className="finance-client-received">{part?.received === null ? 'Por repartir' : money.format(part?.received ?? finance.payment.received)}</strong>
+        <div className={`finance-client-outstanding${showPaymentAlert ? ' finance-client-missing' : ''}`}><strong>{part?.outstanding === null ? 'Por repartir' : money.format(part?.outstanding ?? finance.payment.outstanding)}</strong>
+          {payment.missingPayment && paymentTax.outstanding && finance.periods.length < 2 ? <small>{money.format(paymentTax.outstanding.base)} + {money.format(paymentTax.outstanding.tax)} IVA</small> : null}</div>
+        <div><span className="finance-client-payment-state">{finance.billingLabel}</span>
+          <Badge tone={showPaymentAlert ? 'danger' : finance.paymentStatus === 'paid' ? 'success' : 'warning'}>{showPaymentAlert ? <><TriangleAlert size={13} />{finance.afterAdjustment || finance.prepaid && !finance.overdue ? 'Pagamento em falta' : 'Fatura vencida'}</> : receiptLabel}</Badge>
           {adjustment?.available ? <small className="finance-client-payment-state">Ajuste após validação de horas</small> : null}</div>
         <div className="finance-client-deadline" data-deadline-status={deadline.status}>
+          {deadline.issueDate ? <small>Fat.: {date.format(new Date(`${deadline.issueDate}T12:00:00`))}</small> : null}
           <span>{deadline.dueDate ? date.format(deadline.dueDate) : '-'}</span>
-          {deadline.label ? <small>{deadline.label}</small> : null}
+          {deadline.label && deadline.status !== 'paid' ? <small>{deadline.label}</small> : null}
         </div>
         <span className="finance-client-event-status">{eventStatus}</span>
         <div className="finance-client-event-action">
           <button className="secondary-button" type="button" onClick={() => onManageReceipts(event.id)}><ReceiptText size={15} />Gerir recebimentos</button>
+          {canArchive && finance.archive.needsConfirmation ? <button className="command-button" type="button" onClick={() => onArchiveService(event)}><Archive size={15} />Arquivar serviço</button> : null}
         </div>
       </article>
     );
@@ -918,6 +891,7 @@ function ClientFinancialEventTable({
 function ClientFinancialWorkspace({
   rows,
   onManageReceipts,
+  onArchiveService,
   options,
   selectedClientKey,
   onClientChange,
@@ -956,6 +930,8 @@ function ClientFinancialWorkspace({
     received: summary.received + row.received,
     total: summary.total + row.total,
   }), { events: 0, pendingBilling: 0, adjustments: 0, billedOpen: 0, received: 0, total: 0 });
+  const hasPendingAllocation = visibleRows.some((row) => row.allocationRequired);
+  const periodValue = (value, pending = hasPendingAllocation) => pending ? 'Por repartir' : money.format(value);
 
   return (
     <section className="finance-client-workspace">
@@ -975,11 +951,11 @@ function ClientFinancialWorkspace({
 
       <div className="finance-client-summary-grid">
         <div className="finance-client-summary-card"><span>Eventos/Serviços</span><strong>{totals.events}</strong></div>
-        <div className="finance-client-summary-card finance-client-summary-card--pending"><span>Por faturar</span><strong>{money.format(totals.pendingBilling)}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--pending"><span>Por faturar</span><strong>{periodValue(totals.pendingBilling)}</strong></div>
         <div className="finance-client-summary-card"><span>Ajustes</span><strong>{money.format(totals.adjustments)}</strong></div>
-        <div className="finance-client-summary-card finance-client-summary-card--open"><span>Faturado em aberto</span><strong>{money.format(totals.billedOpen)}</strong></div>
-        <div className="finance-client-summary-card finance-client-summary-card--received"><span>Recebido</span><strong>{money.format(totals.received)}</strong></div>
-        <div className="finance-client-summary-card finance-client-summary-card--total"><span>Total do período</span><strong>{money.format(totals.total)}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--open"><span>Faturado em aberto</span><strong>{periodValue(totals.billedOpen)}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--received"><span>Recebido</span><strong>{periodValue(totals.received)}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--total"><span>Total do período</span><strong>{periodValue(totals.total)}</strong></div>
       </div>
 
       {selectedRow ? (
@@ -990,6 +966,7 @@ function ClientFinancialWorkspace({
           <ClientFinancialEventTable
             row={selectedRow}
             onManageReceipts={onManageReceipts}
+            onArchiveService={onArchiveService}
             onInvoiceStatusChange={onInvoiceStatusChange}
             clientAdjustmentDraftFor={clientAdjustmentDraftFor}
             onClientAdjustmentDraftChange={onClientAdjustmentDraftChange}
@@ -1031,11 +1008,11 @@ function ClientFinancialWorkspace({
                     >
                       <td data-label="Cliente"><span className="finance-client-summary-name">{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<strong>{row.clientName}</strong></span></td>
                       <td data-label="Eventos/Serviços">{row.eventCount}</td>
-                      <td data-label="Por faturar">{money.format(row.pendingBilling)}</td>
+                      <td data-label="Por faturar">{periodValue(row.pendingBilling, row.allocationRequired)}</td>
                       <td data-label="Ajustes">{money.format(row.adjustments)}</td>
-                      <td data-label="Faturado em aberto">{money.format(row.billedOpen)}</td>
-                      <td data-label="Recebido">{money.format(row.received)}</td>
-                      <td data-label="Total do período"><strong>{money.format(row.total)}</strong></td>
+                      <td data-label="Faturado em aberto">{periodValue(row.billedOpen, row.allocationRequired)}</td>
+                      <td data-label="Recebido">{periodValue(row.received, row.allocationRequired)}</td>
+                      <td data-label="Total do período"><strong>{periodValue(row.total, row.allocationRequired)}</strong></td>
                     </tr>
                     {isExpanded ? (
                       <tr className="finance-client-summary-detail-row">
@@ -1043,6 +1020,7 @@ function ClientFinancialWorkspace({
                           <ClientFinancialEventTable
                             row={row}
                             onManageReceipts={onManageReceipts}
+                              onArchiveService={onArchiveService}
                             onInvoiceStatusChange={onInvoiceStatusChange}
                             clientAdjustmentDraftFor={clientAdjustmentDraftFor}
                             onClientAdjustmentDraftChange={onClientAdjustmentDraftChange}
@@ -1470,13 +1448,13 @@ export default function Accounting() {
     const archived = splitClientBillingRows(selectedPeriodClientRows).archivedRows;
     const archivedIds = new Set(archived.flatMap((row) => billingEventIdsForRow(row)));
     return buildClientFinancialSummary({
-      events: currentEventRows.filter((event) => !archivedIds.has(Number(event.id))),
+      events: eventRows.filter((event) => !archivedIds.has(Number(event.id))),
       invoices: invoices.filter((invoice) => {
         const ids = parseInvoiceEventIds(invoice);
         return !ids.length || !ids.every((id) => archivedIds.has(Number(id)));
       }), clients, period: selectedMonth,
     });
-  }, [clients, currentEventRows, invoices, selectedMonth, selectedPeriodClientRows]);
+  }, [clients, eventRows, invoices, selectedMonth, selectedPeriodClientRows]);
 
   const clientFinancialOptions = useMemo(() => {
     const optionMap = new Map();
@@ -2140,6 +2118,17 @@ export default function Accounting() {
     }
   }
 
+  async function archiveClientService(event) {
+    const finance = event.clientFinance || buildClientFinanceSnapshot(event);
+    if (!window.confirm(`Arquivar o serviço ${event.name}? Os valores e o histórico serão mantidos.`)) return;
+    try {
+      await api(`/services/${event.id}/client-finance`, { method: 'POST', body: JSON.stringify({ action: 'archive', updatedAt: event.updatedAt,
+        revision: readClientPaymentRecord(event.clientPaymentRecord)?.entries.length || 0,
+        confirmedTotal: finance.payment.total, confirmedReceived: finance.payment.received }) });
+      await reload({ background: true });
+    } catch (error) { window.alert(error.message); }
+  }
+
   async function updateInvoiceStatus(invoice, status) {
     setUpdatingInvoiceId(invoice.id);
     try {
@@ -2264,7 +2253,7 @@ export default function Accounting() {
   const dashboardItems = [
     { label: 'Faturação emitida', value: money.format(dashboard.issued), detail: `${monthLabel(selectedMonth)} · finalizados` },
     { label: 'Faturação recebida', value: money.format(dashboard.received), detail: 'Recebido / sinalizado validado' },
-    { label: 'Custos com staff', value: money.format(dashboard.staff), detail: `${currentStaffCollaboratorCount} colaborador(es)` },
+    { label: 'Staff e deslocações', value: money.format(dashboard.staff), detail: `${currentStaffCollaboratorCount} colaborador(es)` },
   ];
 
   const eventOptions = useMemo(
@@ -2340,7 +2329,7 @@ export default function Accounting() {
             </header>
             <div className="finance-readiness-metrics">
               <div><span>Valor previsto</span><strong>{money.format(forecastFinanceSummary.revenue)}</strong></div>
-              <div><span>Staff previsto</span><strong>{money.format(forecastFinanceSummary.staff)}</strong></div>
+              <div><span>Staff e deslocações previstos</span><strong>{money.format(forecastFinanceSummary.staff)}</strong></div>
               <div><span>Eventos</span><strong>{forecastFinanceSummary.events}</strong></div>
               <div><span>Por faturar previsto</span><strong>{money.format(forecastFinanceSummary.billing)}</strong></div>
             </div>
@@ -2523,6 +2512,7 @@ export default function Accounting() {
           <ClientFinancialWorkspace
             rows={clientFinancialRows}
             onManageReceipts={setManagedEventId}
+            onArchiveService={archiveClientService}
             options={clientFinancialOptions}
             selectedClientKey={selectedFinanceClientKey}
             onClientChange={(value) => {
@@ -3511,7 +3501,7 @@ export default function Accounting() {
                       <div><small>Evento</small><strong>{row.name}</strong></div>
                       <div><small>Cliente</small><strong>{row.client?.name || row.clientName || '-'}</strong></div>
                       <div><small>Receita</small><strong>{money.format(row.financial.revenue)}</strong></div>
-                      <div><small>Staff</small><strong>{money.format(row.financial.staff)}</strong></div>
+                      <div><small>Staff</small><InternalCostAmount total={row.financial.staff} travel={row.financial.travel} complete={row.financial.costBreakdownComplete} /></div>
                       <div><small>Despesas</small><strong>{money.format(row.financial.operational)}</strong></div>
                       <div><small>Margem</small><strong className={row.financial.margin < 0 ? 'money-negative' : 'money-positive'}>{money.format(row.financial.margin)}</strong></div>
                       <div><small>Margem %</small><strong>{row.financial.marginPct.toFixed(1)}%</strong></div>

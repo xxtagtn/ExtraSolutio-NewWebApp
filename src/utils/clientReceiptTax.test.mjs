@@ -4,6 +4,7 @@ import { receiptFiscal, clientReceiptTaxSummary, reconcileReceiptRounding } from
 import { paymentFinancialSnapshot } from './clientPaymentAdjustment.js';
 import { clientPaymentRecordPatch } from '../../server/services/clientPaymentRecord.js';
 import { receiptMovements, receiptCanDelete } from './clientReceiptMovements.js';
+import { readClientPaymentRecord } from './clientPaymentRecord.js';
 
 test('uniform event: 800 base + 184 VAT; 799.50 received is 650 base + 149.50 VAT', () => {
   const event = { totalRevenue: 984, taxAmount: 184, staffVatRateSnapshot: 23, externalCosts: [] };
@@ -53,7 +54,8 @@ test('a full reversal preserves past receipts, and a new signal starts a new act
 
 test('recording a forecast or refreshing totals never adds a received movement', () => {
   const event = { billingStatus: 'pending', paidAmount: 0, signaledAmount: 0, totalRevenue: 984, taxAmount: 184, staffVatRateSnapshot: 23 };
-  assert.deepEqual(clientPaymentRecordPatch(event, { totalRevenue: 1107, taxAmount: 207 }), {});
+  const initialized = clientPaymentRecordPatch(event, { totalRevenue: 1107, taxAmount: 207 });
+  assert.deepEqual(readClientPaymentRecord(initialized.clientPaymentRecord).entries, []);
   const partial = { billingStatus: 'partial70', paidAmount: 799.5, signaledAmount: 799.5, signaledAt: '2026-10-16' };
   const saved = { ...event, ...partial, ...clientPaymentRecordPatch(event, partial) };
   assert.equal(receiptMovements(saved.clientPaymentRecord).rows.length, 1);

@@ -1,3 +1,6 @@
+import { billingDayKey, billingDueDate, billingTiming, clientBillingPeriodForDay } from './clientBillingCalendar.js';
+export { clientPaymentTermDays } from './clientPaymentTerms.js';
+
 const NON_ISSUED_INVOICE_STATUSES = new Set(['draft', 'cancelled', 'void']);
 const PAID_INVOICE_STATUSES = new Set(['paid', 'settled', 'regularized']);
 
@@ -11,19 +14,6 @@ function validDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-export function clientPaymentTermDays(client) {
-  const paymentTerm = String(client?.paymentTerm || '').trim().toLowerCase();
-  if (paymentTerm === 'immediate') return 0;
-  if (paymentTerm === 'days_15') return 15;
-  if (paymentTerm === 'days_30') return 30;
-  if (paymentTerm === 'days_45') return 45;
-  if (paymentTerm === 'custom') {
-    const customDays = Number(client?.paymentTermDays);
-    return Number.isFinite(customDays) && customDays >= 0 ? customDays : null;
-  }
-  return null;
-}
-
 export function invoiceIsIssued(invoice) {
   return !NON_ISSUED_INVOICE_STATUSES.has(normalizedStatus(invoice))
     && Boolean(validDate(invoice?.issueDate));
@@ -34,19 +24,27 @@ export function invoiceIsPaid(invoice) {
 }
 
 export function dueDateFromInvoiceIssue(issueDate, client) {
-  const issuedAt = validDate(issueDate);
-  const paymentDays = clientPaymentTermDays(client);
-  if (!issuedAt || paymentDays === null) return null;
-
-  const dueDate = new Date(issuedAt);
-  dueDate.setHours(0, 0, 0, 0);
-  dueDate.setDate(dueDate.getDate() + paymentDays);
-  return dueDate;
+  const key = billingDueDate(billingDayKey(issueDate), client);
+  return key ? new Date(`${key}T12:00:00Z`) : null;
 }
 
 export function effectiveInvoiceDueDate(invoice, client = invoice?.client) {
   if (!invoiceIsIssued(invoice)) return null;
-  return dueDateFromInvoiceIssue(invoice.issueDate, client);
+  return dueDateFromInvoiceIssue(invoiceBillingReferenceDate(invoice, client), client);
+}
+
+export function invoiceBillingReferenceDate(invoice, client = invoice?.client) {
+  if (Object.hasOwn(invoice || {}, 'billingReferenceDate')) return billingDayKey(invoice.billingReferenceDate);
+  if (!['monthly', 'biweekly', 'per_event'].includes(client?.billingMethod)) return billingDayKey(invoice?.issueDate);
+  const events = invoice?.events || (invoice?.event ? [invoice.event] : []);
+  const references = new Set(events.flatMap((event) => {
+    const first = clientBillingPeriodForDay(event.date, client);
+    const last = clientBillingPeriodForDay(event.isContinuous ? event.endDate || event.date : event.date, client);
+    return [first?.referenceDate, last?.referenceDate].filter(Boolean);
+  }));
+  if (references.size === 1) return [...references][0];
+  const issued = billingDayKey(invoice?.issueDate);
+  return references.size ? references.has(issued) ? issued : null : issued;
 }
 
 export function invoiceLifecycleState(invoice, today = new Date()) {
@@ -58,7 +56,5 @@ export function invoiceLifecycleState(invoice, today = new Date()) {
 
   const currentDate = validDate(today);
   if (!currentDate) return 'issued';
-  currentDate.setHours(0, 0, 0, 0);
-  return dueDate < currentDate ? 'overdue' : 'due';
+  return billingTiming(invoiceBillingReferenceDate(invoice), invoice.client, { outstanding: 1, now: currentDate }).status === 'overdue' ? 'overdue' : 'due';
 }
-

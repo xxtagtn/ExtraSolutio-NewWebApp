@@ -21,6 +21,8 @@ test('FIC regression: existing engine already sells 28h at 10, independently of 
   const event = calculated(), before = structuredClone(event), result = eventCostSummary(event);
   assert.equal(event.realHours, 28); assert.equal(event.billableHours, 28);
   assert.deepEqual(result, { staffCost: 224, staffSale: 280, partnerCost: 430, partnerSale: 430, travelSale: 0,
+    staffInclusiveCost: 224, travelCost: 0, travelTimeCost: 0, travelCarCost: 0, costBreakdownComplete: true,
+    travelSaleBreakdown: { kilometers: 0, time: 0, other: 0 }, travelMargin: 0,
     netSale: 710, tax: 98.9, taxBreakdown: { staffTax: 0, travelTax: 0, partnerTax: 98.9, taxAmount: 98.9 },
     revenue: 808.9, expenses: 654, undiscriminated: 0, margin: 56, marginPct: 6.9 });
   assert.equal(result.netSale, result.staffSale + result.partnerSale);

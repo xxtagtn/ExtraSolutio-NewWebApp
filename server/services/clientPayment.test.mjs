@@ -20,6 +20,8 @@ import { changeClientReceipt } from './clientReceiptMovements.js';
 import { clientFinancialState } from '../../src/utils/clientFinancialState.js';
 import { eventRevenueIsLocked } from '../utils/eventInvoiceProtection.js';
 import { splitClientBillingRows } from '../../src/utils/clientBilling.js';
+import { updateClientFinancialMetadata } from './clientFinancialMetadata.js';
+import { settleClientInvoice } from './clientInvoiceSettlement.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'es-client-payment-'));
 const database = join(directory, 'test.db');
@@ -72,6 +74,205 @@ const financeRequest = (event, action, body = {}, auth = headers) => fetch(`${ba
     ...(action === 'commercial-status' && body.status === 'invoiced' ? { issueDate: '2026-10-15' } : {}),
     revision: action === 'commercial-status' ? readClientPaymentRecord(event.clientPaymentRecord)?.commercialChanges?.length || 0
       : readClientPaymentRecord(event.clientPaymentRecord)?.entries.length || 0, ...body }),
+});
+const metadataRequest = (event, body, auth = headers) => fetch(`${base}/${event.id}/client-finance`, {
+  method: 'POST', headers: auth, body: JSON.stringify({ updatedAt: event.updatedAt,
+    revision: readClientPaymentRecord(event.clientPaymentRecord)?.entries.length || 0, ...body }),
+});
+
+const invoicePaidRequest = (event, body = {}, auth = headers) => financeRequest(event, 'invoice-paid', {
+  amount: clientFinancialState(event).outstanding, confirmedTotal: clientFinancialState(event).total,
+  confirmedReceived: clientFinancialState(event).received, receivedAt: '2026-10-16', ...body,
+}, auth);
+
+test('Fatura paga records only the remainder and archives atomically, retaining signal, VAT and operations', async () => {
+  let event = await fixture({ billingStatus: 'invoiced' });
+  const before = await stored(event.id);
+  const response = await invoicePaidRequest(event);
+  assert.equal(response.status, 200, await response.clone().text());
+  const result = await response.json();
+  event = await stored(event.id);
+  assert.equal(Number(event.paidAmount), 252);
+  const rows = receiptMovements(event.clientPaymentRecord).rows;
+  assert.deepEqual(rows.map((row) => [row.type, row.amount]), [['signal', 157.5], ['remaining', 94.5]]);
+  assert.equal(rows[1].receivedAt, '2026-10-16');
+  assert.equal(result.clientFinance.archive.archived, true);
+  assert.deepEqual(invariant(event), invariant(before));
+  assert.equal((await invoicePaidRequest(before)).status, 409, 'Double/stale submission cannot add another receipt');
+  assert.equal(receiptMovements((await stored(event.id)).clientPaymentRecord).rows.length, 2);
+});
+
+test('Fatura paga archives an already received service without inventing a new receipt or replacing its date', async () => {
+  let event = await fixture({ billingStatus: 'paid', paidAmount: 252, billingPaymentDate: new Date('2026-10-14') });
+  event = await db.event.update({ where: { id: event.id }, data: clientPaymentRecordPatch(event) });
+  const previous = readClientPaymentRecord(event.clientPaymentRecord).entries;
+  const response = await invoicePaidRequest(event);
+  assert.equal(response.status, 200, await response.clone().text());
+  const saved = await stored(event.id);
+  assert.deepEqual(readClientPaymentRecord(saved.clientPaymentRecord).entries, previous);
+  assert.equal(saved.billingPaymentDate.toISOString().slice(0, 10), '2026-10-14');
+  assert.equal((await response.json()).clientFinance.archive.archived, true);
+});
+
+test('Fatura paga preserves unfinished Staff operations and cannot archive future services', async () => {
+  const event = await fixture({ date: new Date('2099-10-09'), status: 'in_progress', billingStatus: 'pending', paidAmount: 0, signaledAmount: 0, signaledAt: null });
+  const response = await invoicePaidRequest(event);
+  assert.equal(response.status, 200, await response.clone().text());
+  const result = await response.json();
+  assert.equal(result.status, 'in_progress');
+  assert.equal(result.clientFinance.payment.outstanding, 0);
+  assert.equal(result.clientFinance.archive.archived, false);
+  assert.equal(result.clientFinance.archive.canArchive, false);
+});
+
+test('Fatura paga updates an associated full invoice and keeps actual receipts independent of invoice status', async () => {
+  const event = await fixture({ billingStatus: 'invoiced' });
+  const invoice = await db.invoice.create({ data: { number: `SETTLE-${event.id}`, clientId: client.id, eventId: event.id,
+    issueDate: new Date('2026-10-10'), status: 'issued', subtotal: 204.88, taxAmount: 47.12, total: 252 } });
+  const loaded = await get(event.id);
+  const response = await invoicePaidRequest(loaded);
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal((await db.invoice.findUnique({ where: { id: invoice.id } })).status, 'paid');
+  assert.equal((await response.json()).clientFinance.archive.archived, true);
+  assert.equal(receiptMovements((await stored(event.id)).clientPaymentRecord).rows.at(-1).amount, 94.5);
+});
+
+test('a paid partial invoice never settles or archives the entire event and mismatched invoices roll back', async () => {
+  const event = await fixture({ totalRevenue: 100, taxAmount: 0, billingStatus: 'pending', paidAmount: 0, signaledAmount: 0, signaledAt: null });
+  await db.invoice.create({ data: { number: `PARTIAL-${event.id}`, clientId: client.id, eventId: event.id,
+    issueDate: new Date('2026-10-10'), status: 'paid', subtotal: 10, taxAmount: 0, total: 10 } });
+  const loaded = await get(event.id), before = await stored(event.id);
+  assert.equal(loaded.clientFinance.payment.received, 10);
+  assert.equal(loaded.clientFinance.payment.outstanding, 90);
+  assert.equal(loaded.clientFinance.archive.canArchive, false);
+  assert.equal((await invoicePaidRequest(loaded)).status, 422);
+  assert.deepEqual(await stored(event.id), before);
+});
+
+test('Fatura paga rejects invalid confirmations, missing date, stale state and insufficient permissions without writes', async () => {
+  const event = await fixture(), before = await stored(event.id);
+  for (const patch of [{ amount: 1 }, { confirmedTotal: 100 }, { confirmedReceived: 0 }, { receivedAt: '' }, { receivedAt: '2026-02-30' }]) {
+    const response = await invoicePaidRequest(event, patch);
+    assert.ok([409, 422].includes(response.status));
+    assert.deepEqual(await stored(event.id), before);
+  }
+  const limited = await db.user.create({ data: { name: 'Staff QA', email: `invoice-paid-limited-${event.id}@example.test`, role: 'staff', password: 'test' } });
+  const forbidden = { ...headers, Authorization: `Bearer ${issueSessionToken(limited)}` };
+  assert.equal((await invoicePaidRequest(event, {}, forbidden)).status, 403);
+  assert.deepEqual(await stored(event.id), before);
+});
+
+test('Fatura paga rolls back the receipt when updating the actual invoice fails', async () => {
+  const event = await fixture({ billingStatus: 'invoiced' }), before = await stored(event.id);
+  const invoice = await db.invoice.create({ data: { number: `ROLLBACK-${event.id}`, clientId: client.id, eventId: event.id,
+    issueDate: new Date('2026-10-10'), status: 'issued', total: 252 } });
+  const failing = { $transaction: (callback) => db.$transaction((tx) => callback({
+    event: tx.event, invoice: { findMany: (args) => tx.invoice.findMany(args), updateMany: async () => { throw new Error('controlled invoice failure'); } },
+  })) };
+  await assert.rejects(settleClientInvoice(failing, event.id, { updatedAt: event.updatedAt, revision: 0,
+    confirmedTotal: 252, confirmedReceived: 157.5, amount: 94.5, receivedAt: '2026-10-16' }, { role: 'admin', name: 'QA' }), /controlled invoice failure/);
+  assert.deepEqual(await stored(event.id), before);
+  assert.deepEqual(await db.invoice.findUnique({ where: { id: invoice.id } }), invoice);
+});
+
+test('Fatura paga does not settle another service through a grouped invoice', async () => {
+  const event = await fixture(), other = await fixture();
+  await db.invoice.create({ data: { number: `GROUP-SETTLE-${event.id}`, clientId: client.id, eventIds: JSON.stringify([event.id, other.id]),
+    issueDate: new Date('2026-10-10'), status: 'issued', total: 504 } });
+  const before = await stored(event.id), otherBefore = await stored(other.id);
+  const response = await invoicePaidRequest(await get(event.id));
+  assert.equal(response.status, 422);
+  assert.match((await response.json()).message, /agrupa vários serviços/);
+  assert.deepEqual(await stored(event.id), before);
+  assert.deepEqual(await stored(other.id), otherBefore);
+});
+
+test('calendar metadata: monthly and fortnightly references are calculated by the API, never the browser issue draft', async () => {
+  for (const [method, reference, due] of [['monthly', '2026-10-31', '2026-11-15'], ['biweekly', '2026-10-15', '2026-10-30']]) {
+    const customer = await db.client.create({ data: { name: `Calendar ${method}`, billingMethod: method, paymentTerm: 'days_15' } });
+    let event = await fixture({ clientId: customer.id, billingStatus: 'pending', paidAmount: 0, signaledAmount: 0 });
+    const before = await stored(event.id);
+    assert.equal((await financeRequest(event, 'commercial-status', { status: 'invoiced', issueDate: '2026-11-10' })).status, 200);
+    event = await get(event.id);
+    assert.equal(event.clientFinance.periods[0].referenceDate, reference);
+    assert.equal(event.clientFinance.periods[0].dueDate, due);
+    assert.equal(readClientPaymentRecord(event.clientPaymentRecord).commercialIssueDate, reference);
+    assert.deepEqual(invariant(await stored(event.id)), invariant(before));
+  }
+});
+
+test('manual period allocation validates every cent, persists without touching money, and rejects stale/duplicate/foreign periods', async () => {
+  const customer = await db.client.create({ data: { name: 'Manual allocation QA', billingMethod: 'biweekly', paymentTerm: 'days_15' } });
+  let event = await fixture({ clientId: customer.id, date: new Date('2026-10-14'), endDate: new Date('2026-10-16'), isContinuous: true,
+    totalRevenue: 738, taxAmount: 138, paidAmount: 100, signaledAmount: 100 });
+  const before = await stored(event.id), initial = await get(event.id);
+  assert.equal(initial.clientFinance.allocationRequired, true);
+  const periods = [{ key: 'biweekly:2026-10:1', globalTotal: 295.2, globalTax: 55.2, received: 100 },
+    { key: 'biweekly:2026-10:2', globalTotal: 442.8, globalTax: 82.8, received: 0 }];
+  for (const invalid of [periods.slice(0, 1), [periods[0], periods[0]], [periods[0], { ...periods[1], key: 'foreign' }],
+    [periods[0], { ...periods[1], globalTotal: 442.79 }], [periods[0], { ...periods[1], globalTax: 82.79 }],
+    [{ ...periods[0], received: 99.99 }, periods[1]], [{ ...periods[0], globalTax: 500 }, periods[1]],
+    [{ ...periods[0], globalTotal: -1 }, periods[1]]]) {
+    assert.equal((await metadataRequest(event, { action: 'allocate', periods: invalid })).status, 422);
+    assert.deepEqual(await stored(event.id), before);
+  }
+  const response = await metadataRequest(event, { action: 'allocate', periods });
+  assert.equal(response.status, 200, await response.clone().text());
+  const saved = await response.json();
+  assert.equal(saved.clientFinance.allocationRequired, false);
+  assert.deepEqual(saved.clientFinance.periods.map((part) => [part.total, part.received, part.outstanding]), [[295.2, 100, 195.2], [442.8, 0, 442.8]]);
+  assert.equal((await metadataRequest(event, { action: 'allocate', periods })).status, 409);
+  event = await stored(event.id);
+  const { clientPaymentRecord: _oldRecord, updatedAt: _oldUpdated, ...originalData } = before;
+  const { clientPaymentRecord: _newRecord, updatedAt: _newUpdated, ...savedData } = event;
+  assert.deepEqual(savedData, originalData); assert.equal(readClientPaymentRecord(event.clientPaymentRecord).financeChanges.length, 1);
+  assert.equal(receiptMovements(event.clientPaymentRecord).rows[0].amount, 100, 'A legacy signal remains visible after saving period metadata');
+  assert.equal((await get(event.id)).clientFinance.allocationRequired, false);
+  assert.equal((await metadataRequest(event, { action: 'archive', confirmedTotal: 738, confirmedReceived: 100 })).status, 422);
+});
+
+test('explicit archive and restore preserve receipts/history, block unpaid or future events and reopen after a receipt reversal', async () => {
+  let event = await fixture({ billingStatus: 'pending', paidAmount: 0, signaledAmount: 0, signaledAt: null });
+  assert.equal((await metadataRequest(event, { action: 'archive', confirmedTotal: 252, confirmedReceived: 0 })).status, 422);
+  assert.equal((await financeRequest(event, 'receive', { type: 'signal', amount: 252, receivedAt: '2026-10-16' })).status, 200);
+  event = await stored(event.id);
+  let dto = await get(event.id);
+  assert.equal(dto.clientFinance.archive.archived, false); assert.equal(dto.clientFinance.archive.needsConfirmation, true);
+  const receipts = readClientPaymentRecord(event.clientPaymentRecord).entries;
+  assert.equal((await metadataRequest(event, { action: 'archive', confirmedTotal: 251, confirmedReceived: 252 })).status, 409);
+  assert.equal((await metadataRequest(event, { action: 'archive', confirmedTotal: 252, confirmedReceived: 252 })).status, 200);
+  assert.equal((await metadataRequest(event, { action: 'archive', confirmedTotal: 252, confirmedReceived: 252 })).status, 409);
+  event = await stored(event.id); dto = await get(event.id);
+  assert.equal(dto.clientFinance.archive.archived, true); assert.deepEqual(readClientPaymentRecord(event.clientPaymentRecord).entries, receipts);
+  assert.equal((await metadataRequest(event, { action: 'restore' })).status, 200);
+  event = await stored(event.id); assert.equal((await get(event.id)).clientFinance.archive.archived, false);
+  assert.equal((await metadataRequest(event, { action: 'archive', confirmedTotal: 252, confirmedReceived: 252 })).status, 200);
+  event = await stored(event.id);
+  assert.equal((await movementRequest(event, receiptMovements(event.clientPaymentRecord).rows[0], { action: 'reverse' })).status, 200);
+  dto = await get(event.id);
+  assert.equal(dto.clientFinance.payment.outstanding, 252); assert.equal(dto.clientFinance.archive.archived, false);
+  assert.deepEqual(readClientPaymentRecord(dto.clientPaymentRecord).entries.slice(0, receipts.length), receipts);
+  event = await stored(event.id);
+  assert.equal((await financeRequest(event, 'receive', { type: 'signal', amount: 252, receivedAt: '2026-10-17' })).status, 200);
+  assert.equal((await get(event.id)).clientFinance.archive.archived, false, 'A later repayment must not resurrect an old archive confirmation');
+  const future = await fixture({ date: new Date('2099-01-01'), billingStatus: 'paid', paidAmount: 252, clientPaymentRecord: JSON.stringify({ version: 1, entries: [], financeWorkflowVersion: 2 }) });
+  assert.equal((await metadataRequest(future, { action: 'archive', confirmedTotal: 252, confirmedReceived: 252 })).status, 422);
+});
+
+test('period/archive metadata requires financial permissions and compare-and-swap; failures roll back without replacing receipts', async () => {
+  const event = await fixture({ billingStatus: 'paid', paidAmount: 252 }), before = await stored(event.id);
+  const limited = await db.user.create({ data: { name: 'Metadata limited', email: 'metadata-limited@example.test', password: 'qa', role: 'operations', permissionOverrides: '{"deny":["finance.updatePayments"]}' } });
+  assert.equal((await metadataRequest(event, { action: 'restore' }, { ...headers, Authorization: `Bearer ${issueSessionToken(limited)}` })).status, 403);
+  assert.equal((await metadataRequest(event, { action: 'restore' }, { 'Content-Type': 'application/json' })).status, 401);
+  const readbackFailure = { $transaction: (callback) => db.$transaction(async (tx) => {
+    let reads = 0;
+    return callback({ invoice: tx.invoice, event: { ...tx.event, findUnique: (args) => { if (++reads > 1) throw new Error('forced readback failure'); return tx.event.findUnique(args); } } });
+  }) };
+  await assert.rejects(updateClientFinancialMetadata(readbackFailure, event.id, { action: 'restore', updatedAt: event.updatedAt, revision: 0 }), /forced readback/);
+  assert.deepEqual(await stored(event.id), before);
+  const concurrent = { $transaction: (callback) => db.$transaction((tx) => callback({ invoice: tx.invoice, event: { ...tx.event, updateMany: async () => ({ count: 0 }) } })) };
+  await assert.rejects(updateClientFinancialMetadata(concurrent, event.id, { action: 'restore', updatedAt: event.updatedAt, revision: 0 }), { statusCode: 409 });
+  assert.deepEqual(await stored(event.id), before);
 });
 
 test('Finance manager registers a signal and partial/full receipts, preserving manual invoiced choice and all operational/pricing fields', async () => {
@@ -139,7 +340,8 @@ test('Finance manager keeps issued invoices authoritative and rejects duplicate 
 });
 
 test('manual invoicing requires an actual issue date and audits changes without touching financial data', async () => {
-  let event = await fixture({ billingStatus: 'pending', paidAmount: 0, signaledAmount: 0, signaledAt: null });
+  const custom = await db.client.create({ data: { name: 'Custom manual reference', billingMethod: 'custom', billingCustomRule: 'Referência manual', paymentTerm: 'days_15' } });
+  let event = await fixture({ clientId: custom.id, billingStatus: 'pending', paidAmount: 0, signaledAmount: 0, signaledAt: null });
   const original = await stored(event.id);
   for (const issueDate of [null, '', '2026-02-30', '2026-10-15T12:00:00Z', 'not-a-date']) {
     assert.equal((await financeRequest(event, 'commercial-status', { status: 'invoiced', issueDate })).status, 422);
@@ -166,7 +368,7 @@ test('legacy invoiced events can record/correct missing issue dates without unlo
   assert.equal((await financeRequest(event, 'commercial-status', { status: 'invoiced', issueDate: '2026-10-15' })).status, 200);
   event = await stored(event.id);
   assert.equal(readClientPaymentRecord(event.clientPaymentRecord).legacyInvoiced, true);
-  assert.equal(readClientPaymentRecord(event.clientPaymentRecord).commercialIssueDate, '2026-10-15');
+  assert.equal(readClientPaymentRecord(event.clientPaymentRecord).commercialIssueDate, '2026-10-10');
   assert.equal(eventRevenueIsLocked(event), true); assert.deepEqual(invariant(event), invariant(original));
   assert.equal((await financeRequest(event, 'commercial-status', { status: 'automatic' })).status, 409);
   assert.equal((await put(event.id, { requiredRoles: [] })).status, 409);
@@ -194,7 +396,7 @@ test('Finance manager can settle a legacy invoiced event without an associated i
   assert.equal(Number(event.paidAmount), 295.2); assert.equal(Number(event.signaledAmount), 0);
   assert.equal(event.billingPaymentDate.toISOString().slice(0, 10), '2026-10-18');
   assert.equal(receiptMovements(event.clientPaymentRecord).rows.length, 2);
-  assert.equal(splitClientBillingRows([{ nonInvoicedServices: [event] }]).archivedRows.length, 1);
+  assert.equal(splitClientBillingRows([{ nonInvoicedServices: [event] }]).archivedRows.length, 0, 'A newly settled service requires explicit archive confirmation');
   assert.deepEqual(invariant(event), invariant(original));
   assert.equal((await put(event.id, { requiredRoles: [{ role: 'Bar', qty: 1, agreedRate: 20 }] })).status, 409);
   assert.deepEqual(await stored(event.id), event);

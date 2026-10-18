@@ -126,6 +126,7 @@ const billingMethodLabels = {
 
 const paymentTermLabels = {
   immediate: 'Pronto pagamento',
+  days_5: '5 dias',
   days_15: '15 dias',
   days_30: '30 dias',
   days_45: '45 dias',

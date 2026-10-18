@@ -67,3 +67,14 @@ export function calculateTravelAmount(input = {}) {
       return 0;
   }
 }
+
+export function travelSaleBreakdown(event = {}, total = 0) {
+  if (!event.travelExpenseEnabled || total === 0) return { kilometers: 0, time: 0, other: total };
+  if (event.travelType !== 'kilometers') return { kilometers: 0, time: 0, other: total };
+  const cars = normalizeTravelCars(event.travelCars);
+  const sources = cars.length ? cars : [event];
+  const kilometers = Number(sources.reduce((sum, car) => sum + numberValue(car.km) * numberValue(car.kmRate), 0).toFixed(2));
+  const calculated = calculateTravelAmount(event);
+  if (Math.round(calculated * 100) !== Math.round(total * 100)) return { kilometers: 0, time: 0, other: total };
+  return { kilometers, time: Number((calculated - kilometers).toFixed(2)), other: 0 };
+}

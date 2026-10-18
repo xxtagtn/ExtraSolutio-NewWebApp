@@ -4,6 +4,7 @@ import { readClientPaymentRecord } from '../../src/utils/clientPaymentRecord.js'
 import { clientPaymentAdjustment, paymentFinancialSnapshot } from '../../src/utils/clientPaymentAdjustment.js';
 import { receiptFiscal, reconcileReceiptRounding } from '../../src/utils/clientReceiptTax.js';
 import { receiptMovements } from '../../src/utils/clientReceiptMovements.js';
+import { isFinanceReadyEvent } from '../../src/utils/financeReadiness.js';
 
 const cents = (value) => Math.round(Number(value || 0) * 100);
 const day = (value) => value ? new Date(value).toISOString().slice(0, 10) : null;
@@ -24,8 +25,17 @@ export function clientPaymentRecordPatch(event, patch = {}, { type, now = new Da
   // A recorded cumulative value is authoritative, including a zero after reversal.
   next.clientPaymentRecord = { version: 1, entries: [] };
   const following = clientPaymentSummary(next);
-  if (!currentRecord && previous.received === 0 && following.received === 0 && !legacyInvoiced) return {};
+  const manualArchive = currentRecord?.financeWorkflowVersion === 2 || previous.outstanding > 0 || following.outstanding > 0
+    || (!isFinanceReadyEvent(event) && isFinanceReadyEvent(next));
+  if (!currentRecord && previous.received === 0 && following.received === 0 && !legacyInvoiced && !manualArchive) return {};
   const record = currentRecord ? globalThis.structuredClone(currentRecord) : { version: 1, expectedTotal: null, entries: [] };
+  if (manualArchive) record.financeWorkflowVersion = 2;
+  if (record.financeArchive?.archivedAt && (cents(record.financeArchive.confirmedTotal) !== cents(following.total)
+    || following.outstanding > 0 || !isFinanceReadyEvent(next))) {
+    record.financeChanges = [...(record.financeChanges || []), { action: 'restore', automatic: true, reason: 'financial_or_operational_change', recordedAt: now.toISOString(),
+      total: following.total, received: following.received }];
+    record.financeArchive = { ...record.financeArchive, archivedAt: null, restoredAt: now.toISOString() };
+  }
   const author = actor ? { id: actor.id, name: String(actor.name || '').slice(0, 150) } : null;
   if (legacyInvoiced) record.legacyInvoiced = true;
   // An old record can only be enriched while its recorded total is still fully covered.

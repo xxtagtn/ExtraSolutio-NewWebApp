@@ -70,6 +70,8 @@ import { assertClientSignalHistoryPreserved, isClientPaymentOnlyUpdate, isDetail
 import { linkedClientInvoices, receiveAdditionalClientPayment, reverseClientReceipts, reverseClientSignal, setClientCommercialStatus } from '../services/clientPayment.js';
 import { changeClientReceipt } from '../services/clientReceiptMovements.js';
 import { clientPaymentRecordPatch } from '../services/clientPaymentRecord.js';
+import { readClientPaymentRecord } from '../../src/utils/clientPaymentRecord.js';
+import { serializeInvoiceBillingRows, withGroupedServiceInvoices } from '../services/invoiceBilling.js';
 import { saveEventExternalCost, deleteEventExternalCost } from '../services/externalCostEditing.js';
 import { checkedEventFinancialTotals } from '../services/eventFinancialChange.js';
 import { normalizeExternalCosts } from '../../src/utils/externalCosts.js';
@@ -96,6 +98,9 @@ import {
   issuedInvoiceForEvent,
 } from '../utils/eventInvoiceProtection.js';
 import { inheritedAssignmentScheduleChanges } from '../utils/eventScheduleInheritance.js';
+import { buildClientFinanceSnapshot } from '../../src/utils/clientFinanceSnapshot.js';
+import { updateClientFinancialMetadata } from '../services/clientFinancialMetadata.js';
+import { settleClientInvoice } from '../services/clientInvoiceSettlement.js';
 
 export const apiRouter = Router();
 const clientsRead = requirePermission(PERMISSIONS.CLIENTS_VIEW);
@@ -143,6 +148,8 @@ const financialEventFields = [
   'paidAmount',
   'clientPaymentRecord',
   'remainingPaymentDate',
+  'clientFinance',
+  'invoices',
 ];
 const financialAssignmentFields = [
   'hourlyRate',
@@ -307,7 +314,7 @@ function maskEventForRole(event, user) {
     for (const field of financialEventFields) {
       if (field in output) output[field] = null;
     }
-  }
+  } else output.clientFinance = buildClientFinanceSnapshot(event);
   return output;
 }
 
@@ -344,8 +351,13 @@ async function normalizeServiceCreate(input) {
   const workLocations = data.workLocationsEnabled
     ? normalizeWorkLocationInputs(input.workLocations)
     : [];
+  const paymentPatch = clientPaymentRecordPatch(data);
+  const paymentRecord = readClientPaymentRecord(paymentPatch.clientPaymentRecord) || { version: 1, entries: [] };
   return {
     ...data,
+    ...paymentPatch,
+    clientPaymentRecord: JSON.stringify({ ...paymentRecord, financeWorkflowVersion: 2,
+      ...(/\[BUDGET_REF:[^\]]+\]/i.test(String(data.notes || '')) ? { budgetAdjudicatedAt: new Date().toISOString(), budgetForecastTotal: Number(data.totalRevenue || 0) } : {}) }),
     minimumHoursSnapshot: minimumHoursForEventUpdate(null, client?.minimumHours),
     ...(data.requiredRoles !== undefined ? {
       requiredRoles: JSON.stringify(requiredRoles),
@@ -762,10 +774,26 @@ apiRouter.post('/services/:id/client-payment/receive', servicesUpdate, financeUp
   return res.json(maskEventForRole(event, req.user));
 }));
 
+apiRouter.post('/services/:id/client-payment/invoice-paid', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await settleClientInvoice(prisma, id, req.body || {}, req.user);
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
 apiRouter.post('/services/:id/client-payment/commercial-status', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
   const id = workflowEventId(req, res);
   if (!id) return;
   const event = await setClientCommercialStatus(prisma, id, req.body || {}, req.user);
+  if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+
+apiRouter.post('/services/:id/client-finance', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  if (!id) return;
+  const event = await updateClientFinancialMetadata(prisma, id, req.body || {}, req.user);
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   return res.json(maskEventForRole(event, req.user));
 }));
@@ -954,10 +982,14 @@ apiRouter.use('/services', createCrudRouter(prisma.event, [], {
   deleteMiddleware: servicesDelete,
   buildWhere: buildServiceWhere,
   buildOrderBy: () => ({ date: 'desc' }),
-  serializeRow: async (row, req) => maskEventForRole(withCurrentStaffVatCost(await eventFinancialsForRead(prisma, await externalServiceForRead(prisma, row))), req.user),
+  serializeRow: async (row, req) => {
+    const [linked] = canViewFinancialData(req.user) ? await withGroupedServiceInvoices(prisma, [row]) : [row];
+    return maskEventForRole(withCurrentStaffVatCost(await eventFinancialsForRead(prisma, await externalServiceForRead(prisma, linked))), req.user);
+  },
   serializeRows: async (rows, req) => {
     const result = [];
-    for (const row of rows) result.push(maskEventForRole(withCurrentStaffVatCost(await eventFinancialsForRead(prisma, await externalServiceForRead(prisma, row))), req.user));
+    const linked = canViewFinancialData(req.user) ? await withGroupedServiceInvoices(prisma, rows) : rows;
+    for (const row of linked) result.push(maskEventForRole(withCurrentStaffVatCost(await eventFinancialsForRead(prisma, await externalServiceForRead(prisma, row))), req.user));
     return result;
   },
   normalizeCreate: normalizeServiceCreate,
@@ -1093,9 +1125,11 @@ async function normalizeInvoiceLifecycle(input, existing = null) {
     error.expose = true;
     throw error;
   }
-  const dueDate = dueDateFromInvoiceIssue(issueDate, client);
+  const [timing] = await serializeInvoiceBillingRows(prisma, [{ ...existing, ...normalized, status: nextStatus, issueDate, client }]);
+  const referenceDate = timing.billingReferenceDate;
+  const dueDate = dueDateFromInvoiceIssue(referenceDate, client);
   if (!dueDate) {
-    const error = new Error('O prazo de pagamento configurado no cliente não é válido.');
+    const error = new Error('Confirma o período de faturação e o prazo do cliente. Uma fatura com vários períodos precisa de uma referência inequívoca.');
     error.statusCode = 400;
     error.expose = true;
     throw error;
@@ -1104,7 +1138,7 @@ async function normalizeInvoiceLifecycle(input, existing = null) {
   return {
     ...normalized,
     status: nextStatus,
-    issueDate,
+    issueDate: !wasIssued && ['monthly', 'biweekly', 'per_event'].includes(client.billingMethod) ? new Date(`${referenceDate}T12:00:00Z`) : issueDate,
     dueDate,
   };
 }
@@ -1131,6 +1165,8 @@ apiRouter.use('/invoices', createCrudRouter(prisma.invoice, [
   loadExistingForUpdate: true,
   performCreate: (input) => persistInvoiceWithExternalWorkflow(prisma, input),
   performUpdate: (input) => persistInvoiceWithExternalWorkflow(prisma, input),
+  serializeRow: async (row) => (await serializeInvoiceBillingRows(prisma, [row]))[0],
+  serializeRows: (rows) => serializeInvoiceBillingRows(prisma, rows),
 }));
 
 apiRouter.use('/invoice-items', createCrudRouter(prisma.invoiceItem, [

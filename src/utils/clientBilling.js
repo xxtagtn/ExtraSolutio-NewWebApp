@@ -7,6 +7,9 @@ import { externalServiceCanArchive, isExternalOnlyService } from './externalServ
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { clientFinancialState } from './clientFinancialState.js';
 import { clientPaymentTotal } from './clientPaymentTotal.js';
+import { readClientPaymentRecord } from './clientPaymentRecord.js';
+import { clientArchiveState, buildClientFinanceSnapshot } from './clientFinanceSnapshot.js';
+import { clientBillingPeriodForDay } from '../../shared/clientBillingCalendar.js';
 
 function selectedPeriodParts(period) {
   const [year, month] = String(period || '').split('-').map(Number);
@@ -14,16 +17,6 @@ function selectedPeriodParts(period) {
     year: Number.isFinite(year) ? year : new Date().getFullYear(),
     month: Number.isFinite(month) ? month : new Date().getMonth() + 1,
   };
-}
-
-function addDays(value, days) {
-  const d = new Date(value);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function lastDayOfMonth(year, month) {
-  return new Date(year, month + 1, 0);
 }
 
 function monthPeriodLabel(value) {
@@ -49,6 +42,7 @@ function firstActionableService(services) {
 }
 
 function serviceValue(service) {
+  if (service.billingPeriod) return num(service.billingPeriod.total);
   if (service.totalRevenue != null) return clientPaymentTotal(service);
   return num(service?.financial?.receivable || service?.financial?.revenue || 0);
 }
@@ -71,7 +65,7 @@ function serviceMatchesBillingGroup(service, group, fallbackMethod) {
   const issueDate = new Date(group.issueDate);
   if (Number.isNaN(serviceDate.getTime()) || Number.isNaN(issueDate.getTime())) return false;
 
-  if (method === 'monthly' || method === 'custom') {
+  if (method === 'monthly') {
     return serviceDate.getFullYear() === issueDate.getFullYear()
       && serviceDate.getMonth() === issueDate.getMonth();
   }
@@ -117,9 +111,8 @@ function standaloneGroupInfoForService(row, service) {
   const client = row || {};
   const method = client.billingMethod || 'unconfigured';
   const d = new Date(service.date);
-  const year = d.getFullYear();
-  const month = d.getMonth();
   const day = d.getDate();
+  const calendar = service.billingPeriod || clientBillingPeriodForDay(service.date, client);
 
   if (method === 'unconfigured') {
     return {
@@ -132,9 +125,9 @@ function standaloneGroupInfoForService(row, service) {
 
   if (method === 'monthly') {
     return {
-      key: `${client.id}:monthly:${year}-${month}`,
+      key: `${client.id}:${calendar?.key}`,
       label: `${client.name || 'Cliente'} · ${monthPeriodLabel(d)}`,
-      issueDate: lastDayOfMonth(year, month),
+      issueDate: calendar?.referenceDate ? new Date(`${calendar.referenceDate}T12:00:00`) : null,
       method,
     };
   }
@@ -142,18 +135,18 @@ function standaloneGroupInfoForService(row, service) {
   if (method === 'biweekly') {
     const half = day <= 15 ? 1 : 2;
     return {
-      key: `${client.id}:biweekly:${year}-${month}:${half}`,
+      key: `${client.id}:${calendar?.key}`,
       label: `${client.name || 'Cliente'} · ${half === 1 ? '1. quinzena' : '2. quinzena'} ${monthPeriodLabel(d)}`,
-      issueDate: half === 1 ? new Date(year, month, 15) : lastDayOfMonth(year, month),
+      issueDate: calendar?.referenceDate ? new Date(`${calendar.referenceDate}T12:00:00`) : null,
       method,
     };
   }
 
   if (method === 'custom') {
     return {
-      key: `${client.id}:custom:${year}-${month}`,
+      key: `${client.id}:custom:${service.id}`,
       label: `${client.name || 'Cliente'} · ${client.billingCustomRule || monthPeriodLabel(d)}`,
-      issueDate: lastDayOfMonth(year, month),
+      issueDate: calendar?.referenceDate ? new Date(`${calendar.referenceDate}T12:00:00`) : null,
       method,
     };
   }
@@ -161,29 +154,34 @@ function standaloneGroupInfoForService(row, service) {
   return {
     key: `${client.id}:${method}:${service.id}`,
     label: `${client.name || 'Cliente'} · ${service.name || 'Evento/Serviço'}`,
-    issueDate: method === 'prepaid' ? new Date() : addDays(d, 1),
+    issueDate: calendar?.referenceDate ? new Date(`${calendar.referenceDate}T12:00:00`) : null,
     method,
   };
 }
 
 function buildStandaloneServiceGroups(row, services) {
   const groups = new Map();
-  for (const service of services || []) {
-    if (!service?.id || !service?.date) continue;
-    const info = standaloneGroupInfoForService(row, service);
-    const current = groups.get(info.key) || {
-      key: info.key,
-      client: row,
-      method: info.method,
-      label: info.label,
-      issueDate: info.issueDate,
-      dueDate: null,
-      events: [],
-      total: 0,
-    };
-    current.events.push(service);
-    current.total += serviceValue(service);
-    groups.set(info.key, current);
+  for (const original of services || []) {
+    const finance = original.clientFinance || buildClientFinanceSnapshot({ ...original, client: original.client || row });
+    const parts = finance.periods.length ? finance.periods : [null];
+    for (const part of parts) {
+      const service = part ? { ...original, date: part.days[0], billingPeriod: part } : original;
+      if (!service?.id || !service?.date) continue;
+      const info = standaloneGroupInfoForService(row, service);
+      const current = groups.get(info.key) || {
+        key: info.key,
+        client: row,
+        method: info.method,
+        label: info.label,
+        issueDate: info.issueDate,
+        dueDate: null,
+        events: [],
+        total: 0,
+      };
+      current.events.push(service);
+      current.total += serviceValue(service);
+      groups.set(info.key, current);
+    }
   }
   return [...groups.values()].sort((a, b) => new Date(a.issueDate || 0).getTime() - new Date(b.issueDate || 0).getTime());
 }
@@ -252,7 +250,23 @@ export function splitClientBillingRows(rows, { now, timeZone } = {}) {
       && rowBillingServices(row).every((service) => !service.status || isFinanceReadyEvent(service))
       && rowBillingServices(row).filter(isExternalOnlyService).every((event) => externalServiceCanArchive(event, now, timeZone))
       && (!isUnregisteredClientWithoutInvoice || rowBillingServices(row).every(isExternalOnlyService));
-    if (isArchived) {
+    const explicitPolicy = rowBillingServices(row).some((event) => readClientPaymentRecord(event.clientPaymentRecord)?.financeWorkflowVersion === 2);
+    if (explicitPolicy) {
+      const archivedIds = new Set(rowBillingServices(row).filter((event) => (now ? clientArchiveState(event, { now }) : event.clientFinance?.archive || clientArchiveState(event)).archived).map((event) => Number(event.id)));
+      for (const archived of [false, true]) {
+        const keep = (event) => archivedIds.has(Number(event.id)) === archived;
+        const services = (row.nonInvoicedServices || []).filter(keep);
+        const billingGroups = (row.billingGroups || []).map((group) => ({ ...group, events: (group.events || []).filter(keep) }))
+          .filter((group) => group.events.length).map((group) => ({ ...group, total: group.events.reduce((sum, event) => sum + serviceValue(event), 0) }));
+        if (!services.length && !billingGroups.length) continue;
+        const ids = new Set([...services, ...billingGroups.flatMap((group) => group.events)].map((event) => Number(event.id)));
+        (archived ? result.archivedRows : result.activeRows).push({ ...row, rowId: `${row.rowId || row.id}:${archived ? 'archived' : 'active'}`,
+          nonInvoicedServices: services, billingGroups, invoices: (row.invoices || []).filter((invoice) => invoiceEventIds(invoice).some((id) => ids.has(Number(id)))) });
+      }
+      return result;
+    }
+    const archiveConfirmed = isArchived;
+    if (archiveConfirmed) {
       result.archivedRows.push(row);
     } else {
       result.activeRows.push(row);

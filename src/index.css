@@ -1009,7 +1009,7 @@
 .finance-client-outstanding small { line-height: 1.5; color: var(--muted); white-space: normal; }
 .finance-client-missing small { color: inherit; }
 .finance-client-event-head > * { min-width: 0; overflow-wrap: anywhere; }
-.finance-client-payment-state { color: var(--muted); }
+.finance-client-payment-state { color: var(--muted); white-space: normal; line-height: 1.4; }
 .finance-client-deadline small { display: block; margin-top: 5px; color: var(--muted); font-size: 0.72rem; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
 .finance-client-deadline[data-deadline-status="overdue"] small { color: #fbbf24; }
 .finance-client-deadline[data-deadline-status="within_term"] small,
@@ -1018,6 +1018,19 @@
 .finance-client-event-name .finance-client-event-open { white-space: normal; max-width: 100%; }
 .finance-client-event-row .badge { white-space: normal; max-width: 100%; gap: 4px; }
 .finance-client-event-action button { min-height: 36px; white-space: normal; }
+.finance-client-event-action { display: grid; gap: 6px; }
+.client-finance-overdue { color: #f87171 !important; }
+.client-billing-periods { border-block: 1px solid var(--line); padding: 12px 0; display: grid; gap: 12px; min-width: 0; }
+.client-billing-periods > header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 0.82rem; }
+.client-billing-period { border-bottom: 1px solid var(--line); padding-bottom: 10px; min-width: 0; font-size: 0.8rem; }
+.client-billing-period:last-child { border-bottom: 0; padding-bottom: 0; }
+.client-billing-period dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 10px 0; }
+.client-billing-period dl > div { min-width: 0; }
+.client-billing-period dt { color: var(--muted); font-size: 0.72rem; }
+.client-billing-period dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.client-billing-allocation { display: grid; gap: 14px; min-width: 0; }
+.client-billing-allocation fieldset { border: 1px solid var(--line); min-width: 0; margin: 0; padding: 12px; }
+body:has(.finance-receipt-manager) .back-to-top { visibility: hidden; pointer-events: none; }
 .finance-client-event-adjustment > strong { display: block; margin-bottom: 6px; }
 .finance-client-event-adjustment input { color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; min-height: 32px; font-size: 0.72rem; }
 .finance-receipt-manager { padding: 20px; display: grid; gap: 20px; min-width: 0; }
@@ -18146,3 +18159,8 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     gap: 8px;
   }
 }
+.internal-cost-amount { display: inline-flex; flex-direction: column; gap: 4px; }
+.internal-cost-amount small { color: var(--muted); font-size: 12px; font-weight: 400; white-space: normal; }
+.event-finance-travel-detail { margin-top: 16px; min-width: 0; }
+.event-finance-travel-detail > summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
+.event-finance-travel-detail > p { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }

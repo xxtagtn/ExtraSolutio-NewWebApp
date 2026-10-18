@@ -304,7 +304,7 @@ test('stale aggregates repair on list read, including prepaid events, but issued
   for (const locked of ['', 'invoice', 'paid']) {
     const { event, assignment } = await dynamicFixture();
     await db.eventAssignment.update({ where: { id: assignment.id }, data: { checkOut: '02:00' } });
-    if (locked === 'paid') await db.event.update({ where: { id: event.id }, data: { billingStatus: 'paid' } });
+    if (locked === 'paid') await db.event.update({ where: { id: event.id }, data: { billingStatus: 'paid', clientPaymentRecord: null } });
     if (locked === 'invoice') await db.invoice.create({ data: { number: `DYNAMIC-${event.id}`, eventId: event.id,
       clientId: event.clientId, issueDate: new Date('2026-10-16'), status: 'issued', total: 668.85 } });
     const before = await db.event.findUnique({ where: { id: event.id } });

@@ -5,7 +5,8 @@ import {
 } from '../../shared/invoiceLifecycle.js';
 import { externalCostsTotals } from './externalCosts.js';
 import { eventTaxAmount } from './eventTax.js';
-import { clientPaymentSummary } from './clientPayment.js';
+import { buildClientFinanceSnapshot } from './clientFinanceSnapshot.js';
+import { withInvoicePaymentCoverage } from '../../shared/invoicePaymentCoverage.js';
 
 const CLOSED_INVOICE_STATUSES = new Set(['cancelled', 'void']);
 
@@ -86,10 +87,6 @@ export function buildClientEventReconciliation(event = {}, operationalSummary = 
   };
 }
 
-function eventBillingState(event) {
-  return String(event?.billingStatus || 'pending').toLowerCase();
-}
-
 function ensureSummary(map, event, clientsById) {
   const key = clientKeyFor(event);
   if (map.has(key)) return map.get(key);
@@ -128,95 +125,71 @@ function roundSummary(row) {
 }
 
 export function buildClientFinancialSummary({ events = [], invoices = [], clients = [], period = '' } = {}) {
-  const clientsById = new Map((clients || []).map((client) => [String(client.id), client]));
-  const eventIds = new Set((events || []).map((event) => Number(event.id)).filter(Number.isFinite));
-  const availableInvoices = (invoices || []).filter((invoice) => {
-    if (CLOSED_INVOICE_STATUSES.has(String(invoice?.status || '').toLowerCase())) return false;
-    const linkedIds = invoiceEventIds(invoice);
-    return linkedIds.some((id) => eventIds.has(id))
-      || (invoiceIsIssued(invoice) && (
-        dateInPeriod(invoice.issueDate, period)
-        || dateInPeriod(effectiveInvoiceDueDate(invoice, invoice.client), period)
-      ));
-  });
-  const allInvoices = (invoices || []).filter((invoice) => !CLOSED_INVOICE_STATUSES.has(String(invoice?.status || '').toLowerCase()));
-  const eventById = new Map((events || []).map((event) => [Number(event.id), event]));
-  const invoiceByEventId = new Map();
-
-  for (const invoice of allInvoices) {
-    for (const eventId of invoiceEventIds(invoice)) {
-      if (!invoiceByEventId.has(eventId)) invoiceByEventId.set(eventId, []);
-      invoiceByEventId.get(eventId).push(invoice);
-    }
-  }
-
-  const summaries = new Map();
-  const receiptOffsets = new Map();
-
-  for (const event of events || []) {
+  invoices = withInvoicePaymentCoverage(invoices, events);
+  const clientsById = new Map(clients.map((client) => [String(client.id), client]));
+  const summaries = new Map(), coveredInvoices = new Set();
+  for (const original of events) {
+    const linked = invoices.filter((invoice) => !CLOSED_INVOICE_STATUSES.has(invoice.status) && invoiceEventIds(invoice).includes(Number(original.id)));
+    const event = { ...original, totalRevenue: original.totalRevenue ?? eventRevenue(original), client: clientsById.get(String(original.clientId)) || original.client, invoices: linked };
+    const finance = event.clientFinance || buildClientFinanceSnapshot(event);
+    const selected = finance.periods.filter((part) => !period || part.days.some((day) => dateInPeriod(day, period)));
+    if (!selected.length) continue;
     const summary = ensureSummary(summaries, event, clientsById);
-    const eventId = Number(event.id);
-    const linkedInvoices = invoiceByEventId.get(eventId) || [];
-    const revenue = eventRevenue(event);
-    const adjustment = linkedInvoices.length ? 0 : numberValue(event.billingAdjustment);
-    const adjustedRevenue = Math.max(0, revenue + adjustment);
-    const billingStatus = eventBillingState(event);
-
     summary.eventCount += 1;
-    const received = clientPaymentSummary({ ...event, invoices: linkedInvoices }).received;
-    summary.received += received;
-    receiptOffsets.set(eventId, received);
-    summary.adjustments += adjustment;
-    summary.events.push({
-      ...event,
-      displayValue: adjustedRevenue,
-      displayAdjustment: adjustment,
-      billingStatus,
-      invoices: linkedInvoices,
-      invoice: linkedInvoices[0] || null,
-    });
-
-    if (!linkedInvoices.some((invoice) => invoiceIsIssued(invoice))) {
-      summary.pendingBilling += adjustedRevenue;
-      summary.total += adjustedRevenue;
+    summary.allocationRequired ||= finance.allocationRequired;
+    const issued = linked.filter(invoiceIsIssued);
+    for (const invoice of issued) {
+      coveredInvoices.add(invoice.id);
+      if (!summary.invoiceIds.has(invoice.id)) { summary.invoiceIds.add(invoice.id); summary.invoices.push(invoice); }
     }
+    for (const part of selected) {
+      const value = part.total, received = part.received;
+      const invoiced = finance.billingStatus === 'invoiced';
+      summary.total += value || 0;
+      summary.received += received || 0;
+      if (invoiced) summary.billedOpen += part.outstanding || 0;
+      else summary.pendingBilling += value || 0;
+      summary.events.push({ ...event, clientFinance: finance, billingPeriod: part,
+        displayValue: value, displayReceived: received, displayOutstanding: part.outstanding,
+        displayAdjustment: finance.periods.length === 1 ? numberValue(event.billingAdjustment) : 0,
+        invoice: linked[0] || null });
+    }
+    if (finance.periods.length === 1 && !linked.length) summary.adjustments += numberValue(event.billingAdjustment);
   }
-
-  for (const invoice of availableInvoices) {
-    const linkedIds = invoiceEventIds(invoice);
-    const linkedEvent = linkedIds.map((id) => eventById.get(id)).find(Boolean);
-    const clientId = invoice.clientId || linkedEvent?.clientId || linkedEvent?.client?.id;
-    const fallbackEvent = linkedEvent || {
-      clientId,
-      client: clientId ? clientsById.get(String(clientId)) : null,
-      clientName: invoice.clientName,
-    };
-    const summary = ensureSummary(summaries, fallbackEvent, clientsById);
+  for (const invoice of invoices) {
+    if (coveredInvoices.has(invoice.id) || !invoiceIsIssued(invoice) || (period && !dateInPeriod(invoice.issueDate, period) && !dateInPeriod(effectiveInvoiceDueDate(invoice, invoice.client), period))) continue;
+    const ids = invoiceEventIds(invoice);
+    if (ids.some((id) => events.some((event) => Number(event.id) === id))) continue;
+    const client = invoice.client || clientsById.get(String(invoice.clientId));
+    const summary = ensureSummary(summaries, { clientId: invoice.clientId, client, clientName: invoice.clientName }, clientsById);
     if (summary.invoiceIds.has(invoice.id)) continue;
-    if (!invoiceIsIssued(invoice)) continue;
-
-    const total = numberValue(invoice.total);
-    summary.invoiceIds.add(invoice.id);
-    summary.invoices.push(invoice);
-    summary.total += total;
-    if (invoiceIsPaid(invoice)) {
-      let alreadyCounted = 0;
-      for (const id of linkedIds) {
-        const available = receiptOffsets.get(id) || 0;
-        const used = Math.min(available, Math.max(0, total - alreadyCounted));
-        alreadyCounted += used;
-        receiptOffsets.set(id, available - used);
-      }
-      summary.received += Math.max(0, total - alreadyCounted);
-    }
-    else summary.billedOpen += total;
+    summary.invoiceIds.add(invoice.id); summary.invoices.push(invoice);
+    summary.total += numberValue(invoice.total);
+    if (invoiceIsPaid(invoice)) summary.received += numberValue(invoice.total);
+    else summary.billedOpen += numberValue(invoice.total);
   }
-
-  return [...summaries.values()]
-    .map((row) => roundSummary({
-      ...row,
-      events: row.events.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()),
-      invoices: row.invoices.sort((a, b) => new Date(b.issueDate || 0).getTime() - new Date(a.issueDate || 0).getTime()),
-    }))
+  const unallocated = new Map();
+  for (const invoice of invoices) {
+    const ids = invoiceEventIds(invoice);
+    if (!coveredInvoices.has(invoice.id) || !invoiceIsIssued(invoice) || !invoiceIsPaid(invoice) || ids.length < 2
+      || Object.keys(invoice.eventPaymentCoverage || {}).length) continue;
+    const summary = [...summaries.values()].find((row) => String(row.clientId) === String(invoice.clientId));
+    if (!summary) continue;
+    const group = unallocated.get(summary.key) || { amount: 0, ids: new Set() };
+    group.amount += numberValue(invoice.total); ids.forEach((id) => group.ids.add(id)); unallocated.set(summary.key, group);
+  }
+  for (const [key, group] of unallocated) {
+    const summary = summaries.get(key), seen = new Set();
+    const represented = summary.events.reduce((sum, event) => {
+      if (!group.ids.has(Number(event.id)) || seen.has(event.id)) return sum;
+      seen.add(event.id); return sum + numberValue(event.clientFinance?.payment.received);
+    }, 0);
+    // Retain real grouped cash at client level without guessing its allocation to services.
+    summary.unallocatedReceived = roundMoney(Math.max(0, group.amount - represented));
+    summary.received += summary.unallocatedReceived;
+    summary.billedOpen = Math.max(0, summary.billedOpen - summary.unallocatedReceived);
+    summary.allocationRequired = true;
+  }
+  return [...summaries.values()].map(roundSummary)
     .sort((a, b) => a.clientName.localeCompare(b.clientName, 'pt-PT', { sensitivity: 'base' }));
 }

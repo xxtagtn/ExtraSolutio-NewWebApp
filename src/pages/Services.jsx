@@ -64,6 +64,7 @@ import {
 } from '../utils/serviceFinance.js';
 import { normalizeStaffAdvances, staffAdvancesTotal, staffCarAdvancesTotal } from '../utils/staffAdvances.js';
 import { staffPaymentTotal } from '../utils/staffPayment.js';
+import { internalAssignmentCostParts } from '../utils/eventInternalCosts.js';
 import {
   isArchivedService,
   nextAutomaticServiceStatus,
@@ -124,6 +125,7 @@ const billingMethodLabels = {
 const paymentTermLabels = {
   immediate: 'Pronto pagamento',
   days_15: '15 dias',
+  days_5: '5 dias',
   days_30: '30 dias',
   days_45: '45 dias',
   custom: 'Personalizado',
@@ -692,6 +694,7 @@ export default function Services() {
     const assignments = (form.assignments || []).filter((assignment) => assignment.role && assignment.collaboratorId);
     let totalRevenue = 0;
     let totalCost = 0;
+    let travelCost = 0;
     let expectedRevenue = 0;
     let realHours = 0;
     let billableHours = 0;
@@ -721,6 +724,8 @@ export default function Services() {
         Boolean(collaborator?.includeVat),
         assignment.paymentAdjustment,
       ) + staffCarAdvancesTotal(assignment.advancePayments);
+      travelCost += internalAssignmentCostParts(staffHours * collaboratorRate, travelStaffCost,
+        Boolean(collaborator?.includeVat), assignment.paymentAdjustment, assignment.advancePayments).travelCost;
       realHours += realClientHours;
       billableHours += clientHours;
     }
@@ -774,6 +779,8 @@ export default function Services() {
       totalCost: Number((staffCost + operationalExpenses).toFixed(2)),
       taxAmount: Number(resolvedTax.toFixed(2)),
       staffCost,
+      staffWorkCost: Number((staffCost - travelCost).toFixed(2)),
+      travelCost: Number(travelCost.toFixed(2)),
       expenses,
       operationalExpenses,
       externalCostAmount: externalTotals.costAmount,
@@ -2582,7 +2589,8 @@ export default function Services() {
                   <div className="service-finance-grid">
                     <div><span>Horas Reais</span><strong>{durationHours(financials.realHours)}</strong></div>
                     <div><span>Horas Faturáveis</span><strong>{durationHours(financials.billableHours)}</strong></div>
-                    <div><span>Staff</span><strong>{euro(financials.staffCost)}</strong></div>
+                    <div><span>Staff</span><strong>{euro(financials.staffWorkCost)}</strong></div>
+                    <div><span>Deslocação interna</span><strong>{euro(financials.travelCost)}</strong></div>
                     <div><span>Custo Real Parceiros</span><strong>{euro(financials.externalCostAmount)}</strong></div>
                     <div><span>Margem %</span><strong className={financials.profit < 0 ? 'money-negative' : 'money-positive'}>{financials.marginPct.toFixed(1).replace('.', ',')}%</strong></div>
                     <div><span>Margem €</span><strong className={financials.profit < 0 ? 'money-negative' : 'money-positive'}>{euro(financials.profit)}</strong></div>
