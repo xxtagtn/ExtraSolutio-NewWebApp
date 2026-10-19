@@ -39,10 +39,6 @@ function isManualRole(value) {
   return !normalized || normalized === 'sem funcao' || normalized.startsWith('sem fun');
 }
 
-function localDateKey(value) {
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-}
-
 function normalizeStatus(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -136,9 +132,10 @@ export function serviceAssignmentDays(event = {}) {
     const end = new Date(dateKey(event.endDate));
     if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end >= start) {
       const cursor = new Date(start);
+      // Date-only endpoints are UTC; iterate in UTC too so DST cannot skip a day.
       while (cursor <= end) {
-        days.add(localDateKey(cursor));
-        cursor.setDate(cursor.getDate() + 1);
+        days.add(cursor.toISOString().slice(0, 10));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
       }
     }
   }
