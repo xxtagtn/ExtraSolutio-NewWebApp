@@ -19,6 +19,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import Card from '../components/UI/Card.jsx';
 import { clientPaymentSummary } from '../utils/clientPayment.js';
+import { clientBillingAdjustment } from '../utils/clientPaymentTotal.js';
 import { clientFinancialState } from '../utils/clientFinancialState.js';
 import { shouldShowClientPaymentAlert } from '../utils/clientPaymentAlert.js';
 import { clientPaymentDeadline } from '../utils/clientPaymentDeadline.js';
@@ -473,6 +474,7 @@ function ClientFinancialEventTable({
     const showPaymentAlert = shouldShowClientPaymentAlert(event, { payment });
     const paymentTax = clientReceiptTaxSummary(event, payment.received);
     const adjustment = clientPaymentAdjustment(event, payment.received);
+    const billingAdjustment = clientBillingAdjustment(event);
     const deadline = clientPaymentDeadline(event, { payment });
     const eventStatus = operationalStatusLabel(event.status || event.operationalStatus || event.serviceStatus);
     const descriptor = eventDescriptors.get(String(event.id)) || {};
@@ -533,6 +535,7 @@ function ClientFinancialEventTable({
               value={clientAdjustmentDraftFor(event)}
               disabled={updatingClientAdjustmentEventId === event.id}
               aria-label={`Ajuste de faturação de ${event.name || 'evento'}`}
+              title={`Ajuste sem IVA; aplica a configuração do evento (${billingAdjustment.rate}%).`}
               onClick={(clickEvent) => clickEvent.stopPropagation()}
               onChange={(changeEvent) => onClientAdjustmentDraftChange(event.id, changeEvent.target.value)}
               onBlur={() => onClientAdjustmentSave(event)}
@@ -541,6 +544,7 @@ function ClientFinancialEventTable({
               }}
             />
           )}
+          {billingAdjustment.base !== 0 && <small className="finance-client-event-meta">{money.format(billingAdjustment.base)} + {money.format(billingAdjustment.tax)} IVA</small>}
         </div>
         <strong className="finance-client-received">{part?.received === null ? 'Por repartir' : money.format(part?.received ?? finance.payment.received)}</strong>
         <div className={`finance-client-outstanding${showPaymentAlert ? ' finance-client-missing' : ''}`}><strong>{part?.outstanding === null ? 'Por repartir' : money.format(part?.outstanding ?? finance.payment.outstanding)}</strong>

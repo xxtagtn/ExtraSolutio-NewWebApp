@@ -3,6 +3,7 @@ import { readClientPaymentRecord } from '../../src/utils/clientPaymentRecord.js'
 import { serviceListInclude } from '../utils/listPayloads.js';
 import { withGroupedServiceInvoices } from './invoiceBilling.js';
 import { clientPaymentRecordPatch } from './clientPaymentRecord.js';
+import { clientPaymentTax } from '../../src/utils/clientPaymentTotal.js';
 
 const cents = (value) => Math.round(Number(value) * 100);
 function fail(message, statusCode = 422) { throw Object.assign(new Error(message), { statusCode, expose: true }); }
@@ -51,7 +52,7 @@ export async function updateClientFinancialMetadata(db, eventId, input, actor = 
         const sum = (field) => rows.reduce((total, row) => total + cents(row[field]), 0);
         if (sum('globalTotal') !== cents(snapshot.unassignedTotal) || sum('globalTax') !== cents(snapshot.unassignedTax)
           || sum('received') !== cents(snapshot.payment.received)) fail('A soma da repartição deve corresponder exatamente aos valores globais, IVA e recebimentos existentes.');
-        record.billingAllocation = { total: snapshot.payment.total, tax: Number(event.taxAmount || 0), receivedTotal: snapshot.payment.received, basis: snapshot.allocationBasis,
+        record.billingAllocation = { total: snapshot.payment.total, tax: clientPaymentTax(event), receivedTotal: snapshot.payment.received, basis: snapshot.allocationBasis,
           receiptRevision: record.entries.length, periods: rows, recordedAt: at, actor: author };
       }
       record.financeChanges = [...(record.financeChanges || []), { action: input.action, recordedAt: at, actor: author,

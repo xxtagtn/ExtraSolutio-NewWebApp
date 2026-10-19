@@ -1,7 +1,7 @@
 import { clientBillingPeriodForDay, billingDayKey, billingToday, billingTiming, addBillingDays } from '../../shared/clientBillingCalendar.js';
 import { invoiceIsIssued } from '../../shared/invoiceLifecycle.js';
 import { clientFinancialState } from './clientFinancialState.js';
-import { clientPaymentTotal } from './clientPaymentTotal.js';
+import { clientPaymentTax, clientPaymentTotal } from './clientPaymentTotal.js';
 import { readClientPaymentRecord } from './clientPaymentRecord.js';
 import { activeEventDayKeys, activeEventAssignments, assignmentEventDay } from './eventCancelledDays.js';
 import { billableEventAssignments, clientRateForAssignment } from './eventFinancialRules.js';
@@ -58,7 +58,7 @@ export function buildClientFinanceSnapshot(event = {}, { now = new Date() } = {}
     period.staffTax = cumulativeTax - accumulatedStaffTax;
     accumulatedStaffTax = cumulativeTax;
   }
-  const total = cents(clientPaymentTotal(event)), tax = cents(event.taxAmount);
+  const total = cents(clientPaymentTotal(event)), tax = cents(clientPaymentTax(event));
   if (periods.reduce((sum, period) => sum + period.staffBase + period.staffTax, 0) > total
     || periods.reduce((sum, period) => sum + period.staffTax, 0) > tax) {
     for (const period of periods) { period.staffBase = 0; period.staffTax = 0; }
@@ -67,7 +67,7 @@ export function buildClientFinanceSnapshot(event = {}, { now = new Date() } = {}
   const unassignedTax = tax - periods.reduce((sum, period) => sum + period.staffTax, 0);
   const allocationBasis = periods.map(({ key, staffBase, staffTax, days }) => ({ key, staffBase, staffTax, days }));
   const allocation = record?.billingAllocation;
-  const priceAllocationValid = periods.length < 2 || (unassignedTotal === 0 && unassignedTax === 0) || (same(allocation?.total, payment.total) && same(allocation?.tax, event.taxAmount)
+  const priceAllocationValid = periods.length < 2 || (unassignedTotal === 0 && unassignedTax === 0) || (same(allocation?.total, payment.total) && same(allocation?.tax, clientPaymentTax(event))
     && JSON.stringify(allocation?.basis) === JSON.stringify(allocationBasis)
     && periods.every((period) => allocation?.periods?.some((row) => row.key === period.key))
     && periods.reduce((sum, period) => sum + cents(allocation.periods.find((row) => row.key === period.key)?.globalTotal), 0) === unassignedTotal
@@ -100,7 +100,7 @@ export function buildClientFinanceSnapshot(event = {}, { now = new Date() } = {}
         : client.billingMethod === 'custom' ? billingDayKey(manualReference) : period.referenceDate || billingDayKey(manualReference);
     const exactSingle = periods.length === 1;
     period.total = exactSingle ? payment.total : priceAllocationValid ? amount(period.staffBase + period.staffTax + cents(saved?.globalTotal)) : null;
-    period.tax = exactSingle ? Number(event.taxAmount || 0) : priceAllocationValid ? amount(period.staffTax + cents(saved?.globalTax)) : null;
+    period.tax = exactSingle ? amount(tax) : priceAllocationValid ? amount(period.staffTax + cents(saved?.globalTax)) : null;
     period.received = exactSingle ? payment.received : receiptAllocationValid && period.total !== null
       ? payment.received === 0 ? 0 : same(payment.received, payment.total) ? period.total : Number(saved?.received || 0) : null;
     period.outstanding = period.total !== null && period.received !== null ? amount(Math.max(0, cents(period.total) - cents(period.received))) : null;

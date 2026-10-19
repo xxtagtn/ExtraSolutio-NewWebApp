@@ -1,7 +1,7 @@
 import { decimalValue } from './serviceFinance.js';
 import { invoiceIsIssued, invoiceIsPaid } from '../../shared/invoiceLifecycle.js';
 import { readClientPaymentRecord } from './clientPaymentRecord.js';
-import { clientPaymentTotal } from './clientPaymentTotal.js';
+import { clientBillingAdjustment, clientPaymentTotal } from './clientPaymentTotal.js';
 
 export const CLIENT_PAYMENT_FIELDS = ['billingStatus', 'signaledAmount', 'paidAmount', 'signaledAt', 'remainingPaymentDate', 'billingPaymentDate'];
 
@@ -50,7 +50,9 @@ export function clientPaymentSummary(event = {}) {
   // Older status-only payments recorded settlement without a cumulative amount.
   const legacySettled = event.externalService?.settledByInvoice === true || (!readClientPaymentRecord(event.clientPaymentRecord)
     && event.billingStatus === 'paid' && (stored === 0 || stored === signal));
-  const received = legacySettled ? total : stored > 0 ? stored : event.billingStatus === 'partial70' ? signal : 0;
+  // Legacy status-only settlements predate VAT on adjustments: do not invent extra cash.
+  const legacyReceived = Math.max(0, cents(event.totalRevenue) + cents(clientBillingAdjustment(event).base));
+  const received = legacySettled ? legacyReceived : stored > 0 ? stored : event.billingStatus === 'partial70' ? signal : 0;
   return { total: total / 100, signal: signal / 100, received: received / 100,
     remainingReceived: Math.max(0, received - signal) / 100, outstanding: Math.max(0, total - received) / 100 };
 }

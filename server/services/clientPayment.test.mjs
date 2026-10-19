@@ -861,6 +861,35 @@ test('legacy invoiced settlement keeps financial closure even after billingStatu
   assert.deepEqual(await stored(event.id), current);
 });
 
+test('billing adjustment inherits event VAT, persists once, and preserves receipt history', async () => {
+  let event = await fixture({ totalRevenue: 3130.35, taxAmount: 585.35, staffVatRateSnapshot: 23,
+    paidAmount: 0, signaledAmount: 0, billingStatus: 'pending', requiredRoles: '[]',
+    externalCosts: '[{"id":"partner","type":"Outro","costAmount":2545,"marginPercent":0,"vatType":"standard_23"}]' });
+  const paidPatch = { billingStatus: 'partial70', paidAmount: 100, signaledAmount: 100 };
+  event = await db.event.update({ where: { id: event.id }, data: { ...paidPatch, ...clientPaymentRecordPatch(event, paidPatch) } });
+  const originalEntries = readClientPaymentRecord(event.clientPaymentRecord).entries;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await put(event.id, { billingAdjustment: 5 });
+    assert.equal(response.status, 200, await response.text());
+    const visible = await get(event.id);
+    assert.equal(visible.clientFinance.payment.total, 3136.5);
+    assert.equal(visible.clientFinance.payment.outstanding, 3036.5);
+    assert.equal(visible.clientFinance.periods[0].tax, 586.5);
+    const saved = await stored(event.id);
+    assert.equal(Number(saved.totalRevenue), 3130.35);
+    assert.equal(Number(saved.taxAmount), 585.35);
+    assert.equal(Number(saved.paidAmount), 100);
+    assert.deepEqual(readClientPaymentRecord(saved.clientPaymentRecord).entries, originalEntries);
+  }
+  const taxFree = await fixture({ totalRevenue: 2545, taxAmount: 0, staffVatRateSnapshot: 0,
+    paidAmount: 0, signaledAmount: 0, billingStatus: 'pending', requiredRoles: '[]',
+    externalCosts: '[{"id":"partner","type":"Outro","costAmount":2545,"marginPercent":0,"vatType":"exempt"}]' });
+  assert.equal((await put(taxFree.id, { billingAdjustment: 5 })).status, 200);
+  const visible = await get(taxFree.id);
+  assert.equal(visible.clientFinance.payment.total, 2550);
+  assert.equal(visible.clientFinance.periods[0].tax, 0);
+});
+
 test('additional receipt rejects invalid values, stale data and unauthorized users without altering previous receipts', async () => {
   const event = await fixture({ billingStatus: 'paid', totalRevenue: 282, paidAmount: 252, billingPaymentDate: new Date('2026-10-14') });
   const before = await stored(event.id);

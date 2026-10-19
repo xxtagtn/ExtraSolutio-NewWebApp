@@ -15,6 +15,7 @@ import { buildClientFinanceSnapshot } from '../../utils/clientFinanceSnapshot.js
 import ClientBillingPeriods from './ClientBillingPeriods.jsx';
 import { clientReceiptInvoiceBlocker, clientReceiptRegistrationBlocker } from '../../utils/clientPayment.js';
 import { clientPaymentAdjustment, paymentFinancialSnapshot } from '../../utils/clientPaymentAdjustment.js';
+import { clientBillingAdjustment } from '../../utils/clientPaymentTotal.js';
 import { clientReceiptTaxSummary } from '../../utils/clientReceiptTax.js';
 import { readClientPaymentRecord } from '../../utils/clientPaymentRecord.js';
 import { receiptCanDelete, receiptMovements, receiptTypeLabels } from '../../utils/clientReceiptMovements.js';
@@ -28,6 +29,7 @@ const dayLabel = (value) => value ? date.format(new Date(value)) : 'Data não re
 export default function ClientReceiptManager({ event: initialEvent, invoices, onChanged, onInvoiceStatusChange, onClose }) {
   const { data, loading, error, reload } = useApi(`/services/${initialEvent.id}`, initialEvent, { revalidateOnFocus: true });
   const event = { ...initialEvent, ...data, invoices: data?.invoices || invoices || [] };
+  const billingAdjustment = clientBillingAdjustment(event);
   const state = clientFinancialState(event), record = readClientPaymentRecord(event.clientPaymentRecord);
   const finance = event.clientFinance || buildClientFinanceSnapshot(event);
   const projection = receiptMovements(record);
@@ -168,7 +170,7 @@ export default function ClientReceiptManager({ event: initialEvent, invoices, on
           <button type="submit" className="command-button" disabled={busy}><Save size={15} />Guardar repartição</button></div>
       </form> : null}
       {adjustment ? <section className="finance-receipt-adjustment"><h4>Ajuste após validação</h4><ClientPaymentAdjustment breakdown={adjustment} /></section> : null}
-      {Number(event.billingAdjustment) !== 0 && event.billingAdjustment != null ? <p>Ajuste de faturação: <strong>{money.format(Number(event.billingAdjustment))}</strong></p> : null}
+      {billingAdjustment.base !== 0 ? <p>Ajuste de faturação: <strong>{money.format(billingAdjustment.base)} + {money.format(billingAdjustment.tax)} IVA</strong></p> : null}
       <div className="finance-receipt-context"><span>Estado operacional: <strong>{statusLabel(event.status)}</strong></span>
         <span>Faturação: <strong>{billingMethod}</strong></span>
         <span>Pagamento: <strong>{paymentTerm}</strong></span></div>
