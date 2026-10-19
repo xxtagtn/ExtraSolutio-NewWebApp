@@ -34,8 +34,10 @@ try {
       assignment(6, 'Filipe Reis', { status: 'missed_justified' }),
       assignment(7, 'Gabriel Reis', { event: { ...event, cancelledDays: '["2026-09-25"]' } }),
       assignment(8, 'Helena Oliveira', { assignmentDate: '2026-09-24', plannedCheckIn: '22:00', plannedCheckOut: '02:00', checkIn: '22:00' }),
-      ...[9, 10, 11].map((id) => assignment(id, `Colaborador de nome comprido ${id}`)),
+      ...[9, 10, 11].map((id) => assignment(id, `Colaborador de nome comprido ${id}`, id === 9 ? { plannedCheckOut: null } : {})),
       assignment(12, 'Servico futuro', { assignmentDate: '2026-09-26' }),
+      assignment(16, 'Ruben Em Servico', { checkIn: '11:02', plannedCheckOut: null }),
+      assignment(17, 'Rita Em Servico', { checkIn: '11:03' }),
     ];
     let now = eventStartInstant('2026-09-25', '12:00', timeZone);
     let fail = false;
@@ -71,6 +73,16 @@ try {
     await panel.getByRole('button', { name: 'Mostrar mais (1)' }).click();
     assert.equal(await links.count(), 7);
     const filter = panel.getByRole('combobox', { name: 'Filtrar alertas de picagens' });
+    await filter.selectOption('in_progress');
+    assert.equal(await links.count(), 2);
+    assert.equal(await panel.getByText('Em serviço · A aguardar saída', { exact: true }).count(), 2);
+    assert.equal(await panel.getByText('Saída prevista não definida', { exact: true }).count(), 1);
+    assert.equal(await panel.locator('.command-attendance-row .badge--danger').count(), 0);
+    assert.equal(await panel.locator('.command-attendance-row .badge--info').first().evaluate((badge) => getComputedStyle(badge).color), 'rgb(147, 197, 253)');
+    await panel.getByLabel('7 alertas de picagens', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await panel.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${output}/ongoing-${width}.png` });
     await filter.selectOption('missing_exit');
     assert.equal(await links.count(), 2);
     assert.match(await panel.innerText(), /Bruno Costa/);
@@ -120,12 +132,12 @@ try {
     rows[0].checkIn = '11:01';
     const previousRequests = requests;
     await page.clock.fastForward(15000);
-    await panel.getByRole('option', { name: 'Todas (6)', exact: true }).waitFor({ state: 'attached' });
+    await panel.getByRole('option', { name: 'Alertas (6)', exact: true }).waitFor({ state: 'attached' });
     assert.ok(requests > previousRequests, 'A background refresh should occur');
     assert.equal(await panel.getByText('Ana Isabel Domingues', { exact: true }).count(), 0);
     now = eventStartInstant('2026-09-25', '12:06', timeZone);
     await page.clock.fastForward(15000);
-    await panel.getByRole('option', { name: 'Todas (7)', exact: true }).waitFor({ state: 'attached' });
+    await panel.getByRole('option', { name: 'Alertas (7)', exact: true }).waitFor({ state: 'attached' });
     await panel.getByRole('button', { name: 'Mostrar mais (1)' }).click();
     await panel.getByText('Diana Santos', { exact: true }).waitFor();
 

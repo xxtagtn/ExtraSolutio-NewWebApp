@@ -7410,6 +7410,15 @@ th {
   gap: 10px;
 }
 
+.command-attendance-title {
+  flex-wrap: wrap;
+}
+
+.command-attendance-panel .badge--info {
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+}
+
 .command-attendance-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

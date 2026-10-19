@@ -11,6 +11,7 @@ export function buildAttendanceAttention(assignments, { now = new Date(), timeZo
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
   const today = eventDayKey(Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value])));
   const items = [];
+  const inProgress = [];
   for (const assignment of assignments) {
     const event = assignment.event || {};
     if (!assignment.collaboratorId || excludedStatuses.has(normalized(assignment.status))
@@ -39,19 +40,23 @@ export function buildAttendanceAttention(assignments, { now = new Date(), timeZo
       reason = 'Saída registada sem entrada';
     } else if (!checkIn && startsAt && now <= startsAt) {
       continue;
-    } else if (!planned) {
-      kind = 'incomplete';
-      reason = 'Horário previsto incompleto';
-    } else if (!checkIn) {
+    } else if (!checkIn && startsAt) {
       kind = 'missing_entry';
       reason = 'Entrada por registar';
-    } else if (now > planned.endsAt) {
+    } else if (!checkIn) {
+      kind = 'incomplete';
+      reason = startTime ? 'Horário previsto inválido' : 'Entrada prevista não definida';
+    } else if (planned && now > planned.endsAt) {
       kind = 'missing_exit';
       reason = 'Saída por registar';
       since = planned.endsAt;
-    } else continue;
+    } else {
+      kind = 'in_progress';
+      reason = 'Em serviço · A aguardar saída';
+    }
 
-    items.push({
+    const target = kind === 'in_progress' ? inProgress : items;
+    target.push({
       id: `attendance-${assignment.id}`, assignmentId: assignment.id,
       collaboratorId: assignment.collaboratorId,
       eventId: event.id, eventName: event.name || 'Evento/Serviço',
@@ -60,14 +65,17 @@ export function buildAttendanceAttention(assignments, { now = new Date(), timeZo
       assignmentDate: day, role: assignment.role || '',
       workLocation: event.workLocationsEnabled ? assignment.workLocation?.name || '' : '',
       startTime, endTime, checkIn, checkOut, kind, reason, since: since?.toISOString() || '',
+      scheduleNote: !endTime ? 'Saída prevista não definida' : !planned ? 'Horário previsto por rever' : '',
       to: `/services/${event.id}?tab=team&day=${day}`,
     });
   }
-  items.sort((a, b) => a.since.localeCompare(b.since)
-    || a.collaboratorName.localeCompare(b.collaboratorName, 'pt') || a.assignmentId - b.assignmentId);
+  const compare = (a, b) => a.since.localeCompare(b.since)
+    || a.collaboratorName.localeCompare(b.collaboratorName, 'pt') || a.assignmentId - b.assignmentId;
+  items.sort(compare);
+  inProgress.sort(compare);
   const summary = { missing_entry: 0, missing_exit: 0, incomplete: 0 };
   for (const item of items) summary[item.kind] += 1;
-  return { items, total: items.length, summary, checkedAt: now.toISOString(), timeZone };
+  return { items, inProgress, total: items.length, summary, checkedAt: now.toISOString(), timeZone };
 }
 
 export async function readAttendanceAttention(db, options = {}) {

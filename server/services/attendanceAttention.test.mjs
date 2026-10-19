@@ -35,7 +35,12 @@ test('entry is only flagged after its own planned start and never marks an absen
 });
 
 test('exit is only flagged after the planned end, with changes reflected immediately', () => {
-  assert.equal(result({ checkIn: '11:02' }, '12:00').total, 0);
+  const ongoing = result({ checkIn: '11:02' }, '12:00');
+  assert.equal(ongoing.total, 0);
+  assert.equal(ongoing.items.length, 0);
+  assert.equal(ongoing.inProgress[0].kind, 'in_progress');
+  assert.equal(ongoing.inProgress[0].reason, 'Em serviço · A aguardar saída');
+  assert.equal(ongoing.inProgress[0].scheduleNote, '');
   assert.equal(result({ checkIn: '11:02' }, '15:00').total, 0);
   assert.equal(result({ checkIn: '11:02' }, '15:01').items[0].kind, 'missing_exit');
   assert.equal(result({ checkIn: '11:02', checkOut: '15:02' }, '15:03').total, 0);
@@ -102,12 +107,54 @@ test('overnight shifts do not warn before end; missing exits expire exactly 24h 
 
 test('incomplete or invalid schedules are informative, without inventing a deadline', () => {
   assert.equal(result({ plannedCheckOut: null }, '10:00').total, 0);
-  assert.equal(result({ plannedCheckOut: null }, '11:01').items[0].reason, 'Horário previsto incompleto');
+  const missingEntry = result({ plannedCheckOut: null }, '11:01');
+  assert.equal(missingEntry.items[0].reason, 'Entrada por registar');
+  assert.equal(missingEntry.items[0].scheduleNote, 'Saída prevista não definida');
   assert.equal(result({ plannedCheckIn: null }, '10:00').items[0].kind, 'incomplete');
   assert.equal(result({ checkIn: '99:00' }, '12:00').items[0].reason, 'Picagem com horário inválido');
   assert.equal(result({ checkIn: '11:00', checkOut: 'bad' }, '12:00').items[0].kind, 'incomplete');
   assert.equal(result({ assignmentDate: '2026-09-26', plannedCheckIn: null, plannedCheckOut: null }, '12:00').total, 0);
   assert.equal(result({ assignmentDate: '2026-09-20' }, '16:00').total, 0);
+});
+
+test('an entry without a planned end stays in service, not in the attention count', () => {
+  const source = row({ plannedCheckOut: null, checkIn: '11:02' });
+  const snapshot = structuredClone(source);
+  for (const time of ['12:00', '23:59']) {
+    const payload = buildAttendanceAttention([source], options(time));
+    assert.equal(payload.total, 0);
+    assert.deepEqual(payload.summary, { missing_entry: 0, missing_exit: 0, incomplete: 0 });
+    assert.equal(payload.inProgress.length, 1);
+    assert.equal(payload.inProgress[0].scheduleNote, 'Saída prevista não definida');
+  }
+  assert.deepEqual(source, snapshot);
+  assert.equal(result({ ...source, checkOut: '18:00' }, '19:00').inProgress.length, 0);
+});
+
+test('actual attendance anomalies take priority over ongoing and missing schedule information', () => {
+  for (const changes of [{ checkIn: 'bad' }, { checkOut: '12:00' }, { checkIn: '11:00', checkOut: 'bad' }]) {
+    const payload = result({ ...changes, plannedCheckOut: null }, '12:00');
+    assert.equal(payload.items[0].kind, 'incomplete');
+    assert.equal(payload.inProgress.length, 0);
+  }
+  const unknownStart = result({ plannedCheckIn: null, plannedCheckOut: null }, '12:00');
+  assert.equal(unknownStart.items[0].reason, 'Entrada prevista não definida');
+  const invalidEnd = result({ checkIn: '11:00', plannedCheckOut: 'bad' }, '12:00');
+  assert.equal(invalidEnd.total, 0);
+  assert.equal(invalidEnd.inProgress[0].scheduleNote, 'Horário previsto por rever');
+});
+
+test('setting the planned end reclassifies an ongoing service without changing attendance', () => {
+  const source = row({ checkIn: '11:00', plannedCheckOut: null });
+  assert.equal(buildAttendanceAttention([source], options('16:00')).inProgress.length, 1);
+  source.plannedCheckOut = '15:00';
+  const overdue = buildAttendanceAttention([source], options('16:00'));
+  assert.equal(overdue.inProgress.length, 0);
+  assert.equal(overdue.items[0].kind, 'missing_exit');
+  source.plannedCheckOut = '18:00';
+  assert.equal(buildAttendanceAttention([source], options('16:00')).total, 0);
+  assert.equal(source.checkIn, '11:00');
+  assert.equal(source.checkOut, null);
 });
 
 test('single-day events inherit times and the application timezone handles midnight and DST', () => {

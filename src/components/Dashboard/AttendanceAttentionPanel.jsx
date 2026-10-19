@@ -34,8 +34,9 @@ export default function AttendanceAttentionPanel({ search = '' }) {
   useEffect(() => { setLimit(6); }, [filter, search]);
   if (!allowed) return null;
   const q = search.trim().toLocaleLowerCase('pt-PT');
-  const items = (data?.items || []).filter((item) => (filter === 'all' || item.kind === filter)
-    && (!q || [item.collaboratorName, item.eventName, item.clientName, item.role, item.workLocation, item.reason].join(' ').toLocaleLowerCase('pt-PT').includes(q)));
+  const source = filter === 'in_progress' ? data?.inProgress : data?.items;
+  const items = (source || []).filter((item) => (filter === 'all' || item.kind === filter)
+    && (!q || [item.collaboratorName, item.eventName, item.clientName, item.role, item.workLocation, item.reason, item.scheduleNote].join(' ').toLocaleLowerCase('pt-PT').includes(q)));
   const groups = groupQrRowsByCollaboratorDay(items);
   const checkedAt = data?.checkedAt ? new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit', timeZone: data.timeZone }).format(new Date(data.checkedAt)) : '';
 
@@ -45,14 +46,16 @@ export default function AttendanceAttentionPanel({ search = '' }) {
         <div>
           <div className="command-attendance-title">
             <h2 id="attendance-attention-title"><Clock3 size={19} /> Picagens a precisar de atenção</h2>
-            {data && <span className="badge badge--warning" aria-label={`${data.total} alertas de picagens`}>{data.total}</span>}
+            {data && <span className={`badge badge--${data.total ? 'warning' : 'neutral'}`} aria-label={`${data.total} alertas de picagens`}>{data.total}</span>}
+            {!!data?.inProgress?.length && <span className="badge badge--info">{data.inProgress.length} em serviço</span>}
           </div>
           {!collapsed && <p>Hoje e serviços terminados nas últimas 24 horas{checkedAt ? ` · Atualizado às ${checkedAt}` : ''}</p>}
         </div>
         {!collapsed && <div className="command-attendance-controls">
           <select className="form-control" aria-label="Filtrar alertas de picagens" value={filter} onChange={(event) => setFilter(event.target.value)}>
-            <option value="all">Todas ({data?.total || 0})</option>
+            <option value="all">Alertas ({data?.total || 0})</option>
             {Object.entries(filters).map(([key, label]) => <option key={key} value={key}>{label} ({data?.summary?.[key] || 0})</option>)}
+            <option value="in_progress">Em serviço ({data?.inProgress?.length || 0})</option>
           </select>
           <button type="button" className="icon-button" title="Atualizar picagens" aria-label="Atualizar picagens" disabled={loading} onClick={() => reload()}><RefreshCw size={17} /></button>
         </div>}
@@ -89,8 +92,9 @@ export default function AttendanceAttentionPanel({ search = '' }) {
                         <div className="command-attendance-times">
                           <span>Previsto: {item.startTime || '--:--'} → {item.endTime || '--:--'}</span>
                           <small>Entrada: {item.checkIn || '--:--'} · Saída: {item.checkOut || '--:--'}</small>
+                          {item.scheduleNote && <small>{item.scheduleNote}</small>}
                         </div>
-                        <Badge tone={item.kind === 'incomplete' ? 'danger' : 'warning'}>{item.reason}</Badge>
+                        <Badge tone={item.kind === 'in_progress' ? 'info' : item.kind === 'incomplete' ? 'danger' : 'warning'}>{item.reason}</Badge>
                         <ChevronRight size={18} aria-hidden="true" />
                       </Link>
                     ))}
