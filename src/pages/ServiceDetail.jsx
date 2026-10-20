@@ -43,6 +43,7 @@ import EmptyState from '../components/UI/EmptyState.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { useServiceTeamDraft } from '../hooks/useServiceTeamDraft.js';
 import { useCollaboratorPickerPosition } from '../hooks/useCollaboratorPickerPosition.js';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
@@ -65,14 +66,12 @@ import { downloadEventAttendanceExcel } from '../utils/eventAttendanceExcel.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import {
   assignmentWorkDate,
-  buildEditableTeamRows,
   createManualTeamRow,
   dateKey,
   editableTeamRowsToAssignmentDrafts,
   editableTeamRowsToAssignmentPayloads,
   groupAssignmentsByRole,
   MANUAL_TEAM_ROLE,
-  normalizeDailyRoleRequirements,
   removeEditableTeamRow,
   resolveSelectedTeamDay,
   roleRequirementsForDay,
@@ -303,9 +302,12 @@ export default function ServiceDetail() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', [], { revalidateOnFocus: true });
   const { data: collaborators } = useApi('/collaborators?light=1', []);
+  const service = useMemo(
+    () => services.find((item) => String(item.id) === String(serviceId)),
+    [serviceId, services],
+  );
   const [activeTab, setActiveTab] = useState('summary');
-  const [teamRows, setTeamRows] = useState([]);
-  const [teamRoles, setTeamRoles] = useState([]);
+  const { teamRows, setTeamRows, teamRoles, setTeamRoles, acceptSavedTeam } = useServiceTeamDraft(service);
   const [roleManagerOpen, setRoleManagerOpen] = useState(false);
   const [workLocationManagerOpen, setWorkLocationManagerOpen] = useState(false);
   const [workLocationFilter, setWorkLocationFilter] = useState('all');
@@ -345,10 +347,6 @@ export default function ServiceDetail() {
   const [externalCostError, setExternalCostError] = useState('');
   const [savingExternalCost, setSavingExternalCost] = useState(false);
   const externalCostSavingRef = useRef(false);
-  const service = useMemo(
-    () => services.find((item) => String(item.id) === String(serviceId)),
-    [serviceId, services],
-  );
   const metrics = useMemo(() => serviceDetailMetrics(service || {}), [service]);
   const checklist = useMemo(() => serviceChecklist(service || {}), [service]);
   const externalOnly = isExternalOnlyService(service || {});
@@ -509,10 +507,7 @@ export default function ServiceDetail() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (!service) return;
-    const normalizedRoles = normalizeDailyRoleRequirements(service);
-    setTeamRoles(normalizedRoles);
-    setTeamRows(buildEditableTeamRows({ ...service, requiredRoles: normalizedRoles }));
+    if (!service?.id) return;
     setTeamError('');
     setRoleManagerOpen(false);
     setWorkLocationManagerOpen(false);
@@ -522,11 +517,15 @@ export default function ServiceDetail() {
     setCollapsedRoles(new Set());
     setNewRoleName('');
     setNewRoleQty('1');
-    setBillingDraft(clientPaymentDraft(service));
-    setBillingError('');
     setActiveTeamCollaboratorPickerKey(null);
     setTeamCollaboratorPickerPlacement(null);
     setActiveAdvanceRowKey(null);
+  }, [service?.id]);
+
+  useEffect(() => {
+    if (!service) return;
+    setBillingDraft(clientPaymentDraft(service));
+    setBillingError('');
   }, [service]);
 
   function updateBillingDraft(patch) {
@@ -1215,7 +1214,8 @@ export default function ServiceDetail() {
       const refreshedEvent = await api(`/services/${service.id}`);
       const impactMessage = eventFinancialImpactMessage(service, refreshedEvent);
       if (impactMessage) toast.info(impactMessage);
-      await reload();
+      acceptSavedTeam(refreshedEvent);
+      await reload({ background: true });
     } catch (err) {
       setTeamError(err?.message || 'Não foi possível guardar os colaboradores.');
     } finally {
@@ -1455,6 +1455,7 @@ export default function ServiceDetail() {
 
       {activeTab === 'team' ? (
         <>
+        <fieldset className="service-detail-team-editor" disabled={savingTeam}>
         <Card
           title="Colaboradores"
           className="service-detail-card"
@@ -2070,6 +2071,7 @@ export default function ServiceDetail() {
           Ver resumo de custos
           </Link>
         </div> : null}
+        </fieldset>
         </>
       ) : null}
 

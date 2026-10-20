@@ -8746,6 +8746,13 @@ th {
 .qr-day-current header p, .qr-day-summary span { color: var(--muted); }
 .qr-day-location { display: flex; align-items: start; gap: 6px; }
 .qr-day-location svg { flex: 0 0 16px; margin-top: 2px; }
+.service-detail-team-editor {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .qr-location-link {
   display: inline-flex;
   align-items: flex-start;
