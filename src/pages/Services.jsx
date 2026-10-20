@@ -25,6 +25,7 @@ import {
   findOverlappingAssignment,
 } from '../utils/assignmentOverlap.js';
 import { eventRevenueForDisplay, resolveEventRevenue } from '../utils/eventRevenue.js';
+import { assignmentUpdateChanges } from '../utils/serviceTeamSavePlan.js';
 import { eventFinancialImpactMessage } from '../utils/eventFinancialImpact.js';
 import { applyInheritedEventScheduleChange } from '../utils/eventScheduleInheritance.js';
 import {
@@ -1547,7 +1548,10 @@ export default function Services() {
           status: item.status || 'pending_confirmation',
         };
         if (item.id) {
-          await api(`/assignments/${item.id}`, { method: 'PUT', body: JSON.stringify(body) });
+          const changes = assignmentUpdateChanges(body, originalAssignmentsById.get(String(item.id)));
+          if (Object.keys(changes).length) {
+            await api(`/assignments/${item.id}`, { method: 'PUT', body: JSON.stringify(changes) });
+          }
         } else {
           await api('/assignments', { method: 'POST', body: JSON.stringify(body) });
         }

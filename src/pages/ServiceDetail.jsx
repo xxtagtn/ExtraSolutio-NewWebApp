@@ -44,6 +44,7 @@ import TimeInput from '../components/UI/TimeInput.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { useServiceTeamDraft } from '../hooks/useServiceTeamDraft.js';
+import { buildServiceTeamSavePlan } from '../utils/serviceTeamSavePlan.js';
 import { useCollaboratorPickerPosition } from '../hooks/useCollaboratorPickerPosition.js';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
@@ -68,8 +69,6 @@ import {
   assignmentWorkDate,
   createManualTeamRow,
   dateKey,
-  editableTeamRowsToAssignmentDrafts,
-  editableTeamRowsToAssignmentPayloads,
   groupAssignmentsByRole,
   MANUAL_TEAM_ROLE,
   removeEditableTeamRow,
@@ -1175,42 +1174,30 @@ export default function ServiceDetail() {
       setRoleManagerOpen(true);
       return;
     }
-    const allAssignmentPayloads = editableTeamRowsToAssignmentPayloads(teamRows, service);
-    const assignmentPayloads = allAssignmentPayloads.filter(
-      (row) => !isEventDayCancelled(service, assignmentWorkDate(row, service)),
-    );
-    const assignmentDrafts = editableTeamRowsToAssignmentDrafts(teamRows);
-    const cancelledAssignmentIds = (service.assignments || [])
-      .filter((assignment) => isEventDayCancelled(service, assignmentWorkDate(assignment, service)))
-      .map((assignment) => Number(assignment.id));
-    const keptIds = new Set([
-      ...assignmentPayloads.filter((row) => row.id).map((row) => Number(row.id)),
-      ...cancelledAssignmentIds,
-    ]);
-    const removedIds = (service.assignments || [])
-      .map((assignment) => Number(assignment.id))
-      .filter((id) => !keptIds.has(id));
+    const plan = buildServiceTeamSavePlan(service, teamRows, teamRoles);
+    if (!plan.changed) {
+      setTeamError('');
+      toast.info('Sem alterações por guardar.');
+      return;
+    }
 
     setSavingTeam(true);
     setTeamError('');
     try {
-      for (const id of removedIds) {
+      for (const id of plan.removedIds) {
         await api(`/assignments/${id}`, { method: 'DELETE' });
       }
-      for (const payload of assignmentPayloads) {
-        const { id, ...body } = payload;
-        await api(id ? `/assignments/${id}` : '/assignments', {
-          method: id ? 'PUT' : 'POST',
-          body: JSON.stringify(body),
+      for (const { id, data } of plan.updates) {
+        await api(`/assignments/${id}`, {
+          method: 'PUT', body: JSON.stringify(data),
         });
       }
-      await api(`/services/${service.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          requiredRoles: teamRoles,
-          assignmentDrafts,
-        }),
-      });
+      for (const body of plan.creates) {
+        await api('/assignments', { method: 'POST', body: JSON.stringify(body) });
+      }
+      if (Object.keys(plan.servicePatch).length) {
+        await api(`/services/${service.id}`, { method: 'PUT', body: JSON.stringify(plan.servicePatch) });
+      }
       const refreshedEvent = await api(`/services/${service.id}`);
       const impactMessage = eventFinancialImpactMessage(service, refreshedEvent);
       if (impactMessage) toast.info(impactMessage);
