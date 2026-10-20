@@ -1,5 +1,6 @@
-import { CheckCircle2, LogIn, LogOut, MapPin } from 'lucide-react';
+import { CheckCircle2, LogIn, LogOut } from 'lucide-react';
 import { useState } from 'react';
+import QrLocationLink from './QrLocationLink.jsx';
 
 function schedule(service) {
   return [service.startTime || '--:--', service.endTime || '--:--'].join(' → ');
@@ -42,7 +43,7 @@ export default function DailyQrServices({ payload, saving, onRegister, showHeade
         <span className={`qr-check-state qr-check-state--${current.state.key}`}>{current.state.label}</span>
         <h2>{current.eventName}</h2>
         {current.clientName && <p>{current.clientName}</p>}
-        {(current.workLocation || current.location) && <p className="qr-day-location"><MapPin size={16} /><span>{[current.location, current.workLocation].filter(Boolean).join(' · ')}</span></p>}
+        <QrLocationLink location={current.location} workLocation={current.workLocation} />
       </header>
       <dl className="qr-check-details">
         <div><dt>Função</dt><dd>{current.role || '-'}</dd></div>

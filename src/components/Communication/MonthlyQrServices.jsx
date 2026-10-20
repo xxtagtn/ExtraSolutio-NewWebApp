@@ -1,6 +1,7 @@
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, MapPin, Search, X } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import { useState } from 'react';
 import DailyQrServices from './DailyQrServices.jsx';
+import QrLocationLink from './QrLocationLink.jsx';
 import { qrSummaryDate } from '../../utils/qrConsultationSummary.js';
 import { monthlyDaysPage, monthlyServiceDays } from '../../utils/qrMonthlyPresentation.js';
 import './qrConsultation.css';
@@ -58,8 +59,7 @@ export default function MonthlyQrServices({ payload, saving, onRegister }) {
           <header>
             <h2>{service.eventName}</h2>
             <p>{service.role || '-'}</p>
-            {(service.location || service.workLocation) && <p className="qr-day-location"><MapPin size={16} />
-              <span>{[service.location, service.workLocation].filter(Boolean).join(' · ')}</span></p>}
+            <QrLocationLink location={service.location} workLocation={service.workLocation} />
           </header>
           <dl className="qr-consultation-planned"><div><dt>Horário previsto</dt>
             <dd>{service.startTime || '--:--'} → {service.endTime || '--:--'}</dd></div></dl>

@@ -8746,6 +8746,22 @@ th {
 .qr-day-current header p, .qr-day-summary span { color: var(--muted); }
 .qr-day-location { display: flex; align-items: start; gap: 6px; }
 .qr-day-location svg { flex: 0 0 16px; margin-top: 2px; }
+.qr-location-link {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 32px;
+  padding-block: 4px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+.qr-location-link span { min-width: 0; }
+.qr-location-link:hover { color: var(--text); }
+.qr-location-link:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 3px; }
 .qr-check-card--daily .qr-check-details div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
 .qr-check-card--daily .qr-check-state { max-width: 100%; width: fit-content; }
 .qr-check-card--daily .qr-check-command { width: 100%; border-radius: 8px; }

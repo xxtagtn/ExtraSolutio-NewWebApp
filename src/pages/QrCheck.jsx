@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { API_URL } from '../utils/api.js';
 import DailyQrServices from '../components/Communication/DailyQrServices.jsx';
 import MonthlyQrServices from '../components/Communication/MonthlyQrServices.jsx';
+import QrLocationLink from '../components/Communication/QrLocationLink.jsx';
 import { qrSummaryDate } from '../utils/qrConsultationSummary.js';
 
 async function publicQrApi(path, options = {}) {
@@ -192,6 +193,7 @@ function QrCheckPage({ token, daily, monthly }) {
               <StateBadge state={payload.state} />
               <h1>{payload.eventName}</h1>
               <p>{payload.clientName || 'ExtraSolutio'} · {formatDate(payload.assignmentDate)}</p>
+              <QrLocationLink location={payload.location} />
             </header>
 
             <dl className="qr-check-details">
