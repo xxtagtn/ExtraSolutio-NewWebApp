@@ -72,21 +72,32 @@ function shouldApplyClientRate(item, fallbackRoleRates) {
 export function applyClientRulesToServiceForm(form, client, options = {}) {
   const contact = clientDefaultContact(client);
   const uniformDefaults = resolveUniform(client?.defaultUniform, options.uniformOptions);
+  const previous = options.previousClient;
+  const switching = Boolean(previous && String(previous.id) !== String(client?.id || ''));
+  const previousContact = clientDefaultContact(previous);
+  const previousUniform = resolveUniform(previous?.defaultUniform, options.uniformOptions);
+  const inherited = (current, before) => !hasValue(current)
+    || (switching && normalizeText(current) === normalizeText(before));
+  const useUniform = !hasValue(form?.uniform) || (switching
+    && normalizeText(form?.uniform) === normalizeText(previousUniform.uniform)
+    && normalizeText(form?.uniformOther) === normalizeText(previousUniform.uniformOther));
 
   return {
     ...form,
     clientId: client?.id || '',
     minimumHoursSnapshot: toNumber(client?.minimumHours, 0) || 0,
     location: form?.useDefaultLocation ? (client?.address || '') : (form?.location || ''),
-    onsiteContactName: hasValue(form?.onsiteContactName) ? form.onsiteContactName : contact.onsiteContactName,
-    onsiteContactPhone: hasValue(form?.onsiteContactPhone) ? form.onsiteContactPhone : contact.onsiteContactPhone,
-    uniform: hasValue(form?.uniform) ? form.uniform : uniformDefaults.uniform,
-    uniformOther: hasValue(form?.uniformOther) ? form.uniformOther : uniformDefaults.uniformOther,
+    onsiteContactName: inherited(form?.onsiteContactName, previousContact.onsiteContactName) ? contact.onsiteContactName : form.onsiteContactName,
+    onsiteContactPhone: inherited(form?.onsiteContactPhone, previousContact.onsiteContactPhone) ? contact.onsiteContactPhone : form.onsiteContactPhone,
+    uniform: useUniform ? uniformDefaults.uniform : form.uniform,
+    uniformOther: useUniform ? uniformDefaults.uniformOther : form.uniformOther,
     requiredRoles: (form?.requiredRoles || []).map((item) => {
       const clientRate = clientRuleRate(client, item.role);
+      const previousRate = clientRuleRate(previous, item.role);
+      const useRate = !hasValue(item.agreedRate) || (switching && previousRate !== null && toNumber(item.agreedRate) === previousRate);
       return {
         ...item,
-        agreedRate: hasValue(item.agreedRate) || clientRate === null ? item.agreedRate : clientRate,
+        agreedRate: useRate ? (clientRate ?? (switching ? '' : item.agreedRate)) : item.agreedRate,
       };
     }),
   };

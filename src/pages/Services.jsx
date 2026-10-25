@@ -1203,7 +1203,7 @@ export default function Services() {
 
   function updateClient(clientId) {
     const client = clients.find((item) => String(item.id) === String(clientId));
-    if (!clientId) {
+    if (!clientId && editing) {
       setForm((prev) => ({
         ...prev,
         clientId: '',
@@ -1213,11 +1213,13 @@ export default function Services() {
       }));
       return;
     }
-    setForm((prev) => applyClientRulesToServiceForm(
-      { ...prev, clientId, clientName: '' },
-      client,
-      { uniformOptions },
-    ));
+    setForm((prev) => ({
+      ...applyClientRulesToServiceForm(
+        { ...prev, clientId, clientName: clientId ? '' : prev.clientName }, client,
+        { uniformOptions, previousClient: !editing ? clients.find((item) => String(item.id) === String(prev.clientId)) : undefined },
+      ),
+      ...(!editing && String(prev.clientId) !== String(clientId) ? { _financialConfigurationChanged: true } : {}),
+    }));
   }
 
   function updateRoleRequirement(role, patch) {
@@ -2303,7 +2305,7 @@ export default function Services() {
                                 if (Number(item.qty || 0) > 0) updateRoleRequirement(role, { agreedRate: formatMoneyInline(event.target.value) });
                               }}
                             />
-                            {inheritedRate !== null && item.agreedRate ? <SourceBadge>valor vindo do cliente</SourceBadge> : null}
+                            {inheritedRate !== null && decimalValue(item.agreedRate) === inheritedRate ? <SourceBadge>valor vindo do cliente</SourceBadge> : null}
                           </label>
                         </div>
                       );

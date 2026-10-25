@@ -88,6 +88,45 @@ test('applyClientRulesToServiceForm uses Outros when the client uniform is not i
   assert.equal(next.uniformOther, 'Uniforme especial');
 });
 
+test('switching clients replaces inherited defaults and rates, but not user-entered event data', () => {
+  const options = { uniformOptions: ['Camisa Preta', 'Camisa Branca', 'Outros'] };
+  const form = { name: 'Evento em criacao', date: '2026-10-25', useDefaultLocation: true,
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 3, agreedRate: '' }, { role: 'Barman', qty: 2, agreedRate: 18 }],
+    assignments: [{ collaboratorId: 7, hourlyRate: 8, status: 'confirmed', clientSynced: true }] };
+  const first = applyClientRulesToServiceForm(form, client, options);
+  const nextClient = { ...client, id: 43, address: 'Rua Cliente B', representativeName: 'Contacto B', phone: '222222222',
+    defaultUniform: 'Camisa Branca', minimumHours: 8, roleRates: [{ role: 'Emp.Mesa', rate: 16 }, { role: 'Barman', rate: 20 }] };
+  const next = applyClientRulesToServiceForm(first, nextClient, { ...options, previousClient: client });
+  assert.equal(next.onsiteContactName, 'Contacto B'); assert.equal(next.onsiteContactPhone, '222222222');
+  assert.equal(next.uniform, 'Camisa Branca'); assert.equal(next.location, 'Rua Cliente B');
+  assert.equal(next.minimumHoursSnapshot, 8); assert.equal(next.requiredRoles[0].agreedRate, 16);
+  assert.equal(next.requiredRoles[1].agreedRate, 18, 'Manual client sale price is preserved');
+  assert.deepEqual(next.assignments, form.assignments); assert.equal(next.name, form.name); assert.equal(next.date, form.date);
+});
+
+test('client switches preserve manual contacts, location, uniform and custom rates', () => {
+  const options = { uniformOptions: ['Camisa Preta', 'Outros'] };
+  const first = applyClientRulesToServiceForm({ useDefaultLocation: false, location: 'Local manual', requiredRoles: [] }, client, options);
+  const customized = { ...first, onsiteContactName: 'Responsavel manual', uniform: 'Outros', uniformOther: 'Uniforme manual' };
+  const next = applyClientRulesToServiceForm(customized, { ...client, id: 43, address: 'Rua B', phone: '222222222', defaultUniform: 'Outro uniforme' },
+    { ...options, previousClient: client });
+  assert.equal(next.onsiteContactName, 'Responsavel manual'); assert.equal(next.onsiteContactPhone, '222222222');
+  assert.equal(next.location, 'Local manual'); assert.equal(next.uniform, 'Outros'); assert.equal(next.uniformOther, 'Uniforme manual');
+});
+
+test('switching to missing defaults clears old inherited values, including after deselection', () => {
+  const options = { uniformOptions: ['Camisa Preta', 'Outros'] };
+  const first = applyClientRulesToServiceForm({ useDefaultLocation: true, requiredRoles: [{ role: 'Emp.Mesa', qty: 2 }] }, client, options);
+  const emptyClient = { id: 43 };
+  const next = applyClientRulesToServiceForm(first, emptyClient, { ...options, previousClient: client });
+  assert.equal(next.location, ''); assert.equal(next.onsiteContactName, ''); assert.equal(next.onsiteContactPhone, '');
+  assert.equal(next.uniform, ''); assert.equal(next.uniformOther, ''); assert.equal(next.requiredRoles[0].agreedRate, '');
+  const cleared = applyClientRulesToServiceForm(first, undefined, { ...options, previousClient: client });
+  assert.equal(cleared.clientId, ''); assert.equal(cleared.onsiteContactName, '');
+  const restored = applyClientRulesToServiceForm(cleared, client, options);
+  assert.equal(restored.onsiteContactName, client.representativeName); assert.equal(restored.location, client.address);
+});
+
 test('applyClientRulesToBudgetForm applies commercial defaults to budget categories', () => {
   const form = {
     clientId: '',
