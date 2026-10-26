@@ -196,8 +196,56 @@ test('calendar metadata: monthly and fortnightly references are calculated by th
     event = await get(event.id);
     assert.equal(event.clientFinance.periods[0].referenceDate, reference);
     assert.equal(event.clientFinance.periods[0].dueDate, due);
-    assert.equal(readClientPaymentRecord(event.clientPaymentRecord).commercialIssueDate, reference);
+    assert.equal(readClientPaymentRecord(event.clientPaymentRecord).commercialIssueDate, '2026-11-10');
     assert.deepEqual(invariant(await stored(event.id)), invariant(before));
+  }
+});
+
+test('manual issue date remains editable and persistent without changing calendar rules, money or other events', async () => {
+  const unchangedFields = (row) => {
+    const copy = { ...row };
+    delete copy.clientPaymentRecord; delete copy.updatedAt;
+    return copy;
+  };
+  for (const [method, reference, due] of [['monthly', '2026-10-31', '2026-11-15'],
+    ['biweekly', '2026-10-15', '2026-10-30'], ['per_event', '2026-10-10', '2026-10-25']]) {
+    const customer = await db.client.create({ data: { name: `Editable issue ${method}`, billingMethod: method, paymentTerm: 'days_15' } });
+    let event = await fixture({ clientId: customer.id, requiredRoles: '[]', totalCost: 204.88,
+      externalCosts: '[{"id":"partner","type":"Outro","costAmount":204.88,"marginPercent":0,"vatType":"standard_23"}]' });
+    const other = await fixture({ clientId: customer.id }), otherBefore = await stored(other.id);
+    const before = await stored(event.id), paymentBefore = clientPaymentSummary(before);
+    for (const issueDate of ['', null, '2026-02-30', '2026-10-15T12:00:00Z']) {
+      assert.equal((await financeRequest(event, 'commercial-status', { status: 'invoiced', issueDate })).status, 422);
+      assert.deepEqual(await stored(event.id), before);
+    }
+    for (const issueDate of ['2026-10-15', '2026-10-16']) {
+      const response = await financeRequest(event, 'commercial-status', { status: 'invoiced', issueDate });
+      assert.equal(response.status, 200, await response.text());
+      event = await stored(event.id);
+      const record = readClientPaymentRecord(event.clientPaymentRecord), loaded = await get(event.id);
+      assert.equal(record.commercialIssueDate, issueDate);
+      assert.equal(loaded.clientFinance.periods[0].referenceDate, reference);
+      assert.equal(loaded.clientFinance.periods[0].dueDate, due);
+      assert.deepEqual(clientPaymentSummary(event), paymentBefore);
+      assert.deepEqual(unchangedFields(event), unchangedFields(before));
+    }
+    const record = readClientPaymentRecord(event.clientPaymentRecord);
+    assert.equal(record.commercialChanges.length, 2);
+    assert.equal(record.commercialChanges[1].previousIssueDate, '2026-10-15');
+    assert.equal((await financeRequest(event, 'commercial-status', { status: 'invoiced', issueDate: undefined })).status, 200);
+    assert.deepEqual(await stored(event.id), event, 'Omitting a date must not overwrite a saved manual date with the calendar reference');
+    assert.equal((await put(event.id, { description: 'Descricao atualizada' })).status, 200);
+    event = await stored(event.id);
+    assert.equal(readClientPaymentRecord(event.clientPaymentRecord).commercialIssueDate, '2026-10-16');
+    assert.deepEqual(clientPaymentSummary(event), paymentBefore);
+    assert.deepEqual(readClientPaymentRecord(event.clientPaymentRecord).entries, record.entries);
+    assert.deepEqual(await stored(other.id), otherBefore);
+    assert.equal((await financeRequest(event, 'commercial-status', { status: 'automatic' })).status, 200);
+    const automatic = await get(event.id);
+    assert.equal(readClientPaymentRecord(automatic.clientPaymentRecord).commercialIssueDate, null);
+    assert.equal(automatic.clientFinance.periods[0].referenceDate, reference);
+    assert.equal(automatic.clientFinance.periods[0].dueDate, due);
+    assert.deepEqual(clientPaymentSummary(automatic), paymentBefore);
   }
 });
 
@@ -368,7 +416,7 @@ test('legacy invoiced events can record/correct missing issue dates without unlo
   assert.equal((await financeRequest(event, 'commercial-status', { status: 'invoiced', issueDate: '2026-10-15' })).status, 200);
   event = await stored(event.id);
   assert.equal(readClientPaymentRecord(event.clientPaymentRecord).legacyInvoiced, true);
-  assert.equal(readClientPaymentRecord(event.clientPaymentRecord).commercialIssueDate, '2026-10-10');
+  assert.equal(readClientPaymentRecord(event.clientPaymentRecord).commercialIssueDate, '2026-10-15');
   assert.equal(eventRevenueIsLocked(event), true); assert.deepEqual(invariant(event), invariant(original));
   assert.equal((await financeRequest(event, 'commercial-status', { status: 'automatic' })).status, 409);
   assert.equal((await put(event.id, { requiredRoles: [] })).status, 409);

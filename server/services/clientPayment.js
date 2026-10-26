@@ -106,9 +106,12 @@ export async function setClientCommercialStatus(prisma, eventId, { updatedAt, re
       const event = await tx.event.findUnique({ where: { id }, include: serviceListInclude });
       if (!event) return null;
       const calendar = clientBillingPeriodForDay(event.date, event.client || {});
-      const date = status !== 'invoiced' ? null : calendar?.referenceDate || normalizeCommercialIssueDate(issueDate);
-      if (status === 'invoiced' && !date) throw reversalError('Indica uma data de emissão válida para estas condições comerciais.', 422);
       const original = readClientPaymentRecord(event.clientPaymentRecord);
+      // The actual issue date is independent of the client's billing-period reference.
+      const date = status !== 'invoiced' ? null : issueDate === undefined
+        ? normalizeCommercialIssueDate(original?.commercialIssueDate) || calendar?.referenceDate
+        : normalizeCommercialIssueDate(issueDate);
+      if (status === 'invoiced' && !date) throw reversalError('Indica uma data de emissão válida para estas condições comerciais.', 422);
       if (!updatedAt || new Date(updatedAt).getTime() !== event.updatedAt.getTime() || revision !== (original?.commercialChanges?.length || 0)) {
         throw reversalError('O evento foi alterado. Atualiza a página antes de continuar.');
       }

@@ -57,7 +57,8 @@ export default function ClientReceiptManager({ event: initialEvent, invoices, on
   const termDays = clientPaymentTermDays(event.client);
   const paymentTerm = termDays == null ? 'Por configurar' : termDays === 0 ? 'Imediato' : `${termDays} dias`;
   const calendarReference = ['monthly', 'biweekly', 'per_event'].includes(event.client?.billingMethod) ? finance.periods[0]?.referenceDate : null;
-  const previewDueDate = issueDraft?.issueDate ? dueDateFromInvoiceIssue(issueDraft.issueDate, event.client) : null;
+  const initialIssueDate = record?.commercialIssueDate || calendarReference || '';
+  const previewDueDate = issueDraft ? dueDateFromInvoiceIssue(calendarReference || issueDraft.issueDate, event.client) : null;
   const audit = [...(record?.entries || []), ...(record?.commercialChanges || []).map((entry, index) => ({ ...entry, id: `commercial-${index}`, commercial: true })),
     ...(record?.financeChanges || []).map((entry, index) => ({ ...entry, id: `finance-${index}`, finance: true }))]
     .sort((a, b) => (new Date(a.recordedAt || a.receivedAt || 0).getTime() || 0) - (new Date(b.recordedAt || b.receivedAt || 0).getTime() || 0));
@@ -191,15 +192,15 @@ export default function ClientReceiptManager({ event: initialEvent, invoices, on
           if (e.target.value === 'paid') {
             setIssueDraft(null);
             setPaidDraft({ updatedAt: event.updatedAt, revision: record?.entries.length || 0, total: state.total, received: state.received,
-              amount: state.outstanding, receivedAt: billingToday(), issueDate: calendarReference || record?.commercialIssueDate || '' });
-          } else if (e.target.value === 'invoiced') { setIssueDraft({ issueDate: calendarReference || record?.commercialIssueDate || '' }); }
+              amount: state.outstanding, receivedAt: billingToday(), issueDate: initialIssueDate });
+          } else if (e.target.value === 'invoiced') { setIssueDraft({ issueDate: initialIssueDate }); }
           else { setIssueDraft(null); if (commercial !== 'automatic') saveCommercial('automatic'); }
         }} disabled={!canWrite || busy || loading || Boolean(error)}>
           <option value="automatic" disabled={Boolean(blocker)}>Automático</option><option value="invoiced" disabled={Boolean(blocker)}>Faturado</option>
           <option value="paid" disabled={state.total <= 0 || (event.invoices.some(invoiceIsIssued) && !canUpdateInvoices)}>Fatura paga</option>
         </select></label>
         {!issueDraft && canWrite && !registrationBlocker && (commercial === 'invoiced' || record?.legacyInvoiced) ? <button type="button" className="secondary-button" disabled={busy || loading || Boolean(error)}
-          onClick={() => { setSaveError(''); setSavedMessage(''); setIssueDraft({ issueDate: calendarReference || record?.commercialIssueDate || '' }); }}>
+          onClick={() => { setSaveError(''); setSavedMessage(''); setIssueDraft({ issueDate: initialIssueDate }); }}>
           <CalendarDays size={15} />{record?.commercialIssueDate ? 'Editar emissão' : 'Registar emissão'}</button> : null}
         {busy ? <p className="muted" role="status">A guardar...</p> : savedMessage ? <p role="status">{savedMessage}</p> : null}
       </div>
@@ -219,9 +220,10 @@ export default function ClientReceiptManager({ event: initialEvent, invoices, on
       </form> : null}
       {issueDraft ? <form className="finance-receipt-issue-form" onSubmit={(e) => { e.preventDefault(); saveCommercial('invoiced', issueDraft.issueDate); }}>
         <div className="service-detail-payment-grid">
-          <label>Data de faturação / referência<input type="date" required value={issueDraft.issueDate} readOnly={Boolean(calendarReference)} disabled={busy || loading || Boolean(registrationBlocker)}
+          <label>Data de emissão da fatura<input type="date" required value={issueDraft.issueDate} disabled={busy || loading || Boolean(registrationBlocker)}
             onChange={(e) => setIssueDraft({ issueDate: e.target.value })} /></label>
-          <div className="finance-receipt-issue-preview"><span>Vencimento</span><strong>{previewDueDate ? dayLabel(previewDueDate) : '-'}</strong><small>{paymentTerm}</small></div>
+          <div className="finance-receipt-issue-preview"><span>Vencimento</span><strong>{previewDueDate ? dayLabel(previewDueDate) : '-'}</strong><small>{paymentTerm}</small>
+            {calendarReference && <small>Referência do período: {dayLabel(calendarReference)}</small>}</div>
         </div>
         <div className="form-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { setIssueDraft(null); setSaveError(''); }}>Cancelar</button>
           <button type="submit" className="command-button" disabled={busy || loading || Boolean(registrationBlocker)}><Save size={15} />Guardar faturação</button></div>

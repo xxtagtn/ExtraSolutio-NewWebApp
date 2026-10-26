@@ -90,7 +90,7 @@ try {
     await eventRow.getByRole('button', { name: 'Gerir recebimentos', exact: true }).click();
     const manager = page.getByRole('dialog', { name: 'Gerir recebimentos', exact: true });
     await manager.getByLabel('Estado financeiro', { exact: true }).selectOption('invoiced');
-    assert.equal(await manager.getByLabel('Data de faturação / referência', { exact: true }).inputValue(), '2026-07-31');
+    assert.equal(await manager.getByLabel('Data de emissão da fatura', { exact: true }).inputValue(), '2026-07-31');
     await manager.getByRole('button', { name: 'Guardar faturação', exact: true }).click();
     await manager.locator('.client-billing-periods header').getByText('Faturado', { exact: true }).waitFor();
     assert.notEqual(stored[0].status, 'finalized');

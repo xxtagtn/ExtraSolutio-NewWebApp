@@ -26,6 +26,8 @@ test('fortnight reference plus client term overrides a later manual processing d
   assert.equal(key(result.dueDate), '2026-10-30'); assert.equal(result.label, 'A aguardar pagamento');
   assert.equal(shouldShowClientPaymentAlert(event, { today }), false);
   const delayed = { ...event, clientPaymentRecord: { ...event.clientPaymentRecord, commercialIssueDate: '2026-10-20' } };
+  assert.equal(deadline(delayed).issueDate, '2026-10-20');
+  assert.equal(deadline(delayed).referenceDate, '2026-10-15');
   assert.equal(key(deadline(delayed).dueDate), '2026-10-30');
 });
 
@@ -41,6 +43,17 @@ test('calendar reference is shared by manual commercial status and issued docume
   const event = service({ invoices: [{ status: 'issued', issueDate: '2026-10-19', dueDate: '2020-01-01' }] });
   assert.equal(deadline(event).source, 'calendar'); assert.equal(key(deadline(event).dueDate), '2026-10-15');
   assert.equal(deadline(event).status, 'overdue');
+  assert.equal(deadline(event).issueDate, '2026-10-19', 'An issued document remains authoritative');
+});
+
+test('correcting the manual issue date changes its display, not the monthly due date or financial state', () => {
+  const event = service({ client: { billingMethod: 'monthly', paymentTerm: 'days_15' },
+    clientPaymentRecord: { version: 1, entries: [], commercialStatus: 'invoiced', commercialIssueDate: '2026-10-16' } });
+  const before = structuredClone(event), result = deadline(event);
+  assert.equal(result.issueDate, '2026-10-16'); assert.equal(result.referenceDate, '2026-10-31');
+  assert.equal(key(result.dueDate), '2026-11-15');
+  assert.deepEqual(deadline(JSON.parse(JSON.stringify(event))), result);
+  assert.deepEqual(event, before);
 });
 
 test('SSH retains the configured 30-day term, even without a linked invoice entity', () => {
