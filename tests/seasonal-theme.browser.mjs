@@ -57,6 +57,7 @@ try {
       const s = getComputedStyle(el);
       return ['--accent', '--danger', '--success', '--text', '--muted', '--bg'].map((p) => s.getPropertyValue(p));
     });
+    const originalBorder = await page.locator('.topbar').evaluate((el) => getComputedStyle(el).borderBottomColor);
     for (const [value, label] of [['halloween', 'Halloween'], ['christmas', 'Natal'], ['easter', 'Páscoa']]) {
       await page.getByRole('radio', { name: label, exact: true }).check();
       await assertTheme(page, value);
@@ -68,6 +69,17 @@ try {
         return ['--accent', '--danger', '--success', '--text', '--muted', '--bg'].map((p) => s.getPropertyValue(p));
       });
       assert.deepEqual(unchanged, financialColors);
+      assert.equal(await page.locator('.topbar').evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(11, 16, 19)', 'The header stays charcoal, not a full seasonal color band');
+      assert.equal(await page.locator('.topbar').evaluate((el) => getComputedStyle(el).borderBottomColor), originalBorder);
+      const decoration = page.locator('.seasonal-header-decoration');
+      assert.equal(await decoration.getAttribute('aria-hidden'), 'true');
+      assert.equal(await decoration.evaluate((el) => getComputedStyle(el).pointerEvents), 'none');
+      assert.equal(await decoration.locator(`.seasonal-corner.seasonal-motif--${value}`).count(), 1);
+      assert.equal(await decoration.locator('.seasonal-corner').evaluate((el) => getComputedStyle(el).backgroundPositionY), '100%');
+      const headerBox = await page.locator('.topbar').boundingBox(), decorationBox = await decoration.boundingBox();
+      assert.ok(decorationBox.y >= headerBox.y && decorationBox.y + decorationBox.height <= headerBox.y + headerBox.height, 'Corner decorations never spill onto data');
+      const logoSize = await page.locator('.topbar-brand-title .seasonal-motif').boundingBox();
+      assert.equal(logoSize.width, width <= 600 ? 36 : 48, 'Logo motif matches the prominence of the approved proposals');
       await page.screenshot({ path: `${output}/profile-${value}-${width}.png` });
     }
     await page.reload();
@@ -106,6 +118,7 @@ try {
     await page.getByRole('radio', { name: 'Original', exact: true }).check();
     await assertTheme(page, 'original');
     assert.equal(await page.locator('.topbar-brand-title .seasonal-motif').count(), 0);
+    assert.equal(await page.locator('.seasonal-header-decoration').count(), 0);
     // Cross-tab synchronization uses the same user key, without persisting anything server-side.
     const other = await context.newPage();
     await other.goto(`${base}/profile`);
@@ -116,8 +129,41 @@ try {
     await page.locator('.command-kpi').first().waitFor();
     await assertTheme(page, 'christmas');
     await page.screenshot({ path: `${output}/dashboard-${width}.png` });
+    await page.getByRole('button', { name: 'Abrir menu do perfil' }).click();
+    await page.getByRole('menuitem', { name: /Aparência/ }).click();
+    for (const [value, label] of [['halloween', 'Halloween'], ['christmas', 'Natal'], ['easter', 'Páscoa']]) {
+      await page.getByRole('menuitemradio', { name: label, exact: true }).click();
+      await assertTheme(page, value);
+      await page.screenshot({ path: `${output}/dashboard-${value}-${width}.png` });
+      await page.keyboard.press('Escape');
+      await page.locator('.topbar').screenshot({ path: `${output}/header-${value}-${width}.png` });
+      await page.getByRole('button', { name: 'Abrir menu do perfil' }).click();
+      await page.getByRole('menuitem', { name: /Aparência/ }).click();
+    }
+    const sprite = await page.locator('.seasonal-corner').evaluate(async (el) => {
+      const url = getComputedStyle(el).backgroundImage.slice(5, -2);
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
+      const cells = [];
+      for (let row = 0; row < 2; row++) for (let col = 0; col < 3; col++) {
+        const data = ctx.getImageData(col * img.width / 3, row * img.height / 2, img.width / 3, img.height / 2).data;
+        let visible = 0, transparent = 0;
+        for (let i = 3; i < data.length; i += 4) { if (data[i] > 0) visible++; else transparent++; }
+        cells.push({ visible, transparent });
+      }
+      return { width: img.width, height: img.height, cells };
+    });
+    assert.equal(sprite.width / sprite.height, 1.5);
+    assert.ok(sprite.cells.every((cell) => cell.visible > 100 && cell.transparent > 100), 'All three motifs and corners decode and contain real transparent background');
+    await page.getByRole('menuitemradio', { name: 'Natal', exact: true }).click();
+    await page.keyboard.press('Escape');
     await page.emulateMedia({ media: 'print' });
     assert.equal(await page.locator('.topbar-brand-title .seasonal-motif').isVisible(), false);
+    assert.equal(await page.locator('.seasonal-header-decoration').isVisible(), false);
     await page.emulateMedia({ media: 'screen' });
     // Another signed-in user on this browser starts with their own preference.
     await page.evaluate(async () => {

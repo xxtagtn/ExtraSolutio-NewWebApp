@@ -29,13 +29,18 @@ a janela. A seleção manual não é alterada pelo calendário.
 Apenas o layout autenticado recebe `data-seasonal-theme`. Login e links QR
 permanecem inalterados. As cores semânticas globais, estados financeiros,
 permissões, PDF/Excel e regras de negócio não são modificados. Os apontamentos
-sazonais estão limitados ao cabeçalho, avatar, navegação ativa e seleção do tema;
+sazonais estão limitados ao cabeçalho, avatar e seleção do tema;
 sem animação nem decoração sobre as tabelas. As ilustrações são ocultadas na impressão.
 
 O sprite PNG transparente `src/components/Appearance/seasonal-motifs.png` foi gerado
-com o gerador de imagem integrado. Prompt: três células quadradas iguais, abóbora
-Halloween, ramo de pinheiro com bagas e ovos de Páscoa com flores; gouache discreto,
-objetos isolados sem texto e com fundo transparente. É servido localmente com hash
+com o gerador de imagem integrado, usando as três propostas aprovadas como referência.
+Prompt: grelha de três colunas e duas linhas com seis células quadradas iguais;
+primeira linha com abóbora gráfica, ramo com bagas e ovos pastel; segunda linha com
+teia prateada, pinheiro com luzes e ramo de flores para o canto superior direito.
+Objetos isolados sem texto nem fundo. O cabeçalho mantém o fundo escuro e a linha
+neutra originais; os motivos têm tamanho fixo e as decorações dos cantos ficam
+recortadas dentro do cabeçalho e atrás dos controlos, sem intercetar cliques.
+O sprite é servido localmente com hash
 pelo Vite, sem pedidos a serviços externos.
 
 ## Verificação

@@ -70,6 +70,11 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
 
   return (
     <header className="topbar">
+      {theme !== 'original' && (
+        <span className="seasonal-header-decoration" aria-hidden="true">
+          <SeasonalMotif theme={theme} className="seasonal-corner" />
+        </span>
+      )}
       <div className="topbar__left">
         <button type="button" className="menu-toggle" onClick={onToggleMenu} aria-label="Abrir menu">
           <Menu size={18} />

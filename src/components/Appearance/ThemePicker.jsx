@@ -25,7 +25,7 @@ export default function ThemePicker({ compact = false }) {
       <button key={value} type="button" role="menuitemradio" aria-checked={selected}
         className={`theme-menu-option ${selected ? 'theme-menu-option--selected' : ''}`}
         onClick={() => selectTheme(value)} onKeyDown={(event) => navigateOptions(event, index)}>
-        {visual}<span>{label}</span>{selected && <Check size={16} aria-hidden="true" />}
+        <span className="theme-menu-radio" aria-hidden="true">{selected && <Check size={13} />}</span><span>{label}</span>
       </button>
     );
     return (
