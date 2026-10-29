@@ -1,12 +1,13 @@
 import { CheckCircle2, LogIn, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import QrLocationLink from './QrLocationLink.jsx';
+import QrLinkHeader from './QrLinkHeader.jsx';
 
 function schedule(service) {
   return [service.startTime || '--:--', service.endTime || '--:--'].join(' → ');
 }
 
-export default function DailyQrServices({ payload, saving, onRegister, showHeader = true }) {
+export default function DailyQrServices({ payload, saving, onRegister, showHeader = true, themed = false }) {
   const [selection, setSelection] = useState(null);
   const selectedId = payload.activeAssignmentId || (selection?.revision === payload.revision ? selection.id : null);
   const current = payload.services.find((service) => service.assignmentId === selectedId && payload.candidateIds.includes(selectedId));
@@ -16,11 +17,11 @@ export default function DailyQrServices({ payload, saving, onRegister, showHeade
   const day = new Intl.DateTimeFormat('pt-PT', { timeZone: 'UTC' }).format(new Date(payload.assignmentDate));
 
   return <>
-    {showHeader && <header className="qr-check-header">
+    {showHeader && <QrLinkHeader themed={themed}>
       <p>Picagens do dia · {day}</p>
       <h1>{payload.collaboratorName}</h1>
       <p>{payload.completedCount} de {payload.total} serviços concluídos</p>
-    </header>}
+    </QrLinkHeader>}
 
     {waitingForDay && <p className="qr-check-footnote" role="status">
       Picagens disponíveis em {day}, a partir das {payload.punchAvailableTime}.

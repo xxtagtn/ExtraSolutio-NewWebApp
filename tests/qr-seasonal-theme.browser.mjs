@@ -15,15 +15,16 @@ try {
     const page = await context.newPage(), errors = [], writes = [];
     page.on('pageerror', (error) => errors.push(error.message));
     let theme = 'halloween', entered = false, completed = false, blocked = false;
+    let collaboratorName = 'Joana Martins';
     const service = () => ({ assignmentId: 1, assignmentDate: '2026-10-29', eventName: 'Restaurante Luz Chakall',
-      collaboratorName: 'Joana Martins', clientName: 'SUPREME', role: 'Emp.Mesa', location: 'Estádio da Luz, Lisboa',
+      collaboratorName, clientName: 'SUPREME', role: 'Emp.Mesa', location: 'Estádio da Luz, Lisboa',
       startTime: '11:00', endTime: '16:00', plannedCheckIn: '11:00', plannedCheckOut: '16:00',
       checkIn: entered ? '10:58' : null, checkOut: completed ? '16:00' : null,
       state: { key: completed ? 'completed' : entered ? 'checked_in' : 'qr_generated',
         label: completed ? 'Concluído' : entered ? 'Em serviço' : 'Por registar', nextAction: entered ? 'check_out' : 'check_in' },
       checkOutRetryAfterMs: blocked ? 30000 : 0, checkOutAvailableTime: '11:28', completed });
     const payload = () => {
-      const row = service(), daily = { collaboratorName: 'Joana Martins', assignmentDate: row.assignmentDate,
+      const row = service(), daily = { collaboratorName, assignmentDate: row.assignmentDate,
         activeAssignmentId: completed ? null : 1, candidateIds: completed ? [] : [1], services: [row],
         completed, total: 1, completedCount: completed ? 1 : 0, revision: 'theme-test' };
       const data = scope === 'single' ? row : scope === 'day' ? daily : {
@@ -62,17 +63,40 @@ try {
       assert.equal(writes.length, 0, 'Background theme updates must never punch');
       if (next !== 'original') {
         await page.locator('.seasonal-header-scene').evaluate(async (el) => { const img = new Image(); img.src = getComputedStyle(el).backgroundImage.slice(5, -2); await img.decode(); });
-        const banner = await page.locator('.qr-seasonal-banner').boundingBox(), title = await page.locator('.qr-check-card > .qr-check-header').boundingBox();
-        assert.ok(banner.y + banner.height <= title.y, 'The seasonal banner stays above the collaborator/service heading');
+        const header = await page.locator('.qr-seasonal-header').boundingBox();
+        const title = await page.locator('.qr-seasonal-identity-details h1').boundingBox();
+        assert.ok(title.y >= header.y && title.y + title.height <= header.y + header.height, 'The title is integrated into the seasonal header');
+        assert.equal(await page.locator('.qr-seasonal-banner').count(), 0, 'No separate decorative banner duplicates the header');
         assert.equal(await page.locator('.seasonal-header-decoration').evaluate((el) => getComputedStyle(el).pointerEvents), 'none');
+        const shade = await page.locator('.qr-seasonal-header').evaluate((el) => ({
+          background: getComputedStyle(el, '::after').backgroundImage,
+          pointerEvents: getComputedStyle(el, '::after').pointerEvents,
+        }));
+        assert.match(shade.background, /linear-gradient/, 'A dark shading layer separates the text from the artwork');
+        assert.equal(shade.pointerEvents, 'none', 'The shading cannot block links or actions');
+        const logo = page.locator('.qr-seasonal-identity > img');
+        assert.equal(await logo.count(), 1);
+        assert.equal(await logo.evaluate((el) => el.complete && el.naturalWidth > 0), true, 'The actual company logo renders');
+        assert.ok(title.x + title.width <= header.x + header.width, 'The title fits the header');
+        const footer = await page.locator('.qr-seasonal-footer').boundingBox();
+        const footerArt = await page.locator('.qr-seasonal-footer .seasonal-art-tile').boundingBox();
+        assert.ok(Math.abs(footerArt.x + footerArt.width / 2 - footer.x - footer.width / 2) < 1, 'Footer artwork is horizontally centered');
+        assert.ok(footerArt.y >= footer.y && footerArt.y + footerArt.height <= footer.y + footer.height, 'Footer artwork is not clipped');
         const button = await command.boundingBox();
         assert.ok(button.y + button.height <= 900, 'The primary punch action stays near the first mobile viewport');
         await page.screenshot({ path: `${output}/${scope}-${next}-${width}.png`, fullPage: true });
-      } else assert.equal(await page.locator('.qr-seasonal-banner').count(), 0);
+        await page.locator('.qr-seasonal-header').screenshot({ path: `${output}/${scope}-${next}-${width}-header.png` });
+      } else assert.equal(await page.locator('.qr-seasonal-header').count(), 0);
     }
     theme = 'christmas';
+    collaboratorName = 'Ana Carolina Rodrigues de Albuquerque e Vasconcelos';
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await page.waitForFunction(() => document.querySelector('.qr-check-page')?.dataset.seasonalTheme === 'christmas');
+    const identity = await page.locator('.qr-seasonal-identity-details').boundingBox();
+    const longName = await page.locator('.qr-seasonal-identity-details h1').boundingBox();
+    assert.ok(longName.x + longName.width <= identity.x + identity.width, 'Long names wrap within the identity area');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ path: `${output}/${scope}-long-name-${width}.png`, fullPage: true });
     blocked = true;
     await command.click();
     const exit = page.getByRole('button', { name: 'Dar Saída', exact: true });
@@ -82,6 +106,9 @@ try {
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await exit.click();
     await page.getByRole('status').filter({ hasText: 'Saída registada.' }).waitFor();
+    const headerAfterCheckout = await page.locator('.qr-seasonal-header').boundingBox();
+    const receipt = await page.locator('.qr-check-checkout-reminder').boundingBox();
+    assert.ok(receipt.y >= headerAfterCheckout.y + headerAfterCheckout.height, 'The checkout receipt does not overlap the themed header');
     assert.equal(writes.length, 2);
     assert.equal(await root.getAttribute('data-seasonal-theme'), 'christmas');
     assert.deepEqual(errors, []);

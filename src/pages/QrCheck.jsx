@@ -5,6 +5,7 @@ import { API_URL } from '../utils/api.js';
 import DailyQrServices from '../components/Communication/DailyQrServices.jsx';
 import MonthlyQrServices from '../components/Communication/MonthlyQrServices.jsx';
 import QrLocationLink from '../components/Communication/QrLocationLink.jsx';
+import QrLinkHeader from '../components/Communication/QrLinkHeader.jsx';
 import { qrSummaryDate } from '../utils/qrConsultationSummary.js';
 import { resolveSeasonalTheme } from '../utils/seasonalTheme.js';
 import SeasonalArtwork from '../components/Appearance/SeasonalArtwork.jsx';
@@ -144,10 +145,7 @@ function QrCheckPage({ token, daily, monthly }) {
   return (
     <main className="qr-check-page" data-seasonal-theme={theme}>
       <section className={`qr-check-card${daily || monthly ? ' qr-check-card--daily' : ''}${monthly ? ' qr-check-card--monthly' : ''}`}>
-        {theme !== 'original' ? <div className="qr-seasonal-banner">
-          <SeasonalArtwork placement="header" />
-          <div className="qr-seasonal-brand"><img src="/logo.png" alt="ExtraSolutio" /><strong>ExtraSolutio</strong></div>
-        </div> : <div className="qr-check-logo">
+        {theme === 'original' && <div className="qr-check-logo">
           <img src="/logo.png" alt="ExtraSolutio" />
         </div>}
         {checkoutReceipt && <div className="qr-check-checkout-reminder" role="status">
@@ -183,25 +181,25 @@ function QrCheckPage({ token, daily, monthly }) {
           </div>
         ) : monthly ? (
           <>
-            <MonthlyQrServices payload={payload} saving={saving} onRegister={register} />
+            <MonthlyQrServices payload={payload} saving={saving} onRegister={register} themed={theme !== 'original'} />
             {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
             <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
             <p className="qr-check-footnote">Os serviços concluídos não ficam disponíveis para consulta, uma vez que os horários registados estão sujeitos a validação com o cliente/parceiro.</p>
           </>
         ) : daily ? (
           <>
-            <DailyQrServices payload={payload} saving={saving} onRegister={register} />
+            <DailyQrServices payload={payload} saving={saving} onRegister={register} themed={theme !== 'original'} />
             {actionError && <p className="qr-check-footnote" role="alert">{actionError}</p>}
             <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
           </>
         ) : (
           <>
-            <header className="qr-check-header">
+            <QrLinkHeader themed={theme !== 'original'}>
               <StateBadge state={payload.state} />
               <h1>{payload.eventName}</h1>
               <p>{payload.clientName || 'ExtraSolutio'} · {formatDate(payload.assignmentDate)}</p>
               <QrLocationLink location={payload.location} />
-            </header>
+            </QrLinkHeader>
 
             <dl className="qr-check-details">
               <div>

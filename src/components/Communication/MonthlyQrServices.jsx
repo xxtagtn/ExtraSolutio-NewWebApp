@@ -2,11 +2,12 @@ import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Search, X } from 
 import { useState } from 'react';
 import DailyQrServices from './DailyQrServices.jsx';
 import QrLocationLink from './QrLocationLink.jsx';
+import QrLinkHeader from './QrLinkHeader.jsx';
 import { qrSummaryDate } from '../../utils/qrConsultationSummary.js';
 import { monthlyDaysPage, monthlyServiceDays } from '../../utils/qrMonthlyPresentation.js';
 import './qrConsultation.css';
 
-export default function MonthlyQrServices({ payload, saving, onRegister }) {
+export default function MonthlyQrServices({ payload, saving, onRegister, themed = false }) {
   const [expandedDay, setExpandedDay] = useState(null);
   const [navigation, setNavigation] = useState({ query: '', page: 1 });
   const currentIds = new Set(payload.active?.candidateIds || []);
@@ -24,13 +25,13 @@ export default function MonthlyQrServices({ payload, saving, onRegister }) {
     setExpandedDay(null);
   }
   return <>
-    <header className="qr-check-header qr-consultation-header">
+    <QrLinkHeader themed={themed} className="qr-consultation-header">
       <h1>{payload.collaboratorName}</h1>
       <p>Link de Picagens</p>
       <strong className="qr-month-label">{month.charAt(0).toUpperCase() + month.slice(1)}</strong>
       <small>{payload.closed ? 'Link terminado' : payload.checkoutOnly ? 'Apenas saída do turno em curso'
         : `Válido até ${qrSummaryDate(payload.expiresAt, payload.timeZone)}`}</small>
-    </header>
+    </QrLinkHeader>
     {payload.active && <section className="qr-month-active" aria-label="Picagens disponíveis">
       <h2>Picagens · {qrSummaryDate(payload.activeDay)}</h2>
       <DailyQrServices key={payload.activeDay} payload={payload.active} saving={saving}
