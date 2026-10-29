@@ -24,10 +24,19 @@ model User {
   updatedAt             DateTime @updatedAt @db.DateTime(3)
   notificationDismissals NotificationDismissal[]
   pushSubscriptions PushSubscription[]
+  appearance UserAppearance?
   permissionAuditChanges PermissionAuditLog[] @relation("PermissionAuditActor")
   permissionAuditTargets PermissionAuditLog[] @relation("PermissionAuditTarget")
 
   @@index([accessProfileId], map: "User_accessProfileId_idx")
+}
+
+model UserAppearance {
+  userId      Int      @id
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  preference  String   @default("original") @db.VarChar(20)
+  publicScope String?  @unique @db.VarChar(20)
+  updatedAt   DateTime @updatedAt @db.DateTime(3)
 }
 
 model AccessProfile {

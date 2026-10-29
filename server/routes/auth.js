@@ -9,8 +9,18 @@ import { effectivePermissionsForUser } from '../../src/utils/accessPermissions.j
 import { asyncHandler } from '../utils/http.js';
 import { normalizeUserPhoto } from '../../src/utils/userProfile.js';
 import { issueSessionToken } from '../security/sessionTokens.js';
+import { readUserAppearance, updateUserAppearance } from '../services/userAppearance.js';
 
 export const authRouter = Router();
+
+authRouter.get('/appearance', requireAuth, asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await readUserAppearance(prisma, req.user));
+}));
+authRouter.put('/appearance', requireAuth, asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await updateUserAppearance(prisma, req.user, req.body));
+}));
 
 const LOGIN_WINDOW_MS = Number(process.env.LOGIN_WINDOW_MINUTES || 15) * 60 * 1000;
 const LOGIN_MAX_FAILURES = Number(process.env.LOGIN_MAX_FAILURES || 5);

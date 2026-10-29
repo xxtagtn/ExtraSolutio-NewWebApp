@@ -16,6 +16,8 @@ import {
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
 import { visibleSidebarItems } from '../../utils/appNavigation.js';
+import { useSeasonalTheme } from '../../hooks/useSeasonalTheme.jsx';
+import SeasonalArtwork from '../Appearance/SeasonalArtwork.jsx';
 
 const iconsByKey = {
   dashboard: LayoutDashboard,
@@ -37,10 +39,12 @@ export default function Sidebar({
   onToggleCollapsed,
 }) {
   const { user } = useAuth();
+  const { theme } = useSeasonalTheme();
   const visibleLinks = visibleSidebarItems(user);
 
   return (
     <aside className={`sidebar ${mobileOpen ? 'sidebar--open' : ''} ${collapsed ? 'sidebar--collapsed' : ''}`}>
+      {theme !== 'original' && !collapsed && <SeasonalArtwork placement="sidebar-edge" />}
       <div className="brand">
         <span className="brand__mark brand__mark--logo">
           <img src="/logo.png" alt="ExtraSolutio" />
@@ -74,6 +78,7 @@ export default function Sidebar({
           );
         })}
       </nav>
+      {theme !== 'original' && !collapsed && <SeasonalArtwork placement="sidebar-base" />}
     </aside>
   );
 }

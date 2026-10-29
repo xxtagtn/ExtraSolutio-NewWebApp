@@ -6,6 +6,9 @@ import DailyQrServices from '../components/Communication/DailyQrServices.jsx';
 import MonthlyQrServices from '../components/Communication/MonthlyQrServices.jsx';
 import QrLocationLink from '../components/Communication/QrLocationLink.jsx';
 import { qrSummaryDate } from '../utils/qrConsultationSummary.js';
+import { resolveSeasonalTheme } from '../utils/seasonalTheme.js';
+import SeasonalArtwork from '../components/Appearance/SeasonalArtwork.jsx';
+import '../components/Appearance/SeasonalAppearance.css';
 
 async function publicQrApi(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -136,13 +139,17 @@ function QrCheckPage({ token, daily, monthly }) {
 
   const nextAction = payload?.state?.nextAction;
   const checkoutBlocked = payload?.checkOutRetryAfterMs > 0;
+  const theme = resolveSeasonalTheme(payload?.appearance?.theme);
 
   return (
-    <main className="qr-check-page">
+    <main className="qr-check-page" data-seasonal-theme={theme}>
       <section className={`qr-check-card${daily || monthly ? ' qr-check-card--daily' : ''}${monthly ? ' qr-check-card--monthly' : ''}`}>
-        <div className="qr-check-logo">
+        {theme !== 'original' ? <div className="qr-seasonal-banner">
+          <SeasonalArtwork placement="header" />
+          <div className="qr-seasonal-brand"><img src="/logo.png" alt="ExtraSolutio" /><strong>ExtraSolutio</strong></div>
+        </div> : <div className="qr-check-logo">
           <img src="/logo.png" alt="ExtraSolutio" />
-        </div>
+        </div>}
         {checkoutReceipt && <div className="qr-check-checkout-reminder" role="status">
           <Camera size={22} aria-hidden="true" />
           <p><strong>Saída registada.</strong> Aponta o teu horário, ou tira print, este serviço será desativado de consulta muito em breve</p>
@@ -243,6 +250,7 @@ function QrCheckPage({ token, daily, monthly }) {
             <p className="qr-check-footnote">A hora é registada pelo servidor da ExtraSolutio.</p>
           </>
         )}
+        {theme !== 'original' && <SeasonalArtwork placement="public-footer" />}
       </section>
     </main>
   );

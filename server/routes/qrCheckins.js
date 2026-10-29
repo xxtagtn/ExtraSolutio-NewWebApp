@@ -11,6 +11,7 @@ import { createDailyQrToken } from '../utils/qrDailyToken.js';
 import { createMonthlyPunchToken, monthlyPunchCycle } from '../utils/qrMonthlyToken.js';
 import { readMonthlyPunchQr, registerMonthlyPunchQr } from '../services/qrMonthlyPunching.js';
 import { synchronizeEventWorkflow } from '../services/eventWorkflow.js';
+import { withPublicQrAppearance } from '../services/userAppearance.js';
 import {
   QR_CHECK_ACTIONS,
   qrCodeStateForAssignment,
@@ -118,11 +119,11 @@ qrPublicRouter.use((_req, res, next) => {
 });
 
 qrPublicRouter.get('/month/:token', asyncHandler(async (req, res) => {
-  res.json(await readMonthlyPunchQr(prisma, req.params.token));
+  res.json(await withPublicQrAppearance(prisma, await readMonthlyPunchQr(prisma, req.params.token)));
 }));
 for (const [path, action] of [['check-in', QR_CHECK_ACTIONS.checkIn], ['check-out', QR_CHECK_ACTIONS.checkOut]]) {
   qrPublicRouter.post(`/month/:token/${path}`, asyncHandler(async (req, res) => {
-    res.json(await registerMonthlyPunchQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials }));
+    res.json(await withPublicQrAppearance(prisma, await registerMonthlyPunchQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials })));
   }));
 }
 const monthlyDisabled = (_req, res) => res.status(410).json({ message: 'Os links mensais antigos foram desativados. Pede o novo link de picagens.' });
@@ -130,28 +131,28 @@ qrPublicRouter.use('/month', monthlyDisabled);
 qrCodesRouter.use('/monthly', monthlyDisabled);
 
 qrPublicRouter.get('/day/:token', asyncHandler(async (req, res) => {
-  res.json(publicDailyPunchPayload(await readDailyQr(prisma, req.params.token)));
+  res.json(await withPublicQrAppearance(prisma, publicDailyPunchPayload(await readDailyQr(prisma, req.params.token))));
 }));
 
 for (const [path, action] of [['check-in', QR_CHECK_ACTIONS.checkIn], ['check-out', QR_CHECK_ACTIONS.checkOut]]) {
   qrPublicRouter.post(`/day/:token/${path}`, asyncHandler(async (req, res) => {
-    res.json(publicDailyPunchPayload(await registerDailyQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials })));
+    res.json(await withPublicQrAppearance(prisma, publicDailyPunchPayload(await registerDailyQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials }))));
   }));
 }
 
 qrPublicRouter.get('/:token', asyncHandler(async (req, res) => {
   const qrCode = await readPublicQr(prisma, req.params.token);
-  res.json(publicPayload(req, qrCode));
+  res.json(await withPublicQrAppearance(prisma, publicPayload(req, qrCode)));
 }));
 
 qrPublicRouter.post('/:token/check-in', asyncHandler(async (req, res) => {
   const updated = await registerPublicQr(prisma, req.params.token, QR_CHECK_ACTIONS.checkIn, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials });
-  res.json(publicPayload(req, updated));
+  res.json(await withPublicQrAppearance(prisma, publicPayload(req, updated)));
 }));
 
 qrPublicRouter.post('/:token/check-out', asyncHandler(async (req, res) => {
   const updated = await registerPublicQr(prisma, req.params.token, QR_CHECK_ACTIONS.checkOut, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials });
-  res.json({ ...publicPayload(req, updated), checkoutReceipt: publicQrCheckoutReceipt(updated) });
+  res.json(await withPublicQrAppearance(prisma, { ...publicPayload(req, updated), checkoutReceipt: publicQrCheckoutReceipt(updated) }));
 }));
 
 qrCodesRouter.get('/events', asyncHandler(async (_req, res) => {

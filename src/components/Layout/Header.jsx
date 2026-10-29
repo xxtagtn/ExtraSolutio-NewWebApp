@@ -6,9 +6,10 @@ import { visibleProfileMenuItems } from '../../utils/appNavigation.js';
 import { date } from '../../utils/formatters.js';
 import { userInitials } from '../../utils/userProfile.js';
 import EmptyState from '../UI/EmptyState.jsx';
-import ThemePicker, { SeasonalMotif } from '../Appearance/ThemePicker.jsx';
+import ThemePicker from '../Appearance/ThemePicker.jsx';
 import { useSeasonalTheme } from '../../hooks/useSeasonalTheme.jsx';
 import { seasonalThemeLabel } from '../../utils/seasonalTheme.js';
+import SeasonalArtwork from '../Appearance/SeasonalArtwork.jsx';
 
 function notificationIcon(kind) {
   if (kind === 'followup') return <Clock3 size={15} />;
@@ -70,11 +71,7 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
 
   return (
     <header className="topbar">
-      {theme !== 'original' && (
-        <span className="seasonal-header-decoration" aria-hidden="true">
-          <SeasonalMotif theme={theme} className="seasonal-corner" />
-        </span>
-      )}
+      {theme !== 'original' && <SeasonalArtwork placement="header" />}
       <div className="topbar__left">
         <button type="button" className="menu-toggle" onClick={onToggleMenu} aria-label="Abrir menu">
           <Menu size={18} />
@@ -82,7 +79,6 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
         <div>
           <div className="topbar-brand-title">
             <h1>ExtraSolutio</h1>
-            {theme !== 'original' && <SeasonalMotif theme={theme} />}
           </div>
           <span className="eyebrow">Staff & Eventos</span>
         </div>

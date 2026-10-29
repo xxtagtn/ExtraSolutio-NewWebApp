@@ -1,27 +1,24 @@
-.app-shell {
+.app-shell, .qr-check-page {
   --season-accent: #14b8a6;
   --season-soft: rgba(20, 184, 166, 0.1);
-  --season-corner-size: 150px;
-  --season-corner-opacity: 0.4;
 }
 
-.app-shell[data-seasonal-theme="halloween"] {
+:is(.app-shell, .qr-check-page)[data-seasonal-theme="halloween"] {
   --season-accent: #f3b15c;
   --season-soft: rgba(243, 177, 92, 0.1);
+  --season-art: url('./halloween-scene.png');
 }
 
-.app-shell[data-seasonal-theme="christmas"] {
-  --season-accent: #80cca1;
-  --season-soft: rgba(128, 204, 161, 0.1);
-  --season-corner-size: 240px;
-  --season-corner-opacity: 0.7;
+:is(.app-shell, .qr-check-page)[data-seasonal-theme="christmas"] {
+  --season-accent: #e0bb6b;
+  --season-soft: rgba(224, 187, 107, 0.1);
+  --season-art: url('./christmas-scene.png');
 }
 
-.app-shell[data-seasonal-theme="easter"] {
+:is(.app-shell, .qr-check-page)[data-seasonal-theme="easter"] {
   --season-accent: #b7ddc9;
   --season-soft: rgba(183, 221, 201, 0.1);
-  --season-corner-size: 150px;
-  --season-corner-opacity: 0.8;
+  --season-art: url('./easter-scene.png');
 }
 
 .seasonal-motif {
@@ -38,14 +35,17 @@
 .seasonal-motif--halloween { background-position: 0% 0%; }
 .seasonal-motif--christmas { background-position: 50% 0%; }
 .seasonal-motif--easter { background-position: 100% 0%; }
-.seasonal-motif:not(.seasonal-corner) { clip-path: inset(0 0 5% 0); }
+.seasonal-motif { clip-path: inset(0 0 5% 0); }
 
 .topbar-brand-title { display: flex; align-items: center; gap: 12px; }
 .topbar-brand-title h1 { min-width: 0; }
-.topbar-brand-title .seasonal-motif { width: 48px; height: 48px; flex-basis: 48px; }
 .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar {
   position: relative;
   background-color: var(--bg);
+  min-height: 264px;
+  align-items: flex-end;
+  padding: 32px 28px;
+  border-bottom-color: color-mix(in srgb, var(--season-accent) 55%, var(--line));
 }
 .seasonal-header-decoration {
   position: absolute;
@@ -54,19 +54,79 @@
   pointer-events: none;
   user-select: none;
 }
-.seasonal-header-decoration .seasonal-corner {
+.seasonal-header-scene {
   position: absolute;
-  top: 0;
+  bottom: -7px;
   right: 0;
-  width: var(--season-corner-size);
-  height: var(--season-corner-size);
-  opacity: var(--season-corner-opacity);
-  background-position-y: 100%;
+  width: min(calc(100% - 320px), 1360px);
+  height: auto;
+  aspect-ratio: 4;
+  max-height: 264px;
+  background-image: var(--season-art);
+  background-repeat: no-repeat;
+  background-size: 100% 200%;
+  background-position: 0 0;
+  clip-path: inset(0 0 3% 0);
 }
 .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar__left,
 .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar__actions {
   position: relative;
   z-index: 1;
+}
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar__actions { align-self: flex-start; }
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar-brand-title h1 { font-size: 40px; line-height: 1.15; }
+[data-seasonal-theme="halloween"] .topbar-brand-title h1 { font-family: Georgia, 'Times New Roman', serif; }
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .profile-menu-box { gap: 8px; }
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar { position: relative; }
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar .brand,
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar nav { position: relative; z-index: 1; }
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar a.active {
+  color: var(--season-accent);
+  background: var(--season-soft);
+}
+.seasonal-art-tile {
+  display: block;
+  aspect-ratio: 1;
+  background-image: var(--season-art);
+  background-repeat: no-repeat;
+  background-size: 400% 200%;
+  clip-path: inset(2%);
+  pointer-events: none;
+}
+.seasonal-art-tile--base { background-position: 0 100%; width: 100%; }
+.seasonal-art-tile--edge { background-position: 33.333333% 100%; width: 72px; flex: 0 0 72px; }
+.seasonal-sidebar-edge {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: none;
+}
+.seasonal-sidebar-scene {
+  position: sticky;
+  top: max(0px, calc(100dvh - 270px));
+  display: block;
+  width: 100%;
+  margin: 20px 0 0;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar nav a { padding-left: 24px; padding-right: 6px; }
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .command-kpi { position: relative; padding-bottom: 28px; }
+.app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .command-kpi::after {
+  content: '';
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 64px;
+  height: 64px;
+  background-image: var(--season-art);
+  background-size: 400% 200%;
+  background-position: 66.666667% 100%;
+  clip-path: inset(5% 4% 4% 12%);
+  pointer-events: none;
 }
 .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar-profile-avatar--initials {
   color: var(--season-accent);
@@ -161,8 +221,38 @@
 .theme-settings__status { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: space-between; margin-top: 16px; }
 .theme-settings__status small { color: var(--muted); }
 .theme-save-status { color: var(--muted); min-height: 1.3em; margin: 8px 0 0; font-size: 0.82rem; }
+.theme-publish-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+
+.qr-check-page[data-seasonal-theme]:not([data-seasonal-theme="original"]) { background: var(--bg); padding: 0; align-items: start; }
+.qr-check-page[data-seasonal-theme]:not([data-seasonal-theme="original"]) .qr-check-card {
+  width: min(520px, 100%);
+  min-height: 100dvh;
+  padding: 20px;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+}
+.qr-seasonal-banner { position: relative; min-height: 138px; margin: -20px -20px 0; border-bottom: 1px solid var(--line); }
+.qr-check-page[data-seasonal-theme]:not([data-seasonal-theme="original"]) .qr-check-card--monthly { grid-template-columns: minmax(0, 1fr); }
+.qr-check-page[data-seasonal-theme]:not([data-seasonal-theme="original"]) .qr-seasonal-banner { grid-column: 1 / -1; grid-row: 1; }
+.qr-check-page[data-seasonal-theme]:not([data-seasonal-theme="original"]) .qr-check-card--monthly > .qr-check-header { grid-column: 1 / -1; grid-row: 2; }
+.qr-seasonal-banner .seasonal-header-scene { width: 600px; height: 150px; max-height: none; aspect-ratio: auto; right: -70px; bottom: -6px; transform: none; }
+.qr-seasonal-brand { display: flex; position: relative; z-index: 1; gap: 10px; align-items: center; padding: 14px 18px; width: fit-content; }
+.qr-seasonal-brand img { width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 6px; }
+.qr-seasonal-brand strong { font-size: 20px; text-shadow: 0 1px 4px #000; }
+.qr-seasonal-footer { position: relative; display: block; height: 140px; margin-top: auto; overflow: hidden; pointer-events: none; }
+.qr-seasonal-footer .seasonal-art-tile { position: absolute; bottom: 0; left: 0; width: 150px; }
 
 @media (max-width: 1200px) { .theme-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1100px) {
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar { align-items: flex-start; }
+  .seasonal-header-scene { width: 760px; height: 190px; aspect-ratio: auto; }
+}
+@media (max-width: 900px) {
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar { position: fixed; }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar-brand-title h1 { font-size: 30px; }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar { min-height: 260px; }
+}
 @media (max-width: 600px) {
   .theme-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .theme-choices .theme-choice { display: grid; grid-template-columns: 1fr auto; gap: 4px; padding: 9px; min-height: 90px; font-size: 0.84rem; }
@@ -171,14 +261,24 @@
   .theme-choice > span:not(.seasonal-motif) { grid-row: 2; grid-column: 1 / -1; }
   .theme-choice .seasonal-motif { width: 32px; height: 32px; flex-basis: 32px; }
   .topbar-brand-title { gap: 8px; }
-  .topbar-brand-title .seasonal-motif { width: 36px; height: 36px; flex-basis: 36px; }
-  .seasonal-header-decoration .seasonal-corner { width: 100px; height: 100px; }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr auto;
+    min-height: 286px;
+    padding: 14px 10px;
+  }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar__left { grid-row: 1; }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar__actions { grid-row: 3; align-self: end; }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar-brand-title h1 { font-size: 24px; }
+  .seasonal-header-scene { bottom: 58px; width: 620px; height: 155px; right: 50%; transform: translateX(50%); }
   .theme-settings__status { flex-direction: column; }
   .topbar__actions:has(.theme-menu-options) { position: relative; }
   .topbar__actions .profile-menu-box:has(.theme-menu-options) { position: static; }
   .profile-menu-box .profile-menu:has(.theme-menu-options) { left: 0; right: 0; width: auto; max-width: 100%; }
 }
 @media print {
-  .seasonal-motif, .seasonal-header-decoration, .appearance-menu-toggle, .theme-settings { display: none !important; }
-  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar { background: none; border-color: var(--line); }
+  .seasonal-motif, .seasonal-header-decoration, .seasonal-sidebar-edge, .seasonal-sidebar-scene, .qr-seasonal-footer, .appearance-menu-toggle, .theme-settings { display: none !important; }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .command-kpi::after { display: none; }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar { background: none; border-color: var(--line); min-height: 0; }
 }
