@@ -34,7 +34,7 @@ async function mock(context) {
       const userId = request.headers().authorization?.includes('other-test-only') ? 2 : 1;
       if (request.method() === 'PUT') {
         const body = request.postDataJSON(); preferences.set(userId, body.preference);
-        if (body.publishToQr && userId === 1) controller = userId;
+        if (userId === 1 && (body.publishToQr || controller === null)) controller = userId;
       }
       return route.fulfill({ json: { preference: preferences.get(userId) || 'original', configured: preferences.has(userId),
         controlsPublicQr: controller === userId, publicQrConfigured: controller !== null, canPublishQr: userId === 1 } });
@@ -110,8 +110,6 @@ try {
       assert.equal(await page.locator('.topbar-brand-title .seasonal-motif').count(), 0);
       await page.screenshot({ path: `${output}/profile-${value}-${width}.png` });
     }
-    await page.getByRole('button', { name: 'Usar o meu tema nos links de picagem', exact: true }).click();
-    await page.getByRole('button', { name: 'Aplicar aos links', exact: true }).click();
     await page.getByText('Tema das picagens: esta conta', { exact: true }).waitFor();
     await page.evaluate(() => localStorage.setItem('extrasolutio.appearance.theme:1', 'halloween'));
     await page.reload();

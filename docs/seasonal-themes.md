@@ -13,13 +13,19 @@ reabrir a aplicação. As gravações são serializadas e as atualizações de f
 substituem uma escolha ainda em gravação. Se o servidor falhar, a aparência local
 continua utilizável, mas a interface avisa que a conta e os links não foram atualizados.
 
-Em Aparência, um administrador pode escolher **Usar o meu tema nos links de
-picagem**, confirmar **Aplicar aos links**, e associar a sua conta ao tema público.
-É uma configuração inicial explícita; não é escolhido silenciosamente o primeiro
-administrador que inicia sessão. A partir daí, qualquer mudança do tema dessa conta
-atualiza também os links já existentes. Preferências de outras contas não mudam o
-tema público. A transferência para outra conta administrativa exige novamente a
-confirmação explícita. O seletor ao lado do utilizador foi removido.
+Ao guardar o primeiro tema administrativo, sem outra conta configurada, essa conta
+passa a controlar o tema público. Instalações que já tinham exatamente uma
+preferência administrativa guardada, mas sem vínculo público, usam essa preferência
+automaticamente nos links existentes. Não é usado o primeiro login nem um ID fixo.
+O fallback de leitura não altera a base; ao guardar um tema administrativo, o
+vínculo efetivo existente é consolidado antes de acrescentar outras preferências.
+
+Um responsável explicitamente definido nunca é substituído por uma alteração
+pessoal de outra conta. Se existirem várias preferências administrativas antigas
+sem responsável definido, a aplicação não adivinha: um administrador confirma
+**Usar o meu tema nos links de picagem > Aplicar aos links**. A mesma confirmação
+é usada para transferir o controlo para outra conta. O seletor junto ao utilizador
+continua removido.
 
 `UserAppearance.publicScope` tem índice único: apenas uma conta controla o tema
 público. O vínculo é removido se essa conta for eliminada, sem eliminar picagens.
@@ -120,14 +126,22 @@ do cliente Prisma, build do frontend e reinício da API. Não foi aplicada qualq
 migração à base de dados real durante o desenvolvimento. O esquema MySQL foi
 validado; os testes de persistência e migração foram executados em SQLite isolado.
 
-Na primeira utilização, o administrador responsável confirma em Aparência
-**Usar o meu tema nos links de picagem > Aplicar aos links**. A preferência
-atualmente selecionada é guardada e passa a controlar os links. A confirmação
-não é repetida nas mudanças de tema seguintes.
+Na primeira utilização, guardar o tema configura os links automaticamente quando
+não há ambiguidade. Para instalações com uma única preferência administrativa
+pré-existente, nem sequer é necessário voltar a gravar. Só uma escolha ambígua ou
+a transferência de controlo entre contas requer confirmação em Aparência.
 
-Validação local: 1.295 testes automatizados aprovados, testes de browser dos temas
+Validação local anterior: 1.295 testes automatizados aprovados, testes de browser dos temas
 do painel em sete larguras e dos três tipos de link em três larguras, lint, build
 e verificação PWA aprovados. A geração normal do Prisma no Windows encontrou
 um motor DLL em uso (EPERM na substituição do ficheiro). O cliente já atualizado
 expõe o novo modelo e todos os testes reais de API/BD passaram com esse motor;
 não foi interrompido nenhum processo existente para libertar o ficheiro.
+
+Correção da inicialização: reproduzido o caso `preference=christmas` sem
+`publicScope`, testado o fallback único, a primeira gravação, a preservação de outro
+responsável e o bloqueio de escolha ambígua. Confirmado por GET num link local
+existente e num browser real apenas de leitura: `appearance.theme=christmas`,
+`data-seasonal-theme=christmas` e banner visível, sem efetuar picagens. A versão
+online foi apenas inspecionada através dos ficheiros públicos; precisa de receber
+a correção da API. Esta correção não acrescenta migrações.

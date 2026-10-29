@@ -58,7 +58,7 @@ test('account-owned themes persist and propagate to all existing QR scopes witho
   assert.equal((await send(viewer, { preference: 'easter', publishToQr: true })).status, 403);
   assert.equal((await send(admin, { preference: 'https://evil.test/art.png' })).status, 400);
   assert.equal((await send(admin, { preference: 'easter', publishToQr: 'yes' })).status, 400);
-  assert.equal((await send(admin, { preference: 'easter', publishToQr: true })).status, 200);
+  assert.equal((await send(admin, { preference: 'easter' })).status, 200, 'The first intentional admin theme save configures public attendance automatically');
   assert.equal((await (await send(admin, null, 'GET')).json()).controlsPublicQr, true);
   await send(other, { preference: 'halloween', userId: admin.id });
   assert.equal((await db.userAppearance.findUnique({ where: { userId: admin.id } })).preference, 'easter');
@@ -102,8 +102,26 @@ test('account-owned themes persist and propagate to all existing QR scopes witho
   await db.user.update({ where: { id: other.id }, data: { role: 'operations' } });
   assert.deepEqual(await publicQrAppearance(db), { theme: 'original' }, 'A downgraded account cannot keep controlling public appearance');
   await db.user.delete({ where: { id: other.id } });
-  assert.deepEqual(await publicQrAppearance(db), { theme: 'original' });
+  assert.deepEqual(await publicQrAppearance(db), { theme: 'easter' }, 'Without a declared controller, the single remaining configured administrator is unambiguous');
   assert.equal((await fetch(`${base}/qr-check/invalid-token`)).status, 404);
+});
+
+test('a previously saved sole admin theme works without a separate activation; ambiguity is never guessed', async () => {
+  await db.userAppearance.deleteMany();
+  const first = await db.user.create({ data: { email: 'legacy-theme@example.test', name: 'Legacy theme', role: 'admin', password: 'test-only' } });
+  const second = await db.user.create({ data: { email: 'another-theme@example.test', name: 'Another theme', role: 'admin', password: 'test-only' } });
+  await db.userAppearance.create({ data: { userId: first.id, preference: 'christmas' } });
+  assert.deepEqual(await publicQrAppearance(db), { theme: 'christmas' });
+  assert.equal((await db.userAppearance.findUnique({ where: { userId: first.id } })).publicScope, null, 'Reading a public link does not mutate configuration');
+  await updateUserAppearance(db, second, { preference: 'halloween' });
+  assert.deepEqual(await publicQrAppearance(db), { theme: 'christmas' }, 'Saving another administrator preference cannot take over an existing effective controller');
+  assert.equal((await db.userAppearance.findUnique({ where: { userId: first.id } })).publicScope, 'attendance');
+  await db.userAppearance.updateMany({ data: { publicScope: null } });
+  assert.deepEqual(await publicQrAppearance(db), { theme: 'original' }, 'Multiple unlinked admin themes require an explicit choice');
+  await updateUserAppearance(db, first, { preference: 'easter' });
+  assert.deepEqual(await publicQrAppearance(db), { theme: 'original' });
+  await updateUserAppearance(db, first, { preference: 'easter', publishToQr: true });
+  assert.deepEqual(await publicQrAppearance(db), { theme: 'easter' });
 });
 
 test('a failed appearance lookup cannot discard a successful punch response', async (t) => {
