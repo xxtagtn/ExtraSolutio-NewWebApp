@@ -2,6 +2,7 @@ import { Save, Upload, X } from 'lucide-react';
 import { useState } from 'react';
 import Card from '../components/UI/Card.jsx';
 import PushSettings from '../components/Profile/PushSettings.jsx';
+import ThemePicker from '../components/Appearance/ThemePicker.jsx';
 import { canReceiveAttendancePush } from '../utils/pushPermissions.js';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { api } from '../utils/api.js';
@@ -73,6 +74,7 @@ export default function Profile() {
 
   return (
     <div className="page">
+      <Card title="Aparência" className="appearance-settings-card"><ThemePicker /></Card>
       <div className="grid grid--two">
         <Card title="Perfil">
           <form className="resource-form profile-form" onSubmit={saveProfile}>

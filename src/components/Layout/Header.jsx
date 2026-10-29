@@ -1,4 +1,4 @@
-import { AlertTriangle, Bell, BellRing, CakeSlice, CalendarClock, ChevronDown, Clock3, FileWarning, LogOut, Menu, Receipt, UserRound, Wallet } from 'lucide-react';
+import { AlertTriangle, Bell, BellRing, CakeSlice, CalendarClock, ChevronDown, Clock3, FileWarning, LogOut, Menu, Palette, Receipt, UserRound, Wallet } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth.jsx';
@@ -6,6 +6,9 @@ import { visibleProfileMenuItems } from '../../utils/appNavigation.js';
 import { date } from '../../utils/formatters.js';
 import { userInitials } from '../../utils/userProfile.js';
 import EmptyState from '../UI/EmptyState.jsx';
+import ThemePicker, { SeasonalMotif } from '../Appearance/ThemePicker.jsx';
+import { useSeasonalTheme } from '../../hooks/useSeasonalTheme.jsx';
+import { seasonalThemeLabel } from '../../utils/seasonalTheme.js';
 
 function notificationIcon(kind) {
   if (kind === 'followup') return <Clock3 size={15} />;
@@ -28,9 +31,11 @@ const roleLabels = {
 
 export default function Header({ onToggleMenu, notifications, onIgnoreNotification }) {
   const { user, logout } = useAuth();
+  const { preference, theme } = useSeasonalTheme();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [showIgnored, setShowIgnored] = useState(false);
   const panelRef = useRef(null);
   const profileRef = useRef(null);
@@ -40,8 +45,19 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
       if (open && panelRef.current && !panelRef.current.contains(event.target)) setOpen(false);
       if (profileOpen && profileRef.current && !profileRef.current.contains(event.target)) setProfileOpen(false);
     }
+    function onKeyDown(event) {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      setProfileOpen(false);
+      setAppearanceOpen(false);
+      if (profileOpen) profileRef.current?.querySelector('.profile-link')?.focus();
+    }
     if (open || profileOpen) document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
+    if (open || profileOpen) document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
   }, [open, profileOpen]);
 
   function handleLogout() {
@@ -59,7 +75,10 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
           <Menu size={18} />
         </button>
         <div>
-          <h1>ExtraSolutio</h1>
+          <div className="topbar-brand-title">
+            <h1>ExtraSolutio</h1>
+            {theme !== 'original' && <SeasonalMotif theme={theme} />}
+          </div>
           <span className="eyebrow">Staff & Eventos</span>
         </div>
       </div>
@@ -111,7 +130,7 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
           <button
             type="button"
             className="profile-link"
-            onClick={() => setProfileOpen((prev) => !prev)}
+            onClick={() => { setProfileOpen((prev) => !prev); setAppearanceOpen(false); }}
             aria-label="Abrir menu do perfil"
             aria-haspopup="menu"
             aria-expanded={profileOpen}
@@ -134,6 +153,11 @@ export default function Header({ onToggleMenu, notifications, onIgnoreNotificati
                   {item.label}
                 </Link>
               ))}
+              <button type="button" role="menuitem" className="appearance-menu-toggle" aria-expanded={appearanceOpen}
+                onClick={() => setAppearanceOpen((prev) => !prev)}>
+                <Palette size={17} /><span>Aparência</span><small>{seasonalThemeLabel(preference)}</small><ChevronDown size={14} />
+              </button>
+              {appearanceOpen && <ThemePicker compact />}
             </div>
           ) : null}
         </div>

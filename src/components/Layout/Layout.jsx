@@ -7,8 +7,16 @@ import { useCommunicationData } from '../../hooks/useCommunicationData.js';
 import Header from './Header.jsx';
 import Sidebar from './Sidebar.jsx';
 import BackToTop from '../UI/BackToTop.jsx';
+import { useAuth } from '../../hooks/useAuth.jsx';
+import { SeasonalThemeProvider, useSeasonalTheme } from '../../hooks/useSeasonalTheme.jsx';
 
 export default function Layout() {
+  const { user } = useAuth();
+  return <SeasonalThemeProvider key={user?.id} userId={user?.id}><LayoutContent /></SeasonalThemeProvider>;
+}
+
+function LayoutContent() {
+  const { theme } = useSeasonalTheme();
   const [dismissed, setDismissed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -92,7 +100,7 @@ export default function Layout() {
   }
 
   return (
-    <div className={`app-shell ${sidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`}>
+    <div className={`app-shell ${sidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`} data-seasonal-theme={theme}>
       <Sidebar
         mobileOpen={mobileNavOpen}
         collapsed={sidebarCollapsed && !mobileNavOpen}
