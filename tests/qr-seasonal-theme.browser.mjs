@@ -82,6 +82,11 @@ try {
         const footerArt = await page.locator('.qr-seasonal-footer .seasonal-art-tile').boundingBox();
         assert.ok(Math.abs(footerArt.x + footerArt.width / 2 - footer.x - footer.width / 2) < 1, 'Footer artwork is horizontally centered');
         assert.ok(footerArt.y >= footer.y && footerArt.y + footerArt.height <= footer.y + footer.height, 'Footer artwork is not clipped');
+        if (next !== 'halloween') {
+          assert.ok(footerArt.width / footerArt.height > 3, 'Christmas and Easter use the approved horizontal swag, not the old square illustration');
+          const artwork = await page.locator('.seasonal-header-scene').evaluate((el) => getComputedStyle(el).backgroundImage);
+          assert.ok(artwork.includes(next === 'christmas' ? 'christmas-decorations' : 'easter-garland'));
+        }
         const button = await command.boundingBox();
         assert.ok(button.y + button.height <= 900, 'The primary punch action stays near the first mobile viewport');
         await page.screenshot({ path: `${output}/${scope}-${next}-${width}.png`, fullPage: true });

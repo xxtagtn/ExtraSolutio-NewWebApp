@@ -101,8 +101,18 @@ try {
       assert.equal(await decoration.locator('.seasonal-header-scene').count(), 1);
       const headerBox = await page.locator('.topbar').boundingBox(), decorationBox = await decoration.boundingBox();
       assert.ok(decorationBox.y >= headerBox.y && decorationBox.y + decorationBox.height <= headerBox.y + headerBox.height, 'Corner decorations never spill onto data');
-      assert.ok(headerBox.height >= 260, 'The expressive theme has a real scenic header, not a small corner motif');
-      assert.ok((await decoration.locator('.seasonal-header-scene').boundingBox()).width >= 600);
+      const sceneBox = await decoration.locator('.seasonal-header-scene').boundingBox();
+      if (value === 'halloween') {
+        assert.ok(headerBox.height >= 260, 'The existing Halloween scenic header remains unchanged');
+        assert.ok(sceneBox.width >= 600);
+      } else {
+        assert.ok(headerBox.height >= 128 && headerBox.height <= 240, `Approved decorative themes keep a compact header (${value}, ${width}px: ${headerBox.height}px)`);
+        assert.ok(sceneBox.width >= Math.min(width, 280), 'The new decorations remain visible at narrow widths');
+        assert.equal(await page.locator('.seasonal-sidebar-edge').isVisible(), false, 'No repeated edge garlands from the previous theme');
+        const image = await decoration.locator('.seasonal-header-scene').evaluate((el) => getComputedStyle(el).backgroundImage);
+        const expected = width <= 600 ? (value === 'christmas' ? 'christmas-decorations' : 'easter-garland') : `${value}-header`;
+        assert.ok(image.includes(expected), 'The dedicated approved composition is used for each viewport');
+      }
       if (width > 1100) {
         const title = await page.locator('.topbar__left').boundingBox(), scene = await decoration.locator('.seasonal-header-scene').boundingBox();
         assert.ok(title.x + title.width <= scene.x, 'Desktop scene reserves clean negative space for the full wordmark');
@@ -173,7 +183,7 @@ try {
       await page.getByRole('button', { name: 'Abrir menu do perfil' }).click();
       await page.getByRole('menuitem', { name: /Aparência/ }).click();
     }
-    const sprite = await page.locator('.seasonal-header-scene').evaluate(async (el) => {
+    const sprite = await page.locator('.seasonal-sidebar-scene .seasonal-art-tile').evaluate(async (el) => {
       const url = getComputedStyle(el).backgroundImage.slice(5, -2);
       const img = new Image();
       img.src = url;
@@ -182,8 +192,8 @@ try {
       canvas.width = img.width; canvas.height = img.height;
       const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
       const cells = [];
-      for (const [col, row, cellWidth] of [[0, 0, img.width], [0, 1, img.width / 4], [1, 1, img.width / 4], [2, 1, img.width / 4]]) {
-        const data = ctx.getImageData(col * img.width / 4, row * img.height / 2, cellWidth, img.height / 2).data;
+      for (const [x, y, width, height] of [[560, 0, 1214, 610], [0, 515, 515, 372], [550, 610, 1224, 277]]) {
+        const data = ctx.getImageData(x, y, width, height).data;
         let visible = 0, transparent = 0;
         for (let i = 3; i < data.length; i += 4) { if (data[i] > 0) visible++; else transparent++; }
         cells.push({ visible, transparent });
@@ -191,7 +201,7 @@ try {
       return { width: img.width, height: img.height, cells };
     });
     assert.equal(sprite.width / sprite.height, 2);
-    assert.ok(sprite.cells.every((cell) => cell.visible > 100 && cell.transparent > 100), 'Header, sidebar still life, garland and KPI corners contain real art and transparency');
+    assert.ok(sprite.cells.every((cell) => cell.visible > 100 && cell.transparent > 100), 'Approved Easter header, sidebar garland and horizontal footer contain actual artwork and transparency');
     await page.getByRole('menuitemradio', { name: 'Natal', exact: true }).click();
     await page.keyboard.press('Escape');
     assert.equal(await page.getByRole('button', { name: 'Escolher tema', exact: true }).count(), 0, 'No theme selector beside the user');
