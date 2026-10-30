@@ -1,5 +1,5 @@
 ﻿import { ChevronDown, ChevronRight, LayoutTemplate, Plus, Save, Trash2, Users } from 'lucide-react';
-import { CarFront, Search, X } from 'lucide-react';
+import { CarFront, CheckCircle2, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
@@ -17,6 +17,11 @@ import IconButton from '../components/UI/IconButton.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
 import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { useAuth } from '../hooks/useAuth.jsx';
+import { useServiceOrder } from '../hooks/useServiceOrder.js';
+import SortableServiceList from '../components/Services/SortableServiceList.jsx';
+import '../components/Services/serviceOrder.css';
+import { moveVisibleService, sortServiceRows } from '../utils/serviceOrder.js';
 import { useCollaboratorPickerPosition } from '../hooks/useCollaboratorPickerPosition.js';
 import { api } from '../utils/api.js';
 import {
@@ -519,6 +524,8 @@ function getRoleForecast(requiredRoles, {
 
 export default function Services() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const serviceOrder = useServiceOrder(user?.id);
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error, reload } = useApi('/services', []);
@@ -563,7 +570,7 @@ export default function Services() {
   const [templateError, setTemplateError] = useState('');
   const [statusSyncing, setStatusSyncing] = useState(false);
 
-  const rows = useMemo(() => searchServices(data.filter((row) => {
+  const filteredRows = useMemo(() => searchServices(data.filter((row) => {
     const byArchive = listScope === 'archive' ? isArchivedService(row) : !isArchivedService(row);
     const byDate = fromDate ? dateOnly(eventRangeEnd(row)) >= fromDate : true;
     const byClient = clientFilter ? String(row.clientId) === clientFilter : true;
@@ -571,6 +578,10 @@ export default function Services() {
     const byArchivePeriod = listScope !== 'archive' || eventOverlapsMonth(row, archiveMonth, archiveYear);
     return byArchive && byDate && byClient && byStatus && byArchivePeriod;
   }), searchQuery), [data, listScope, fromDate, clientFilter, statusFilter, archiveMonth, archiveYear, searchQuery]);
+  const preference = serviceOrder.preferences[listScope];
+  const rows = useMemo(() => sortServiceRows(filteredRows, preference), [filteredRows, preference]);
+  const allScopeRows = useMemo(() => sortServiceRows(data.filter((row) => listScope === 'archive'
+    ? isArchivedService(row) : !isArchivedService(row)), preference), [data, listScope, preference]);
 
   const archiveYears = useMemo(() => {
     const years = new Set([String(new Date().getFullYear())]);
@@ -593,6 +604,11 @@ export default function Services() {
     const start = (archivePage - 1) * pageSize;
     return rows.slice(start, start + pageSize);
   }, [archivePage, archivePageSize, listScope, rows]);
+
+  function moveService(activeId, overId) {
+    const ids = moveVisibleService(allScopeRows.map((row) => row.id), visibleRows.map((row) => row.id), activeId, overId);
+    if (ids) serviceOrder.save(listScope, { ...preference, mode: 'manual', ids });
+  }
 
   const activeCount = useMemo(() => data.filter((row) => !isArchivedService(row)).length, [data]);
   const archiveCount = useMemo(() => data.filter((row) => isArchivedService(row)).length, [data]);
@@ -1713,6 +1729,7 @@ export default function Services() {
           </button>
         )}
       >
+        <div className="services-list-toolbar">
         <div className="service-tabs budget-tabs">
           <button
             type="button"
@@ -1732,6 +1749,25 @@ export default function Services() {
             Arquivo ({archiveCount})
           </button>
         </div>
+        <div className="service-order-controls">
+          <span className="service-order-save-status" role="status" aria-live="polite">
+            {serviceOrder.saving ? 'A guardar ordem...' : serviceOrder.saved && serviceOrder.savedScope === listScope ? <><CheckCircle2 size={14} aria-hidden="true" />Ordem guardada</> : null}
+          </span>
+          <label>Ordenar por
+            <select className="form-control" aria-label="Ordenar eventos" value={preference.mode}
+              disabled={!serviceOrder.ready || serviceOrder.saving} onChange={(event) => serviceOrder.save(listScope, {
+                ...preference, mode: event.target.value,
+                ids: preference.ids.length ? preference.ids : allScopeRows.map((row) => row.id),
+              })}>
+              <option value="date">Por data</option>
+              <option value="manual">Ordem personalizada</option>
+            </select>
+          </label>
+        </div>
+        </div>
+        {serviceOrder.error && <p className="service-order-error" role="alert">{serviceOrder.error}
+          <button className="secondary-button" type="button" disabled={serviceOrder.saving} onClick={serviceOrder.refresh}>Tentar novamente</button>
+        </p>}
         <div className={`filters services-list-filters ${listScope === 'archive' ? 'services-archive-filters' : ''}`}>
           <div className="services-list-search">
             <Search size={17} aria-hidden="true" />
@@ -1771,8 +1807,8 @@ export default function Services() {
         {loading ? <p className="muted">A carregar...</p> : null}
         {!loading && searchQuery.trim() && rows.length > 0 ? <p className="muted services-search-count" role="status">{rows.length} evento(s) encontrado(s)</p> : null}
         {!loading && !rows.length ? <p className="muted">{searchQuery.trim() ? 'Não foram encontrados eventos para esta pesquisa.' : 'Nenhum evento/serviço encontrado.'}</p> : null}
-        <div className="service-card-list">
-          {visibleRows.map((row) => {
+        <SortableServiceList rows={visibleRows} enabled={preference.mode === 'manual' && serviceOrder.ready}
+          busy={serviceOrder.saving} onMove={moveService} renderRow={(row) => {
             const requestedTotal = requiredStaffTotal(row);
             const confirmedTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'confirmed').length;
             const pendingTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'pending_confirmation').length;
@@ -1806,8 +1842,7 @@ export default function Services() {
                 </div>
               </button>
             );
-          })}
-        </div>
+          }} />
         {listScope === 'archive' && rows.length ? (
           <div className="services-archive-pagination">
             <span className="muted">{archivePageSize === 'all' ? `A mostrar ${rows.length} evento(s)` : `A mostrar ${(archivePage - 1) * Number(archivePageSize) + 1}-${Math.min(archivePage * Number(archivePageSize), rows.length)} de ${rows.length}`}</span>

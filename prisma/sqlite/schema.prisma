@@ -25,10 +25,23 @@ model User {
   notificationDismissals NotificationDismissal[]
   pushSubscriptions PushSubscription[]
   appearance UserAppearance?
+  serviceOrders UserServiceOrder[]
   permissionAuditChanges PermissionAuditLog[] @relation("PermissionAuditActor")
   permissionAuditTargets PermissionAuditLog[] @relation("PermissionAuditTarget")
 
   @@index([accessProfileId])
+}
+
+model UserServiceOrder {
+  userId     Int
+  scope      String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mode       String   @default("date")
+  orderedIds String   @default("[]")
+  version    Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@id([userId, scope])
 }
 
 model UserAppearance {

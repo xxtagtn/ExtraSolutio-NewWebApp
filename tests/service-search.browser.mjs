@@ -42,6 +42,8 @@ try {
       if (!url.pathname.startsWith('/api/')) return url.origin === new URL(base).origin ? route.continue() : route.abort();
       if (request.method() !== 'GET') { writes.push(url.pathname); return route.fulfill({ status: 405, json: {} }); }
       reads.push(url.pathname);
+      if (url.pathname === '/api/auth/service-order') return route.fulfill({ json: Object.fromEntries(['active', 'archive']
+        .map((scope) => [scope, { mode: 'manual', ids: stored.map((event) => event.id), version: 1 }])) });
       return route.fulfill({ json: url.pathname === '/api/services' ? stored : url.pathname === '/api/clients' ? clients : [] });
     });
     await page.goto(`${base}/services`);

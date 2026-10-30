@@ -1,0 +1,46 @@
+.services-list-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; margin-bottom: 12px; }
+.services-list-toolbar .service-tabs { margin-bottom: 0; }
+.service-order-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.service-order-controls label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.82rem; }
+.service-order-controls select { width: auto; min-width: 175px; }
+.service-order-save-status { display: inline-flex; align-items: center; gap: 5px; min-height: 20px; color: var(--muted); font-size: 0.78rem; }
+.service-order-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--danger); font-size: 0.85rem; }
+.service-sortable-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: #10171b; }
+.service-sortable-row--manual { grid-template-columns: 30px minmax(0, 1fr) 30px; }
+.service-sortable-row > .service-card { border: 0; background: transparent; min-width: 0; grid-template-columns: minmax(0, 1fr) minmax(390px, 0.85fr); }
+.service-sortable-row:hover { background: #121c21; }
+.service-sortable-row > .service-card .service-card__main { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(150px, 0.9fr); }
+.service-sortable-row .service-card__field strong { white-space: normal; overflow-wrap: anywhere; }
+.service-sortable-row .service-card__meta { grid-template-columns: minmax(0, 1fr) minmax(120px, max-content) 16px; }
+.service-sortable-row .service-card__stats { flex-wrap: wrap; white-space: normal; gap: 5px 10px; justify-content: flex-start; }
+.service-sortable-row .service-card__stats > span { white-space: nowrap; }
+.service-sortable-row .service-card__state { min-width: 0; }
+.service-sortable-row .service-card__state .badge { white-space: normal; max-width: 190px; text-align: center; }
+.service-drag-handle { border: 0; background: transparent; color: var(--muted); padding: 0; display: grid; place-items: center; width: 30px; min-height: 44px; align-self: stretch; cursor: grab; touch-action: none; border-radius: 6px; }
+.service-drag-handle:hover, .service-drag-handle:focus-visible { color: var(--accent); background: rgba(20, 184, 166, 0.07); }
+.service-drag-handle:active { cursor: grabbing; }
+.service-drag-handle:focus-visible, .service-order-menu summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.service-sortable-row--dragging { z-index: 5; border-color: var(--accent); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3); }
+.service-sortable-row[data-drop]::before { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); z-index: 6; pointer-events: none; }
+.service-sortable-row[data-drop="before"]::before { top: -7px; }
+.service-sortable-row[data-drop="after"]::before { bottom: -7px; }
+.service-order-menu { position: relative; align-self: center; }
+.service-order-menu summary { display: grid; place-items: center; list-style: none; cursor: pointer; color: var(--muted); width: 28px; height: 36px; border-radius: 4px; }
+.service-order-menu summary::-webkit-details-marker { display: none; }
+.service-order-menu > div { position: absolute; top: 100%; right: 0; z-index: 10; width: 195px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); }
+.service-order-menu button { display: flex; gap: 8px; align-items: center; width: 100%; min-height: 38px; padding: 6px 8px; border: 0; border-radius: 3px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 0.82rem; }
+.service-order-menu button:hover:not(:disabled) { background: var(--panel-2); }
+.service-order-menu button:disabled, .service-drag-handle[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+@media (max-width: 1200px) {
+  .service-sortable-row > .service-card { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .service-order-controls { width: 100%; justify-content: space-between; gap: 8px; }
+  .service-order-controls label { flex-wrap: wrap; }
+  .service-sortable-row > .service-card .service-card__main { grid-template-columns: minmax(0, 1fr); }
+  .service-sortable-row .service-card__meta { grid-template-columns: minmax(0, 1fr) 16px; }
+  .service-sortable-row > .service-card { padding: 12px 8px; }
+  .service-sortable-row--manual { grid-template-columns: 34px minmax(0, 1fr) 30px; }
+  .service-drag-handle { width: 34px; }
+}
+@media (prefers-reduced-motion: reduce) { .service-sortable-row { transition: none !important; } }

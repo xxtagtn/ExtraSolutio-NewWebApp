@@ -5,13 +5,24 @@ import { requireAuth } from '../middleware/auth.js';
 import { prisma } from '../prisma.js';
 import { validatePasswordStrength } from '../security/passwordPolicy.js';
 import { publicRole } from '../security/roles.js';
-import { effectivePermissionsForUser } from '../../src/utils/accessPermissions.js';
+import { effectivePermissionsForUser, PERMISSIONS } from '../../src/utils/accessPermissions.js';
 import { asyncHandler } from '../utils/http.js';
 import { normalizeUserPhoto } from '../../src/utils/userProfile.js';
 import { issueSessionToken } from '../security/sessionTokens.js';
 import { readUserAppearance, updateUserAppearance } from '../services/userAppearance.js';
+import { readUserServiceOrder, updateUserServiceOrder } from '../services/userServiceOrder.js';
+import { requirePermission } from '../security/permissions.js';
 
 export const authRouter = Router();
+
+authRouter.get('/service-order', requireAuth, requirePermission(PERMISSIONS.SERVICES_VIEW), asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await readUserServiceOrder(prisma, req.user));
+}));
+authRouter.put('/service-order/:scope', requireAuth, requirePermission(PERMISSIONS.SERVICES_VIEW), asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(await updateUserServiceOrder(prisma, req.user, req.params.scope, req.body));
+}));
 
 authRouter.get('/appearance', requireAuth, asyncHandler(async (req, res) => {
   res.set('Cache-Control', 'no-store');
