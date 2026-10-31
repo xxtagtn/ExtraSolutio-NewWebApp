@@ -1,8 +1,8 @@
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { decimalValue } from './serviceFinance.js';
+import { serviceTeamCoverage } from './serviceTeamCoverage.js';
 import {
   activeEventAssignments,
-  activeEventRequiredRoles,
   isEventDayCancelled,
 } from './eventCancelledDays.js';
 
@@ -81,11 +81,6 @@ function isDateInsideService(service, date) {
     && !isEventDayCancelled(service, dateKey(target));
 }
 
-function requestedTotal(service) {
-  return activeEventRequiredRoles(service, safeArray(service?.requiredRoles))
-    .reduce((sum, item) => sum + Math.max(0, Number(item?.qty || item?.count || 0)), 0);
-}
-
 function billableAssignments(service) {
   return activeEventAssignments(service, service?.assignments || [])
     .filter((assignment) => !NON_BILLABLE_ASSIGNMENT.has(normalized(assignment?.status)));
@@ -110,17 +105,15 @@ function pendingHoursCount(service) {
 }
 
 function teamStatus(service) {
-  const requested = requestedTotal(service);
-  const confirmed = confirmedAssignments(service).length;
-  const pending = pendingStaffCount(service);
+  const { required, covered, pending, complete } = serviceTeamCoverage(service);
 
-  if (requested > 0 && confirmed >= requested) {
+  if (complete) {
     return { label: 'Equipa completa', tone: 'success', actionLabel: 'Abrir' };
   }
   if (pending > 0) {
     return { label: `${pending} por confirmar`, tone: 'warning', actionLabel: 'Resolver' };
   }
-  if (requested > confirmed) {
+  if (required > covered) {
     return { label: 'Sem equipa completa', tone: 'danger', actionLabel: 'Resolver' };
   }
   return { label: 'Abrir', tone: 'neutral', actionLabel: 'Abrir' };

@@ -1,5 +1,5 @@
 import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
-import { requiredStaffTotal } from './serviceRequirements.js';
+import { serviceTeamCoverage } from './serviceTeamCoverage.js';
 import { activeEventDayKeys } from './eventCancelledDays.js';
 import { externalServiceCanArchive, isExternalOnlyService } from './externalServiceWorkflow.js';
 
@@ -82,26 +82,9 @@ export function eventHasCompleteClientSchedule(event) {
   ));
 }
 
-function requestedStaffCount(event) {
-  return requiredStaffTotal(event);
-}
-
-function eventHasCompleteTeam(event) {
-  const requested = requestedStaffCount(event);
-  if (requested <= 0) return false;
-  const confirmed = (event?.assignments || []).filter((assignment) => assignmentStatus(assignment.status) === 'confirmed').length;
-  return confirmed >= requested;
-}
-
-function eventHasConfirmedAssignedTeam(event) {
-  const assignments = billableAssignments(event?.assignments || []);
-  return assignments.length > 0 && assignments.every((assignment) => assignmentStatus(assignment.status) === 'confirmed');
-}
-
 function eventHasReadyTeam(event) {
-  return requestedStaffCount(event) > 0
-    ? eventHasCompleteTeam(event)
-    : eventHasConfirmedAssignedTeam(event);
+  const team = serviceTeamCoverage(event);
+  return team.required > 0 ? team.complete : team.covered > 0 && team.covered === team.assigned;
 }
 
 function serviceDateState(event, now = new Date()) {

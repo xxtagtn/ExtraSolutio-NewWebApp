@@ -15,7 +15,7 @@ import {
   serviceDetailMetrics,
 } from './serviceDetail.js';
 
-test('serviceDetailMetrics ignores cancelled and missed assignments', () => {
+test('serviceDetailMetrics excludes absences from hours but includes them in team coverage', () => {
   const metrics = serviceDetailMetrics({
     requiredRoles: JSON.stringify([{ role: 'Emp.Mesa', qty: 2 }]),
     assignments: [
@@ -28,6 +28,8 @@ test('serviceDetailMetrics ignores cancelled and missed assignments', () => {
   assert.equal(metrics.requested, 2);
   assert.equal(metrics.assigned, 1);
   assert.equal(metrics.confirmed, 1);
+  assert.equal(metrics.teamFilled, 2);
+  assert.equal(metrics.teamComplete, true);
   assert.equal(metrics.staffFilled, 1);
   assert.equal(metrics.clientFilled, 1);
   assert.equal(metrics.validationComplete, true);

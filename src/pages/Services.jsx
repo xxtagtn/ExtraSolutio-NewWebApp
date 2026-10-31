@@ -86,7 +86,7 @@ import {
   templatePayloadFromForm,
   travelCarsFromSource,
 } from '../utils/serviceTemplateForm.js';
-import { requiredStaffTotal } from '../utils/serviceRequirements.js';
+import { serviceTeamCoverage } from '../utils/serviceTeamCoverage.js';
 import { searchServices } from '../utils/serviceSearch.js';
 import {
   buildServiceDuplicateForm,
@@ -1809,8 +1809,8 @@ export default function Services() {
         {!loading && !rows.length ? <p className="muted">{searchQuery.trim() ? 'Não foram encontrados eventos para esta pesquisa.' : 'Nenhum evento/serviço encontrado.'}</p> : null}
         <SortableServiceList rows={visibleRows} enabled={preference.mode === 'manual' && serviceOrder.ready}
           busy={serviceOrder.saving} onMove={moveService} renderRow={(row) => {
-            const requestedTotal = requiredStaffTotal(row);
-            const confirmedTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'confirmed').length;
+            const team = serviceTeamCoverage(row);
+            const requestedTotal = team.required;
             const pendingTotal = (row.assignments || []).filter((item) => normalizeAssignmentStatus(item.status) === 'pending_confirmation').length;
             return (
               <button key={row.id} type="button" className="service-card" onClick={() => navigate(`/services/${row.id}`)}>
@@ -1831,7 +1831,8 @@ export default function Services() {
                 <div className="service-card__meta">
                   <div className="service-card__stats">
                     <span className="service-assigned"><Users size={14} /> Solicitados: {requestedTotal}</span>
-                    <span className="service-status-count service-status-count--confirmed">Confirmados: {confirmedTotal}</span>
+                    <span className={`service-status-count service-status-count--${team.complete ? 'confirmed' : 'pending'}`}
+                      title={`Confirmados: ${team.confirmed} · Faltas: ${team.missed}`}>Equipa: {team.covered}/{requestedTotal}</span>
                     {pendingTotal > 0 ? <span className="service-status-count service-status-count--pending">A aguardar: {pendingTotal}</span> : null}
                     <span className="service-status-count">Valor: {euro(eventRevenueForDisplay(row))}</span>
                   </div>

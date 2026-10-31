@@ -1374,7 +1374,7 @@ export default function ServiceDetail() {
               detail={service.status === 'finalized' ? 'Serviço realizado' : 'Serviço ainda não finalizado'}
               tone={service.status === 'finalized' ? 'success' : 'warning'} />
           </> : <>
-            <ProgressStat label="Equipa" value={`${metrics.confirmed}/${metrics.requested || metrics.assigned}`} detail="confirmados" tone={metrics.teamComplete ? 'success' : 'warning'} />
+            <ProgressStat label="Equipa" value={`${metrics.teamFilled}/${metrics.requested || metrics.assigned}`} detail="lugares preenchidos" tone={metrics.teamComplete ? 'success' : 'warning'} />
             <ProgressStat label="Staff" value={`${metrics.staffFilled}/${metrics.assigned}`} detail={metrics.staffAcceptedComplete ? 'horários aceites' : 'horários guardados'} tone={metrics.staffHoursComplete ? 'success' : 'warning'} />
             <ProgressStat label="Cliente" value={`${metrics.clientFilled}/${metrics.assigned}`} detail="horários preenchidos" tone={metrics.clientHoursComplete ? 'success' : 'warning'} />
           </>}

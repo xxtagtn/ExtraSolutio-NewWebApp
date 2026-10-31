@@ -158,7 +158,7 @@ function TimelinePanel({ title, actionLabel, to, items = [], emptyTitle = 'Sem r
 }
 
 export default function PendingActions() {
-  const { data: services, loading: loadingServices, error: servicesError } = useApi('/services', []);
+  const { data: services, loading: loadingServices, error: servicesError } = useApi('/services', [], { revalidateOnFocus: true });
   const { data: collaborators, loading: loadingCollaborators, error: collaboratorsError } = useApi('/collaborators?light=1', []);
   const { data: budgets, loading: loadingBudgets, error: budgetsError } = useApi('/budgets', []);
   const { data: invoices, loading: loadingInvoices, error: invoicesError } = useApi('/invoices', []);

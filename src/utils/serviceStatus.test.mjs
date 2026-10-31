@@ -84,8 +84,8 @@ test('does not move service to client hour validation during automatic status sy
     status: 'to_validate_staff',
     date: '2026-06-10',
     assignments: [
-      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00' },
-      { status: 'missed_justified' },
+      { collaboratorId: 1, status: 'confirmed', checkIn: '09:00', checkOut: '17:00' },
+      { collaboratorId: 2, status: 'missed_justified' },
     ],
   }, new Date('2026-06-11T09:00:00')), 'to_validate_staff');
 });
@@ -228,7 +228,7 @@ test('does not move a future service to client validation just because planned s
     date: '2026-06-20',
     requiredRoles: [{ role: 'Barman', qty: 1 }],
     assignments: [
-      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00' },
+      { collaboratorId: 1, status: 'confirmed', checkIn: '09:00', checkOut: '17:00' },
     ],
   }, new Date('2026-06-11T09:00:00')), 'team_complete');
 });

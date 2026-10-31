@@ -2,6 +2,7 @@ import { normalizeAssignmentDrafts } from './serviceAssignmentDrafts.js';
 import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
 import { requiredStaffTotal } from './serviceRequirements.js';
 import { isExternalOnlyService } from './externalServiceWorkflow.js';
+import { serviceTeamCoverage } from './serviceTeamCoverage.js';
 
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 export const MANUAL_TEAM_ROLE = 'Sem função';
@@ -54,6 +55,7 @@ export function serviceDetailMetrics(event = {}) {
   const assignments = Array.isArray(event.assignments) ? event.assignments : [];
   const billable = billableAssignments(assignments);
   const requested = requiredStaffTotal(event);
+  const team = serviceTeamCoverage(event);
   const confirmed = billable.filter((assignment) => normalizeStatus(assignment.status) === 'confirmed').length;
   const staffFilled = billable.filter((assignment) => assignment.checkIn && assignment.checkOut).length;
   const staffAccepted = billable.filter((assignment) => (
@@ -71,8 +73,9 @@ export function serviceDetailMetrics(event = {}) {
     staffAccepted,
     clientFilled,
     validated,
-    missingStaff: Math.max(0, requested - confirmed),
-    teamComplete: requested > 0 && confirmed >= requested,
+    teamFilled: team.covered,
+    missingStaff: team.missing,
+    teamComplete: team.complete,
     staffHoursComplete: billable.length > 0 && staffFilled === billable.length,
     staffAcceptedComplete: billable.length > 0 && staffAccepted === billable.length,
     clientHoursComplete: billable.length > 0 && clientFilled === billable.length,
@@ -95,7 +98,7 @@ export function serviceChecklist(event = {}) {
       id: 'team',
       label: 'Equipa completa',
       done: metrics.teamComplete,
-      detail: `${metrics.confirmed}/${metrics.requested || metrics.assigned} confirmados`,
+      detail: `${metrics.teamFilled}/${metrics.requested || metrics.assigned} lugares preenchidos`,
     },
     {
       id: 'staff',

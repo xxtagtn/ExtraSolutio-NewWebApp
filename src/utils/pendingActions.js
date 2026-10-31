@@ -2,6 +2,7 @@ import { isFinanceReadyEvent } from './financeReadiness.js';
 import { clientBillingPeriodForDay } from '../../shared/clientBillingCalendar.js';
 import { buildClientFinanceSnapshot } from './clientFinanceSnapshot.js';
 import { decimalValue } from './serviceFinance.js';
+import { serviceTeamCoverage } from './serviceTeamCoverage.js';
 import { staffPaymentTiming } from './staffPayment.js';
 import { prepaymentRemainingReminderDate } from './prepaymentPolicy.js';
 import {
@@ -12,7 +13,6 @@ import {
 import {
   activeEventAssignments,
   activeEventDayKeys,
-  activeEventRequiredRoles,
 } from './eventCancelledDays.js';
 
 const NON_BILLABLE_ASSIGNMENT = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
@@ -166,17 +166,6 @@ function billingPeriodLabel(method, issueDate) {
   return monthPeriodLabel(date);
 }
 
-function requiredTotal(event) {
-  return activeEventRequiredRoles(event, safeArray(event?.requiredRoles))
-    .reduce((sum, item) => sum + Math.max(0, Number(item?.qty || 0)), 0);
-}
-
-function confirmedTotal(event) {
-  return activeEventAssignments(event, event?.assignments || [])
-    .filter((assignment) => normalized(assignment?.status) === 'confirmed')
-    .length;
-}
-
 function billableAssignments(event) {
   return activeEventAssignments(event, event?.assignments || [])
     .filter((assignment) => !NON_BILLABLE_ASSIGNMENT.has(normalized(assignment?.status)));
@@ -221,11 +210,10 @@ function addTeamActions(actions, services, today) {
     if (CLOSED_SERVICE_STATUSES.has(normalized(event?.status))) continue;
     if (isFinanceReadyEvent(event)) continue;
 
-    const requested = requiredTotal(event);
+    const { required: requested, covered } = serviceTeamCoverage(event);
     if (!requested) continue;
 
-    const confirmed = confirmedTotal(event);
-    if (confirmed >= requested) continue;
+    if (covered >= requested) continue;
 
     const days = daysUntil(event.date, today);
     const priority = days !== null && days <= 2 ? 'high' : 'medium';
@@ -233,7 +221,7 @@ function addTeamActions(actions, services, today) {
       id: `service-team-${event.id}`,
       category: 'Eventos/Serviços',
       title: 'Evento sem equipa completa',
-      description: `${event.name || 'Evento/Serviço'}: ${confirmed}/${requested} colaboradores confirmados.`,
+      description: `${event.name || 'Evento/Serviço'}: ${covered}/${requested} lugares preenchidos.`,
       priority,
       tone: priority === 'high' ? 'warning' : 'info',
       dueDate: eventDateTime(event) || event.date,
@@ -243,7 +231,7 @@ function addTeamActions(actions, services, today) {
       details: [
         { label: 'Cliente', value: clientName(event) },
         { label: 'Evento', value: event.name || 'Evento/Serviço' },
-        { label: 'Equipa', value: `${confirmed}/${requested} confirmados` },
+        { label: 'Equipa', value: `${covered}/${requested} lugares preenchidos` },
       ],
     });
   }
