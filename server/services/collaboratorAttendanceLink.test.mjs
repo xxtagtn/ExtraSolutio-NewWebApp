@@ -187,13 +187,16 @@ test('legacy monthly, daily and single-service URLs cannot bypass inactive statu
   }
 });
 
-test('management lists active people without assignments, paginates and never exposes link tokens', async () => {
+test('management shows active people only after confirmation and never exposes link tokens', async () => {
   const f = await fixture();
-  const result = await list(db, { search: f.collaborator.name, pageSize: 1 });
+  const now = at('2026-11-15');
+  assert.equal((await list(db, { search: f.collaborator.name }, { now })).total, 0);
+  await f.add('2026-11-15');
+  const result = await list(db, { search: f.collaborator.name, pageSize: 1 }, { now });
   assert.equal(result.total, 1); assert.equal(result.items[0].id, f.collaborator.id);
   assert.equal(JSON.stringify(result).includes(f.link.token), false);
   await db.collaborator.update({ where: { id: f.collaborator.id }, data: { status: 'inactive' } });
-  assert.equal((await list(db, { search: f.collaborator.name })).total, 0);
+  assert.equal((await list(db, { search: f.collaborator.name }, { now })).total, 0);
 });
 
 test('confirmed counts use current-month service days, include completed shifts and exclude absences, cancellations and revoked access', async () => {
@@ -222,15 +225,56 @@ test('confirmed counts use current-month service days, include completed shifts 
   assert.equal(december.items[0].confirmedServices, 1);
 });
 
-test('confirmed count follows Lisbon month rollover and returns zero without assignments', async () => {
+test('confirmed count follows Lisbon month rollover and hides people without assignments', async () => {
   const f = await fixture();
   const empty = await list(db, { search: f.collaborator.name }, { now: at('2026-03-31') });
-  assert.equal(empty.items[0].confirmedServices, 0);
+  assert.equal(empty.items.length, 0); assert.equal(empty.total, 0);
   await f.add('2026-03-31'); await f.add('2026-04-01');
   const result = await list(db, { search: f.collaborator.name }, { now: new Date('2026-03-31T23:30:00Z') });
   assert.equal(result.monthFrom, '2026-04-01');
   assert.equal(result.items[0].confirmedServices, 1);
   assert.equal((await list(db, { search: 'Name that does not exist' })).items.length, 0);
+});
+
+test('confirmed-only filter runs before search totals and pagination, excluding every ineligible-only roster', async () => {
+  const fixtures = [];
+  for (let i = 0; i < 12; i++) {
+    const f = await fixture(); fixtures.push(f);
+    await db.collaborator.update({ where: { id: f.collaborator.id }, data: {
+      name: `Rosterfilter ${String(i).padStart(2, '0')}`, shortName: i === 5 ? 'Unique confirmed match' : null,
+    } });
+    if (i === 0) continue;
+    if (i === 1 || i === 2 || i === 11) {
+      await f.add('2026-11-15', { status: i === 1 ? 'pending_confirmation' : i === 2 ? 'missed_justified' : 'missed_unjustified' });
+    } else if (i === 8) { await f.add('2026-10-31'); await f.add('2026-12-01'); }
+    else {
+      const row = await f.add('2026-11-15');
+      if (i === 3) await db.event.update({ where: { id: f.event.id }, data: { cancelledDays: JSON.stringify(['2026-11-15']) } });
+      if (i === 4) await db.collaborator.update({ where: { id: f.collaborator.id }, data: { status: 'inactive' } });
+      if (i === 5) await f.add('2026-11-16');
+      if (i === 9) {
+        const qr = await ensureAssignmentQr(db, row.id);
+        await db.qrCheckCode.update({ where: { id: qr.id }, data: { revokedAt: new Date() } });
+      }
+      if (i === 10) await db.event.update({ where: { id: f.event.id }, data: { status: 'cancelled' } });
+    }
+  }
+  const now = at('2026-11-15'), query = { search: 'Rosterfilter', pageSize: 2 };
+  const first = await list(db, query, { now }), second = await list(db, { ...query, page: 2 }, { now });
+  assert.equal(first.total, 3); assert.equal(first.totalPages, 2);
+  assert.deepEqual(first.items.map((item) => item.id), [fixtures[5].collaborator.id, fixtures[6].collaborator.id]);
+  assert.deepEqual(first.items.map((item) => item.confirmedServices), [2, 1]);
+  assert.deepEqual(second.items.map((item) => item.id), [fixtures[7].collaborator.id]);
+  const clamped = await list(db, { ...query, page: 99 }, { now });
+  assert.equal(clamped.page, 2); assert.deepEqual(clamped.items, second.items);
+  const shortName = await list(db, { search: 'Unique confirmed match' }, { now });
+  assert.equal(shortName.total, 1); assert.equal(shortName.items[0].id, fixtures[5].collaborator.id);
+  const blank = await list(db, { search: 'Rosterfilter 00' }, { now });
+  assert.equal(blank.total, 0); assert.deepEqual(blank.items, []);
+  assert.equal((await read(db, fixtures[0].link.token, { now })).permanent, true, 'Being absent from the list never revokes an active person\'s permanent link');
+  const final = await db.eventAssignment.findFirst({ where: { collaboratorId: fixtures[7].collaborator.id } });
+  await db.eventAssignment.update({ where: { id: final.id }, data: { status: 'pending_confirmation' } });
+  assert.equal((await list(db, query, { now })).total, 2, 'Removing the last confirmation removes that person on refresh');
 });
 
 test('migration is additive and deletion cascades only the access token', () => {

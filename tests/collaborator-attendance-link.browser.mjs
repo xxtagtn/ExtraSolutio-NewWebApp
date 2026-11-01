@@ -15,7 +15,7 @@ try {
       localStorage.setItem('extrasolutio.auth', JSON.stringify({ token: 'fixed-link-test', user: { id: 1, name: 'QA', role: 'admin' } }));
       Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (value) => { window.copiedLink = value; } } });
     });
-    let active = true, token = 'a'.repeat(43), entered = false, completed = false, empty = false, confirmedServices = 8;
+    let active = true, token = 'a'.repeat(43), entered = false, completed = false, empty = false, confirmedServices = 8, listEmpty = false;
     let searches = [], writes = [], legacyRequests = [];
     const name = 'Ana Carolina Rodrigues';
     const service = () => ({ assignmentId: 1, assignmentDate: '2026-11-01', eventName: 'Restaurante Luz Chakall',
@@ -46,7 +46,7 @@ try {
       }
       if (url.pathname === '/api/qr-codes/links') {
         searches.push(url.searchParams.get('search'));
-        return route.fulfill({ json: { items: [{ id: 1, name, shortName: null, confirmedServices }], monthFrom: '2026-11-01', total: 1, page: 1, pageSize: 25, totalPages: 1 } });
+        return route.fulfill({ json: { items: listEmpty ? [] : [{ id: 1, name, shortName: null, confirmedServices }], monthFrom: '2026-11-01', total: listEmpty ? 0 : 1, page: 1, pageSize: 25, totalPages: 1 } });
       }
       if (url.pathname === '/api/qr-codes/links/1') {
         writes.push(url.pathname);
@@ -97,6 +97,14 @@ try {
     assert.deepEqual(legacyRequests, [], 'The removed tab cannot keep loading/polling service QR lists');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ path: `${output}/management-${width}.png`, fullPage: true });
+    listEmpty = true;
+    await page.getByRole('searchbox', { name: 'Pesquisar colaborador nos links de picagem' }).fill('');
+    await page.getByText('Sem colaboradores com serviços confirmados neste mês.', { exact: true }).waitFor();
+    assert.equal(await table.getByRole('button').count(), 0);
+    assert.match(await page.locator('.attendance-links .collab-pagination__summary').innerText(), /0-0 de 0/);
+    listEmpty = false;
+    await page.getByRole('button', { name: 'Atualizar', exact: true }).click();
+    await table.getByText(name, { exact: true }).waitFor();
     const publicUrl = `${base}/qr/link/${token}`;
     await page.goto(publicUrl);
     await page.getByRole('button', { name: 'Dar Entrada', exact: true }).waitFor();

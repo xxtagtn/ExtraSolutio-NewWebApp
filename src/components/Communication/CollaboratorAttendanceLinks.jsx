@@ -76,7 +76,8 @@ export default function CollaboratorAttendanceLinks({ tools, userId }) {
             <button type="button" className="icon-button" title="Gerar novo link" aria-label={`Gerar novo link de ${collaborator.name}`}
               disabled={busy !== null} onClick={() => setReplacement(collaborator)}><RefreshCw size={16} /></button>
           </div></td>
-        </tr>) : <tr><td colSpan="3">Sem colaboradores ativos para esta pesquisa.</td></tr>}</tbody>
+        </tr>) : <tr><td colSpan="3">{query ? 'Sem resultados para esta pesquisa.'
+          : 'Sem colaboradores com serviços confirmados neste mês.'}</td></tr>}</tbody>
     </table></div>
     <CommunicationPagination payload={data} page={page} pageSize={pageSize} loading={loading}
       onPageChange={setPage} onPageSizeChange={(size) => {

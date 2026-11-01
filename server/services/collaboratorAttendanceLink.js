@@ -64,24 +64,24 @@ export async function listCollaboratorAttendanceLinks(db, query = {}, { now = ne
   const where = { status: 'active', ...(search ? { OR: [
     { name: { contains: search } }, { shortName: { contains: search } },
   ] } : {}) };
-  const total = await db.collaborator.count({ where });
-  const { page, pageSize, skip } = communicationPagination(query, total);
-  const items = await db.collaborator.findMany({ where, skip, take: pageSize,
-    orderBy: [{ name: 'asc' }, { id: 'asc' }], select: { id: true, name: true, shortName: true } });
   const cycle = monthlyPunchCycle(now);
   const range = { gte: new Date(`${cycle.historyFrom}T00:00:00Z`), lt: new Date(`${cycle.servicesUntil}T00:00:00Z`) };
-  // One lightweight query for this page, not one query per collaborator.
-  const assignments = items.length ? await db.eventAssignment.findMany({
-    where: { collaboratorId: { in: items.map((item) => item.id) }, status: { in: ['confirmed', 'confirmado'] },
+  // Filter eligibility before pagination, including cancelled days stored on events.
+  const assignments = await db.eventAssignment.findMany({
+    where: { collaborator: { is: where }, status: { in: ['confirmed', 'confirmado'] },
       OR: [{ assignmentDate: range }, { assignmentDate: null, event: { date: range } }] },
     select: { collaboratorId: true, assignmentDate: true, status: true,
       event: { select: { date: true, status: true, cancelledDays: true } },
       qrCheckCode: { select: { revokedAt: true } } },
-  }) : [];
+  });
   const counts = new Map();
   for (const assignment of assignments) {
     if (monthlyQrEligible(assignment)) counts.set(assignment.collaboratorId, (counts.get(assignment.collaboratorId) || 0) + 1);
   }
-  return { ...buildPaginatedPayload({ items: items.map((item) => ({ ...item, confirmedServices: counts.get(item.id) || 0 })),
+  const total = counts.size;
+  const { page, pageSize, skip } = communicationPagination(query, total);
+  const items = total ? await db.collaborator.findMany({ where: { ...where, id: { in: [...counts.keys()] } }, skip, take: pageSize,
+    orderBy: [{ name: 'asc' }, { id: 'asc' }], select: { id: true, name: true, shortName: true } }) : [];
+  return { ...buildPaginatedPayload({ items: items.map((item) => ({ ...item, confirmedServices: counts.get(item.id) })),
     total, page, pageSize }), monthFrom: cycle.historyFrom };
 }

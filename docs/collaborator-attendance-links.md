@@ -2,7 +2,9 @@
 
 ## Comportamento
 
-- Comunicacao > Links de picagem lista colaboradores ativos, mesmo sem servicos ou horarios.
+- Comunicacao > Links de picagem lista apenas colaboradores ativos com pelo menos um
+  servico confirmado elegivel no mes atual. Pesquisa, totais e paginacao usam esse filtro.
+  Nao aparecer na tabela nao apaga nem invalida o link fixo de um colaborador ativo.
 - A tabela mostra Nome, Servicos confirmados e Acao. A contagem corresponde a atribuicoes
   confirmadas do mes civil atual em Europe/Lisbon (inclui servicos ja concluidos), sem
   faltas, dias/eventos cancelados ou acessos revogados. O mes e identificado no cabecalho.
