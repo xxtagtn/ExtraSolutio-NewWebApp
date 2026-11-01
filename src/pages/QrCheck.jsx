@@ -19,7 +19,7 @@ async function publicQrApi(path, options = {}) {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || 'Pedido falhou.');
+    throw Object.assign(new Error(error.message || 'Pedido falhou.'), { status: response.status });
   }
   return response.json();
 }
@@ -40,7 +40,7 @@ function StateBadge({ state }) {
   return <span className={`qr-check-state qr-check-state--${key}`}>{state?.label || 'QR Gerado'}</span>;
 }
 
-export default function QrCheck({ daily = false, monthly = false }) {
+export default function QrCheck({ daily = false, monthly = false, permanent = false }) {
   const { token } = useParams();
   if (monthly && !token?.startsWith('month2.')) return <main className="qr-check-page"><section className="qr-check-card">
     <div className="qr-check-logo"><img src="/logo.png" alt="ExtraSolutio" /></div>
@@ -49,19 +49,20 @@ export default function QrCheck({ daily = false, monthly = false }) {
       <p>Pede o link diário do serviço à ExtraSolutio.</p>
     </div>
   </section></main>;
-  return <QrCheckPage key={`${monthly}:${daily}:${token}`} token={token} daily={daily} monthly={monthly} />;
+  return <QrCheckPage key={`${permanent}:${monthly}:${daily}:${token}`} token={token} daily={daily} monthly={monthly || permanent} permanent={permanent} />;
 }
 
-function QrCheckPage({ token, daily, monthly }) {
+function QrCheckPage({ token, daily, monthly, permanent }) {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [notFound, setNotFound] = useState(false);
   const [actionError, setActionError] = useState('');
   const [checkoutReceipt, setCheckoutReceipt] = useState(null);
   const pending = useRef(false);
   const revision = useRef(0);
-  const endpoint = `/qr-check/${monthly ? 'month/' : daily ? 'day/' : ''}${encodeURIComponent(token)}`;
+  const endpoint = `/qr-check/${permanent ? 'link/' : monthly ? 'month/' : daily ? 'day/' : ''}${encodeURIComponent(token)}`;
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (pending.current) return;
@@ -71,9 +72,16 @@ function QrCheckPage({ token, daily, monthly }) {
       const next = await publicQrApi(endpoint);
       if (request !== revision.current) return;
       setPayload(next);
+      setNotFound(false);
       setError('');
     } catch (err) {
       if (request !== revision.current) return;
+      if (err.status === 404) {
+        setPayload(null);
+        setCheckoutReceipt(null);
+        setActionError('');
+        setNotFound(true);
+      }
       setError(err.message || 'QR Code inválido.');
     } finally {
       if (request === revision.current) setLoading(false);
@@ -128,6 +136,11 @@ function QrCheckPage({ token, daily, monthly }) {
       }
     } catch (err) {
       if (request === revision.current) {
+        if (err.status === 404) {
+          setNotFound(true);
+          setPayload(null);
+          setCheckoutReceipt(null);
+        }
         setActionError(err.message || 'Não foi possível registar a hora.');
         refreshNeeded = true;
       }
@@ -141,6 +154,10 @@ function QrCheckPage({ token, daily, monthly }) {
   const nextAction = payload?.state?.nextAction;
   const checkoutBlocked = payload?.checkOutRetryAfterMs > 0;
   const theme = resolveSeasonalTheme(payload?.appearance?.theme);
+
+  if (notFound) return <main className="qr-check-page"><section className="qr-check-card">
+    <div className="qr-check-empty"><h1>Página não encontrada</h1><p>Este endereço não está disponível.</p></div>
+  </section></main>;
 
   return (
     <main className="qr-check-page" data-seasonal-theme={theme}>

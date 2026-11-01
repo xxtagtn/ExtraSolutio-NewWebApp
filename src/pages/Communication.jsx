@@ -6,7 +6,6 @@ import {
   ExternalLink,
   MessageSquareText,
   Phone,
-  QrCode,
   RefreshCw,
   Search,
   Send,
@@ -17,13 +16,13 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Badge from '../components/UI/Badge.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
 import CommunicationPagination from '../components/UI/CommunicationPagination.jsx';
-import { CommunicationQrActions, CommunicationQrDialog, useCommunicationQrTools } from '../components/Communication/CommunicationQrTools.jsx';
+import { CommunicationQrActions, useCommunicationQrTools } from '../components/Communication/CommunicationQrTools.jsx';
+import CollaboratorAttendanceLinks from '../components/Communication/CollaboratorAttendanceLinks.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { useCommunicationData } from '../hooks/useCommunicationData.js';
 import { api } from '../utils/api.js';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { communicationSummary } from '../utils/communicationCenter.js';
-import { groupQrRowsByCollaboratorDay } from '../utils/communicationQrGroups.js';
 import { withCommunicationMessageDraft } from '../utils/communicationMessageDrafts.js';
 import { date } from '../utils/formatters.js';
 
@@ -80,125 +79,6 @@ function SummaryCard({ icon: Icon, label, value, tone = 'accent' }) {
         <strong>{value}</strong>
       </div>
     </article>
-  );
-}
-
-const qrStateTones = { qr_generated: 'info', entrada_registada: 'warning', servico_concluido: 'success' };
-
-function QrCodesPanel({ canManageQrCodes, qrTools }) {
-  const [eventId, setEventId] = useState('');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const { data: eventOptions, error: optionsError, reload: reloadEvents } = useCommunicationData(canManageQrCodes ? '/qr-codes/events' : null, { poll: true });
-  const { data: payload, loading, error, reload: loadQrCodes } = useCommunicationData(
-    canManageQrCodes && eventId ? `/qr-codes/events/${eventId}?page=${page}&pageSize=${pageSize}&groupBy=collaboratorDay` : null,
-    { poll: true },
-  );
-
-  useEffect(() => {
-    if (eventOptions && !eventOptions.some((event) => String(event.id) === String(eventId))) {
-      setEventId(eventOptions[0]?.id || '');
-      setPage(1);
-    }
-  }, [eventId, eventOptions]);
-
-  if (!canManageQrCodes) {
-    return (
-      <EmptyState
-        icon={QrCode}
-        title="Sem acesso aos QR Codes"
-        description="Este utilizador não tem permissão para gerir QR Codes de check-in/check-out."
-      />
-    );
-  }
-
-  return (
-    <section className="communication-qr-panel">
-      <div className="communication-qr-toolbar">
-        <label>
-          <span>Evento/Serviço</span>
-          <select value={eventId} onChange={(event) => { setEventId(event.target.value); setPage(1); }}>
-            {eventOptions?.length ? eventOptions.map((item) => (
-              <option key={item.id} value={item.id}>{item.name} · {item.clientName} · {formatTaskDate(item.date)}</option>
-            )) : <option value="">Sem serviços nesta janela</option>}
-          </select>
-        </label>
-        <button type="button" className="secondary-button" onClick={() => { reloadEvents(); loadQrCodes(); }} disabled={loading}>
-          <RefreshCw size={16} /> Atualizar
-        </button>
-      </div>
-
-      {error || optionsError ? <p className="notice">{error || optionsError}</p> : null}
-
-      <div className="communication-qr-summary">
-        <article>
-          <small>Evento</small>
-          <strong>{payload?.event?.name || 'Seleciona um evento'}</strong>
-          <span>{payload?.event?.clientName || ''}</span>
-        </article>
-        <article>
-          <small>QR gerados</small>
-          <strong>{payload?.summary?.total || 0}</strong>
-          <span>colaboradores atribuídos</span>
-        </article>
-        <article>
-          <small>Entradas</small>
-          <strong>{payload?.summary?.entries || 0}</strong>
-          <span>registadas</span>
-        </article>
-        <article>
-          <small>Concluídos</small>
-          <strong>{payload?.summary?.completed || 0}</strong>
-          <span>com entrada e saída</span>
-        </article>
-      </div>
-
-      <div className="communication-qr-table-wrap">
-        <table className="data-table communication-qr-table">
-          <thead>
-            <tr>
-              <th>Colaborador</th>
-              <th>Serviços / Picagens</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan="3">A carregar QR Codes...</td></tr>
-            ) : (payload?.rows || []).length ? groupQrRowsByCollaboratorDay(payload.rows, payload.event?.date).map((group) => (
-              <tr key={group.key}>
-                <td data-label="Colaborador">
-                  <strong>{group.rows[0].collaboratorName}</strong>
-                  <small>{formatTaskDate(group.rows[0].assignmentDate)}</small>
-                </td>
-                <td data-label="Serviços / Picagens">
-                  <div className="communication-qr-services">
-                    {[...group.rows].sort((a, b) => String(a.startTime || '').localeCompare(String(b.startTime || '')) || a.assignmentId - b.assignmentId).map((row) => (
-                      <div className="communication-qr-service" key={row.assignmentId}>
-                        <div className="communication-qr-service__header">
-                          <span className="communication-qr-service__schedule"><Clock3 size={15} aria-hidden="true" />{[row.startTime, row.endTime].filter(Boolean).join(' → ') || 'Sem horário'}</span>
-                          <Badge tone={qrStateTones[row.state?.key] || 'neutral'}>{row.state?.label || 'QR Gerado'}</Badge>
-                        </div>
-                        <small>{row.role || 'Sem função'}</small>
-                        <small>Entrada: {row.checkIn || '-'} · Saída: {row.checkOut || '-'}</small>
-                      </div>
-                    ))}
-                  </div>
-                </td>
-                <td data-label="Ações">
-                  <CommunicationQrActions row={group.rows[0]} tools={qrTools} compact />
-                </td>
-              </tr>
-            )) : (
-              <tr><td colSpan="3">Sem serviços dentro da janela de 24 horas.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <CommunicationPagination payload={payload} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
-
-    </section>
   );
 }
 
@@ -483,16 +363,13 @@ export default function Communication() {
         <button type="button" className={activeTab === 'messages' ? 'active' : ''} onClick={() => setActiveTab('messages')}>
           <MessageSquareText size={16} /> Mensagens
         </button>
-        <button type="button" className={activeTab === 'qr' ? 'active' : ''} onClick={() => setActiveTab('qr')}>
-          <QrCode size={16} /> QR Codes / Link
-        </button>
+        {canManageQrCodes && <button type="button" className={activeTab === 'links' ? 'active' : ''} onClick={() => setActiveTab('links')}>
+          <Copy size={16} /> Links de picagem
+        </button>}
       </nav>
-      {!qrTools.selected && <span className="communication-copy-notice" role="status" aria-live="polite">{qrTools.notice}</span>}
-      <CommunicationQrDialog tools={qrTools} />
+      <span className="communication-copy-notice" role="status" aria-live="polite">{qrTools.notice}</span>
 
-      {activeTab === 'qr' ? (
-        <QrCodesPanel canManageQrCodes={canManageQrCodes} qrTools={qrTools} />
-      ) : (
+      {activeTab === 'links' && canManageQrCodes ? <CollaboratorAttendanceLinks key={user.id} userId={user.id} tools={qrTools} /> : (
         <>
 
       <section className="communication-summary-grid" aria-label="Resumo de comunicação">

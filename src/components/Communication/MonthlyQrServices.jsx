@@ -29,8 +29,9 @@ export default function MonthlyQrServices({ payload, saving, onRegister, themed 
       <h1>{payload.collaboratorName}</h1>
       <p>Link de Picagens</p>
       <strong className="qr-month-label">{month.charAt(0).toUpperCase() + month.slice(1)}</strong>
-      <small>{payload.closed ? 'Link terminado' : payload.checkoutOnly ? 'Apenas saída do turno em curso'
+      {!payload.permanent && <small>{payload.closed ? 'Link terminado' : payload.checkoutOnly ? 'Apenas saída do turno em curso'
         : `Válido até ${qrSummaryDate(payload.expiresAt, payload.timeZone)}`}</small>
+      }
     </QrLinkHeader>
     {payload.active && <section className="qr-month-active" aria-label="Picagens disponíveis">
       <h2>Picagens · {qrSummaryDate(payload.activeDay)}</h2>
@@ -38,7 +39,8 @@ export default function MonthlyQrServices({ payload, saving, onRegister, themed 
         onRegister={onRegister} showHeader={false} />
     </section>}
     {!payload.services.length && <p className="qr-check-completed" role="status">{payload.closed
-      ? 'Saída registada. Este link terminou.' : 'Sem serviços pendentes neste mês.'}</p>}
+      ? 'Saída registada. Este link terminou.' : payload.permanent
+        ? 'Não tens serviços disponíveis para picar neste momento.' : 'Sem serviços pendentes neste mês.'}</p>}
     {services.length > 0 && <section className="qr-month-history" aria-label="Próximos Serviços">
       <h2>Próximos Serviços</h2>
       <div className="qr-month-search">

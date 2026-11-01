@@ -8,6 +8,7 @@ import {
 } from '../utils/qrCheckins.js';
 import { publicQrPlannedSchedule, qrConsultationAccess } from '../utils/qrConsultation.js';
 import { eventDayKey, isAssignmentOnCancelledDay } from '../../src/utils/eventCancelledDays.js';
+import { requireActiveQrCollaborator } from './collaboratorQrAccess.js';
 
 const qrInclude = {
   event: { include: { client: true } },
@@ -59,6 +60,7 @@ async function loadPublicQr(client, token) {
   if (!token) throw publicQrError(404, 'QR Code inválido.', 'QR_INVALID');
   const qrCode = await client.qrCheckCode.findUnique({ where: { token }, include: qrInclude });
   if (!qrCode) throw publicQrError(404, 'QR Code inválido.', 'QR_INVALID');
+  await requireActiveQrCollaborator(client, qrCode.collaboratorId);
   if (qrCode.revokedAt) throw publicQrError(410, 'Este QR Code foi anulado.', 'QR_REVOKED');
   if (String(qrCode.assignment?.status || '').toLowerCase() === 'cancelled') {
     throw publicQrError(410, 'Este dia do evento foi cancelado.', 'QR_DAY_CANCELLED');

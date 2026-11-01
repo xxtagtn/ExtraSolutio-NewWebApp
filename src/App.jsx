@@ -50,6 +50,7 @@ export default function App() {
         <Route path="/qr/:token" element={<QrCheck />} />
         <Route path="/qr/day/:token" element={<QrCheck daily />} />
         <Route path="/qr/month/:token" element={<QrCheck monthly />} />
+        <Route path="/qr/link/:token" element={<QrCheck permanent />} />
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Navigate to={DEFAULT_AUTHENTICATED_PATH} replace />} />
           <Route path="dashboard" element={<RequirePermission permission={PERMISSIONS.DASHBOARD_VIEW}><PendingActions /></RequirePermission>} />

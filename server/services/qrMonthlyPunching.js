@@ -7,6 +7,7 @@ import { communicationQrWindow } from '../utils/communicationQrWindow.js';
 import { monthlyQrEligible, monthlyQrRows } from './qrMonthlyAttendance.js';
 import { publicDailyPunchPayload, QR_SERVICE_SWITCH_DELAY_MS, readDailyQr, registerDailyQr } from './qrDailyAttendance.js';
 import { publicQrError } from './qrAttendance.js';
+import { requireActiveQrCollaborator } from './collaboratorQrAccess.js';
 
 function identity(token, now) {
   if (!String(token || '').startsWith('month2.')) {
@@ -70,6 +71,7 @@ function servicePayload(row) {
 
 export async function readMonthlyPunchQr(db, token, { now = new Date() } = {}) {
   const { collaboratorId, cycle, expired } = identity(token, now);
+  await requireActiveQrCollaborator(db, collaboratorId);
   const rows = expired ? await closingRows(db, collaboratorId, cycle, now) : await monthlyQrRows(db, { collaboratorId, now, cycle, includeExitLogs: true });
   if (expired && !rows.length) throw expiredLink();
   let overnight = [];
@@ -107,7 +109,7 @@ export async function readMonthlyPunchQr(db, token, { now = new Date() } = {}) {
   };
 }
 
-export async function registerMonthlyPunchQr(db, token, action, request = {}, { now = new Date(), audit = {}, afterWrite } = {}) {
+export async function registerMonthlyPunchQr(db, token, action, request = {}, { now = new Date(), audit = {}, afterWrite, authorize, allowEmptyAfterCheckout = false } = {}) {
   const { collaboratorId, cycle, expired } = identity(token, now);
   if (expired && action !== 'check_out') throw expiredLink();
   const current = await readMonthlyPunchQr(db, token, { now });
@@ -118,6 +120,7 @@ export async function registerMonthlyPunchQr(db, token, action, request = {}, { 
     // The monthly response selects the next day; the closed daily link may now be expired.
     readAfterWrite: false,
     authorize: async (tx) => {
+      if (authorize) await authorize(tx);
       identity(token, now);
       if (expired && !(await closingRows(tx, collaboratorId, cycle, now)).some((row) => row.id === Number(request.assignmentId))) {
         throw expiredLink();
@@ -135,9 +138,14 @@ export async function registerMonthlyPunchQr(db, token, action, request = {}, { 
   try {
     next = await readMonthlyPunchQr(db, token, { now });
   } catch (error) {
-    if (!expired || error.code !== 'QR_EXPIRED') throw error;
-    // A successful checkout must not be reported as a failed POST when it closes the link.
-    next = { ...current, activeDay: null, active: null, services: [], closed: true };
+    // A permanent link can finish the previous month's only overnight service.
+    if (allowEmptyAfterCheckout && action === 'check_out' && error.code === 'QR_MONTH_EMPTY') {
+      next = { ...current, activeDay: null, active: null, services: [] };
+    } else {
+      if (!expired || error.code !== 'QR_EXPIRED') throw error;
+      // A successful checkout must not be reported as a failed POST when it closes the link.
+      next = { ...current, activeDay: null, active: null, services: [], closed: true };
+    }
   }
   return registered?.checkoutReceipt ? { ...next, checkoutReceipt: registered.checkoutReceipt } : next;
 }

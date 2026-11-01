@@ -3,6 +3,13 @@
   --season-soft: rgba(20, 184, 166, 0.1);
 }
 
+.app-shell {
+  --season-sidebar-width: 252px;
+  --season-sidebar-scene-height: clamp(80px, calc(100dvh - 620px), 300px);
+  --season-sidebar-art-ratio: 1;
+}
+.sidebar-content { display: contents; }
+
 :is(.app-shell, .qr-check-page)[data-seasonal-theme="halloween"] {
   --season-accent: #f3b15c;
   --season-soft: rgba(243, 177, 92, 0.1);
@@ -10,6 +17,7 @@
 }
 
 :is(.app-shell, .qr-check-page)[data-seasonal-theme="christmas"] {
+  --season-sidebar-art-ratio: 0.8775137112;
   --season-accent: #e0bb6b;
   --season-soft: rgba(224, 187, 107, 0.1);
   --season-art: url('./christmas-decorations.png');
@@ -30,6 +38,7 @@
 }
 
 :is(.app-shell, .qr-check-page)[data-seasonal-theme="easter"] {
+  --season-sidebar-art-ratio: 1.3844086022;
   --season-accent: #b7ddc9;
   --season-soft: rgba(183, 221, 201, 0.1);
   --season-art: url('./easter-garland.png');
@@ -136,13 +145,23 @@
   pointer-events: none;
 }
 .seasonal-sidebar-scene {
-  position: sticky;
-  top: max(0px, calc(100dvh - 270px));
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  top: auto;
   display: block;
-  width: 100%;
-  margin: 20px 0 0;
-  flex: 0 0 auto;
+  width: calc(var(--season-sidebar-width) - 1px);
+  height: var(--season-sidebar-scene-height);
+  margin: 0;
+  z-index: 0;
   pointer-events: none;
+  user-select: none;
+}
+.seasonal-sidebar-scene > .seasonal-art-tile {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: min(100%, calc(var(--season-sidebar-scene-height) * var(--season-sidebar-art-ratio)));
 }
 .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar nav a { padding-left: 24px; padding-right: 6px; }
 .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .command-kpi { position: relative; padding-bottom: 28px; }
@@ -317,8 +336,6 @@
   transform: none;
 }
 .app-shell[data-seasonal-theme]:is([data-seasonal-theme="christmas"], [data-seasonal-theme="easter"]) .seasonal-sidebar-edge { display: none; }
-.app-shell[data-seasonal-theme]:is([data-seasonal-theme="christmas"], [data-seasonal-theme="easter"]) .seasonal-sidebar-scene { top: max(0px, calc(100dvh - 280px)); margin: 24px -18px -24px; width: calc(100% + 36px); }
-.app-shell[data-seasonal-theme="easter"] .seasonal-sidebar-scene { top: max(0px, calc(100dvh - 170px)); }
 .app-shell[data-seasonal-theme]:is([data-seasonal-theme="christmas"], [data-seasonal-theme="easter"]) .command-kpi { padding-bottom: 18px; }
 .app-shell[data-seasonal-theme]:is([data-seasonal-theme="christmas"], [data-seasonal-theme="easter"]) .command-kpi::after { display: none; }
 .qr-check-page:is([data-seasonal-theme="christmas"], [data-seasonal-theme="easter"]) .seasonal-header-scene {
@@ -351,13 +368,32 @@
 }
 .qr-check-page:is([data-seasonal-theme="christmas"], [data-seasonal-theme="easter"]) .qr-seasonal-footer { height: auto; aspect-ratio: var(--season-footer-aspect); }
 
-@media (max-width: 1200px) { .theme-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1440px) { .app-shell { --season-sidebar-width: 228px; } }
+@media (max-width: 1200px) {
+  .app-shell { --season-sidebar-width: 204px; }
+  .theme-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 @media (max-width: 1100px) {
   .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar { align-items: flex-start; }
   .seasonal-header-scene { width: 760px; height: 190px; aspect-ratio: auto; }
 }
 @media (max-width: 900px) {
-  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar { position: fixed; }
+  .app-shell { --season-sidebar-scene-height: clamp(120px, 24dvh, 180px); }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar { position: fixed; overflow: hidden; }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .sidebar-content {
+    display: block;
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-height: 0;
+    margin-bottom: var(--season-sidebar-scene-height);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .seasonal-sidebar-scene {
+    position: absolute;
+    width: calc(100% - 1px);
+  }
   .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar-brand-title h1 { font-size: 30px; }
   .app-shell[data-seasonal-theme]:not([data-seasonal-theme="original"]) .topbar { min-height: 260px; }
   .app-shell[data-seasonal-theme]:is([data-seasonal-theme="christmas"], [data-seasonal-theme="easter"]) .topbar { min-height: 196px; }

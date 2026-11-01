@@ -45,6 +45,7 @@ export default function Sidebar({
   return (
     <aside className={`sidebar ${mobileOpen ? 'sidebar--open' : ''} ${collapsed ? 'sidebar--collapsed' : ''}`}>
       {theme !== 'original' && !collapsed && <SeasonalArtwork placement="sidebar-edge" />}
+      <div className="sidebar-content">
       <div className="brand">
         <span className="brand__mark brand__mark--logo">
           <img src="/logo.png" alt="ExtraSolutio" />
@@ -78,6 +79,7 @@ export default function Sidebar({
           );
         })}
       </nav>
+      </div>
       {theme !== 'original' && !collapsed && <SeasonalArtwork placement="sidebar-base" />}
     </aside>
   );

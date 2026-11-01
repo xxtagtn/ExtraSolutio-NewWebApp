@@ -8,6 +8,7 @@ import { formatServerTime, qrCodeStateForAssignment, qrUsageWindow } from '../ut
 import { publicQrPlannedSchedule, publicQrValidation, qrConsultationAccess } from '../utils/qrConsultation.js';
 import { ensureAssignmentQr } from './qrCodeGeneration.js';
 import { publicQrCheckoutReceipt, publicQrError, qrCheckoutProtection, registerPublicQr } from './qrAttendance.js';
+import { requireActiveQrCollaborator } from './collaboratorQrAccess.js';
 
 export const QR_SERVICE_SWITCH_DELAY_MS = 2000;
 const excludedStatuses = new Set(['cancelled', 'canceled', 'removed', 'missed_justified', 'missed_unjustified']);
@@ -36,6 +37,7 @@ function overlaps(a, b) {
 async function dailyState(db, token, now, { preview = false, rowFilter, allowExpiredCheckout } = {}) {
   const identity = readDailyQrToken(token);
   if (!identity) throw publicQrError(404, 'Link diário inválido.', 'QR_INVALID');
+  await requireActiveQrCollaborator(db, identity.collaboratorId);
   const date = new Date(`${identity.day}T00:00:00Z`);
   const nextDay = new Date(date);
   nextDay.setUTCDate(nextDay.getUTCDate() + 1);

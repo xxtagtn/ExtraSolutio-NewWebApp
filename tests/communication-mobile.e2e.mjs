@@ -3,8 +3,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir } from 'node:fs/promises';
-import QRCode from 'qrcode';
-import { PNG } from 'pngjs';
 import { communicationSummary } from '../src/utils/communicationCenter.js';
 
 const require = createRequire(import.meta.url);
@@ -53,8 +51,11 @@ async function setup(width, restricted = false) {
     const send = (json) => route.fulfill({ json });
     if (request.method() !== 'GET') {
       writes.push({ path, body: request.postDataJSON() });
+      if (path.startsWith('/qr-codes/links/')) return send({ attendanceQrUrl: linkFor(Number(path.split('/').at(-1))) });
       return send({});
     }
+    if (path === '/auth/appearance') return send({ theme: 'original' });
+    if (path === '/notifications/attendance-attention') return send({ items: [], total: 0, summary: {} });
     if (path === '/notifications/overview') return send({ notifications: { total: 0, items: [], allItems: [] }, reminders: [] });
     if (path === '/notifications/ignored') return send([]);
     if (path === '/communication/tasks') {
@@ -66,8 +67,7 @@ async function setup(width, restricted = false) {
       return send({ items: filtered.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total: filtered.length, totalPages: Math.ceil(filtered.length / pageSize), summary: communicationSummary(filtered), events: [{ id: 10, name: 'Restaurante Luz Chakall' }] });
     }
     if (path.startsWith('/qr-codes/assignments/')) return send(rowFor(tasks.find((task) => task.assignmentId === Number(path.split('/').at(-1)))));
-    if (path === '/qr-codes/events') return send([{ id: '10', name: 'Restaurante Luz Chakall' }]);
-    if (path.startsWith('/qr-codes/events/')) return send({ rows: tasks.map(rowFor), event: { name: 'Restaurante Luz Chakall' }, total: 32, totalPages: 1 });
+    if (path === '/qr-codes/links') return send({ items: [{ id: 1, name: 'Colaborador 01' }], total: 1, totalPages: 1, page: 1 });
     throw new Error(`Unexpected request: ${path}`);
   });
   await page.goto(`${baseUrl}/communication`);
@@ -102,7 +102,7 @@ try {
     assert.equal(await page.locator('aside.communication-preview').count(), 0);
     assert.equal(await first.locator('.communication-task').getAttribute('aria-expanded'), 'true');
     const tools = first.locator('.communication-inline-tools');
-    assert.equal(await tools.getByRole('button').count(), 3);
+    assert.equal(await tools.getByRole('button').count(), 2);
     for (const button of await tools.getByRole('button').all()) {
       const bounds = await button.boundingBox();
       assert.ok(bounds.height >= 44 && bounds.width >= 44);
@@ -112,16 +112,7 @@ try {
     await page.screenshot({ path: `${output}/expanded-${width}.png` });
     await first.getByRole('button', { name: 'Copiar Link de Colaborador 01' }).click();
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), linkFor(1));
-    await first.getByRole('button', { name: 'Ver QR Code de Colaborador 01' }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.locator('img').waitFor();
-    assert.equal(await dialog.locator('code').innerText(), linkFor(1));
-    assert.match(await dialog.innerText(), /QR Code diário/);
-    const expectedImage = await QRCode.toDataURL(linkFor(1), { width: 900, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#041012', light: '#ffffff' } });
-    const actualPixels = PNG.sync.read(Buffer.from((await dialog.locator('img').getAttribute('src')).split(',')[1], 'base64')).data;
-    const expectedPixels = PNG.sync.read(Buffer.from(expectedImage.split(',')[1], 'base64')).data;
-    assert.ok(actualPixels.equals(expectedPixels), 'QR pixels must match the collaborator daily link');
-    await dialog.getByRole('button', { name: 'Fechar' }).click();
+    assert.equal(await first.getByRole('button', { name: /Ver QR/ }).count(), 0);
     await first.getByRole('button', { name: 'Mensagem', exact: true }).click();
     await first.locator('textarea').fill('Mensagem editada para o primeiro colaborador');
     await first.getByRole('button', { name: 'Copiar', exact: true }).click();
@@ -182,7 +173,7 @@ try {
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), linkFor(26));
     await assertLayout(page);
     await context.close();
-    console.log(`PASS mobile ${width}px: accordion, actions, QR identity, drafts, polling, checkbox, filters, paging, layout`);
+    console.log(`PASS mobile ${width}px: accordion, link identity, drafts, polling, checkbox, filters, paging, layout`);
   }
 
   for (const width of [901, 1280, 1440]) {
@@ -213,8 +204,10 @@ try {
 
   const dynamic = await setup(390);
   await dynamic.page.locator('.communication-task').first().click();
-  await dynamic.page.getByRole('button', { name: 'QR Codes / Link', exact: true }).click();
-  await dynamic.page.locator('.communication-qr-table').getByRole('button', { name: 'Copiar Link de Colaborador 01' }).click();
+  assert.equal(await dynamic.page.getByRole('button', { name: 'QR Codes / Link', exact: true }).count(), 0);
+  await dynamic.page.getByRole('button', { name: 'Links de picagem', exact: true }).click();
+  await dynamic.page.locator('.attendance-links-table').getByRole('button', { name: 'Copiar link de picagem', exact: true }).click();
+  await dynamic.page.waitForFunction(async (expected) => await navigator.clipboard.readText() === expected, linkFor(1));
   assert.equal(await dynamic.page.evaluate(() => navigator.clipboard.readText()), linkFor(1));
   await dynamic.page.getByRole('button', { name: 'Mensagens', exact: true }).click();
   await dynamic.page.locator('.communication-task').first().waitFor();
@@ -237,7 +230,7 @@ try {
   await dynamic.page.getByRole('button', { name: /Copiar Link de Ana/ }).click();
   assert.equal(await dynamic.page.evaluate(() => navigator.clipboard.readText()), linkFor(2));
   await dynamic.context.close();
-  console.log('PASS QR tab, keyboard, dynamic removal and search');
+  console.log('PASS links-only tab, keyboard, dynamic removal and search');
 
   const { context, page, requests } = await setup(390, true);
   await page.locator('.communication-task').first().click();

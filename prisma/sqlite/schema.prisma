@@ -186,8 +186,18 @@ model Collaborator {
   qrCheckCodes QrCheckCode[]
   qrCheckLogs  QrCheckLog[]
 
+  attendanceLink CollaboratorAttendanceLink?
+
   @@index([status])
   @@index([category])
+}
+
+model CollaboratorAttendanceLink {
+  collaboratorId Int @id
+  collaborator Collaborator @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  token String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model CollaboratorRole {

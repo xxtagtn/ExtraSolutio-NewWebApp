@@ -12,6 +12,8 @@ import { createMonthlyPunchToken, monthlyPunchCycle } from '../utils/qrMonthlyTo
 import { readMonthlyPunchQr, registerMonthlyPunchQr } from '../services/qrMonthlyPunching.js';
 import { synchronizeEventWorkflow } from '../services/eventWorkflow.js';
 import { withPublicQrAppearance } from '../services/userAppearance.js';
+import { ensureCollaboratorAttendanceLink, listCollaboratorAttendanceLinks,
+  readCollaboratorAttendanceLink, registerCollaboratorAttendanceLink } from '../services/collaboratorAttendanceLink.js';
 import {
   QR_CHECK_ACTIONS,
   qrCodeStateForAssignment,
@@ -46,12 +48,13 @@ export async function ensureQrCodeForAssignmentId(assignmentId) {
   return ensureQrCodeForAssignment(assignmentId);
 }
 
-function qrRowPayload(req, assignment, qrCode) {
+async function qrRowPayload(req, assignment, qrCode) {
   const collaborator = assignment.collaborator || {};
   const state = qrCodeStateForAssignment(assignment);
   const event = assignment.event || {};
   const schedule = communicationAssignmentSchedule(assignment, event);
   const month = new Date(`${schedule.date}T12:00:00Z`);
+  const link = await ensureCollaboratorAttendanceLink(prisma, assignment.collaboratorId);
   return {
     id: qrCode.id,
     assignmentId: assignment.id,
@@ -76,6 +79,7 @@ function qrRowPayload(req, assignment, qrCode) {
     expiresAt: qrCode.expiresAt,
     monthlyQrUrl: `${publicBaseUrl(req)}/qr/month/${createMonthlyPunchToken(assignment.collaboratorId, month)}`,
     monthlyExpiresAt: monthlyPunchCycle(month).expiresAt,
+    attendanceQrUrl: `${publicBaseUrl(req)}/qr/link/${link.token}`,
   };
 }
 
@@ -121,6 +125,15 @@ qrPublicRouter.use((_req, res, next) => {
 qrPublicRouter.get('/month/:token', asyncHandler(async (req, res) => {
   res.json(await withPublicQrAppearance(prisma, await readMonthlyPunchQr(prisma, req.params.token)));
 }));
+qrPublicRouter.get('/link/:token', asyncHandler(async (req, res) => {
+  res.json(await withPublicQrAppearance(prisma, await readCollaboratorAttendanceLink(prisma, req.params.token)));
+}));
+for (const [path, action] of [['check-in', QR_CHECK_ACTIONS.checkIn], ['check-out', QR_CHECK_ACTIONS.checkOut]]) {
+  qrPublicRouter.post(`/link/:token/${path}`, asyncHandler(async (req, res) => {
+    res.json(await withPublicQrAppearance(prisma, await registerCollaboratorAttendanceLink(prisma, req.params.token,
+      action, req.body, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials })));
+  }));
+}
 for (const [path, action] of [['check-in', QR_CHECK_ACTIONS.checkIn], ['check-out', QR_CHECK_ACTIONS.checkOut]]) {
   qrPublicRouter.post(`/month/:token/${path}`, asyncHandler(async (req, res) => {
     res.json(await withPublicQrAppearance(prisma, await registerMonthlyPunchQr(prisma, req.params.token, action, req.body, { audit: requestAuditMeta(req), afterWrite: refreshPunchFinancials })));
@@ -158,6 +171,15 @@ qrPublicRouter.post('/:token/check-out', asyncHandler(async (req, res) => {
 qrCodesRouter.get('/events', asyncHandler(async (_req, res) => {
   res.json(await readRelevantQrEvents(prisma, { now: new Date() }));
 }));
+qrCodesRouter.get('/links', asyncHandler(async (req, res) => {
+  res.json(await listCollaboratorAttendanceLinks(prisma, req.query));
+}));
+qrCodesRouter.post('/links/:collaboratorId', asyncHandler(async (req, res) => {
+  const id = Number(req.params.collaboratorId);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ message: 'Este endereço não está disponível.' });
+  const link = await ensureCollaboratorAttendanceLink(prisma, id, { replace: req.body?.replace === true });
+  res.json({ attendanceQrUrl: `${publicBaseUrl(req)}/qr/link/${link.token}` });
+}));
 
 qrCodesRouter.get('/events/:eventId', asyncHandler(async (req, res) => {
   const eventId = parseId(req.params.eventId);
@@ -174,7 +196,7 @@ qrCodesRouter.get('/events/:eventId', asyncHandler(async (req, res) => {
       event,
       qrCheckCode: assignment.qrCheckCode,
     });
-    rows.push(qrRowPayload(req, { ...assignment, event }, qrCode));
+    rows.push(await qrRowPayload(req, { ...assignment, event }, qrCode));
   }
 
   res.json({
@@ -199,5 +221,5 @@ qrCodesRouter.get('/assignments/:assignmentId', asyncHandler(async (req, res) =>
     return res.status(410).json({ message: 'O acesso a este serviço foi revogado.' });
   }
   const qrCode = await ensureQrCodeForAssignment(assignment);
-  res.json(qrRowPayload(req, assignment, qrCode));
+  res.json(await qrRowPayload(req, assignment, qrCode));
 }));
