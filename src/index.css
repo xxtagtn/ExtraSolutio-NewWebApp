@@ -105,6 +105,32 @@
   border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
 }
 
+.finance-client-amount {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.finance-client-amount strong {
+  color: var(--text);
+  margin: 0;
+}
+
+.finance-client-amount small {
+  color: #fbbf24;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.finance-client-summary-card .finance-client-amount {
+  margin-top: 6px;
+}
+
+.finance-client-summary-card .finance-client-amount strong {
+  margin-top: 0;
+}
+
 .finance-client-financial-table,
 .finance-client-selected-detail {
   border: 1px solid var(--line);
@@ -831,6 +857,10 @@
     color: var(--muted);
     content: attr(data-label);
     font-size: 0.75rem;
+  }
+
+  .finance-client-summary-row .finance-client-amount {
+    text-align: right;
   }
 
   .finance-client-summary-row td:first-child::before {

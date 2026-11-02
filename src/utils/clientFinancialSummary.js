@@ -100,10 +100,12 @@ function ensureSummary(map, event, clientsById) {
     clientStatus: registeredClient?.status || event?.client?.status || 'active',
     eventCount: 0,
     pendingBilling: 0,
+    pendingBillingBase: 0,
     adjustments: 0,
     billedOpen: 0,
     received: 0,
     total: 0,
+    totalBase: 0,
     events: [],
     invoices: [],
     invoiceIds: new Set(),
@@ -112,14 +114,25 @@ function ensureSummary(map, event, clientsById) {
   return row;
 }
 
+function addSummaryBase(summary, field, total, tax) {
+  if (summary[field] === null) return;
+  if (total == null || (tax == null && numberValue(total) !== 0)) {
+    summary[field] = null;
+    return;
+  }
+  summary[field] = roundMoney(summary[field] + numberValue(total) - numberValue(tax));
+}
+
 function roundSummary(row) {
   return {
     ...row,
     pendingBilling: Number(row.pendingBilling.toFixed(2)),
+    pendingBillingBase: row.pendingBillingBase === null ? null : roundMoney(row.pendingBillingBase),
     adjustments: Number(row.adjustments.toFixed(2)),
     billedOpen: Number(row.billedOpen.toFixed(2)),
     received: Number(row.received.toFixed(2)),
     total: Number(row.total.toFixed(2)),
+    totalBase: row.totalBase === null ? null : roundMoney(row.totalBase),
     invoiceIds: undefined,
   };
 }
@@ -146,9 +159,13 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
       const value = part.total, received = part.received;
       const invoiced = finance.billingStatus === 'invoiced';
       summary.total += value || 0;
+      addSummaryBase(summary, 'totalBase', value, part.tax);
       summary.received += received || 0;
       if (invoiced) summary.billedOpen += part.outstanding || 0;
-      else summary.pendingBilling += value || 0;
+      else {
+        summary.pendingBilling += value || 0;
+        addSummaryBase(summary, 'pendingBillingBase', value, part.tax);
+      }
       summary.events.push({ ...event, clientFinance: finance, billingPeriod: part,
         displayValue: value, displayReceived: received, displayOutstanding: part.outstanding,
         displayAdjustment: finance.periods.length === 1 ? numberValue(event.billingAdjustment) : 0,
@@ -165,6 +182,8 @@ export function buildClientFinancialSummary({ events = [], invoices = [], client
     if (summary.invoiceIds.has(invoice.id)) continue;
     summary.invoiceIds.add(invoice.id); summary.invoices.push(invoice);
     summary.total += numberValue(invoice.total);
+    const tax = invoice.taxAmount ?? (invoice.subtotal != null ? roundMoney(numberValue(invoice.total) - numberValue(invoice.subtotal)) : null);
+    addSummaryBase(summary, 'totalBase', invoice.total, tax);
     if (invoiceIsPaid(invoice)) summary.received += numberValue(invoice.total);
     else summary.billedOpen += numberValue(invoice.total);
   }

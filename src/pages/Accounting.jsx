@@ -892,6 +892,17 @@ function ClientFinancialEventTable({
   );
 }
 
+function ClientSummaryAmount({ total, base, pending }) {
+  if (pending) return <strong>Por repartir</strong>;
+  return <div className="finance-client-amount">
+    <strong title={base == null ? 'Sem IVA por discriminar' : 'Sem IVA'}
+      aria-label={base == null ? 'Valor sem IVA por discriminar' : `${money.format(base)} sem IVA`}>
+      {base == null ? '—' : money.format(base)}
+    </strong>
+    <small>{money.format(total)} c/ IVA</small>
+  </div>;
+}
+
 function ClientFinancialWorkspace({
   rows,
   onManageReceipts,
@@ -919,21 +930,25 @@ function ClientFinancialWorkspace({
       clientName: selectedOption?.label || 'Cliente',
       eventCount: 0,
       pendingBilling: 0,
+      pendingBillingBase: 0,
       adjustments: 0,
       billedOpen: 0,
       received: 0,
       total: 0,
+      totalBase: 0,
       events: [],
       invoices: [],
     };
   const totals = visibleRows.reduce((summary, row) => ({
     events: summary.events + row.eventCount,
     pendingBilling: summary.pendingBilling + row.pendingBilling,
+    pendingBillingBase: summary.pendingBillingBase == null || row.pendingBillingBase == null ? null : summary.pendingBillingBase + row.pendingBillingBase,
     adjustments: summary.adjustments + row.adjustments,
     billedOpen: summary.billedOpen + row.billedOpen,
     received: summary.received + row.received,
     total: summary.total + row.total,
-  }), { events: 0, pendingBilling: 0, adjustments: 0, billedOpen: 0, received: 0, total: 0 });
+    totalBase: summary.totalBase == null || row.totalBase == null ? null : summary.totalBase + row.totalBase,
+  }), { events: 0, pendingBilling: 0, pendingBillingBase: 0, adjustments: 0, billedOpen: 0, received: 0, total: 0, totalBase: 0 });
   const hasPendingAllocation = visibleRows.some((row) => row.allocationRequired);
   const periodValue = (value, pending = hasPendingAllocation) => pending ? 'Por repartir' : money.format(value);
 
@@ -955,11 +970,11 @@ function ClientFinancialWorkspace({
 
       <div className="finance-client-summary-grid">
         <div className="finance-client-summary-card"><span>Eventos/Serviços</span><strong>{totals.events}</strong></div>
-        <div className="finance-client-summary-card finance-client-summary-card--pending"><span>Por faturar</span><strong>{periodValue(totals.pendingBilling)}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--pending"><span>Por faturar</span><ClientSummaryAmount total={totals.pendingBilling} base={totals.pendingBillingBase} pending={hasPendingAllocation} /></div>
         <div className="finance-client-summary-card"><span>Ajustes</span><strong>{money.format(totals.adjustments)}</strong></div>
         <div className="finance-client-summary-card finance-client-summary-card--open"><span>Faturado em aberto</span><strong>{periodValue(totals.billedOpen)}</strong></div>
         <div className="finance-client-summary-card finance-client-summary-card--received"><span>Recebido</span><strong>{periodValue(totals.received)}</strong></div>
-        <div className="finance-client-summary-card finance-client-summary-card--total"><span>Total do período</span><strong>{periodValue(totals.total)}</strong></div>
+        <div className="finance-client-summary-card finance-client-summary-card--total"><span>Total do período</span><ClientSummaryAmount total={totals.total} base={totals.totalBase} pending={hasPendingAllocation} /></div>
       </div>
 
       {selectedRow ? (
@@ -1012,11 +1027,11 @@ function ClientFinancialWorkspace({
                     >
                       <td data-label="Cliente"><span className="finance-client-summary-name">{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<strong>{row.clientName}</strong></span></td>
                       <td data-label="Eventos/Serviços">{row.eventCount}</td>
-                      <td data-label="Por faturar">{periodValue(row.pendingBilling, row.allocationRequired)}</td>
+                      <td data-label="Por faturar"><ClientSummaryAmount total={row.pendingBilling} base={row.pendingBillingBase} pending={row.allocationRequired} /></td>
                       <td data-label="Ajustes">{money.format(row.adjustments)}</td>
                       <td data-label="Faturado em aberto">{periodValue(row.billedOpen, row.allocationRequired)}</td>
                       <td data-label="Recebido">{periodValue(row.received, row.allocationRequired)}</td>
-                      <td data-label="Total do período"><strong>{periodValue(row.total, row.allocationRequired)}</strong></td>
+                      <td data-label="Total do período"><ClientSummaryAmount total={row.total} base={row.totalBase} pending={row.allocationRequired} /></td>
                     </tr>
                     {isExpanded ? (
                       <tr className="finance-client-summary-detail-row">
