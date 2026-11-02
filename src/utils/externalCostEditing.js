@@ -34,7 +34,13 @@ export function validateExternalCostDraft(draft) {
   const margin = draft.marginPercent === '' || draft.marginPercent == null ? 0 : decimalValue(draft.marginPercent);
   if (margin === null || margin < 0) throw externalCostError('Indica uma margem válida, igual ou superior a zero.');
   if (!EXTERNAL_COST_VAT_OPTIONS.some((option) => option.value === draft.vatType)) throw externalCostError('Seleciona uma opção de IVA válida.');
-  const normalized = normalizeExternalCosts([{ ...draft, costAmount: amount, marginPercent: margin }])[0];
+  let normalized;
+  try {
+    normalized = normalizeExternalCosts([{ ...draft, costAmount: amount, marginPercent: margin }])[0];
+  } catch (error) {
+    if (error instanceof RangeError) throw externalCostError('Os valores indicados excedem o limite permitido para o custo externo.');
+    throw error;
+  }
   if (Object.values(normalized).some((value) => typeof value === 'number' && !Number.isFinite(value))) {
     throw externalCostError('Os valores indicados excedem o limite permitido para o custo externo.');
   }

@@ -1,3 +1,4 @@
+import { roundMoney } from '../../shared/money.js';
 import {
   clientChargeHours,
   roundedClockTime,
@@ -172,7 +173,7 @@ export function financeEventOperationalSummary(event = {}) {
         collaboratorCount: group.collaboratorKeys.size,
         assignmentCount: group.assignmentCount,
         billableHours: Number(group.billableHours.toFixed(2)),
-        billableValue: Number(group.billableValue.toFixed(2)),
+        billableValue: roundMoney(group.billableValue),
         dayGroups: [...dayGroups].map(([workDate, dayEntries]) => ({ workDate, entries: dayEntries })),
       };
     })
@@ -218,7 +219,7 @@ export function financeEventOperationalSummary(event = {}) {
       collaboratorCount: day.collaboratorKeys.size,
       assignmentCount: day.assignmentCount,
       billableHours: Number(day.billableHours.toFixed(2)),
-      billableValue: Number(day.billableValue.toFixed(2)),
+      billableValue: roundMoney(day.billableValue),
       pricingComplete: day.pricingComplete,
       entries: day.entries.sort((left, right) => (
         left.start.localeCompare(right.start, 'pt-PT')

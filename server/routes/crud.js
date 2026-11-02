@@ -11,6 +11,7 @@ import { travelConfiguration } from '../../src/utils/staffTravel.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { pick, toDate, asyncHandler } from '../utils/http.js';
 import { buildPaginatedPayload, parsePaginationQuery } from '../utils/listQuery.js';
+import { calculateVatAmount, roundMoney, sumMoney } from '../../shared/money.js';
 
 function parseId(req, res) {
   const id = Number(req.params.id);
@@ -379,10 +380,10 @@ export function normalizeEventTemplate(input) {
 }
 
 export function normalizeInvoice(input) {
-  const subtotal = input.subtotal === undefined || input.subtotal === '' ? undefined : Number(input.subtotal);
+  const subtotal = input.subtotal === undefined || input.subtotal === '' ? undefined : roundMoney(Number(input.subtotal));
   const taxRate = input.taxRate === undefined || input.taxRate === '' ? undefined : Number(input.taxRate);
-  const computedTaxAmount = subtotal !== undefined && taxRate !== undefined ? Number((subtotal * (taxRate / 100)).toFixed(2)) : undefined;
-  const computedTotal = subtotal !== undefined && computedTaxAmount !== undefined ? Number((subtotal + computedTaxAmount).toFixed(2)) : undefined;
+  const computedTaxAmount = subtotal !== undefined && taxRate !== undefined ? calculateVatAmount(subtotal, taxRate) : undefined;
+  const computedTotal = subtotal !== undefined && computedTaxAmount !== undefined ? sumMoney(subtotal, computedTaxAmount) : undefined;
   return compact({
     ...pick(input, ['number', 'status', 'notes', 'eventIds', 'billingPeriodLabel']),
     ...(subtotal !== undefined ? { subtotal } : {}),

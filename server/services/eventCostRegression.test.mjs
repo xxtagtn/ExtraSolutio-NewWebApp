@@ -81,6 +81,37 @@ test('HTTP FIC configuration -> snapshotted client price -> persisted totals -> 
   assert.equal(Number(reopened.totalRevenue), 808.9); assert.equal(eventCostSummary(reopened).netSale, 710);
 });
 
+test('HTTP VAT half-cent regression persists 976.50 + 224.60 = 1201.10 and repeated reads/synchronization cannot accumulate a cent', async () => {
+  const client = await db.client.create({ data: { name: `VAT rounding QA ${++sequence}`, billingMethod: 'per_event',
+    paymentTerm: 'days_15', roleRates: '[{"role":"Emp.Mesa","rate":10.5}]' } });
+  const event = await request('/services', 'POST', { name: 'Cocktail VAT rounding QA', clientId: client.id, date: '2026-10-28',
+    startTime: '08:00', endTime: '19:00', status: 'in_progress', statusMode: 'manual', staffVatRateSnapshot: 23,
+    requiredRoles: [{ role: 'Emp.Mesa', qty: 9, agreedRate: 10.5 }], externalCosts: [] });
+  for (let index = 0; index < 9; index++) {
+    const person = await db.collaborator.create({ data: { name: `VAT QA ${sequence}-${index}`,
+      email: `vat-rounding-${sequence}-${index}@example.test`, hourlyRate: 8 } });
+    await request('/assignments', 'POST', { eventId: event.id, collaboratorId: person.id, role: 'Emp.Mesa', status: 'confirmed',
+      assignmentDate: '2026-10-28', hourlyRate: 8, checkIn: '08:00', checkOut: '18:00',
+      clientCheckIn: '08:00', clientCheckOut: index < 3 ? '19:00' : '18:00', validationStatus: 'validated' });
+  }
+  const original = await db.event.findUnique({ where: { id: event.id }, include: { assignments: true } });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const reopened = await request(`/services/${event.id}`), summary = eventCostSummary(reopened);
+    assert.equal(Number(reopened.billableHours), 93);
+    assert.equal(Number(reopened.taxAmount), 224.6); assert.equal(Number(reopened.totalRevenue), 1201.1);
+    assert.equal(summary.staffSale, 976.5); assert.equal(summary.netSale, 976.5); assert.equal(summary.undiscriminated, 0);
+    assert.equal(Number(reopened.paidAmount), Number(original.paidAmount));
+    assert.equal(Number(reopened.totalCost), Number(original.totalCost));
+    await request(`/services/${event.id}/workflow/synchronize`, 'POST', { recalculateTotals: true });
+  }
+  const persisted = await db.event.findUnique({ where: { id: event.id }, include: { assignments: true } });
+  assert.equal(Number(persisted.taxAmount), 224.6); assert.equal(Number(persisted.totalRevenue), 1201.1);
+  assert.deepEqual(persisted.assignments.map(({ id, checkIn, checkOut, clientCheckIn, clientCheckOut, hourlyRate }) =>
+    ({ id, checkIn, checkOut, clientCheckIn, clientCheckOut, hourlyRate })),
+  original.assignments.map(({ id, checkIn, checkOut, clientCheckIn, clientCheckOut, hourlyRate }) =>
+    ({ id, checkIn, checkOut, clientCheckIn, clientCheckOut, hourlyRate })));
+});
+
 test('HTTP existing event tariff is stable when client configuration changes; explicit sale edits do not change staff pay', async () => {
   const event = await createFixture();
   await db.client.update({ where: { id: event.clientId }, data: { roleRates: '[{"role":"Emp.Mesa","rate":99}]' } });

@@ -1,4 +1,5 @@
 import { decimalValue } from './serviceFinance.js';
+import { calculateVatAmount, roundMoney, sumMoney } from '../../shared/money.js';
 
 export const EXTERNAL_COST_VAT_OPTIONS = [
   { value: 'exempt', label: 'Isento' },
@@ -41,7 +42,7 @@ function precisePercent(value) {
 }
 
 function roundAmount(value) {
-  return Number((value || 0).toFixed(2));
+  return roundMoney(value || 0);
 }
 
 function normalizeVatType(value) {
@@ -50,7 +51,7 @@ function normalizeVatType(value) {
 }
 
 export function externalCostVatBreakdown(chargeAmount, vatType = DEFAULT_EXTERNAL_COST_VAT_TYPE) {
-  const netAmount = Math.max(0, asNumber(chargeAmount));
+  const netAmount = roundAmount(Math.max(0, asNumber(chargeAmount)));
   const resolvedVatType = normalizeVatType(vatType);
 
   if (resolvedVatType === 'exempt') {
@@ -66,11 +67,11 @@ export function externalCostVatBreakdown(chargeAmount, vatType = DEFAULT_EXTERNA
     };
   }
 
-  const vat13Base = resolvedVatType === 'catering' ? netAmount * 0.85 : 0;
-  const vat23Base = resolvedVatType === 'catering' ? netAmount * 0.15 : netAmount;
-  const vat13Amount = vat13Base * 0.13;
-  const vat23Amount = vat23Base * 0.23;
-  const taxAmount = vat13Amount + vat23Amount;
+  const vat13Base = resolvedVatType === 'catering' ? roundAmount(netAmount * 0.85) : 0;
+  const vat23Base = sumMoney(netAmount, -vat13Base);
+  const vat13Amount = calculateVatAmount(vat13Base, 13);
+  const vat23Amount = calculateVatAmount(vat23Base, 23);
+  const taxAmount = sumMoney(vat13Amount, vat23Amount);
 
   return {
     vatType: resolvedVatType,
@@ -80,7 +81,7 @@ export function externalCostVatBreakdown(chargeAmount, vatType = DEFAULT_EXTERNA
     vat23Base: roundAmount(vat23Base),
     vat23Amount: roundAmount(vat23Amount),
     taxAmount: roundAmount(taxAmount),
-    grossAmount: roundAmount(netAmount + taxAmount),
+    grossAmount: sumMoney(netAmount, taxAmount),
   };
 }
 
@@ -109,10 +110,10 @@ export function normalizeExternalCosts(value = []) {
         type: asText(item?.type),
         supplier: asText(item?.supplier),
         description: asText(item?.description),
-        costAmount: Number(costAmount.toFixed(2)),
+        costAmount: roundAmount(costAmount),
         marginPercent: precisePercent(marginPercent),
-        marginAmount: Number(marginAmount.toFixed(2)),
-        chargeAmount: Number(chargeAmount.toFixed(2)),
+        marginAmount: roundAmount(marginAmount),
+        chargeAmount: roundAmount(chargeAmount),
         vatType,
         ...vat,
         status: asText(item?.status) || 'pending',

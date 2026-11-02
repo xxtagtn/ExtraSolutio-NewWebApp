@@ -1,4 +1,5 @@
 import { externalCostsTotals } from '../../src/utils/externalCosts.js';
+import { roundMoney, sumMoney } from '../../shared/money.js';
 import { calculateEventSalesTax } from '../../src/utils/eventSalesTax.js';
 import {
   assignmentEventDay,
@@ -161,12 +162,11 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
 
   const travelRevenue = event.travelExpenseEnabled ? numberValue(event.travelExpenseAmount) : 0;
   const externalTotals = externalCostsTotals(event.externalCosts);
-  const ownServicesRevenue = assignmentRevenue + travelRevenue;
-  const calculatedNetRevenue = ownServicesRevenue + externalTotals.chargeAmount;
+  const calculatedNetRevenue = sumMoney(assignmentRevenue, travelRevenue, externalTotals.chargeAmount);
   const { taxAmount: calculatedTax } = calculateEventSalesTax(event, {
     staffSale: assignmentRevenue, travelSale: travelRevenue, partnerTax: externalTotals.taxAmount,
   });
-  const calculatedGrossRevenue = calculatedNetRevenue + calculatedTax;
+  const calculatedGrossRevenue = sumMoney(calculatedNetRevenue, calculatedTax);
   const calculatedCost = assignmentCost + externalTotals.costAmount;
 
   const hasRevenueStructure = billableAssignments.length > 0
@@ -187,9 +187,9 @@ export function calculateEventTotals(event = {}, assignments = event.assignments
   const totalCost = preserveCostSnapshot ? numberValue(event.totalCost) : calculatedCost;
 
   return {
-    totalRevenue: Number(totalRevenue.toFixed(2)),
+    totalRevenue: preserveCommercialSnapshot ? Number(totalRevenue.toFixed(2)) : roundMoney(totalRevenue),
     totalCost: Number(totalCost.toFixed(2)),
-    taxAmount: Number(taxAmount.toFixed(2)),
+    taxAmount: preserveCommercialSnapshot ? Number(taxAmount.toFixed(2)) : roundMoney(taxAmount),
     realHours: Number((preserveClientTotals ? numberValue(event.realHours) : realHours).toFixed(2)),
     billableHours: Number((preserveClientTotals ? numberValue(event.billableHours) : billableHours).toFixed(2)),
   };

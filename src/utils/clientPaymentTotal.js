@@ -1,7 +1,8 @@
 import { decimalValue } from './serviceFinance.js';
 import { eventStaffVatRate } from './eventSalesTax.js';
+import { calculateVatAmount, moneyCents } from '../../shared/money.js';
 
-const cents = (value) => Math.round((decimalValue(value) || 0) * 100);
+const cents = (value) => moneyCents(decimalValue(value) || 0);
 
 export function clientBillingAdjustment(event = {}) {
   const linked = event.invoices || (event.invoice ? [event.invoice] : []);
@@ -10,7 +11,7 @@ export function clientBillingAdjustment(event = {}) {
   const base = hasInvoice ? 0 : cents(event.billingAdjustment);
   const rate = eventStaffVatRate(event);
   // Round the VAT in cents, symmetrically for positive and negative adjustments.
-  const tax = Math.sign(base) * Math.round(Math.abs(base) * rate / 100);
+  const tax = moneyCents(calculateVatAmount(base / 100, rate));
   return { base: base / 100, rate, tax: tax / 100, total: (base + tax) / 100 };
 }
 

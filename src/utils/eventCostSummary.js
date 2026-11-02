@@ -8,6 +8,7 @@ import { decimalValue } from './serviceFinance.js';
 import { calculateEventSalesTax } from './eventSalesTax.js';
 import { eventInternalCosts } from './eventInternalCosts.js';
 import { travelSaleBreakdown } from './travelCalculator.js';
+import { moneyCents } from '../../shared/money.js';
 
 export function eventCostSummary(event = {}) {
   const external = externalCostsTotals(event.externalCosts);
@@ -21,7 +22,7 @@ export function eventCostSummary(event = {}) {
   // Reuse the client-facing itemization; never infer a sale price from internal staff costs.
   const staffSale = pricingComplete ? reconciliation.dailyServiceSubtotal : null;
   const breakdown = calculateEventSalesTax(event, { staffSale: staffSale || 0, travelSale: reconciliation.travel, partnerTax: external.taxAmount });
-  const taxBreakdown = staffSale !== null && Math.abs(breakdown.taxAmount - tax) < 0.01 ? breakdown : null;
+  const taxBreakdown = staffSale !== null && moneyCents(breakdown.taxAmount) === moneyCents(tax) ? breakdown : null;
   const financialMargin = calculateFinancialMargin(revenue, internal.staffInclusiveCost, expensesIncludingEventTax(event, external.costAmount));
   return {
     ...internal,

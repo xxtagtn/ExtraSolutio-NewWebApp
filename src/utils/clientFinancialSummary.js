@@ -7,6 +7,7 @@ import { externalCostsTotals } from './externalCosts.js';
 import { eventTaxAmount } from './eventTax.js';
 import { buildClientFinanceSnapshot } from './clientFinanceSnapshot.js';
 import { withInvoicePaymentCoverage } from '../../shared/invoicePaymentCoverage.js';
+import { roundMoney } from '../../shared/money.js';
 
 const CLOSED_INVOICE_STATUSES = new Set(['cancelled', 'void']);
 
@@ -53,10 +54,6 @@ function clientNameFor(event) {
 
 function eventRevenue(event) {
   return numberValue(event?.financial?.revenue ?? event?.totalRevenue ?? event?.revenue);
-}
-
-function roundMoney(value) {
-  return Number(value.toFixed(2));
 }
 
 export function buildClientEventReconciliation(event = {}, operationalSummary = {}) {

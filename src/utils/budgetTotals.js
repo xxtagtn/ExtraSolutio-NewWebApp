@@ -1,6 +1,7 @@
 import { decimalValue, roundedBillableHours } from './serviceFinance.js';
 import { calculateTravelAmount } from './travelCalculator.js';
 import { externalCostsTotals } from './externalCosts.js';
+import { calculateVatAmount, roundMoney, sumMoney } from '../../shared/money.js';
 
 function calcHours(start, end) {
   return roundedBillableHours(start, end);
@@ -59,43 +60,48 @@ export function calculateBudgetTotals(form = {}) {
   const ownVat23Base = ownVatRate === 23 ? ownServicesBase : 0;
   const vatBreakdown = {
     exempt: {
-      base: Number((ownExemptBase + externalExemptBase).toFixed(2)),
+      base: roundMoney(ownExemptBase + externalExemptBase),
       tax: 0,
     },
     13: {
-      base: Number((ownVat13Base + externalVat13Base).toFixed(2)),
-      tax: Number(((ownVat13Base * 0.13) + (externalVat13Base * 0.13)).toFixed(2)),
+      base: roundMoney(ownVat13Base + externalVat13Base),
+      tax: 0,
     },
     23: {
-      base: Number((ownVat23Base + externalVat23Base).toFixed(2)),
-      tax: Number(((ownVat23Base * 0.23) + (externalVat23Base * 0.23)).toFixed(2)),
+      base: roundMoney(ownVat23Base + externalVat23Base),
+      tax: 0,
     },
   };
-  const taxAmount = vatBreakdown[13].tax + vatBreakdown[23].tax;
-  const externalCostsTaxAmount = Number((
-    (externalVat13Base * 0.13) + (externalVat23Base * 0.23)
-  ).toFixed(2));
-  const externalCostsGrossAmount = Number((externalCostsAmount * discountFactor + externalCostsTaxAmount).toFixed(2));
-  const totalWithTax = subtotalAmount + taxAmount;
+  // Keep the existing rate groups and discount split; reconcile their base rounding into the last nonempty group.
+  const baseRounding = sumMoney(subtotalAmount, ...Object.values(vatBreakdown).map((part) => -part.base));
+  const lastRate = [23, 13, 'exempt'].find((key) => vatBreakdown[key].base > 0 && sumMoney(vatBreakdown[key].base, baseRounding) >= 0) || 'exempt';
+  vatBreakdown[lastRate].base = sumMoney(vatBreakdown[lastRate].base, baseRounding);
+  vatBreakdown[13].tax = calculateVatAmount(vatBreakdown[13].base, 13);
+  vatBreakdown[23].tax = calculateVatAmount(vatBreakdown[23].base, 23);
+  const taxAmount = sumMoney(vatBreakdown[13].tax, vatBreakdown[23].tax);
+  const ownServicesTaxAmount = sumMoney(
+    calculateVatAmount(Math.min(ownVat13Base, vatBreakdown[13].base), 13),
+    calculateVatAmount(Math.min(ownVat23Base, vatBreakdown[23].base), 23));
+  const externalCostsTaxAmount = sumMoney(taxAmount, -ownServicesTaxAmount);
+  const externalCostsGrossAmount = sumMoney(externalCostsAmount * discountFactor, externalCostsTaxAmount);
+  const totalWithTax = sumMoney(subtotalAmount, taxAmount);
   const totalAmount = totalWithTax;
 
   return {
-    baseAmount: Number(baseAmount.toFixed(2)),
-    travelAmount: Number(travelAmount.toFixed(2)),
-    externalCostsAmount: Number(externalCostsAmount.toFixed(2)),
+    baseAmount: roundMoney(baseAmount),
+    travelAmount: roundMoney(travelAmount),
+    externalCostsAmount: roundMoney(externalCostsAmount),
     externalCostsBaseAmount: externalTotals.costAmount,
     externalCostsMarginAmount: externalTotals.marginAmount,
     externalCostsTaxAmount,
     externalCostsGrossAmount,
-    ownServicesAmount: Number((baseAmount + travelAmount).toFixed(2)),
-    ownServicesTaxAmount: Number((
-      (ownVat13Base * 0.13) + (ownVat23Base * 0.23)
-    ).toFixed(2)),
-    subtotalAmount: Number(subtotalAmount.toFixed(2)),
-    taxAmount: Number(taxAmount.toFixed(2)),
+    ownServicesAmount: roundMoney(baseAmount + travelAmount),
+    ownServicesTaxAmount,
+    subtotalAmount: roundMoney(subtotalAmount),
+    taxAmount,
     vatBreakdown,
-    totalWithTax: Number(totalWithTax.toFixed(2)),
-    discountAmount: Number(discountAmount.toFixed(2)),
-    totalAmount: Number(totalAmount.toFixed(2)),
+    totalWithTax,
+    discountAmount: roundMoney(discountAmount),
+    totalAmount: roundMoney(totalAmount),
   };
 }

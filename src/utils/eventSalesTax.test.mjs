@@ -20,7 +20,7 @@ for (const [name, patch, expectedTax, revenue] of [
   ['4 Staff and partner with VAT', { staffVatRateSnapshot: 23 }, 163.3, 873.3],
   ['5 Staff exempt and partner with VAT', { staffVatRateSnapshot: 0 }, 98.9, 808.9],
   ['6 Staff with VAT and exempt partner', { staffVatRateSnapshot: 23, externalCosts: [partner('A', 'exempt')] }, 64.4, 774.4],
-  ['7 partners with multiple VAT configurations', { staffVatRateSnapshot: 23, externalCosts: [partner('A'), partner('B', 'exempt'), partner('C', 'catering')] }, 225.65, 1795.65],
+  ['7 partners with multiple VAT configurations', { staffVatRateSnapshot: 23, externalCosts: [partner('A'), partner('B', 'exempt'), partner('C', 'catering')] }, 225.66, 1795.66],
 ]) test(name, () => {
   const event = fixture(patch), before = structuredClone(event);
   const totals = calculateEventTotals(event);

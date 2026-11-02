@@ -9,6 +9,7 @@ import { clientChargeHours } from './serviceFinance.js';
 import { eventStaffVatRate } from './eventSalesTax.js';
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { isExternalOnlyService, externalServiceCanArchive } from './externalServiceWorkflow.js';
+import { calculateVatAmount, moneyCents } from '../../shared/money.js';
 
 const cents = (value) => Math.round(Number(value || 0) * 100);
 const amount = (value) => value / 100;
@@ -54,7 +55,7 @@ export function buildClientFinanceSnapshot(event = {}, { now = new Date() } = {}
   for (const period of periods) {
     period.staffBase = cents(period.staffBase);
     accumulatedStaffBase += period.staffBase;
-    const cumulativeTax = Math.round(accumulatedStaffBase * eventStaffVatRate(event) / 100);
+    const cumulativeTax = moneyCents(calculateVatAmount(amount(accumulatedStaffBase), eventStaffVatRate(event)));
     period.staffTax = cumulativeTax - accumulatedStaffTax;
     accumulatedStaffTax = cumulativeTax;
   }
