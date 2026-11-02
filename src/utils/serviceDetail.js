@@ -3,6 +3,7 @@ import { isStaffAcceptedValidationStatus } from './hourValidationStatus.js';
 import { requiredStaffTotal } from './serviceRequirements.js';
 import { isExternalOnlyService } from './externalServiceWorkflow.js';
 import { serviceTeamCoverage } from './serviceTeamCoverage.js';
+import { releasedTeamSlot } from './releasedTeamSlot.js';
 
 const NON_BILLABLE_ASSIGNMENT_STATUSES = new Set(['missed_justified', 'missed_unjustified', 'cancelled']);
 export const MANUAL_TEAM_ROLE = 'Sem função';
@@ -383,7 +384,7 @@ export function buildEditableTeamRows(event = {}) {
   for (const required of requirements) {
     if (!required.role) continue;
     const target = Math.max(0, Number(required.qty || 0));
-    const existing = rows.filter((row) => rowDateMatchesRequirement(row, event, required)).length;
+    const existing = rows.filter((row) => !releasedTeamSlot(row) && rowDateMatchesRequirement(row, event, required)).length;
     for (let index = existing; index < target; index += 1) {
       rows.push(emptyEditableTeamRow(event, required, index));
     }
@@ -395,6 +396,7 @@ export function buildEditableTeamRows(event = {}) {
 export function removeEditableTeamRow(rows = [], requirements = [], event = {}, rowKey = '') {
   const row = rows.find((item) => item.rowKey === rowKey);
   if (!row) return { rows, requirements };
+  if (releasedTeamSlot(row)) return { rows: rows.filter((item) => item.rowKey !== rowKey), requirements };
 
   let requirementUpdated = false;
   const nextRequirements = requirements.flatMap((required) => {

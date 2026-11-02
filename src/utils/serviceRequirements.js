@@ -2,6 +2,7 @@ import {
   activeEventAssignments,
   activeEventRequiredRoles,
 } from './eventCancelledDays.js';
+import { releasedTeamSlot } from './releasedTeamSlot.js';
 
 function safeJsonArray(value) {
   if (!value) return [];
@@ -34,7 +35,7 @@ export function requiredStaffTotal(event = {}) {
     Array.isArray(event.assignments) ? event.assignments : [],
   );
   const draftRows = activeEventAssignments(event, safeJsonArray(event.assignmentDrafts));
-  const plannedRows = [...assignmentRows, ...draftRows].filter((row) => Boolean(row?.role));
+  const plannedRows = [...assignmentRows, ...draftRows].filter((row) => Boolean(row?.role) && !releasedTeamSlot(row));
 
   return Math.max(requiredRolesTotal, plannedRows.length);
 }

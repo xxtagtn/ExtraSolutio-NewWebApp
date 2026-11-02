@@ -441,6 +441,7 @@ model EventAssignment {
   whatsappEnabled  Boolean    @default(true)
   isDriver         Boolean    @default(false)
   status         String       @default("assigned") @db.VarChar(40)
+  slotRelease    String?      @db.LongText
   paymentStatus  String       @default("unpaid") @db.VarChar(40)
   paymentDate    DateTime?    @db.DateTime(3)
   paymentDeferredMonth String? @db.VarChar(7)

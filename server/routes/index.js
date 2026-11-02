@@ -54,6 +54,8 @@ import {
   snapshotEventRoleRates,
 } from '../utils/eventRateSnapshot.js';
 import { asyncHandler } from '../utils/http.js';
+import { setEventAssignmentSlotReleased, assertReleasedSlotUpdate } from '../services/eventAssignmentSlot.js';
+import { releasedTeamSlot } from '../../src/utils/releasedTeamSlot.js';
 import {
   cancelEventDay,
   completeExternalService,
@@ -298,6 +300,9 @@ function maskAssignmentForRole(assignment, user) {
     for (const field of financialAssignmentFields) {
       if (field in output) output[field] = null;
     }
+    const released = releasedTeamSlot(assignment);
+    if (released) output.slotRelease = JSON.stringify({ version: 1, releasedAt: released.releasedAt,
+      requirement: { role: released.requirement.role, day: released.requirement.day } });
   }
   return output;
 }
@@ -399,6 +404,7 @@ async function normalizeServiceUpdate(input, existing) {
 }
 
 async function normalizeAssignmentCreate(input) {
+  assertReleasedSlotUpdate(input, null);
   const data = normalizeAssignment(input);
   await assertEventRevenueEditable(prisma, data.eventId);
   await assertAssignmentDayIsActive(data);
@@ -412,6 +418,7 @@ async function normalizeAssignmentCreate(input) {
 }
 
 async function normalizeAssignmentUpdate(input, existing) {
+  assertReleasedSlotUpdate(input, existing);
   const data = normalizeAssignment(input);
   const merged = { ...existing, ...data };
   const travelChanged = ['eventId', 'collaboratorId', 'assignmentDate', 'status', 'hourlyRate'].some((field) => (
@@ -703,6 +710,14 @@ apiRouter.post('/services/:id/workflow/status', servicesUpdate, asyncHandler(asy
     notes: req.body?.notes,
   });
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
+  return res.json(maskEventForRole(event, req.user));
+}));
+apiRouter.post('/services/:id/assignments/:assignmentId/slot', servicesUpdate, asyncHandler(async (req, res) => {
+  const id = workflowEventId(req, res);
+  const assignmentId = Number(req.params.assignmentId);
+  if (!id) return;
+  if (!Number.isSafeInteger(assignmentId) || assignmentId <= 0) return res.status(400).json({ message: 'Alocação inválida.' });
+  const event = await setEventAssignmentSlotReleased(prisma, id, assignmentId, req.body || {});
   return res.json(maskEventForRole(event, req.user));
 }));
 

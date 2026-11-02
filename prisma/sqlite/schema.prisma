@@ -441,6 +441,7 @@ model EventAssignment {
   whatsappEnabled  Boolean    @default(true)
   isDriver         Boolean    @default(false)
   status         String       @default("assigned")
+  slotRelease    String?
   paymentStatus  String       @default("unpaid")
   paymentDate    DateTime?
   paymentDeferredMonth String?

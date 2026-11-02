@@ -1,0 +1,11 @@
+.service-detail-row-actions { display: flex; align-items: center; justify-content: center; }
+.service-detail-row-actions > .icon-button { width: 36px; min-width: 36px; height: 34px; min-height: 34px; padding: 0; }
+.service-detail-row-actions > .icon-button[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.service-team-actions-menu { position: fixed; z-index: 1200; padding: 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32); }
+.service-team-actions-menu > button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 8px; border: 0; border-radius: 3px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 0.8rem; line-height: 1.35; }
+.service-team-actions-menu > button svg { flex-shrink: 0; }
+.service-team-actions-menu > button:hover, .service-team-actions-menu > button:focus-visible { background: var(--panel-2); outline: 1px solid var(--accent); outline-offset: -1px; }
+.service-team-actions-menu > .service-team-actions-menu__danger { color: var(--danger); border-top: 1px solid var(--line); border-radius: 0 0 3px 3px; }
+@media (max-width: 1100px) {
+  .service-detail-row-actions > .icon-button { width: 42px; min-width: 42px; height: 42px; min-height: 42px; }
+}

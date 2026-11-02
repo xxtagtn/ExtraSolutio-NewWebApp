@@ -45,6 +45,9 @@ import { useToast } from '../components/UI/ToastProvider.jsx';
 import { useApi } from '../hooks/useApi.js';
 import { useServiceTeamDraft } from '../hooks/useServiceTeamDraft.js';
 import { buildServiceTeamSavePlan } from '../utils/serviceTeamSavePlan.js';
+import { releasedTeamSlot } from '../utils/releasedTeamSlot.js';
+import TeamRowActions from '../components/Services/TeamRowActions.jsx';
+import '../components/Services/serviceSlotRelease.css';
 import { useCollaboratorPickerPosition } from '../hooks/useCollaboratorPickerPosition.js';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
@@ -317,6 +320,10 @@ export default function ServiceDetail() {
   const [newRoleName, setNewRoleName] = useState('');
   const [newRoleQty, setNewRoleQty] = useState('1');
   const [savingTeam, setSavingTeam] = useState(false);
+  const [slotAction, setSlotAction] = useState(null);
+  const [savingSlot, setSavingSlot] = useState(false);
+  const [slotError, setSlotError] = useState('');
+  const slotSavingRef = useRef(false);
   const [teamError, setTeamError] = useState('');
   const [attendanceExportBusy, setAttendanceExportBusy] = useState(false);
   const [attendanceExportError, setAttendanceExportError] = useState('');
@@ -385,7 +392,7 @@ export default function ServiceDetail() {
     [service],
   );
   const currentDayAssignedRows = useMemo(
-    () => assignmentGroups.flatMap((group) => group.rows).filter((row) => row.collaboratorId),
+    () => assignmentGroups.flatMap((group) => group.rows).filter((row) => row.collaboratorId && !releasedTeamSlot(row)),
     [assignmentGroups],
   );
   const validWorkLocationIds = useMemo(
@@ -416,7 +423,7 @@ export default function ServiceDetail() {
   }, [assignmentGroups, service?.workLocationsEnabled, validWorkLocationIds, workLocationFilter]);
   const teamTotals = useMemo(() => {
     const rows = assignmentGroups.flatMap((group) => group.rows);
-    const assignedRows = rows.filter((row) => row.collaboratorId);
+    const assignedRows = rows.filter((row) => row.collaboratorId && !releasedTeamSlot(row));
     const billableRows = assignedRows.filter((row) => !['missed_justified', 'missed_unjustified', 'cancelled'].includes(String(row.status || '').toLowerCase()));
     const hours = billableRows.reduce((sum, row) => sum + rowDurationHours(row, service), 0);
     const amount = billableRows.reduce((sum, row) => sum + (rowDurationHours(row, service) * parseNumber(row.hourlyRate || row.collaborator?.hourlyRate)), 0);
@@ -787,6 +794,41 @@ export default function ServiceDetail() {
     setTeamRows((current) => current.map((row) => (row.rowKey === rowKey ? { ...row, ...patch } : row)));
   }
 
+  function openSlotAction(row) {
+    if (!service || savingTeam || savingSlot) return;
+    if (buildServiceTeamSavePlan(service, teamRows, teamRoles).changed) {
+      setTeamError('Guarda primeiro as alterações da equipa antes de retirar ou repor um lugar.');
+      return;
+    }
+    setSlotError('');
+    setSlotAction({ row, released: !releasedTeamSlot(row), eventUpdatedAt: service.updatedAt });
+  }
+
+  async function saveSlotAction() {
+    if (!slotAction || slotSavingRef.current) return;
+    slotSavingRef.current = true;
+    setSavingSlot(true);
+    setSlotError('');
+    try {
+      const updated = await api(`/services/${service.id}/assignments/${slotAction.row.id}/slot`, {
+        method: 'POST', body: JSON.stringify({ released: slotAction.released,
+          eventUpdatedAt: slotAction.eventUpdatedAt, assignmentUpdatedAt: slotAction.row.updatedAt }),
+      });
+      const impact = eventFinancialImpactMessage(service, updated);
+      acceptSavedTeam(updated);
+      await reload({ background: true });
+      setSlotAction(null);
+      setTeamError('');
+      toast.success(slotAction.released ? 'Lugar retirado da necessidade. O registo cancelado foi preservado.' : 'Lugar reposto na necessidade da equipa.');
+      if (impact) toast.info(impact);
+    } catch (err) {
+      setSlotError(err.message || 'Não foi possível alterar a necessidade da equipa.');
+    } finally {
+      slotSavingRef.current = false;
+      setSavingSlot(false);
+    }
+  }
+
   async function activateWorkLocations() {
     if (!service || workLocationBusy) return;
     setWorkLocationBusy(true);
@@ -1017,7 +1059,7 @@ export default function ServiceDetail() {
         : item
     )));
     setTeamRows((current) => current.map((row) => (
-      rowMatchesCurrentRole(row, currentRole) ? { ...row, role: nextRole } : row
+      rowMatchesCurrentRole(row, currentRole) && !releasedTeamSlot(row) ? { ...row, role: nextRole } : row
     )));
     setTeamError('');
   }
@@ -1029,7 +1071,7 @@ export default function ServiceDetail() {
       if (inputElement) inputElement.value = String(currentRequirement?.qty || 1);
       return;
     }
-    const roleRows = teamRows.filter((row) => rowMatchesCurrentRole(row, role));
+    const roleRows = teamRows.filter((row) => rowMatchesCurrentRole(row, role) && !releasedTeamSlot(row));
     const assignedRows = roleRows.filter((row) => row.collaboratorId);
     if (qty < assignedRows.length && !window.confirm(
       `A função "${role}" tem ${assignedRows.length} colaborador(es) atribuído(s). Reduzir para ${qty} irá remover atribuições. Pretende continuar?`,
@@ -1150,7 +1192,7 @@ export default function ServiceDetail() {
   }
 
   async function saveTeamRows() {
-    if (!service || savingTeam) return;
+    if (!service || savingTeam || savingSlot) return;
     if (currentDayCancelled) {
       setTeamError('Reativa este dia antes de alterar a equipa.');
       return;
@@ -1442,7 +1484,7 @@ export default function ServiceDetail() {
 
       {activeTab === 'team' ? (
         <>
-        <fieldset className="service-detail-team-editor" disabled={savingTeam}>
+        <fieldset className="service-detail-team-editor" disabled={savingTeam || savingSlot}>
         <Card
           title="Colaboradores"
           className="service-detail-card"
@@ -1733,6 +1775,7 @@ export default function ServiceDetail() {
           {currentDayCancelled ? null : <div className="service-detail-team">
             {visibleAssignmentGroups.map((group) => {
               const roleCollapsed = collapsedRoles.has(group.role);
+              const activeSlots = group.rows.filter((row) => !releasedTeamSlot(row));
               return (
               <section key={group.role} className={`service-detail-role${roleCollapsed ? ' service-detail-role--collapsed' : ''}`}>
                 <header>
@@ -1746,14 +1789,14 @@ export default function ServiceDetail() {
                     >
                       <span className="service-detail-role-toggle__label">
                         <strong>{group.role}</strong>
-                        <span className="service-detail-role-count">{group.rows.length}</span>
+                        <span className="service-detail-role-count">{activeSlots.length}</span>
                       </span>
                       {roleCollapsed ? <ChevronDown size={17} /> : <ChevronUp size={17} />}
                     </button>
                   </div>
-                  <span className={`service-detail-role-sync-status${group.rows.length && group.rows.every((row) => row.clientSynced) ? ' service-detail-role-sync-status--complete' : ''}`}>
+                  <span className={`service-detail-role-sync-status${activeSlots.length && activeSlots.every((row) => row.clientSynced) ? ' service-detail-role-sync-status--complete' : ''}`}>
                     <CheckCircle2 size={14} />
-                    Sincronizado {group.rows.filter((row) => row.clientSynced).length}/{group.rows.length}
+                    Sincronizado {activeSlots.filter((row) => row.clientSynced).length}/{activeSlots.length}
                   </span>
                   <div className="service-detail-role-actions">
                     <span>{group.rows.length} linha(s)</span>
@@ -1810,6 +1853,7 @@ export default function ServiceDetail() {
                             <button
                               type="button"
                               className={`service-collab-trigger ${assignment.clientSynced ? 'service-collab-trigger--synced' : ''}`}
+                              disabled={Boolean(releasedTeamSlot(assignment))}
                               onClick={(event) => toggleTeamCollaboratorPicker(event, assignment.rowKey)}
                             >
                               <CollaboratorAvatar row={assignment} />
@@ -1898,7 +1942,7 @@ export default function ServiceDetail() {
                       {service.isContinuous ? (
                         <label>
                           <span>Data</span>
-                          <input type="date" value={assignment.assignmentDate || currentDay || ''} onChange={(event) => updateTeamRow(assignment.rowKey, { assignmentDate: event.target.value })} />
+                          <input type="date" disabled={Boolean(releasedTeamSlot(assignment))} value={assignment.assignmentDate || currentDay || ''} onChange={(event) => updateTeamRow(assignment.rowKey, { assignmentDate: event.target.value })} />
                         </label>
                       ) : (
                         <div className="service-detail-date-lock">
@@ -1921,13 +1965,14 @@ export default function ServiceDetail() {
                       </label>
                       <label>
                         <span>Estado</span>
-                        <select value={assignment.status || 'pending_confirmation'} onChange={(event) => updateTeamRow(assignment.rowKey, { status: event.target.value })}>
+                        <select disabled={Boolean(releasedTeamSlot(assignment))} value={assignment.status || 'pending_confirmation'} onChange={(event) => updateTeamRow(assignment.rowKey, { status: event.target.value })}>
                           <option value="confirmed">Confirmado</option>
                           <option value="pending_confirmation">Aguardar confirmação</option>
                           <option value="missed_justified">Faltou c/justificação</option>
                           <option value="missed_unjustified">Faltou s/justificação</option>
                           <option value="cancelled">Cancelado</option>
                         </select>
+                        {releasedTeamSlot(assignment) && <small>Lugar retirado da necessidade</small>}
                       </label>
                       <div className="service-detail-team-flags">
                         <label title="Sincronizado com o cliente">
@@ -1952,9 +1997,15 @@ export default function ServiceDetail() {
                         >
                           Adiantamentos
                         </button>
-                        <button type="button" className="icon-button icon-button--danger" onClick={() => removeTeamRow(assignment.rowKey)} title="Remover linha" aria-label="Remover linha">
+                        {assignment.id && assignment.status === 'cancelled' && hasPermission(user, PERMISSIONS.SERVICES_UPDATE)
+                          ? <TeamRowActions name={collaboratorName} released={Boolean(releasedTeamSlot(assignment))}
+                            disabled={savingTeam || savingSlot} onSlot={() => openSlotAction(assignment)}
+                            onRemove={() => removeTeamRow(assignment.rowKey)} />
+                          : <div className="service-detail-row-actions">
+                          <button type="button" className="icon-button icon-button--danger" onClick={() => removeTeamRow(assignment.rowKey)} title="Remover linha" aria-label="Remover linha">
                           <Trash2 size={15} />
-                        </button>
+                          </button>
+                        </div>}
                       </div>
                       </div>
                       {advancesOpen ? (
@@ -2368,6 +2419,21 @@ export default function ServiceDetail() {
         </Card>
       ) : null}
 
+      {slotAction && <Modal title={slotAction.released ? 'Retirar lugar da equipa?' : 'Repor lugar na equipa?'}
+        onClose={() => { if (!slotSavingRef.current) setSlotAction(null); }} preventFocusScroll>
+        <p>{slotAction.released
+          ? 'Este lugar deixou de ser necessário. A necessidade desta função será reduzida em uma pessoa apenas neste dia. O registo cancelado e o seu histórico serão mantidos.'
+          : 'A necessidade desta função será aumentada em uma pessoa neste dia. O colaborador continua cancelado até definires a substituição ou alterares o seu estado.'}</p>
+        <p><strong>{slotAction.row.collaborator?.name || 'Colaborador'}</strong> · {slotAction.row.role} · {formatDate(slotAction.row.assignmentDate || service.date)}</p>
+        {slotError && <p className="notice" role="alert">{slotError}</p>}
+        <div className="form-actions">
+          <button type="button" className="secondary-button" disabled={savingSlot} onClick={() => setSlotAction(null)}>Cancelar</button>
+          <button type="button" className="command-button" disabled={savingSlot} onClick={saveSlotAction}>
+            {slotAction.released ? <Ban size={16} /> : <RotateCcw size={16} />}
+            {savingSlot ? 'A guardar...' : slotAction.released ? 'Retirar lugar' : 'Repor lugar'}
+          </button>
+        </div>
+      </Modal>}
       {additionalPayment ? <Modal title="Registar pagamento adicional" onClose={() => { if (!savingBilling) setAdditionalPayment(null); }} preventFocusScroll>
         <form className="event-additional-payment-form" onSubmit={saveAdditionalClientPayment}>
           <p>Já recebido: <strong>{money.format(recordedClientPayment.received)}</strong>. Em falta: <strong>{money.format(recordedClientPayment.outstanding)}</strong>.</p>
