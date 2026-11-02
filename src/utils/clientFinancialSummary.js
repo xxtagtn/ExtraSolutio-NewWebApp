@@ -7,7 +7,8 @@ import { externalCostsTotals } from './externalCosts.js';
 import { eventTaxAmount } from './eventTax.js';
 import { buildClientFinanceSnapshot } from './clientFinanceSnapshot.js';
 import { withInvoicePaymentCoverage } from '../../shared/invoicePaymentCoverage.js';
-import { roundMoney } from '../../shared/money.js';
+import { roundMoney, sumMoney } from '../../shared/money.js';
+import { pendingBillingVatGroups } from './clientBillingVat.js';
 
 const CLOSED_INVOICE_STATUSES = new Set(['cancelled', 'void']);
 
@@ -121,16 +122,20 @@ function addSummaryBase(summary, field, total, tax) {
 }
 
 function roundSummary(row) {
+  const billingVatGroups = pendingBillingVatGroups(row.events);
+  const billingVatRounding = sumMoney(...billingVatGroups.map((group) => group.rounding));
   return {
     ...row,
-    pendingBilling: Number(row.pendingBilling.toFixed(2)),
+    pendingBilling: sumMoney(row.pendingBilling, billingVatRounding),
     pendingBillingBase: row.pendingBillingBase === null ? null : roundMoney(row.pendingBillingBase),
     adjustments: Number(row.adjustments.toFixed(2)),
     billedOpen: Number(row.billedOpen.toFixed(2)),
     received: Number(row.received.toFixed(2)),
-    total: Number(row.total.toFixed(2)),
+    total: sumMoney(row.total, billingVatRounding),
     totalBase: row.totalBase === null ? null : roundMoney(row.totalBase),
     invoiceIds: undefined,
+    billingVatGroups,
+    billingVatRounding,
   };
 }
 
