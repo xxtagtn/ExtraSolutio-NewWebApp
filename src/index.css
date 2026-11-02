@@ -112,21 +112,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.finance-client-vat-reconciliation {
-  display: grid;
-  gap: 5px;
-  padding: 12px 14px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 0.8rem;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.finance-client-vat-reconciliation > span {
-  color: var(--text);
-}
-
 .finance-client-amount strong {
   color: var(--text);
   margin: 0;

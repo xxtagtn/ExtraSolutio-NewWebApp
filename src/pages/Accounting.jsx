@@ -625,13 +625,6 @@ function ClientFinancialEventTable({
         </article>
       ))}
       {!events.length && !standaloneInvoices.length ? <p className="muted finance-client-empty">Sem eventos ou faturas no período selecionado.</p> : null}
-      {(row.billingVatGroups || []).filter((group) => group.rounding !== 0).map((group) => (
-        <div className="finance-client-vat-reconciliation" key={group.key} role="note">
-          <strong>IVA {group.method === 'monthly' ? 'mensal' : 'quinzenal'} · {date.format(new Date(`${group.start}T12:00:00`))} a {date.format(new Date(`${group.end}T12:00:00`))}</strong>
-          <span>{money.format(group.base)} + {money.format(group.tax)} IVA = <strong>{money.format(group.total)}</strong></span>
-          <small>Arredondamento face à soma dos serviços: {signedMoney(group.rounding)}</small>
-        </div>
-      ))}
       {selectedEvent ? (
         <Modal title="Resumo do Evento/Serviço" size="wide" onClose={() => setSelectedEvent(null)}>
           <div className="finance-event-summary">

@@ -44,21 +44,15 @@ try {
     await pair(row.locator('[data-label="Por faturar"]')); await pair(row.locator('[data-label="Total do período"]'));
     assert.match(await row.locator('[data-label="Total do período"] small').getAttribute('title'), /Arredondamento/);
     await row.click();
-    const note = workspace.locator('.finance-client-vat-reconciliation'); await note.waitFor();
-    assert.match(await note.textContent(), /IVA mensal/); assert.match(compact(await note.textContent()), /289,80€IVA/);
-    assert.equal(compact(await note.locator('small').textContent()).endsWith('−0,01€'), true);
+    const note = workspace.locator('.finance-client-vat-reconciliation');
+    assert.equal(await note.count(), 0, 'The monthly VAT warning is no longer rendered');
+    assert.equal(await workspace.getByText(/Arredondamento face à soma dos serviços/).count(), 0);
     assert.equal(await workspace.locator('.finance-client-event-row').count(), 3);
     assert.match(compact(await workspace.locator('.finance-client-event-row').first().textContent()), /1201,10€/);
     await workspace.screenshot({ path: `${output}/monthly-${width}.png` });
-    const noteFits = await note.evaluate((el) => {
-      const bounds = el.getBoundingClientRect();
-      return [...el.querySelectorAll('*')].every((child) => {
-        const rect = child.getBoundingClientRect(); return rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1;
-      });
-    });
-    assert.equal(noteFits, true); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
     await workspace.locator('.finance-client-filter select').selectOption('client:1');
-    await pair(workspace.locator('.finance-client-summary-card--total')); await note.waitFor();
+    await pair(workspace.locator('.finance-client-summary-card--total')); assert.equal(await note.count(), 0);
     await page.reload(); await row.waitFor(); await pair(workspace.locator('.finance-client-summary-card--total'));
     client.billingMethod = 'per_event';
     await page.reload(); await row.waitFor(); await pair(workspace.locator('.finance-client-summary-card--total'), '1549,81€c/IVA');
