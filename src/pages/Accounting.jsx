@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  FileSpreadsheet,
   Landmark,
   NotebookPen,
   Plus,
@@ -21,6 +22,8 @@ import Card from '../components/UI/Card.jsx';
 import { clientPaymentSummary } from '../utils/clientPayment.js';
 import { clientBillingAdjustment } from '../utils/clientPaymentTotal.js';
 import { clientFinancialState } from '../utils/clientFinancialState.js';
+import { canExportArchivedEvent, downloadArchiveEventExcel } from '../utils/archiveEventExcel.js';
+import { paymentInvoiceEventIds, withInvoicePaymentCoverage } from '../../shared/invoicePaymentCoverage.js';
 import { shouldShowClientPaymentAlert } from '../utils/clientPaymentAlert.js';
 import { clientPaymentDeadline } from '../utils/clientPaymentDeadline.js';
 import { buildClientFinanceSnapshot } from '../utils/clientFinanceSnapshot.js';
@@ -1083,6 +1086,8 @@ function topItems(items, count = 5) {
 }
 
 export default function Accounting() {
+  const { user } = useAuth();
+  const canExportArchive = hasPermission(user, PERMISSIONS.FINANCE_EXPORT) && hasPermission(user, PERMISSIONS.FINANCE_VIEW_VALUES);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', [], { revalidateOnFocus: true });
@@ -1119,6 +1124,9 @@ export default function Accounting() {
   const [expandedEventId, setExpandedEventId] = useState(null);
   const [expandedClientId, setExpandedClientId] = useState(null);
   const [expandedArchiveClientId, setExpandedArchiveClientId] = useState(null);
+  const [archiveSelection, setArchiveSelection] = useState(() => new Set());
+  const [archiveExportBusy, setArchiveExportBusy] = useState(false);
+  const [archiveExportError, setArchiveExportError] = useState('');
   const [updatingAssignmentId, setUpdatingAssignmentId] = useState(null);
   const [updatingInvoiceId, setUpdatingInvoiceId] = useState(null);
   const [updatingEventId, setUpdatingEventId] = useState(null);
@@ -1463,6 +1471,63 @@ export default function Accounting() {
     () => archivedClientRows.filter((row) => archiveClientId === 'all' || String(row.id) === archiveClientId),
     [archiveClientId, archivedClientRows],
   );
+  const exportableArchive = useMemo(() => {
+    const result = new Map();
+    if (!canExportArchive || activeArea !== 'archive') return result;
+    const archivedIds = new Set(archiveRows.flatMap((row) => [
+      ...row.nonInvoicedServices, ...row.billingGroups.flatMap((group) => group.events),
+    ]).map((event) => Number(event.id)));
+    const linkedInvoices = new Map();
+    for (const invoice of withInvoicePaymentCoverage(invoices, eventRows)) {
+      for (const id of paymentInvoiceEventIds(invoice)) {
+        if (!linkedInvoices.has(id)) linkedInvoices.set(id, []);
+        linkedInvoices.get(id).push(invoice);
+      }
+    }
+    for (const event of eventRows) {
+      const id = Number(event.id);
+      if (!archivedIds.has(id)) continue;
+      const full = { ...event, invoices: linkedInvoices.get(id) || event.invoices || [] };
+      if (canExportArchivedEvent(full)) result.set(id, full);
+    }
+    return result;
+  }, [activeArea, archiveRows, canExportArchive, eventRows, invoices]);
+  const selectedArchiveIds = [...archiveSelection].filter((id) => exportableArchive.has(id));
+
+  async function exportArchivedEvents(ids) {
+    const events = [...new Set(ids)].map((id) => exportableArchive.get(id)).filter(Boolean);
+    if (archiveExportBusy || !events.length) return;
+    setArchiveExportError('');
+    setArchiveExportBusy(true);
+    try {
+      await downloadArchiveEventExcel(events);
+    } catch {
+      setArchiveExportError('Não foi possível exportar o resumo Excel. Tenta novamente.');
+    } finally {
+      setArchiveExportBusy(false);
+    }
+  }
+
+  function archiveCheckbox(service) {
+    const id = Number(service.id);
+    return exportableArchive.has(id) ? <input className="finance-archive-checkbox" type="checkbox"
+      aria-label={`Selecionar ${service.name}`} checked={archiveSelection.has(id)} disabled={archiveExportBusy}
+      onChange={(event) => {
+        const checked = event.target.checked;
+        setArchiveSelection((previous) => {
+          const next = new Set(previous);
+          if (checked) next.add(id); else next.delete(id);
+          return next;
+        });
+      }} /> : null;
+  }
+
+  function archiveExcelButton(service) {
+    const id = Number(service.id);
+    return exportableArchive.has(id) ? <button type="button" className="secondary-button"
+      aria-label={`Exportar Excel: ${service.name}`} title="Exportar resumo Excel" disabled={archiveExportBusy}
+      onClick={() => exportArchivedEvents([id])}><FileSpreadsheet size={15} aria-hidden="true" />Excel</button> : null;
+  }
 
   const clientFinancialRows = useMemo(() => {
     const archived = splitClientBillingRows(selectedPeriodClientRows).archivedRows;
@@ -2729,7 +2794,7 @@ export default function Accounting() {
           <div className="finance-month-control finance-archive-filters">
             <label>
               Cliente
-              <select value={archiveClientId} onChange={(event) => setArchiveClientId(event.target.value)}>
+              <select value={archiveClientId} onChange={(event) => { setArchiveClientId(event.target.value); setArchiveSelection(new Set()); }}>
                 <option value="all">Todos os clientes</option>
                 {archiveClientOptions.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
               </select>
@@ -2738,7 +2803,7 @@ export default function Accounting() {
               Mês
               <select
                 value={archiveMonthNumber || '00'}
-                onChange={(event) => setArchiveMonth(`${archiveYear || new Date().getFullYear()}-${event.target.value}`)}
+                onChange={(event) => { setArchiveMonth(`${archiveYear || new Date().getFullYear()}-${event.target.value}`); setArchiveSelection(new Set()); }}
               >
                 {MONTH_OPTIONS.map((month) => <option key={month.value} value={month.value}>{month.label}</option>)}
               </select>
@@ -2747,7 +2812,7 @@ export default function Accounting() {
               Ano
               <select
                 value={archiveYear || String(new Date().getFullYear())}
-                onChange={(event) => setArchiveMonth(`${event.target.value}-${archiveMonthNumber || '00'}`)}
+                onChange={(event) => { setArchiveMonth(`${event.target.value}-${archiveMonthNumber || '00'}`); setArchiveSelection(new Set()); }}
               >
                 {yearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
               </select>
@@ -2758,11 +2823,30 @@ export default function Accounting() {
               onClick={() => {
                 setArchiveClientId('all');
                 setArchiveMonth(`${new Date().getFullYear()}-00`);
+                setArchiveSelection(new Set());
               }}
             >
               Atual
             </button>
           </div>
+
+          {exportableArchive.size > 0 ? <div className="finance-archive-selection">
+            <label>
+              <input className="finance-archive-checkbox" type="checkbox" aria-label="Selecionar todos os eventos exportáveis dos filtros atuais"
+                checked={selectedArchiveIds.length === exportableArchive.size} disabled={archiveExportBusy}
+                ref={(element) => { if (element) element.indeterminate = selectedArchiveIds.length > 0 && selectedArchiveIds.length < exportableArchive.size; }}
+                onChange={(event) => setArchiveSelection(new Set(event.target.checked ? exportableArchive.keys() : []))} />
+              <strong aria-live="polite">{selectedArchiveIds.length === 1 ? '1 evento selecionado' : `${selectedArchiveIds.length} eventos selecionados`}</strong>
+            </label>
+            {selectedArchiveIds.length > 0 ? <div className="finance-archive-actions">
+              <button className="secondary-button" type="button" disabled={archiveExportBusy} onClick={() => setArchiveSelection(new Set())}>Limpar seleção</button>
+              <button className="command-button" type="button" disabled={archiveExportBusy} onClick={() => exportArchivedEvents(selectedArchiveIds)}>
+                <FileSpreadsheet size={15} aria-hidden="true" />
+                {archiveExportBusy ? 'A exportar...' : selectedArchiveIds.length === 1 ? 'Exportar 1 evento' : `Exportar ${selectedArchiveIds.length} eventos`}
+              </button>
+            </div> : null}
+          </div> : null}
+          {archiveExportError ? <p role="alert">{archiveExportError}</p> : null}
 
           <div className="table-wrap">
             <table>
@@ -2825,8 +2909,8 @@ export default function Accounting() {
                                   </header>
                                   <div className="finance-client-services">
                                     {group.events.map((service) => (
-                                      <div key={service.id} className="finance-client-service">
-                                        <span>{service.date ? date.format(new Date(service.date)) : '-'}</span>
+                                      <div key={service.id} className="finance-client-service finance-archive-service" data-selected={exportableArchive.has(Number(service.id)) && archiveSelection.has(Number(service.id))}>
+                                        <span className="finance-archive-date">{archiveCheckbox(service)}{service.date ? date.format(new Date(service.date)) : '-'}</span>
                                         <div className="finance-client-service__identity">
                                           <strong>{service.name}</strong>
                                           {service.serviceReference ? (
@@ -2835,7 +2919,7 @@ export default function Accounting() {
                                           <small>{service.eventType || service.location || '-'}</small>
                                         </div>
                                         <span>{money.format(service.financial?.revenue || eventRevenue(service))}</span>
-                                        <button className="secondary-button" type="button" onClick={() => setManagedEventId(service.id)}><ReceiptText size={15} />Gerir recebimentos</button>
+                                        <div className="finance-archive-actions"><button className="secondary-button" type="button" onClick={() => setManagedEventId(service.id)}><ReceiptText size={15} />Gerir recebimentos</button>{archiveExcelButton(service)}</div>
                                       </div>
                                     ))}
                                   </div>
@@ -2844,18 +2928,21 @@ export default function Accounting() {
 
                               {standaloneServices.map((service) => (
                                 <article key={`service-${service.id}`} className="finance-client-billing-group">
-                                  <header>
-                                    <div>
+                                  <header className="finance-archive-standalone" data-selected={exportableArchive.has(Number(service.id)) && archiveSelection.has(Number(service.id))}>
+                                    <div className="finance-archive-date">
+                                      {archiveCheckbox(service)}
+                                      <div>
                                       <small>Evento/Serviço pago</small>
                                       {isExternalOnlyService(service) ? <button className="finance-client-event-open" type="button"
                                         onClick={() => navigate(`/services/${service.id}`)}>{service.name}</button> : <strong>{service.name}</strong>}
                                       {isExternalOnlyService(service) && client.invoices.length > 0
                                         ? <small>{client.invoices.map((invoice) => invoice.number).filter(Boolean).join(' · ')}</small> : null}
+                                      </div>
                                     </div>
                                     <Badge tone="success">{statusLabel(BILLING_STATUS, service.billingStatus || 'paid')}</Badge>
                                     <span>Sem vencimento calculado pelo evento</span>
                                     <strong>{money.format(service.financial?.revenue || 0)}</strong>
-                                    <button className="secondary-button" type="button" onClick={() => setManagedEventId(service.id)}><ReceiptText size={15} />Gerir recebimentos</button>
+                                    <div className="finance-archive-actions"><button className="secondary-button" type="button" onClick={() => setManagedEventId(service.id)}><ReceiptText size={15} />Gerir recebimentos</button>{archiveExcelButton(service)}</div>
                                   </header>
                                 </article>
                               ))}
