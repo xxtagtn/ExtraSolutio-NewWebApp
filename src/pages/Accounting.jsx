@@ -433,6 +433,7 @@ function statusLabel(options, value) {
 
 function ClientFinancialEventTable({
   row,
+  exportSelection,
   onManageReceipts,
   onArchiveService,
   onInvoiceStatusChange,
@@ -500,13 +501,19 @@ function ClientFinancialEventTable({
     ].filter(Boolean);
 
     const openEventSummary = () => setSelectedEvent(event);
+    const selectable = exportSelection?.eligible.has(String(event.id));
+    const selectedForExport = selectable && exportSelection.ids.has(String(event.id));
 
     return (
       <article
         key={`event-${event.id}-${part?.key || ''}`}
         className="finance-client-event-row"
+        data-export-selected={selectedForExport || undefined}
       >
-        <div className="finance-client-event-name">
+        <div className={selectable ? 'finance-client-event-name finance-client-event-name--selectable' : 'finance-client-event-name'}>
+          {selectable ? <input type="checkbox" className="finance-archive-checkbox"
+            aria-label={`Selecionar ${event.name || 'evento'}`} checked={selectedForExport} disabled={exportSelection.busy}
+            onChange={(change) => exportSelection.toggle(String(event.id), change.target.checked)} /> : null}
           <button
             className="finance-client-event-open"
             type="button"
@@ -908,6 +915,8 @@ function ClientSummaryAmount({ total, base, pending, rounding = 0 }) {
 
 function ClientFinancialWorkspace({
   rows,
+  period,
+  canExport,
   onManageReceipts,
   onArchiveService,
   options,
@@ -922,9 +931,54 @@ function ClientFinancialWorkspace({
   updatingInvoiceId,
   updatingClientAdjustmentEventId,
 }) {
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState('');
+  useEffect(() => {
+    setSelecting(false);
+    setSelectedIds(new Set());
+    setExportError('');
+  }, [period, selectedClientKey]);
   const visibleRows = selectedClientKey === 'all'
     ? rows
     : rows.filter((row) => row.key === selectedClientKey);
+  const eligible = new Map();
+  if (canExport) for (const row of visibleRows) {
+    for (const event of row.events) {
+      const id = String(event.id);
+      if (event.id != null && !eligible.has(id)) eligible.set(id, event);
+    }
+  }
+  const selectedEvents = selecting ? [...selectedIds].map((id) => eligible.get(id)).filter(Boolean) : [];
+  function cancelExportSelection() {
+    setSelecting(false);
+    setSelectedIds(new Set());
+    setExportError('');
+  }
+  const exportSelection = selecting && canExport ? {
+    eligible, ids: selectedIds, busy: exportBusy,
+    toggle(id, checked) {
+      setExportError('');
+      setSelectedIds((previous) => {
+        const next = new Set(previous);
+        if (checked) next.add(id); else next.delete(id);
+        return next;
+      });
+    },
+  } : undefined;
+  async function exportSelectedEvents() {
+    if (exportBusy || !selectedEvents.length) return;
+    setExportError('');
+    setExportBusy(true);
+    try {
+      await downloadArchiveEventExcel(selectedEvents, { archived: false });
+    } catch {
+      setExportError('Não foi possível exportar o resumo Excel. Tenta novamente.');
+    } finally {
+      setExportBusy(false);
+    }
+  }
   const selectedOption = options.find((option) => option.key === selectedClientKey);
   const selectedRow = selectedClientKey === 'all'
     ? null
@@ -963,13 +1017,21 @@ function ClientFinancialWorkspace({
           <strong>Resumo por cliente</strong>
           <small>{selectedClientKey === 'all' ? 'Todos os clientes do período selecionado' : 'Eventos e faturação do cliente selecionado'}</small>
         </div>
-        <label className="finance-client-filter">
-          <span>Cliente</span>
-          <select value={selectedClientKey} onChange={(event) => onClientChange(event.target.value)}>
-            <option value="all">Todos os clientes</option>
-            {options.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
-          </select>
-        </label>
+        <div className="finance-client-heading-controls">
+          <label className="finance-client-filter">
+            <span>Cliente</span>
+            <select value={selectedClientKey} onChange={(event) => onClientChange(event.target.value)}>
+              <option value="all">Todos os clientes</option>
+              {options.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+            </select>
+          </label>
+          {eligible.size > 0 && (!selecting || !selectedEvents.length) ? (
+            <button type="button" className="secondary-button" aria-pressed={selecting}
+              onClick={() => { if (selecting) cancelExportSelection(); else setSelecting(true); }}>
+              <FileSpreadsheet size={15} aria-hidden="true" />{selecting ? 'Cancelar seleção' : 'Selecionar eventos'}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="finance-client-summary-grid">
@@ -981,6 +1043,18 @@ function ClientFinancialWorkspace({
         <div className="finance-client-summary-card finance-client-summary-card--total"><span>Total do período</span><ClientSummaryAmount total={totals.total} base={totals.totalBase} pending={hasPendingAllocation} rounding={totals.billingVatRounding} /></div>
       </div>
 
+      {selectedEvents.length > 0 ? <div className="finance-archive-selection finance-client-export-selection">
+        <strong aria-live="polite">{selectedEvents.length === 1 ? '1 evento selecionado' : `${selectedEvents.length} eventos selecionados`}</strong>
+        <div className="finance-archive-actions">
+          <button type="button" className="secondary-button" onClick={cancelExportSelection} disabled={exportBusy}>Cancelar</button>
+          <button type="button" className="command-button" title="Exportar os eventos completos em Excel" onClick={exportSelectedEvents} disabled={exportBusy}>
+            <FileSpreadsheet size={15} aria-hidden="true" />
+            {exportBusy ? 'A exportar...' : selectedEvents.length === 1 ? 'Exportar 1 evento' : `Exportar ${selectedEvents.length} eventos`}
+          </button>
+        </div>
+      </div> : null}
+      {exportError ? <p role="alert">{exportError}</p> : null}
+
       {selectedRow ? (
         <section className="finance-client-selected-detail">
           <header>
@@ -988,6 +1062,7 @@ function ClientFinancialWorkspace({
           </header>
           <ClientFinancialEventTable
             row={selectedRow}
+            exportSelection={exportSelection}
             onManageReceipts={onManageReceipts}
             onArchiveService={onArchiveService}
             onInvoiceStatusChange={onInvoiceStatusChange}
@@ -1042,6 +1117,7 @@ function ClientFinancialWorkspace({
                         <td colSpan={7}>
                           <ClientFinancialEventTable
                             row={row}
+                            exportSelection={exportSelection}
                             onManageReceipts={onManageReceipts}
                               onArchiveService={onArchiveService}
                             onInvoiceStatusChange={onInvoiceStatusChange}
@@ -1087,7 +1163,7 @@ function topItems(items, count = 5) {
 
 export default function Accounting() {
   const { user } = useAuth();
-  const canExportArchive = hasPermission(user, PERMISSIONS.FINANCE_EXPORT) && hasPermission(user, PERMISSIONS.FINANCE_VIEW_VALUES);
+  const canExportFinance = hasPermission(user, PERMISSIONS.FINANCE_EXPORT) && hasPermission(user, PERMISSIONS.FINANCE_VIEW_VALUES);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', [], { revalidateOnFocus: true });
@@ -1473,7 +1549,7 @@ export default function Accounting() {
   );
   const exportableArchive = useMemo(() => {
     const result = new Map();
-    if (!canExportArchive || activeArea !== 'archive') return result;
+    if (!canExportFinance || activeArea !== 'archive') return result;
     const archivedIds = new Set(archiveRows.flatMap((row) => [
       ...row.nonInvoicedServices, ...row.billingGroups.flatMap((group) => group.events),
     ]).map((event) => Number(event.id)));
@@ -1491,7 +1567,7 @@ export default function Accounting() {
       if (canExportArchivedEvent(full)) result.set(id, full);
     }
     return result;
-  }, [activeArea, archiveRows, canExportArchive, eventRows, invoices]);
+  }, [activeArea, archiveRows, canExportFinance, eventRows, invoices]);
   const selectedArchiveIds = [...archiveSelection].filter((id) => exportableArchive.has(id));
 
   async function exportArchivedEvents(ids) {
@@ -2596,6 +2672,8 @@ export default function Accounting() {
 
           <ClientFinancialWorkspace
             rows={clientFinancialRows}
+            period={selectedMonth}
+            canExport={canExportFinance}
             onManageReceipts={setManagedEventId}
             onArchiveService={archiveClientService}
             options={clientFinancialOptions}

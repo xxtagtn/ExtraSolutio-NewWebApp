@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-export default function CommunicationPagination({ payload, page, pageSize, loading, onPageChange, onPageSizeChange }) {
+export default function CommunicationPagination({ payload, page, pageSize, loading, onPageChange, onPageSizeChange, label = 'Paginação da Comunicação' }) {
   const total = payload?.total || 0;
   const totalPages = payload?.totalPages || 1;
   const current = payload?.page || page;
@@ -17,7 +17,7 @@ export default function CommunicationPagination({ payload, page, pageSize, loadi
           {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
         </select>
       </label>
-      <nav className="collab-pagination__pages" aria-label="Paginação da Comunicação">
+      <nav className="collab-pagination__pages" aria-label={label}>
         <button type="button" className="icon-button" aria-label="Página anterior" title="Página anterior" disabled={loading || current <= 1} onClick={() => onPageChange(current - 1)}>
           <ChevronLeft size={17} />
         </button>

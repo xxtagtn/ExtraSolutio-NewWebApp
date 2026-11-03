@@ -19,6 +19,7 @@ import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState 
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
+import CommunicationPagination from '../components/UI/CommunicationPagination.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
 import Modal from '../components/UI/Modal.jsx';
 import TimeInput from '../components/UI/TimeInput.jsx';
@@ -26,6 +27,7 @@ import { useApi } from '../hooks/useApi.js';
 import { api, isSessionExpiredError } from '../utils/api.js';
 import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 import { date, durationHours } from '../utils/formatters.js';
+import { paginateItems } from '../utils/pagination.js';
 import {
   buildBulkValidationCandidates,
   buildClientCopyCandidates,
@@ -530,6 +532,8 @@ export default function TimeValidation() {
   const [importError, setImportError] = useState('');
   const [importDragActive, setImportDragActive] = useState(false);
   const [expandedFinalizedEventId, setExpandedFinalizedEventId] = useState(null);
+  const [finalizedPage, setFinalizedPage] = useState(1);
+  const [finalizedPageSize, setFinalizedPageSize] = useState(10);
   const validationTableRef = useRef(null);
 
   useEffect(() => {
@@ -859,6 +863,12 @@ export default function TimeValidation() {
     )),
     [eventProgress, selectedEventId],
   );
+  const finalizedPagination = paginateItems(validatedEvents, finalizedPage, finalizedPageSize);
+
+  useEffect(() => {
+    setFinalizedPage(1);
+  }, [stage, periodStart, periodEnd, selectedClientId, selectedEventId, selectedCollaboratorId]);
+
   const finalizedRowsByEvent = useMemo(() => {
     const map = new Map();
     for (const row of collaboratorFilteredRows) {
@@ -2148,7 +2158,7 @@ export default function TimeValidation() {
 
         {isFinalizedStage ? (
           <div className="validation-history-list">
-            {validatedEvents.map((item) => {
+            {finalizedPagination.items.map((item) => {
               const eventId = String(item.event.id);
               const expanded = expandedFinalizedEventId === eventId;
               const eventRows = finalizedRowsByEvent.get(eventId) || [];
@@ -2252,6 +2262,17 @@ export default function TimeValidation() {
               );
             })}
             {!loading && !validatedEvents.length ? <p className="muted">Sem eventos/serviços finalizados neste período.</p> : null}
+            {validatedEvents.length > 0 ? (
+              <CommunicationPagination
+                label="Paginação dos eventos finalizados"
+                payload={{ total: finalizedPagination.totalItems, totalPages: finalizedPagination.totalPages, page: finalizedPagination.currentPage }}
+                page={finalizedPagination.currentPage}
+                pageSize={finalizedPageSize}
+                loading={loading}
+                onPageChange={(page) => { setFinalizedPage(page); setExpandedFinalizedEventId(null); }}
+                onPageSizeChange={(size) => { setFinalizedPageSize(size); setFinalizedPage(1); }}
+              />
+            ) : null}
           </div>
         ) : null}
       </section>

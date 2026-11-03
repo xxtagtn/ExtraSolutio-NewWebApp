@@ -15,6 +15,8 @@ const staffRows = (event) => billableEventAssignments(activeEventAssignments(eve
   .filter((row) => row.collaboratorId || row.collaborator?.id);
 const clientTimes = (row) => row.validatedCheckIn && row.validatedCheckOut
   ? [row.validatedCheckIn, row.validatedCheckOut] : [row.clientCheckIn, row.clientCheckOut];
+const hasValidatedHours = (row) => row.validationStatus === 'validated'
+  && row.checkIn && row.checkOut && clientTimes(row).every(Boolean);
 const clock = (value) => String(value || '').slice(0, 5);
 const dateFormat = (value) => eventDayKey(value)?.split('-').reverse().join('/') || '';
 const duration = (hours) => Math.round(hours * 60) / 1440;
@@ -26,11 +28,11 @@ export function canExportArchivedEvent(event, now = new Date()) {
   if (!end || end >= billingToday(now)) return false;
   const rows = staffRows(event);
   return rows.length
-    ? rows.every((row) => row.validationStatus === 'validated' && row.checkIn && row.checkOut && clientTimes(row).every(Boolean))
+    ? rows.every(hasValidatedHours)
     : isExternalOnlyService(event);
 }
 
-export function createArchiveEventWorkbook(events, XLSX) {
+export function createArchiveEventWorkbook(events, XLSX, { archived = true } = {}) {
   const selected = [...new Map(events.map((event) => [String(event.id), event])).values()]
     .sort((a, b) => String(a.date).localeCompare(String(b.date)) || Number(a.id) - Number(b.id));
   if (!selected.length) throw new Error('Seleciona pelo menos um evento.');
@@ -40,7 +42,8 @@ export function createArchiveEventWorkbook(events, XLSX) {
   for (const event of selected) {
     const name = event.name || 'Evento/Serviço';
     const financial = clientFinancialState(event);
-    const rows = staffRows(event).sort((a, b) => assignmentEventDay(a, event).localeCompare(assignmentEventDay(b, event)));
+    const rows = staffRows(event).filter(hasValidatedHours)
+      .sort((a, b) => assignmentEventDay(a, event).localeCompare(assignmentEventDay(b, event)));
     collaboratorCount += new Set(rows.map((row) => String(row.collaboratorId || row.collaborator.id))).size;
     let staff = 0, billed = 0;
     for (const row of rows) {
@@ -96,7 +99,7 @@ export function createArchiveEventWorkbook(events, XLSX) {
     row(headers, headersStyle);
     rows.forEach((values, index) => row(values, { formats, fill: index % 2 ? 'F2F2F2' : 'FFFFFF' }));
     if (!rows.length) {
-      row(['Sem horários de Staff'], { spans: [widths.length] });
+      row([archived ? 'Sem horários de Staff' : 'Sem horários validados'], { spans: [widths.length] });
       return;
     }
     if (filter) sheet['!autofilter'] = { ref: XLSX.utils.encode_range({ r: header, c: 0 }, { r: cursor - 1, c: headers.length - 1 }) };
@@ -114,14 +117,15 @@ export function createArchiveEventWorkbook(events, XLSX) {
   if (single) {
     const [name, client, start, end, staff, billed, total, received, balance, payment] = summary[0];
     row([name], { fill: 'E2E2E2', bold: true, size: 16, height: 25, spans: [10], center: true });
-    row([`Cliente: ${client || '-'}`, `Data: ${start === end ? start : start + ' a ' + end}`, 'Estado: Arquivado', `Pagamento: ${payment || '-'}`],
+    row([`Cliente: ${client || '-'}`, `Data: ${start === end ? start : start + ' a ' + end}`,
+      `Estado: ${archived ? 'Arquivado' : clientFinancialState(selected[0]).label}`, `Pagamento: ${payment || '-'}`],
       { spans: [3, 3, 2, 2], height: 28 });
     const spans = [2, 2, 2, 2, 1, 1];
     row(['Colaboradores', 'Horas staff', 'Horas faturáveis', 'Total c/ IVA', 'Recebido', 'Saldo'], { ...headersStyle, spans });
     row([collaboratorCount, staff, billed, total, received, balance], { spans, center: true,
       formats: { 1: '[h]:mm', 2: '[h]:mm', 3: currency, 4: currency, 5: currency } });
   } else {
-    row([`${selected.length} eventos arquivados`], { fill: 'E2E2E2', bold: true, height: 25, spans: [12], center: true });
+    row([`${selected.length} eventos ${archived ? 'arquivados' : 'selecionados'}`], { fill: 'E2E2E2', bold: true, height: 25, spans: [12], center: true });
     table(['Evento/Serviço', 'Cliente', 'Data inicial', 'Data final', 'Horas staff', 'Horas faturáveis', 'Total c/ IVA', 'Recebido', 'Saldo', 'Pagamento', 'Sem IVA', 'IVA'],
       summary, { 4: '[h]:mm', 5: '[h]:mm', 6: currency, 7: currency, 8: currency, 10: currency, 11: currency }, 'Totais dos serviços');
   }
@@ -149,10 +153,10 @@ export function createArchiveEventWorkbook(events, XLSX) {
   return workbook;
 }
 
-export async function downloadArchiveEventExcel(events) {
+export async function downloadArchiveEventExcel(events, options) {
   const imported = await import('xlsx-js-style');
   const XLSX = imported.default || imported;
-  const workbook = createArchiveEventWorkbook(events, XLSX);
+  const workbook = createArchiveEventWorkbook(events, XLSX, options);
   const name = events.length === 1 ? String(events[0].name || 'Evento').replace(/[<>:"/\\|?*]/g, ' ').trim().slice(0, 80) : `${events.length} eventos`;
   const raw = XLSX.write(workbook, { bookType: 'xlsx', type: 'array', compression: true, cellStyles: true });
   const content = await applyAttendancePrintSettings(raw, 0);
