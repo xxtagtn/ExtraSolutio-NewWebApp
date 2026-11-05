@@ -35,6 +35,16 @@ test('clientRuleRate reads configured client role rates', () => {
   assert.equal(clientRuleRate(client, 'Copa'), null);
 });
 
+test('configured cook rates fill new events without changing manual prices', () => {
+  const kitchenClient = { ...client, roleRates: JSON.stringify([{ role: 'Cozinheiro', rate: 18.5 }]) };
+  const form = { requiredRoles: [{ role: 'Cozinheiro', qty: 2, agreedRate: '' }] };
+  const inherited = applyClientRulesToServiceForm(form, kitchenClient);
+  assert.equal(inherited.requiredRoles[0].agreedRate, 18.5);
+  assert.equal(inherited.requiredRoles[0].qty, 2);
+  const manual = applyClientRulesToServiceForm({ requiredRoles: [{ role: 'Cozinheiro', qty: 1, agreedRate: 22 }] }, kitchenClient);
+  assert.equal(manual.requiredRoles[0].agreedRate, 22);
+});
+
 test('applyClientRulesToServiceForm fills event defaults without overwriting manual values', () => {
   const form = {
     clientId: '',

@@ -24,6 +24,7 @@ import { useApi } from '../hooks/useApi.js';
 import { api } from '../utils/api.js';
 import { confirmDiscardChanges, formHasChanges } from '../utils/formDirty.js';
 import { clientDetailTabFromQuery } from '../utils/deepLinks.js';
+import { collaboratorRoleOptions } from '../utils/collaboratorRoles.js';
 
 const typeLabels = {
   particular: 'Particular',
@@ -211,7 +212,7 @@ export default function Clients() {
   }, [data, search]);
 
   const roleOptions = useMemo(
-    () => [...new Set([...(catalogRoles || []), ...parseRoleRates(form.roleRates).map((item) => item.role)])]
+    () => [...new Set([...collaboratorRoleOptions, ...(catalogRoles || []), ...parseRoleRates(form.roleRates).map((item) => item.role)])]
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b, 'pt')),
     [catalogRoles, form.roleRates],
