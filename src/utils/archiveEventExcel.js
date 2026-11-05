@@ -42,17 +42,22 @@ export function createArchiveEventWorkbook(events, XLSX, { archived = true } = {
   for (const event of selected) {
     const name = event.name || 'Evento/Serviço';
     const financial = clientFinancialState(event);
-    const rows = staffRows(event).filter(hasValidatedHours)
+    const rows = staffRows(event).filter((row) => !archived || hasValidatedHours(row))
       .sort((a, b) => assignmentEventDay(a, event).localeCompare(assignmentEventDay(b, event)));
     collaboratorCount += new Set(rows.map((row) => String(row.collaboratorId || row.collaborator.id))).size;
     let staff = 0, billed = 0;
     for (const row of rows) {
-      const staffTime = duration(staffWorkedHours(row));
-      const billedTime = duration(clientChargeHours(row, '', '', event.minimumHoursSnapshot));
-      staff += staffTime; billed += billedTime;
+      const validated = hasValidatedHours(row);
+      const staffTime = validated ? duration(staffWorkedHours(row)) : '';
+      const billedTime = validated ? duration(clientChargeHours(row, '', '', event.minimumHoursSnapshot)) : '';
+      if (validated) {
+        staff += staffTime;
+        billed += billedTime;
+      }
       schedules.push([...(single ? [] : [name]), row.collaborator?.name || row.collaboratorName || '', row.role || '',
         dateFormat(assignmentEventDay(row, event)), clock(row.checkIn), clock(row.checkOut), staffTime,
-        ...clientTimes(row).map(clock), billedTime, row.validationNotes || '']);
+        ...clientTimes(row).map(clock), billedTime, row.validationNotes || '',
+        ...(archived ? [] : [validated ? 'Validado' : 'Por validar'])]);
     }
     const tax = clientPaymentTax(event);
     summary.push([name, event.client?.name || event.clientName || '', dateFormat(event.date),
@@ -65,6 +70,7 @@ export function createArchiveEventWorkbook(events, XLSX, { archived = true } = {
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.aoa_to_sheet([]);
   const widths = single ? [27, 17, 14, 14, 14, 14, 16, 15, 17, 25] : [31, 24, 16, 15, 14, 16, 16, 16, 14, 19, 23, 14];
+  if (!archived && single) widths.push(15);
   sheet['!cols'] = widths.map((wch) => ({ wch }));
   sheet['!merges'] = [];
   sheet['!rows'] = [];
@@ -99,7 +105,7 @@ export function createArchiveEventWorkbook(events, XLSX, { archived = true } = {
     row(headers, headersStyle);
     rows.forEach((values, index) => row(values, { formats, fill: index % 2 ? 'F2F2F2' : 'FFFFFF' }));
     if (!rows.length) {
-      row([archived ? 'Sem horários de Staff' : 'Sem horários validados'], { spans: [widths.length] });
+      row([archived ? 'Sem horários de Staff' : 'Sem colaboradores para apresentar'], { spans: [widths.length] });
       return;
     }
     if (filter) sheet['!autofilter'] = { ref: XLSX.utils.encode_range({ r: header, c: 0 }, { r: cursor - 1, c: headers.length - 1 }) };
@@ -109,30 +115,32 @@ export function createArchiveEventWorkbook(events, XLSX, { archived = true } = {
       const values = rows.map((values) => values[index]);
       const letter = XLSX.utils.encode_col(index);
       return { t: 'n', f: `SUBTOTAL(109,${letter}${header + 2}:${letter}${cursor})`,
-        v: formats[index] === currency ? sumMoney(...values) : values.reduce((sum, value) => sum + value, 0) };
+        v: formats[index] === currency ? sumMoney(...values) : values.reduce((sum, value) => sum + (typeof value === 'number' ? value : 0), 0) };
     });
     row(totals, { fill: 'E2E2E2', bold: true, formats });
   }
   band(single ? 'EXTRASOLUTIO | RESUMO DO EVENTO' : 'EXTRASOLUTIO | RESUMO DOS EVENTOS');
+  const staffHoursLabel = archived ? 'Horas staff' : 'Horas staff validadas';
+  const billedHoursLabel = archived ? 'Horas faturáveis' : 'Horas faturáveis validadas';
   if (single) {
     const [name, client, start, end, staff, billed, total, received, balance, payment] = summary[0];
-    row([name], { fill: 'E2E2E2', bold: true, size: 16, height: 25, spans: [10], center: true });
+    row([name], { fill: 'E2E2E2', bold: true, size: 16, height: 25, spans: [widths.length], center: true });
     row([`Cliente: ${client || '-'}`, `Data: ${start === end ? start : start + ' a ' + end}`,
       `Estado: ${archived ? 'Arquivado' : clientFinancialState(selected[0]).label}`, `Pagamento: ${payment || '-'}`],
-      { spans: [3, 3, 2, 2], height: 28 });
-    const spans = [2, 2, 2, 2, 1, 1];
-    row(['Colaboradores', 'Horas staff', 'Horas faturáveis', 'Total c/ IVA', 'Recebido', 'Saldo'], { ...headersStyle, spans });
+      { spans: [3, 3, 2, archived ? 2 : 3], height: 28 });
+    const spans = [2, 2, 2, 2, 1, archived ? 1 : 2];
+    row(['Colaboradores', staffHoursLabel, billedHoursLabel, 'Total c/ IVA', 'Recebido', 'Saldo'], { ...headersStyle, spans });
     row([collaboratorCount, staff, billed, total, received, balance], { spans, center: true,
       formats: { 1: '[h]:mm', 2: '[h]:mm', 3: currency, 4: currency, 5: currency } });
   } else {
     row([`${selected.length} eventos ${archived ? 'arquivados' : 'selecionados'}`], { fill: 'E2E2E2', bold: true, height: 25, spans: [12], center: true });
-    table(['Evento/Serviço', 'Cliente', 'Data inicial', 'Data final', 'Horas staff', 'Horas faturáveis', 'Total c/ IVA', 'Recebido', 'Saldo', 'Pagamento', 'Sem IVA', 'IVA'],
+    table(['Evento/Serviço', 'Cliente', 'Data inicial', 'Data final', staffHoursLabel, billedHoursLabel, 'Total c/ IVA', 'Recebido', 'Saldo', 'Pagamento', 'Sem IVA', 'IVA'],
       summary, { 4: '[h]:mm', 5: '[h]:mm', 6: currency, 7: currency, 8: currency, 10: currency, 11: currency }, 'Totais dos serviços');
   }
   cursor++;
-  band('HORÁRIOS VALIDADOS');
+  band(archived ? 'HORÁRIOS VALIDADOS' : 'COLABORADORES E HORÁRIOS');
   const offset = single ? 0 : 1;
-  table([...(single ? [] : ['Evento/Serviço']), 'Colaborador', 'Função', 'Data', 'Entrada staff', 'Saída staff', 'Horas staff', 'Entrada cliente', 'Saída cliente', 'Horas faturáveis', 'Notas'],
+  table([...(single ? [] : ['Evento/Serviço']), 'Colaborador', 'Função', 'Data', 'Entrada staff', 'Saída staff', 'Horas staff', 'Entrada cliente', 'Saída cliente', 'Horas faturáveis', 'Notas', ...(archived ? [] : ['Validação'])],
     schedules, { [5 + offset]: '[h]:mm', [8 + offset]: '[h]:mm' }, 'Total', true);
   cursor++;
   for (const [label, col] of [['Sem IVA', 10], ['IVA', 11], ['Total com IVA', 6]]) {
