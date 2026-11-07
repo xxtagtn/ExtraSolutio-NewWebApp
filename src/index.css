@@ -9201,6 +9201,21 @@ th {
   gap: 6px;
 }
 
+.finance-staff-adjustment-button {
+  max-width: 100%;
+  min-height: 32px;
+  padding-inline: 5px;
+  gap: 3px;
+  font-size: 0.75rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.finance-staff-adjustment-button > span { min-width: 0; }
+.finance-staff-adjustment-button svg { color: var(--accent); flex-shrink: 0; }
+.finance-staff-adjustment-actions { flex-wrap: wrap; }
+.finance-staff-adjustment-actions > button { max-width: 100%; white-space: normal; }
+
 .finance-adjustment-input {
   width: 112px;
   min-width: 112px;

@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Minus, Search, UsersRound, WalletCards } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Minus, Search, TrendingUp, UsersRound, WalletCards } from 'lucide-react';
 import BalanceKpi from './BalanceKpi.jsx';
 import { buildStaffBalance } from '../utils/balanceStaff.js';
-import { durationHours, money } from '../utils/formatters.js';
+import { date, durationHours, money } from '../utils/formatters.js';
 import { paginateItems } from '../utils/pagination.js';
 
 const evolutionMonths = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -22,6 +22,7 @@ export default function BalanceStaff({ services, period, loading, error }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState('10');
+  const [showExtraRevenue, setShowExtraRevenue] = useState(false);
   const [evolutionView, setEvolutionView] = useState('annual');
   const [evolutionMonth, setEvolutionMonth] = useState(String(new Date().getMonth() + 1));
   const [evolutionWeek, setEvolutionWeek] = useState('');
@@ -69,6 +70,26 @@ export default function BalanceStaff({ services, period, loading, error }) {
         <BalanceKpi icon={UsersRound} label="Custo total" value={value(analysis.totals.cost)} tone="staff" />
         <BalanceKpi icon={CheckCircle2} label="Já pago" value={value(analysis.totals.paid)} tone="finalized" />
         <BalanceKpi icon={WalletCards} label="Por pagar" value={value(analysis.totals.unpaid)} tone="margin" />
+        <BalanceKpi icon={TrendingUp} label="Receita Extra" value={value(analysis.gainTotal)} detail="Por mês de pagamento"
+          onClick={() => setShowExtraRevenue((open) => !open)} expanded={showExtraRevenue} controls="balance-staff-extra-revenue" />
+      </section>
+
+      <section className="balance-staff-gains" id="balance-staff-extra-revenue" aria-label="Detalhe da Receita Extra" hidden={!showExtraRevenue}>
+        {!loading && !error && analysis.gains.length ? (
+          <table className="balance-staff-table">
+            <thead><tr><th>Colaborador</th><th>Evento</th><th>Origem</th><th>Referência</th><th>Valor</th></tr></thead>
+            <tbody>{analysis.gains.map((entry) => (
+              <tr key={entry.id}>
+                <td data-label="Colaborador">{entry.name}</td>
+                <td data-label="Evento">{entry.event || '-'}</td>
+                <td data-label="Origem">{entry.source === 'workflow' ? 'Estado Ganho' : 'Ajuste designado (sem IVA)'}</td>
+                <td data-label="Referência">{entry.paymentDate ? date.format(new Date(entry.paymentDate + 'T12:00:00Z')) : entry.monthKey.split('-').reverse().join('/')}</td>
+                <td data-label="Valor">{money.format(entry.amount)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        ) : null}
+        {!loading && !error && !analysis.gains.length ? <p className="muted">Sem receita extra neste período.</p> : null}
       </section>
 
       <section className="balance-staff-costs">

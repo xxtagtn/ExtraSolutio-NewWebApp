@@ -1,7 +1,11 @@
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { isBillableEventAssignment } from './eventFinancialRules.js';
 import { staffPaymentHours } from './serviceFinance.js';
-import { assignmentWorkDateValue, staffAssignmentCostTotal, staffAssignmentOutstandingPay } from './staffPayment.js';
+import { assignmentWorkDateValue, staffAssignmentCostTotal, staffAssignmentOutstandingPay, staffPaymentTiming } from './staffPayment.js';
+import { staffAdjustmentGainAmount, staffAdjustmentGainDate } from './staffAdjustmentGain.js';
+import { staffPaymentWorkflowTab } from './staffPaymentWorkflow.js';
+import { isAssignmentOnCancelledDay } from './eventCancelledDays.js';
+import { sumMoney } from '../../shared/money.js';
 
 const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const finalizedStatuses = new Set(['finalized', 'completed', 'invoiced', 'paid']);
@@ -15,8 +19,30 @@ function workPeriod(assignment) {
 }
 
 export function staffAnalysisYears(services = []) {
-  return [...new Set(services.flatMap((event) => (event.assignments || [])
-    .map((assignment) => workPeriod({ ...assignment, event })?.year).filter(Boolean)))];
+  return [...new Set(services.flatMap((event) => {
+    const financeReady = isFinanceReadyEvent(event);
+    const cancelled = String(event.status || '').toLowerCase() === 'cancelled';
+    return (event.assignments || []).flatMap((assignment) => [
+      workPeriod({ ...assignment, event })?.year,
+      cancelled ? null : extraRevenueForAssignment(assignment, event, financeReady)?.monthKey.slice(0, 4),
+    ]).filter(Boolean);
+  }))];
+}
+
+function extraRevenueForAssignment(assignment, event, financeReady) {
+  const fromWorkflow = staffPaymentWorkflowTab(assignment) === 'ganho';
+  const paymentDate = !fromWorkflow && financeReady && assignment.paymentAdjustmentGain != null
+    ? staffAdjustmentGainDate(assignment) : null;
+  if (!fromWorkflow && !paymentDate) return null;
+  if (!assignment.collaboratorId || !isBillableEventAssignment(assignment) || isAssignmentOnCancelledDay(assignment, event)) return null;
+  if (fromWorkflow) {
+    const withEvent = { ...assignment, event };
+    const monthKey = staffPaymentTiming(withEvent).paymentMonth;
+    const amount = staffAssignmentOutstandingPay(withEvent);
+    return monthKey && amount > 0 ? { monthKey, amount, source: 'workflow' } : null;
+  }
+  const amount = staffAdjustmentGainAmount(assignment, event);
+  return amount > 0 ? { monthKey: paymentDate.slice(0, 7), paymentDate, amount, source: 'adjustment' } : null;
 }
 
 function summarize(entries) {
@@ -65,8 +91,10 @@ export function buildStaffBalance({ services = [], period = {}, collaboratorId =
   const calendar = evolutionCalendar(period, evolutionMonth, evolutionWeek);
   const inRange = (entry, range) => entry.dateKey >= range.start && entry.dateKey <= range.end;
   const candidateEntries = [];
+  const gainEntries = [];
   for (const event of services) {
-    if (!isFinanceReadyEvent(event) || String(event.status || '').toLowerCase() === 'cancelled') continue;
+    if (String(event.status || '').toLowerCase() === 'cancelled') continue;
+    const financeReady = isFinanceReadyEvent(event);
     if (period.clientId && period.clientId !== 'all'
       && String(event.clientId || event.client?.id || '') !== String(period.clientId)) continue;
     const status = String(event.status || '').trim().toLowerCase();
@@ -75,6 +103,16 @@ export function buildStaffBalance({ services = [], period = {}, collaboratorId =
     for (const assignment of event.assignments || []) {
       if (!assignment.collaboratorId || !isBillableEventAssignment(assignment)) continue;
       const withEvent = { ...assignment, event };
+      const collaborator = {
+        collaboratorId: String(assignment.collaboratorId),
+        name: assignment.collaborator?.shortName || assignment.collaborator?.name || '-',
+        nif: assignment.collaborator?.nif || '-',
+      };
+      const gain = extraRevenueForAssignment(assignment, event, financeReady);
+      if (gain && (!period.year || gain.monthKey.slice(0, 4) === String(period.year))) {
+        gainEntries.push({ ...collaborator, id: assignment.id, event: event.name, ...gain });
+      }
+      if (!financeReady) continue;
       const work = workPeriod(withEvent);
       if (!work) continue;
       const dateKey = `${work.year}-${String(work.month).padStart(2, '0')}-${String(work.day).padStart(2, '0')}`;
@@ -82,9 +120,7 @@ export function buildStaffBalance({ services = [], period = {}, collaboratorId =
         && !inRange({ dateKey }, calendar.previousMonth) && !inRange({ dateKey }, calendar.previousWeek)) continue;
       const balance = staffAssignmentOutstandingPay(withEvent);
       candidateEntries.push({
-        collaboratorId: String(assignment.collaboratorId),
-        name: assignment.collaborator?.shortName || assignment.collaborator?.name || '-',
-        nif: assignment.collaborator?.nif || '-',
+        ...collaborator,
         month: work.month,
         day: work.day,
         year: work.year,
@@ -97,13 +133,17 @@ export function buildStaffBalance({ services = [], period = {}, collaboratorId =
     }
   }
   const annualEntries = candidateEntries.filter((entry) => !period.year || entry.year === String(period.year));
-  const collaborators = [...new Map(annualEntries.map((entry) => [entry.collaboratorId, {
+  const collaborators = [...new Map([...annualEntries, ...gainEntries].map((entry) => [entry.collaboratorId, {
     id: entry.collaboratorId, name: entry.name, nif: entry.nif,
   }])).values()].sort((a, b) => a.name.localeCompare(b.name, 'pt'));
   const normalize = (value) => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const query = normalize(search.trim());
-  const selectedCandidates = candidateEntries.filter((entry) => (collaboratorId === 'all'
-    || entry.collaboratorId === String(collaboratorId)) && normalize(`${entry.name} ${entry.nif}`).includes(query));
+  const matchesCollaborator = (entry) => (collaboratorId === 'all'
+    || entry.collaboratorId === String(collaboratorId)) && normalize(`${entry.name} ${entry.nif}`).includes(query);
+  const selectedCandidates = candidateEntries.filter(matchesCollaborator);
+  const gains = gainEntries.filter((entry) => matchesCollaborator(entry)
+    && (!period.month || Number(entry.monthKey.slice(5, 7)) === Number(period.month)))
+    .sort((a, b) => (b.paymentDate || b.monthKey).localeCompare(a.paymentDate || a.monthKey) || a.name.localeCompare(b.name, 'pt'));
   const selectedEntries = selectedCandidates.filter((entry) => !period.year || entry.year === String(period.year));
   const periodEntries = selectedEntries.filter((entry) => !period.month || entry.month === Number(period.month));
   const groups = new Map();
@@ -118,6 +158,8 @@ export function buildStaffBalance({ services = [], period = {}, collaboratorId =
   const weekEntries = monthEntries.filter((entry) => entry.day >= activeWeek.start && entry.day <= activeWeek.end);
   return {
     collaborators,
+    gains,
+    gainTotal: sumMoney(...gains.map((entry) => entry.amount)),
     rows: [...groups.entries()].map(([id, entries]) => ({
       id, name: entries[0].name, nif: entries[0].nif, ...summarize(entries),
     })).sort((a, b) => b.cost - a.cost || a.name.localeCompare(b.name, 'pt') || a.id.localeCompare(b.id)),

@@ -103,6 +103,8 @@ import { inheritedAssignmentScheduleChanges } from '../utils/eventScheduleInheri
 import { buildClientFinanceSnapshot } from '../../src/utils/clientFinanceSnapshot.js';
 import { updateClientFinancialMetadata } from '../services/clientFinancialMetadata.js';
 import { settleClientInvoice } from '../services/clientInvoiceSettlement.js';
+import { saveStaffPaymentAdjustment } from '../services/staffPaymentAdjustment.js';
+import { staffAdjustmentGainInvalidated } from '../../src/utils/staffAdjustmentGain.js';
 
 export const apiRouter = Router();
 const clientsRead = requirePermission(PERMISSIONS.CLIENTS_VIEW);
@@ -157,6 +159,7 @@ const financialAssignmentFields = [
   'hourlyRate',
   'totalPay',
   'paymentAdjustment',
+  'paymentAdjustmentGain',
   'paymentNotes',
   'advancePayments',
   'paymentStatus',
@@ -420,6 +423,7 @@ async function normalizeAssignmentCreate(input) {
 async function normalizeAssignmentUpdate(input, existing) {
   assertReleasedSlotUpdate(input, existing);
   const data = normalizeAssignment(input);
+  if (existing?.paymentAdjustmentGain != null && staffAdjustmentGainInvalidated(existing, data)) data.paymentAdjustmentGain = null;
   const merged = { ...existing, ...data };
   const travelChanged = ['eventId', 'collaboratorId', 'assignmentDate', 'status', 'hourlyRate'].some((field) => (
     data[field] !== undefined && String(data[field] ?? '') !== String(existing?.[field] ?? '')
@@ -1029,6 +1033,13 @@ apiRouter.use('/service-templates', createCrudRouter(prisma.eventTemplate, [], {
   deleteMiddleware: servicesDelete,
   normalizeCreate: normalizeEventTemplate,
   normalizeUpdate: normalizeEventTemplate,
+}));
+
+apiRouter.put('/assignments/:id/payment-adjustment', financeUpdatePayments, asyncHandler(async (req, res) => {
+  if (!canViewFinancialData(req.user)) return res.status(403).json({ message: 'Sem permissão para consultar valores financeiros.' });
+  const row = await saveStaffPaymentAdjustment(prisma, req.params.id, req.body);
+  if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
+  return res.json(maskAssignmentForRole(row, req.user));
 }));
 
 apiRouter.put('/assignments/bulk', assignmentsWrite, asyncHandler(async (req, res) => {

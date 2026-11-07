@@ -28,7 +28,7 @@ function fixture() {
     id, collaboratorId, collaborator: collaborators[collaboratorId - 1], role: 'Emp.Mesa', status: 'confirmed',
     paymentStatus, assignmentDate: '2026-09-04', plannedCheckIn: '09:00', plannedCheckOut: '10:00',
     validatedCheckIn: '09:00', validatedCheckOut: '10:00', validationStatus: 'validated',
-    hourlyRate: amount, totalPay: amount, paymentAdjustment: 0, ...extra,
+    hourlyRate: amount, totalPay: amount, paymentAdjustment: 0, updatedAt: '2026-10-07T00:00:00Z', ...extra,
   });
   const service = (id, name, status, assignments, extra = {}) => ({
     id, name, status, date: '2026-09-04', startTime: '09:00', endTime: '10:00',
@@ -117,9 +117,13 @@ async function setup(width, initial = fixture()) {
         return route.fulfill({ status: 409, json: { message: 'Teste: pagamento recusado' } });
       }
       assert.equal(method, 'PUT');
+      const adjustment = path.match(/^\/assignments\/(\d+)\/payment-adjustment$/);
       const updates = path === '/assignments/bulk' ? request.postDataJSON().updates
-        : [{ id: Number(path.split('/').at(-1)), data: request.postDataJSON() }];
-      assert.ok(path === '/assignments/bulk' || /^\/assignments\/\d+$/.test(path));
+        : adjustment ? [{ id: Number(adjustment[1]), data: {
+          paymentAdjustment: request.postDataJSON().amount,
+          paymentAdjustmentGain: request.postDataJSON().asGain ? -request.postDataJSON().amount : null,
+        } }] : [{ id: Number(path.split('/').at(-1)), data: request.postDataJSON() }];
+      assert.ok(path === '/assignments/bulk' || adjustment || /^\/assignments\/\d+$/.test(path));
       for (const update of updates) {
         const row = data.services.flatMap((event) => event.assignments).find((assignment) => assignment.id === Number(update.id));
         assert.ok(row);
@@ -212,12 +216,16 @@ try {
     await summary(page, { ...baseline, unpaid: [1, 139.93], paid: [2, 596], validated_es: [2, 60.25] });
     await tab(page, 'validated_es').click();
     await page.getByRole('button', { name: 'Consultar serviços de Miriam Oliveira' }).click();
-    const adjustment = page.locator('.finance-staff-payment-detail-table .finance-adjustment-input').first();
-    await adjustment.fill('-2,50');
+    const adjustment = page.getByRole('button', { name: 'Editar ajuste de Miriam Oliveira', exact: true }).first();
+    await adjustment.click();
+    const dialog = page.getByRole('dialog', { name: 'Ajuste de Staff' });
+    await dialog.getByLabel('Ajuste', { exact: true }).fill('-2,50');
+    assert.equal(await dialog.getByLabel('Valor a pagar').inputValue(), money.format(7.75));
+    await dialog.getByRole('button', { name: 'Guardar ajuste', exact: true }).click();
+    await dialog.waitFor({ state: 'detached' });
     await summary(page, { all: [34, 1223.68], validated_es: [2, 57.75], paid: [2, 596] });
-    await adjustment.blur();
-    await page.waitForFunction(() => !document.querySelector('.finance-staff-payment-detail-table .finance-adjustment-input:disabled'));
     assert.equal(f.data.services[0].assignments[0].paymentAdjustment, -2.5);
+    assert.equal(f.data.services[0].assignments[0].paymentAdjustmentGain, null);
     await layout(page);
     await page.reload();
     await summary(page, { all: [34, 1223.68], unpaid: [1, 139.93], paid: [2, 596], validated_es: [2, 57.75] });
@@ -268,9 +276,12 @@ try {
     assert.equal(f.writes.at(-1).payload.updates.length, 4);
     assert.equal(await groupAmount(6).locator('> span').first().textContent(), money.format(296));
     assert.equal(await groupAmount(7).locator('> strong').textContent(), money.format(0));
-    const adjustment = rows.first().locator('.finance-adjustment-input');
-    await adjustment.fill('+10,00');
-    await adjustment.blur();
+    await rows.first().getByRole('button', { name: 'Editar ajuste de Ana Carolina Rodrigues' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Ajuste de Staff' });
+    await dialog.getByLabel('Ajuste', { exact: true }).fill('+10,00');
+    assert.equal(await dialog.getByRole('button', { name: 'Guardar como ganho da empresa' }).count(), 0);
+    await dialog.getByRole('button', { name: 'Guardar ajuste', exact: true }).click();
+    await dialog.waitFor({ state: 'detached' });
     await summary(page, { all: [5, 419.46], paid: [1, 379.46], unpaid: [1, 40] });
     assert.equal(await groupAmount(5).locator('> strong').textContent(), money.format(308.5));
     await page.goto(`${base}/balancete`);
@@ -279,8 +290,49 @@ try {
     assert.equal(await page.locator('.balance-kpi--staff strong').textContent(), money.format(419.46));
     await page.locator('.balance-tabs').getByRole('button', { name: 'Staff', exact: true }).click();
     assert.equal(await page.locator('.balance-staff-totals .balance-kpi').first().locator('strong').textContent(), money.format(419.46));
+    assert.equal(await page.getByRole('button', { name: /^Receita Extra/ }).locator('strong').textContent(), money.format(0));
     await f.context.close();
     console.log(`${width}px: exact receipt bases, IVA totals, individual/bulk state changes, positive adjustment and gross Balancete costs passed`);
+  }
+
+  for (const width of [1440, 320]) {
+    const f = await setup(width);
+    const { page } = f;
+    assert.equal(await tab(page, 'ganho').locator('.finance-payment-tab__amount').textContent(), money.format(205));
+    await page.getByRole('button', { name: 'Consultar serviços de Miriam Oliveira' }).click();
+    const adjustment = page.getByRole('button', { name: 'Editar ajuste de Miriam Oliveira', exact: true }).first();
+    await adjustment.click();
+    const dialog = page.getByRole('dialog', { name: 'Ajuste de Staff' });
+    await dialog.getByLabel('Ajuste', { exact: true }).fill('-2,50');
+    assert.equal(await dialog.getByLabel('Valor a pagar').inputValue(), money.format(7.75));
+    assert.equal(await dialog.evaluate((element) => element.scrollWidth > element.clientWidth + 1), false);
+    await page.screenshot({ path: `${output}/adjustment-gain-${width}.png`, animations: 'disabled' });
+    await dialog.getByRole('button', { name: 'Guardar como ganho da empresa' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    assert.equal(f.data.services[0].assignments[0].paymentAdjustmentGain, 2.5);
+    assert.equal(f.data.services[0].assignments[0].paymentStatus, 'unpaid');
+    await page.locator('.finance-staff-payment-detail-table .payment-state').first().selectOption('paid');
+    await page.waitForFunction(() => !document.querySelector('.finance-staff-payment-detail-table .payment-state:disabled'));
+    assert.equal(f.data.services[0].assignments[0].paymentStatus, 'paid');
+    await page.goto(`${base}/balancete`);
+    await page.locator('.balance-tabs').getByRole('button', { name: 'Staff', exact: true }).click();
+    await page.getByLabel('Mês', { exact: true }).selectOption('10');
+    const extraRevenue = page.getByRole('button', { name: /^Receita Extra/ });
+    const gains = page.locator('.balance-staff-gains');
+    assert.equal(await extraRevenue.locator('strong').textContent(), money.format(207.5));
+    assert.equal(await gains.isVisible(), false);
+    await extraRevenue.click();
+    assert.equal(await extraRevenue.getAttribute('aria-expanded'), 'true');
+    assert.equal(await gains.isVisible(), true);
+    assert.match(await gains.locator('tbody').innerText(), /Miriam Oliveira[\s\S]*Evento Principal/);
+    assert.match(await gains.locator('tbody').innerText(), /Sofia Rosa[\s\S]*Estado Ganho[\s\S]*10\/2026/);
+    await page.getByLabel('Mês', { exact: true }).selectOption('9');
+    assert.equal(await extraRevenue.locator('strong').textContent(), money.format(0));
+    await extraRevenue.click();
+    assert.equal(await gains.isVisible(), false);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+    await f.context.close();
+    console.log(`${width}px: explicit gain saved, paid and reported in the payment month only`);
   }
 
   // Pagination must not limit totals; large values must remain inside the controls.

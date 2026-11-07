@@ -446,6 +446,7 @@ model EventAssignment {
   paymentDate    DateTime?
   paymentDeferredMonth String?
   paymentAdjustment Decimal   @default(0)
+  paymentAdjustmentGain Decimal?
   paymentNotes   String?
   advancePayments String?
   createdAt      DateTime     @default(now())

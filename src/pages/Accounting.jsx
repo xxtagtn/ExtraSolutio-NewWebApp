@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   Landmark,
   NotebookPen,
+  Pencil,
   Plus,
   ReceiptText,
   TrendingUp,
@@ -58,6 +59,8 @@ import { splitFinanceReadiness } from '../utils/financeReadiness.js';
 import { date, durationHours, money } from '../utils/formatters.js';
 import { decimalValue, staffPaymentHours } from '../utils/serviceFinance.js';
 import { staffAssignmentCostTotal, staffAssignmentOutstandingPay, staffAssignmentPaymentBalance } from '../utils/staffPayment.js';
+import { staffAdjustmentGainAmount, staffAdjustmentReduction } from '../utils/staffAdjustmentGain.js';
+import { roundMoney } from '../../shared/money.js';
 import StaffPaymentAmount from '../components/Finance/StaffPaymentAmount.jsx';
 import StaffTravelSummary from '../components/StaffTravelSummary.jsx';
 import InternalCostAmount from '../components/Finance/InternalCostAmount.jsx';
@@ -1164,6 +1167,8 @@ function topItems(items, count = 5) {
 export default function Accounting() {
   const { user } = useAuth();
   const canExportFinance = hasPermission(user, PERMISSIONS.FINANCE_EXPORT) && hasPermission(user, PERMISSIONS.FINANCE_VIEW_VALUES);
+  const canDesignateStaffGain = hasPermission(user, PERMISSIONS.FINANCE_UPDATE_PAYMENTS)
+    && hasPermission(user, PERMISSIONS.FINANCE_VIEW_VALUES);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: services, loading, error, reload } = useApi('/services', [], { revalidateOnFocus: true });
@@ -1194,6 +1199,9 @@ export default function Accounting() {
   const [bulkPaymentDate, setBulkPaymentDate] = useState(todayIso());
   const [bulkUpdatingPayments, setBulkUpdatingPayments] = useState(false);
   const [paymentNotesAssignment, setPaymentNotesAssignment] = useState(null);
+  const [staffAdjustment, setStaffAdjustment] = useState(null);
+  const [savingStaffAdjustment, setSavingStaffAdjustment] = useState(false);
+  const [staffAdjustmentError, setStaffAdjustmentError] = useState('');
   const [paymentNotesDraft, setPaymentNotesDraft] = useState('');
   const [paymentNotesOverrides, setPaymentNotesOverrides] = useState({});
   const [savingPaymentNotes, setSavingPaymentNotes] = useState(false);
@@ -2193,6 +2201,42 @@ export default function Accounting() {
       reload({ background: true });
     } finally {
       setUpdatingAssignmentId(null);
+    }
+  }
+
+  function openStaffAdjustment(assignment) {
+    setStaffAdjustmentError('');
+    setStaffAdjustment({ assignment, value: adjustmentInputValue(assignment.paymentAdjustment) });
+  }
+
+  const editingStaffAssignment = staffAdjustment?.assignment;
+  const staffAdjustmentAmount = staffAdjustment?.value.trim() === '' ? 0 : decimalValue(staffAdjustment?.value);
+  const validStaffAdjustment = staffAdjustmentAmount !== null && Math.abs(staffAdjustmentAmount) <= 9999999999.99
+    && staffAdjustmentAmount === roundMoney(staffAdjustmentAmount);
+  const staffAdjustmentBalance = editingStaffAssignment && validStaffAdjustment
+    ? staffAssignmentPaymentBalance({ ...editingStaffAssignment, paymentAdjustment: staffAdjustmentAmount }).total : null;
+  const canSaveAsStaffGain = Boolean(editingStaffAssignment && validStaffAdjustment && staffAdjustmentAmount < 0
+    && (editingStaffAssignment.paymentStatus !== 'paid'
+      || staffAdjustmentAmount === decimalValue(editingStaffAssignment.paymentAdjustment))
+    && staffAdjustmentReduction(editingStaffAssignment, editingStaffAssignment.event, staffAdjustmentAmount) >= -staffAdjustmentAmount);
+  const savedStaffGain = editingStaffAssignment
+    ? staffAdjustmentGainAmount(editingStaffAssignment, editingStaffAssignment.event) : 0;
+
+  async function saveStaffAdjustment(asGain) {
+    if (!editingStaffAssignment || savingStaffAdjustment || !validStaffAdjustment || (asGain && !canSaveAsStaffGain)) return;
+    setSavingStaffAdjustment(true);
+    setStaffAdjustmentError('');
+    try {
+      await api(`/assignments/${editingStaffAssignment.id}/payment-adjustment`, {
+        method: 'PUT',
+        body: JSON.stringify({ amount: staffAdjustmentAmount, asGain, updatedAt: editingStaffAssignment.updatedAt }),
+      });
+      await reload({ background: true });
+      setStaffAdjustment(null);
+    } catch (err) {
+      if (!isSessionExpiredError(err)) setStaffAdjustmentError(err.message || 'Não foi possível guardar o ajuste.');
+    } finally {
+      setSavingStaffAdjustment(false);
     }
   }
 
@@ -3395,7 +3439,17 @@ export default function Accounting() {
                       <td>{durationHours(assignmentHours(assignment))}<StaffTravelSummary assignment={assignment} compact /></td>
                       <td>{money.format(num(assignment.hourlyRate))}</td>
                       <td>
-                        <input
+                        {canDesignateStaffGain ? (
+                          <button type="button" className="secondary-button finance-staff-adjustment-button"
+                            title="Editar ajuste do pagamento" aria-label={`Editar ajuste de ${assignment.collaborator?.name || assignment.event.name}`}
+                            disabled={awaitingValidation || bulkUpdatingPayments || updatingAssignmentId === assignment.id}
+                            onClick={() => openStaffAdjustment(assignment)}>
+                            {staffAdjustmentGainAmount(assignment, assignment.event) > 0 ? <TrendingUp size={13} aria-label="Ganho da empresa" /> : null}
+                            {adjustmentInputValue(assignment.paymentAdjustment)
+                              ? <span>{adjustmentInputValue(assignment.paymentAdjustment)}</span>
+                              : <Pencil size={14} aria-hidden="true" />}
+                          </button>
+                        ) : <input
                           className="finance-adjustment-input"
                           type="text"
                           inputMode="decimal"
@@ -3404,7 +3458,7 @@ export default function Accounting() {
                           disabled={awaitingValidation || bulkUpdatingPayments || updatingAssignmentId === assignment.id}
                           onChange={(event) => updatePaymentDraft(assignment.id, { paymentAdjustment: event.target.value })}
                           onBlur={() => savePaymentAdjustment(assignment)}
-                        />
+                        />}
                       </td>
                       <td>
                         {advanceTotal > 0 ? (
@@ -3853,6 +3907,38 @@ export default function Accounting() {
         invoices={invoices.filter((invoice) => invoiceIncludesEvent(invoice, managedEventId))}
         onClose={() => setManagedEventId(null)} onInvoiceStatusChange={updateInvoiceStatus}
         onChanged={async () => { await reload({ background: true }); await reloadInvoices({ background: true }); }} /> : null}
+      {editingStaffAssignment ? (
+        <Modal title="Ajuste de Staff" onClose={() => { if (!savingStaffAdjustment) setStaffAdjustment(null); }} preventFocusScroll>
+          <div className="resource-form">
+            <div className="finance-payment-notes-context">
+              <div><strong>{editingStaffAssignment.collaborator?.name || '-'}</strong><span>{editingStaffAssignment.event?.name || '-'}</span></div>
+              {savedStaffGain > 0 ? <Badge tone="success">Designado como ganho</Badge> : null}
+            </div>
+            <div className="form-grid">
+              <label>Ajuste
+                <input value={staffAdjustment.value} inputMode="decimal" disabled={savingStaffAdjustment}
+                  onChange={(event) => { setStaffAdjustment({ ...staffAdjustment, value: event.target.value }); setStaffAdjustmentError(''); }} />
+              </label>
+              <label>Valor a pagar<input readOnly value={staffAdjustmentBalance === null ? '—' : money.format(staffAdjustmentBalance)} /></label>
+            </div>
+            {!validStaffAdjustment ? <p className="notice">Indica um valor com até duas casas decimais.</p> : null}
+            {validStaffAdjustment && staffAdjustmentAmount < 0 && !canSaveAsStaffGain ? (
+              <p className="muted">{editingStaffAssignment.paymentStatus === 'paid'
+                && staffAdjustmentAmount !== decimalValue(editingStaffAssignment.paymentAdjustment)
+                ? 'Num pagamento concluído, só podes designar como ganho o ajuste já guardado.'
+                : 'O ganho não pode exceder o valor base a ajustar.'}</p>
+            ) : null}
+            {staffAdjustmentError ? <p className="notice" role="alert">{staffAdjustmentError}</p> : null}
+            <footer className="form-actions finance-staff-adjustment-actions">
+              <button type="button" className="secondary-button" disabled={savingStaffAdjustment} onClick={() => setStaffAdjustment(null)}>Cancelar</button>
+              <button type="button" className={canSaveAsStaffGain ? 'secondary-button' : 'command-button'} disabled={!validStaffAdjustment || savingStaffAdjustment}
+                onClick={() => saveStaffAdjustment(false)}>Guardar ajuste</button>
+              {canSaveAsStaffGain ? <button type="button" className="command-button" disabled={savingStaffAdjustment}
+                onClick={() => saveStaffAdjustment(true)}><TrendingUp size={15} aria-hidden="true" />Guardar como ganho da empresa</button> : null}
+            </footer>
+          </div>
+        </Modal>
+      ) : null}
       {paymentNotesAssignment ? (
         <Modal title="Notas internas do pagamento" onClose={closePaymentNotes}>
           <div className="resource-form finance-payment-notes-form">

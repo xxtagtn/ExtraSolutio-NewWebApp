@@ -1,10 +1,10 @@
 import { ChevronDown } from 'lucide-react';
 
-export default function BalanceKpi({ icon: Icon, label, value, detail, tone = 'accent', onClick, expanded }) {
+export default function BalanceKpi({ icon: Icon, label, value, detail, tone = 'accent', onClick, expanded, controls = 'balance-margin-detail' }) {
   const Element = onClick ? 'button' : 'article';
   return (
     <Element className={`balance-kpi balance-kpi--${tone}`} {...(onClick ? {
-      type: 'button', onClick, 'aria-expanded': expanded, 'aria-controls': 'balance-margin-detail',
+      type: 'button', onClick, 'aria-expanded': expanded, 'aria-controls': controls,
     } : {})}>
       <span className="balance-kpi__icon"><Icon size={22} /></span>
       <div>

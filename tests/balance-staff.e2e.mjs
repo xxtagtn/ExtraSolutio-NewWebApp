@@ -59,7 +59,7 @@ async function totals(page, amounts, annual) {
   await page.waitForFunction(({ amounts, annual }) => {
     const actual = [...document.querySelectorAll('.balance-staff-totals strong')].map((item) => item.textContent);
     return actual.join('|') === amounts.join('|') && document.querySelector('.balance-staff-annual strong')?.textContent === annual;
-  }, { amounts: amounts.map((value) => money.format(value)), annual: money.format(annual) });
+  }, { amounts: [...amounts, 0].map((value) => money.format(value)), annual: money.format(annual) });
 }
 
 async function layout(page) {

@@ -66,6 +66,36 @@ test('only Paid counts as paid; Penhorado, Ganho, Validado ES and RV remain outs
   assert.equal(after.totals.cost, 300);
 });
 
+test('extra revenue includes the Finance Ganho balance once, plus separately designated paid adjustments', () => {
+  const services = [event([
+    row(1, 1, '2026-09-10', 'ganho', { collaborator: { name: 'Miriam', includeVat: true },
+      paymentAdjustment: -5, paymentAdjustmentGain: 5, advancePayments: [{ amount: 20 }, { amount: 40, car: true }] }),
+    row(2, 2, '2026-09-11', 'paid', { paymentDate: '2026-10-12', paymentAdjustment: -15, paymentAdjustmentGain: 15 }),
+    row(3, 1, '2026-09-12', 'unpaid', { paymentAdjustment: -10, paymentAdjustmentGain: 10 }),
+    row(4, 1, '2026-09-13', 'ganho', { status: 'cancelled' }),
+    row(5, 1, '2026-09-14', 'ganho'),
+  ], { cancelledDays: '["2026-09-14"]' })];
+  const september = buildStaffBalance({ services, period });
+  const october = buildStaffBalance({ services, period: { ...period, month: '10' } });
+  assert.equal(september.gainTotal, 0);
+  assert.equal(october.gainTotal, 90.35);
+  assert.deepEqual(october.gains.map(({ id, source, amount }) => ({ id, source, amount })), [
+    { id: 2, source: 'adjustment', amount: 15 }, { id: 1, source: 'workflow', amount: 75.35 },
+  ]);
+  assert.equal(buildStaffBalance({ services, period: { ...period, month: '10' }, collaboratorId: '1' }).gainTotal, 75.35);
+  assert.equal(october.totals.cost, 0, 'Existing Staff costs remain grouped by service date');
+});
+
+test('Ganho follows the deferred Finance payment month, including an explicitly classified forecast row', () => {
+  const services = [event([row(1, 1, '2026-09-01', 'ganho', { paymentDeferredMonth: '2027-01' })], { status: 'confirmed' })];
+  const january = buildStaffBalance({ services, period: { ...period, year: '2027', month: '1' } });
+  assert.deepEqual(staffAnalysisYears(services), ['2026', '2027']);
+  assert.equal(january.gainTotal, 50);
+  assert.equal(january.gains[0].monthKey, '2027-01');
+  assert.equal(january.totals.services, 0, 'Forecast remains excluded from existing Staff costs');
+  assert.equal(buildStaffBalance({ services, period: { ...period, month: '10' } }).gainTotal, 0);
+});
+
 test('existing payment formulas remain identical for VAT, advances, cars, adjustments, travel and legacy totals', () => {
   for (const includeVat of [true, false]) {
     for (const paymentStatus of ['paid', 'unpaid']) {

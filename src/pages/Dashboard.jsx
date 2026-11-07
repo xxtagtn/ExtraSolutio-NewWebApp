@@ -240,7 +240,7 @@ export default function Dashboard() {
 
   const yearOptions = useMemo(
     () => Array.from(new Set([initialPeriod.year, ...staffAnalysisYears(services), ...availableFinancialYears(services, invoices, transactions,
-      budgets.map((budget) => ({ date: budget.eventDate })))]))
+      budgets.map((budget) => ({ date: budget.eventDate })))].map(String)))
       .sort((a, b) => Number(b) - Number(a)),
     [budgets, initialPeriod.year, invoices, services, transactions],
   );
