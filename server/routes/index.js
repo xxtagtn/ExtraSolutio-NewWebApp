@@ -812,6 +812,9 @@ apiRouter.post('/services/:id/client-payment/commercial-status', servicesUpdate,
 apiRouter.post('/services/:id/client-finance', servicesUpdate, financeUpdatePayments, asyncHandler(async (req, res) => {
   const id = workflowEventId(req, res);
   if (!id) return;
+  if (req.body?.action === 'reopen-billing' && !canViewFinancialData(req.user)) {
+    return res.status(403).json({ message: 'Sem permissão para consultar valores financeiros.' });
+  }
   const event = await updateClientFinancialMetadata(prisma, id, req.body || {}, req.user);
   if (!event) return res.status(404).json({ message: 'Evento/Serviço não encontrado.' });
   return res.json(maskEventForRole(event, req.user));

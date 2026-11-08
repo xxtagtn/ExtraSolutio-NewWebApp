@@ -426,6 +426,56 @@ test('legacy invoiced events can record/correct missing issue dates without unlo
   assert.deepEqual(await stored(event.id), event);
 });
 
+test('explicit billing reopen clears a legacy lock without changing hours, totals or receipt history', async () => {
+  const oldRecord = { version: 1, entries: [], legacyInvoiced: true,
+    commercialStatus: 'invoiced', commercialIssueDate: '2026-10-15' };
+  const event = await fixture({ billingStatus: 'invoiced', status: 'to_validate_staff', statusMode: 'automatic',
+    paidAmount: 0, signaledAmount: 0, signaledAt: null, staffVatRateSnapshot: 0,
+    clientPaymentRecord: JSON.stringify(oldRecord) });
+  const person = await db.collaborator.create({ data: { name: 'Staff reopen QA', email: 'staff-reopen@example.test' } });
+  const assignment = await db.eventAssignment.create({ data: { eventId: event.id, collaboratorId: person.id,
+    role: 'Bar', status: 'confirmed', validationStatus: 'reopened', checkIn: '10:00', checkOut: '18:00', hourlyRate: 8 } });
+  const action = { action: 'reopen-billing', confirmedNoIssuedInvoice: true };
+  assert.equal((await put(event.id, { staffVatRateSnapshot: 23 })).status, 409);
+  assert.equal((await metadataRequest(event, { action: 'reopen-billing' })).status, 422);
+  assert.equal((await metadataRequest(event, { ...action, revision: 2 })).status, 409);
+  assert.deepEqual(await stored(event.id), event);
+  const response = await metadataRequest(event, action);
+  assert.equal(response.status, 200, await response.clone().text());
+  const reopened = await stored(event.id);
+  assert.equal(reopened.billingStatus, 'pending');
+  assert.equal(eventRevenueIsLocked(reopened), false);
+  assert.deepEqual(invariant(reopened), invariant(event));
+  assert.deepEqual(await db.eventAssignment.findUnique({ where: { id: assignment.id } }), assignment);
+  assert.equal(Number(reopened.paidAmount), 0);
+  assert.equal(reopened.remainingPaymentDate.getTime(), event.remainingPaymentDate.getTime());
+  const history = readClientPaymentRecord(reopened.clientPaymentRecord);
+  assert.deepEqual(history.entries, oldRecord.entries);
+  assert.equal(history.commercialIssueDate, null);
+  assert.equal(history.financeChanges.at(-1).action, 'reopen-billing');
+  assert.equal(history.financeChanges.at(-1).previousIssueDate, '2026-10-15');
+  assert.equal((await metadataRequest(event, action)).status, 409);
+  const vat = await put(event.id, { staffVatRateSnapshot: 23 });
+  assert.equal(vat.status, 200, await vat.clone().text());
+  assert.equal(Number((await stored(event.id)).staffVatRateSnapshot), 23);
+});
+
+test('billing reopen refuses an issued direct or grouped invoice and an existing receipt', async () => {
+  const legacy = { billingStatus: 'invoiced', paidAmount: 0, signaledAmount: 0, signaledAt: null };
+  const action = { action: 'reopen-billing', confirmedNoIssuedInvoice: true };
+  for (const grouped of [false, true]) {
+    const event = await fixture(legacy);
+    await db.invoice.create({ data: { clientId: client.id, number: `BLOCK-REOPEN-${grouped}`, status: 'issued',
+      issueDate: new Date('2026-10-31'), total: 252,
+      ...(grouped ? { eventIds: JSON.stringify([event.id]) } : { eventId: event.id }) } });
+    assert.equal((await metadataRequest(event, action)).status, 409);
+    assert.deepEqual(await stored(event.id), event);
+  }
+  const paid = await fixture({ ...legacy, paidAmount: 30 });
+  assert.equal((await metadataRequest(paid, action)).status, 409);
+  assert.deepEqual(await stored(paid.id), paid);
+});
+
 test('Finance manager can settle a legacy invoiced event without an associated invoice and preserve financial closure', async () => {
   let event = await fixture({ billingStatus: 'invoiced', totalRevenue: 295.2, taxAmount: 55.2,
     paidAmount: 0, signaledAmount: 0, signaledAt: null, remainingPaymentDate: null });

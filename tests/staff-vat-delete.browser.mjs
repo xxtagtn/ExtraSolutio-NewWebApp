@@ -53,6 +53,13 @@ try {
         if (payload.updatedAt !== stored.updatedAt) return route.fulfill({ status: 409, json: { message: 'O evento foi alterado.' } });
         if (delayed) await new Promise((done) => setTimeout(done, 250));
         stored.externalCosts = JSON.stringify(removeExternalCost(stored.externalCosts, 'partner').rows);
+      } else if (path === '/services/42/client-finance' && request.method() === 'POST') {
+        assert.deepEqual(payload, { action: 'reopen-billing', confirmedNoIssuedInvoice: true, updatedAt: stored.updatedAt, revision: 0 });
+        const record = JSON.parse(stored.clientPaymentRecord);
+        delete record.legacyInvoiced;
+        record.financeChanges = [{ action: 'reopen-billing', recordedAt: now.toISOString() }];
+        stored.clientPaymentRecord = JSON.stringify(record);
+        stored.billingStatus = 'pending';
       } else if (path === '/services/42' && request.method() === 'PUT') {
         Object.assign(stored, normalizeEvent(payload));
       } else if (/^\/assignments\/\d+$/.test(path) && request.method() === 'PUT') {
@@ -121,7 +128,37 @@ try {
     stored.billingStatus = 'invoiced';
     await openEdit(); assert.equal(await checkbox().isDisabled(), true);
     await form.getByRole('button', { name: 'Cancelar', exact: true }).click();
-    await context.close(); console.log(`Staff VAT create/edit/preview, preserved receipts/payroll, delete cancel/error/double-click, references and Finance passed at ${width}px.`);
+
+    Object.assign(stored, { status: 'to_validate_staff', staffVatRateSnapshot: 0, paidAmount: 0, signaledAmount: 0,
+      signaledAt: null, billingPaymentDate: null, clientPaymentRecord: JSON.stringify({ version: 1, entries: [], legacyInvoiced: true }) });
+    recalculate();
+    const reopen = page.getByRole('button', { name: 'Reabrir faturação', exact: true });
+    stored.invoices = [{ id: 10, eventId: 42, status: 'issued', issueDate: '2026-10-01', total: stored.totalRevenue }];
+    await page.goto(`${base}/services/42?tab=costs`);
+    await page.getByRole('heading', { name: 'Pagamento do cliente', exact: true }).waitFor();
+    assert.equal(await reopen.count(), 0);
+    stored.invoices = [];
+    await page.goto(`${base}/services/42?tab=costs`);
+    await reopen.click();
+    const reopenForm = page.getByRole('dialog', { name: 'Reabrir faturação' });
+    const confirm = reopenForm.getByRole('button', { name: 'Reabrir faturação', exact: true });
+    assert.equal(await confirm.isDisabled(), true);
+    const beforeReopen = writes.length;
+    await reopenForm.getByRole('button', { name: 'Cancelar', exact: true }).click();
+    assert.equal(writes.length, beforeReopen);
+    await reopen.click();
+    await reopenForm.getByRole('checkbox').check();
+    assert.equal(await reopenForm.evaluate((el) => el.scrollWidth > el.clientWidth + 1), false);
+    const assignmentsBeforeReopen = structuredClone(stored.assignments);
+    await confirm.click();
+    await reopenForm.waitFor({ state: 'detached' });
+    assert.equal(writes.length, beforeReopen + 1);
+    assert.equal(stored.billingStatus, 'pending');
+    assert.deepEqual(stored.assignments, assignmentsBeforeReopen);
+    await openEdit(); assert.equal(await checkbox().isDisabled(), false);
+    await checkbox().check(); await save();
+    assert.equal(stored.staffVatRateSnapshot, 23);
+    await context.close(); console.log(`Staff VAT, preserved receipts, external costs and explicit billing reopening passed at ${width}px.`);
   }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); }

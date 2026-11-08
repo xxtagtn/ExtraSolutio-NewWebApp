@@ -9,6 +9,7 @@ import StaffVatControl from '../components/Finance/StaffVatControl.jsx';
 import { calculateEventSalesTax } from '../utils/eventSalesTax.js';
 import { CLIENT_PAYMENT_FIELDS, clientPaymentFieldsUnchanged } from '../utils/clientPayment.js';
 import { readClientPaymentRecord } from '../utils/clientPaymentRecord.js';
+import { invoiceIsIssued } from '../../shared/invoiceLifecycle.js';
 import StaffTravelAutomaticSummary from '../components/Finance/StaffTravelAutomaticSummary.jsx';
 import { normalizeStaffTravel, staffTravelCompensation, travelConfiguration } from '../utils/staffTravel.js';
 import Modal from '../components/UI/Modal.jsx';
@@ -2617,7 +2618,7 @@ export default function Services() {
                   <h3>Financeiro</h3>
                   <StaffVatControl event={form}
                     disabled={Boolean(editing && (editing.billingStatus === 'invoiced' || editing.status === 'invoiced'
-                      || readClientPaymentRecord(editing.clientPaymentRecord)?.legacyInvoiced))}
+                      || readClientPaymentRecord(editing.clientPaymentRecord)?.legacyInvoiced || editing.invoices?.some(invoiceIsIssued)))}
                     onChange={(staffVatRateSnapshot) => setForm((current) => ({ ...current, staffVatRateSnapshot, _financialConfigurationChanged: true }))} />
                   <div className="service-finance-grid">
                     <div><span>Horas Reais</span><strong>{durationHours(financials.realHours)}</strong></div>

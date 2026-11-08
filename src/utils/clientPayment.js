@@ -92,6 +92,23 @@ export function clientReceiptInvoiceBlocker(event = {}, invoices = event.invoice
   return '';
 }
 
+export function clientBillingReopenBlocker(event = {}, invoices = event.invoices || []) {
+  const record = readClientPaymentRecord(event.clientPaymentRecord);
+  if (event.clientPaymentRecord && !record) return 'O histórico financeiro não é válido.';
+  if (invoices.some((invoice) => invoiceIsIssued(invoice) || invoiceIsPaid(invoice)
+    || String(invoice.status || '').trim().toLowerCase() === 'issued')) {
+    return 'Ainda existe uma fatura emitida associada ao serviço.';
+  }
+  if (event.status === 'invoiced' || event.status === 'cancelled') return 'O estado do serviço não permite reabrir a faturação.';
+  if (event.billingStatus !== 'invoiced' && record?.legacyInvoiced !== true) return 'Não existe um fecho de faturação antigo para reabrir.';
+  const payment = clientPaymentSummary(event);
+  if (payment.received > 0 || payment.signal > 0 || event.billingStatus === 'paid' || event.billingPaymentDate
+    || record?.financeArchive?.archivedAt || record?.settledFinancials) {
+    return 'Existem recebimentos ou um fecho definitivo. A faturação não pode ser reaberta por esta via.';
+  }
+  return '';
+}
+
 export function clientReceiptRegistrationBlocker(event = {}, invoices = event.invoices || []) {
   // A legacy invoiced label locks pricing/corrections, not new incoming cash.
   return invoices.some(invoiceIsIssued) ? clientReceiptInvoiceBlocker(event, invoices) : '';

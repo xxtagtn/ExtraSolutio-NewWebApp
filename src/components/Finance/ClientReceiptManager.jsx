@@ -254,7 +254,7 @@ export default function ClientReceiptManager({ event: initialEvent, invoices, on
       </section>
       <details className="payment-overview-corrections"><summary>Histórico e correções</summary><ol className="receipt-audit">
         {audit.map((entry) => <li key={entry.id}><span>{dayLabel(entry.recordedAt || entry.receivedAt)} · {entry.actor?.name || 'Autor não registado'}</span>
-          <strong>{entry.finance ? { archive: 'Serviço arquivado', restore: 'Serviço restaurado', allocate: 'Repartição por período guardada', invoice_paid: 'Fatura paga confirmada' }[entry.action] : entry.commercial ? `Estado financeiro: ${entry.to === 'invoiced' ? 'Faturado' : 'Automático'}`
+          <strong>{entry.finance ? { archive: 'Serviço arquivado', restore: 'Serviço restaurado', allocate: 'Repartição por período guardada', invoice_paid: 'Fatura paga confirmada', 'reopen-billing': 'Faturação reaberta' }[entry.action] : entry.commercial ? `Estado financeiro: ${entry.to === 'invoiced' ? 'Faturado' : 'Automático'}`
             : entry.operation === 'edit' ? 'Recebimento corrigido' : entry.operation === 'delete' ? 'Recebimento eliminado' : entry.operation === 'reverse' || entry.type === 'reversal' ? 'Recebimento revertido' : receiptTypeLabels[entry.type] || 'Correção'}</strong>
           {entry.commercial && entry.issueDate ? <span>Emissão: {dayLabel(entry.issueDate)}{entry.previousIssueDate && entry.previousIssueDate !== entry.issueDate ? ` · Anterior: ${dayLabel(entry.previousIssueDate)}` : ''}</span> : null}
           {!entry.commercial && !entry.finance ? <span>{entry.operation === 'edit' ? `${money.format(entry.before?.amount || 0)} → ${money.format(entry.replacement.amount)}` : money.format(entry.amount)}</span> : null}</li>)}

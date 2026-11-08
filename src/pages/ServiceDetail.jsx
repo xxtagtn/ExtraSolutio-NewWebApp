@@ -52,7 +52,7 @@ import { useCollaboratorPickerPosition } from '../hooks/useCollaboratorPickerPos
 import { useAuth } from '../hooks/useAuth.jsx';
 import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
 import { isExternalOnlyService } from '../utils/externalServiceWorkflow.js';
-import { buildClientPaymentPayload, clientPaymentDraft, clientPaymentSummary, clientReceiptInvoiceBlocker, clientReceiptReversalBlocker, clientSignalReversalBlocker } from '../utils/clientPayment.js';
+import { buildClientPaymentPayload, clientBillingReopenBlocker, clientPaymentDraft, clientPaymentSummary, clientReceiptInvoiceBlocker, clientReceiptReversalBlocker, clientSignalReversalBlocker } from '../utils/clientPayment.js';
 import { clientPaymentAssessment, readClientPaymentRecord } from '../utils/clientPaymentRecord.js';
 import { buildClientFinanceSnapshot } from '../utils/clientFinanceSnapshot.js';
 import ClientBillingPeriods from '../components/Finance/ClientBillingPeriods.jsx';
@@ -344,6 +344,7 @@ export default function ServiceDetail() {
   const paymentScrollRef = useRef(null);
   const [billingError, setBillingError] = useState('');
   const [paymentEditor, setPaymentEditor] = useState(null);
+  const [billingReopen, setBillingReopen] = useState(null);
   const [receiptAction, setReceiptAction] = useState(null);
   const [receiptAllocation, setReceiptAllocation] = useState({ enabled: false, amounts: {} });
   const [additionalPayment, setAdditionalPayment] = useState(null);
@@ -466,6 +467,9 @@ export default function ServiceDetail() {
     total: clientPaymentTotal, received: clientPaidAmount, outstanding: clientRemainingAmount,
   });
   const paymentRecord = readClientPaymentRecord(service?.clientPaymentRecord);
+  const canReopenBilling = canEditExternalCosts && hasPermission(user, PERMISSIONS.FINANCE_UPDATE_PAYMENTS)
+    && hasPermission(user, PERMISSIONS.FINANCE_VIEW_VALUES) && !clientBillingReopenBlocker(service || {});
+  const billingReopens = paymentRecord?.financeChanges?.filter((entry) => entry.action === 'reopen-billing') || [];
   const clientFinance = service?.clientFinance || buildClientFinanceSnapshot(service || {});
   const originalAssessment = clientPaymentAssessment(service || {}, recordedClientPayment);
   const recordedAssessment = { ...originalAssessment, assessed: clientFinance.completed,
@@ -640,6 +644,30 @@ export default function ServiceDetail() {
       toast.success('Recebimento atualizado. Os restantes movimentos foram mantidos.');
     } catch (err) { paymentScrollRef.current = null; throw err; }
     finally { billingReversalRef.current = false; setSavingBilling(false); }
+  }
+
+  async function reopenBilling(e) {
+    e.preventDefault();
+    if (!service || !canReopenBilling || !billingReopen?.confirmed || billingReversalRef.current) return;
+    billingReversalRef.current = true;
+    setSavingBilling(true);
+    setBillingError('');
+    try {
+      await api(`/services/${service.id}/client-finance`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'reopen-billing', confirmedNoIssuedInvoice: true,
+          updatedAt: billingReopen.updatedAt, revision: billingReopen.revision }),
+      });
+      await reload({ background: true });
+      setBillingReopen(null);
+      window.dispatchEvent(new window.Event('extrasolutio:client-payment-changed'));
+      toast.success('Faturação reaberta. Já podes editar o IVA do serviço.');
+    } catch (err) {
+      setBillingError(err.message || 'Não foi possível reabrir a faturação.');
+    } finally {
+      billingReversalRef.current = false;
+      setSavingBilling(false);
+    }
   }
 
   async function revertClientSignal(allReceipts = false) {
@@ -2214,6 +2242,12 @@ export default function ServiceDetail() {
                 disabled={savingBilling || reversingSignal} onClick={() => openPaymentEditor()}><Edit3 size={16} /></button> : null}
             </div>}>
             <p className="payment-overview-caption">{recordedAssessment.assessed ? 'Total final apurado' : 'Total previsto · sujeito a validação'}</p>
+            {canReopenBilling ? <div className="service-detail-card-actions">
+              <button className="secondary-button" type="button" disabled={savingBilling || reversingSignal} onClick={() => {
+                setBillingError('');
+                setBillingReopen({ confirmed: false, updatedAt: service.updatedAt, revision: paymentRecord?.entries.length || 0 });
+              }}><RotateCcw size={15} />Reabrir faturação</button>
+            </div> : null}
             <ClientBillingPeriods finance={clientFinance} />
             <dl className="payment-overview-totals">
               <div data-payment-metric="total"><dt>Total do evento</dt><ClientPaymentTax value={receiptTax.total} total={clientPaymentTotal} /></div>
@@ -2263,6 +2297,10 @@ export default function ServiceDetail() {
             </details>
             <details className="payment-overview-reference"><summary>Referência 70% / 30%</summary><ClientPaymentReference total={clientPaymentTotal} /></details>
             <details className="payment-overview-corrections"><summary>Histórico e correções</summary>
+              {billingReopens.length ? <ol className="receipt-audit">{billingReopens.map((entry, index) => <li key={index}>
+                <span>{formatDate(entry.recordedAt)}{entry.actor?.name ? ` · ${entry.actor.name}` : ''}</span>
+                <strong>Faturação reaberta</strong>
+              </li>)}</ol> : null}
               {paymentRecord?.entries.length ? <ol className="receipt-audit">{paymentRecord.entries.map((entry) => <li key={entry.id}>
                 <span>{formatDate(entry.recordedAt || entry.receivedAt)}{entry.actor?.name ? ` · ${entry.actor.name}` : ''}</span>
                 <strong>{entry.operation === 'edit' ? 'Recebimento corrigido' : entry.operation === 'reverse' ? 'Recebimento revertido' : entry.operation === 'delete' ? 'Recebimento eliminado'
@@ -2290,7 +2328,24 @@ export default function ServiceDetail() {
                   disabled={savingBilling || reversingSignal}><RotateCcw size={15} />{reversingSignal ? 'A reverter...' : 'Reverter todos os recebimentos'}</button> : null}
               </div>
             </details>
-            {billingError && !paymentEditor ? <p className="form-error" role="alert">{billingError}</p> : null}
+            {billingError && !paymentEditor && !billingReopen ? <p className="form-error" role="alert">{billingError}</p> : null}
+            {billingReopen ? <Modal title="Reabrir faturação" onClose={() => { if (!savingBilling) setBillingReopen(null); }} preventFocusScroll>
+              <form className="resource-form" onSubmit={reopenBilling}>
+                <p>Esta ação reabre o fecho interno para corrigir o IVA. Não anula faturas nem altera os horários.</p>
+                <label className="check-inline">
+                  <input type="checkbox" checked={billingReopen.confirmed} disabled={savingBilling}
+                    onChange={(e) => setBillingReopen({ ...billingReopen, confirmed: e.target.checked })} />
+                  <span>Confirmo que não existe uma fatura válida em vigor para este serviço.</span>
+                </label>
+                {billingError ? <p className="form-error" role="alert">{billingError}</p> : null}
+                <footer className="form-actions form-actions--save-cancel">
+                  <button type="button" className="secondary-button" disabled={savingBilling} onClick={() => setBillingReopen(null)}>Cancelar</button>
+                  <button type="submit" className="command-button" disabled={!billingReopen.confirmed || savingBilling}>
+                    <RotateCcw size={15} />{savingBilling ? 'A reabrir...' : 'Reabrir faturação'}
+                  </button>
+                </footer>
+              </form>
+            </Modal> : null}
             {paymentEditor ? <Modal title={paymentEditor === 'receipt' ? 'Registar recebimento' : 'Editar pagamento'} onClose={closePaymentEditor} preventFocusScroll>
               <form className="event-additional-payment-form" onSubmit={(event) => { event.preventDefault(); saveClientPayment(); }}>
                 <p className="payment-editor-balance">Total: <strong>{money.format(clientPaymentTotal)}</strong> · Por receber: <strong>{money.format(recordedClientPayment.outstanding)}</strong></p>
