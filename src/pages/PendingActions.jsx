@@ -172,8 +172,8 @@ export default function PendingActions() {
   );
 
   const overview = useMemo(
-    () => buildDashboardCommandCenter({ services, collaborators, budgets, actions }),
-    [actions, budgets, collaborators, services],
+    () => buildDashboardCommandCenter({ services, collaborators, budgets, invoices, actions }),
+    [actions, budgets, collaborators, invoices, services],
   );
 
   const loading = loadingServices || loadingCollaborators || loadingBudgets || loadingInvoices;
@@ -245,7 +245,7 @@ export default function PendingActions() {
           icon={Euro}
           label="Valor pronto para faturar"
           value={money.format(overview.kpis.readyToInvoice.value)}
-          detail="Eventos finalizados"
+          detail="Eventos finalizados · com IVA"
           tone="success"
         />
       </section>

@@ -1,8 +1,51 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { calculateVatAmount, sumMoney } from '../../shared/money.js';
+import { buildClientFinancialSummary } from './clientFinancialSummary.js';
 import { buildDashboardCommandCenter } from './dashboardCommandCenter.js';
 
 const today = new Date('2026-06-30T12:00:00');
+
+function serviceForBilling(id, base, overrides = {}) {
+  const taxAmount = calculateVatAmount(base, 23);
+  return { id, date: '2026-06-15', status: 'finalized', billingStatus: 'pending',
+    clientId: 1, client: { id: 1, billingMethod: 'monthly', paymentTerm: 'days_15' },
+    totalRevenue: sumMoney(base, taxAmount), taxAmount, staffVatRateSnapshot: 23, ...overrides };
+}
+
+test('matches Financeiro with the reported gross total, negative adjustment and monthly VAT rounding', () => {
+  const bases = [...Array(5).fill(1000.5), ...Array(4).fill(1000), 10814.7];
+  const services = bases.map((base, index) => serviceForBilling(index + 1, base, {
+    billingAdjustment: index === bases.length - 1 ? -51 : 0,
+  }));
+  const before = structuredClone(services);
+  const [finance] = buildClientFinancialSummary({ events: services, period: '2026-06' });
+
+  assert.equal(sumMoney(...services.map((service) => service.totalRevenue)), 24375.18);
+  assert.equal(finance.adjustments, -51);
+  assert.equal(finance.pendingBillingBase, 19766.2);
+  assert.equal(finance.billingVatRounding, -0.02);
+  assert.equal(finance.pendingBilling, 24312.43);
+  assert.equal(buildDashboardCommandCenter({ services }, { today }).kpis.readyToInvoice.value, finance.pendingBilling);
+  assert.deepEqual(services, before);
+});
+
+test('includes adjusted pending invoices across months without counting issued, archived or unfinished services', () => {
+  const services = [
+    serviceForBilling(1, 100, { billingAdjustment: 5, billingStatus: 'partial70', signaledAmount: 50 }),
+    serviceForBilling(2, 100, { date: '2026-05-15', billingAdjustment: -5, staffVatRateSnapshot: 0, taxAmount: 0, totalRevenue: 100 }),
+    serviceForBilling(3, 100, { status: 'team_complete' }),
+    serviceForBilling(4, 100, { status: 'cancelled' }),
+    serviceForBilling(5, 100, { billingStatus: 'invoiced' }),
+    serviceForBilling(6, 100, { billingStatus: 'paid', paidAmount: 123 }),
+    serviceForBilling(7, 100),
+    serviceForBilling(8, 100),
+    serviceForBilling(9, 100, { billingStatus: 'cancelled' }),
+  ];
+  const invoices = [{ id: 1, clientId: 1, eventIds: '[7,8]', status: 'issued', issueDate: '2026-06-20', total: 246 }];
+
+  assert.equal(buildDashboardCommandCenter({ services, invoices }, { today }).kpis.readyToInvoice.value, 224.15);
+});
 
 test('builds operational dashboard metrics from current app data', () => {
   const overview = buildDashboardCommandCenter({

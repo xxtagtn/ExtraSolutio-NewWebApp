@@ -1,5 +1,7 @@
+import { sumMoney } from '../../shared/money.js';
+import { clientArchiveState } from './clientFinanceSnapshot.js';
+import { buildClientFinancialSummary } from './clientFinancialSummary.js';
 import { isFinanceReadyEvent } from './financeReadiness.js';
-import { decimalValue } from './serviceFinance.js';
 import { serviceTeamCoverage } from './serviceTeamCoverage.js';
 import {
   activeEventAssignments,
@@ -12,10 +14,6 @@ const OPEN_BUDGET_STATUS = new Set(['new_request', 'sent', 'pending', 'draft']);
 
 function normalized(value) {
   return String(value || '').trim().toLowerCase();
-}
-
-function numeric(value) {
-  return decimalValue(value) || 0;
 }
 
 function safeArray(value) {
@@ -209,6 +207,7 @@ export function buildDashboardCommandCenter(data = {}, options = {}) {
   const services = data.services || [];
   const collaborators = data.collaborators || [];
   const budgets = data.budgets || [];
+  const invoices = data.invoices || [];
   const actions = data.actions || [];
 
   const openServices = services.filter(isServiceOpen);
@@ -222,10 +221,12 @@ export function buildDashboardCommandCenter(data = {}, options = {}) {
     })
     .sort(byServiceTime);
 
-  const readyToInvoice = services
-    .filter((service) => isFinanceReadyEvent(service))
-    .filter((service) => !['paid', 'cancelled'].includes(normalized(service.billingStatus || 'pending')))
-    .reduce((sum, service) => sum + numeric(service.totalRevenue), 0);
+  const readyServices = openServices.filter((service) => (
+    isFinanceReadyEvent(service) && normalized(service.billingStatus) !== 'cancelled'
+    && !(service.clientFinance?.archive || clientArchiveState(service, { now: today })).archived
+  ));
+  const readyToInvoice = sumMoney(...buildClientFinancialSummary({ events: readyServices, invoices })
+    .map((client) => client.pendingBilling));
 
   const yesterdayServices = openServices.filter((service) => isDateInsideService(service, addDays(today, -1)));
   const staffPending = openServices.reduce((sum, service) => sum + pendingStaffCount(service), 0);
