@@ -70,20 +70,20 @@ export default function BalanceStaff({ services, period, loading, error }) {
         <BalanceKpi icon={UsersRound} label="Custo total" value={value(analysis.totals.cost)} tone="staff" />
         <BalanceKpi icon={CheckCircle2} label="Já pago" value={value(analysis.totals.paid)} tone="finalized" />
         <BalanceKpi icon={WalletCards} label="Por pagar" value={value(analysis.totals.unpaid)} tone="margin" />
-        <BalanceKpi icon={TrendingUp} label="Receita Extra" value={value(analysis.gainTotal)} detail="Por mês de pagamento"
+        <BalanceKpi icon={TrendingUp} label="Receita Extra" value={value(analysis.gainTotal)} detail="Por mês do serviço"
           onClick={() => setShowExtraRevenue((open) => !open)} expanded={showExtraRevenue} controls="balance-staff-extra-revenue" />
       </section>
 
       <section className="balance-staff-gains" id="balance-staff-extra-revenue" aria-label="Detalhe da Receita Extra" hidden={!showExtraRevenue}>
         {!loading && !error && analysis.gains.length ? (
           <table className="balance-staff-table">
-            <thead><tr><th>Colaborador</th><th>Evento</th><th>Origem</th><th>Referência</th><th>Valor</th></tr></thead>
+            <thead><tr><th>Colaborador</th><th>Evento</th><th>Origem</th><th>Data do serviço</th><th>Valor</th></tr></thead>
             <tbody>{analysis.gains.map((entry) => (
               <tr key={entry.id}>
                 <td data-label="Colaborador">{entry.name}</td>
                 <td data-label="Evento">{entry.event || '-'}</td>
                 <td data-label="Origem">{entry.source === 'workflow' ? 'Estado Ganho' : 'Ajuste designado (sem IVA)'}</td>
-                <td data-label="Referência">{entry.paymentDate ? date.format(new Date(entry.paymentDate + 'T12:00:00Z')) : entry.monthKey.split('-').reverse().join('/')}</td>
+                <td data-label="Data do serviço">{date.format(new Date(`${entry.dateKey}T12:00:00Z`))}</td>
                 <td data-label="Valor">{money.format(entry.amount)}</td>
               </tr>
             ))}</tbody>

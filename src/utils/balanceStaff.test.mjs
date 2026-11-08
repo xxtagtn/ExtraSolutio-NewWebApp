@@ -77,23 +77,41 @@ test('extra revenue includes the Finance Ganho balance once, plus separately des
   ], { cancelledDays: '["2026-09-14"]' })];
   const september = buildStaffBalance({ services, period });
   const october = buildStaffBalance({ services, period: { ...period, month: '10' } });
-  assert.equal(september.gainTotal, 0);
-  assert.equal(october.gainTotal, 90.35);
-  assert.deepEqual(october.gains.map(({ id, source, amount }) => ({ id, source, amount })), [
-    { id: 2, source: 'adjustment', amount: 15 }, { id: 1, source: 'workflow', amount: 75.35 },
+  assert.equal(september.gainTotal, 90.35);
+  assert.equal(october.gainTotal, 0);
+  assert.deepEqual(september.gains.map(({ id, source, dateKey, amount }) => ({ id, source, dateKey, amount })), [
+    { id: 2, source: 'adjustment', dateKey: '2026-09-11', amount: 15 },
+    { id: 1, source: 'workflow', dateKey: '2026-09-10', amount: 75.35 },
   ]);
-  assert.equal(buildStaffBalance({ services, period: { ...period, month: '10' }, collaboratorId: '1' }).gainTotal, 75.35);
+  assert.equal(buildStaffBalance({ services, period, collaboratorId: '1' }).gainTotal, 75.35);
   assert.equal(october.totals.cost, 0, 'Existing Staff costs remain grouped by service date');
 });
 
-test('Ganho follows the deferred Finance payment month, including an explicitly classified forecast row', () => {
+test('a deferred Ganho stays in the service period, including an explicitly classified forecast row', () => {
   const services = [event([row(1, 1, '2026-09-01', 'ganho', { paymentDeferredMonth: '2027-01' })], { status: 'confirmed' })];
+  const september = buildStaffBalance({ services, period });
   const january = buildStaffBalance({ services, period: { ...period, year: '2027', month: '1' } });
-  assert.deepEqual(staffAnalysisYears(services), ['2026', '2027']);
-  assert.equal(january.gainTotal, 50);
-  assert.equal(january.gains[0].monthKey, '2027-01');
-  assert.equal(january.totals.services, 0, 'Forecast remains excluded from existing Staff costs');
-  assert.equal(buildStaffBalance({ services, period: { ...period, month: '10' } }).gainTotal, 0);
+  assert.deepEqual(staffAnalysisYears(services), ['2026']);
+  assert.equal(january.gainTotal, 0);
+  assert.equal(september.gainTotal, 50);
+  assert.equal(september.gains[0].monthKey, '2026-09');
+  assert.equal(september.totals.services, 0, 'Forecast remains excluded from existing Staff costs');
+});
+
+test('August, September, October and December services retain gains paid in the following month', () => {
+  const workMonths = ['08', '09', '10', '12'];
+  const paymentMonths = ['2026-09', '2026-10', '2026-11', '2027-01'];
+  const services = [event(workMonths.map((month, i) => row(i + 1, 1, `2026-${month}-25`, 'paid', {
+    paymentDate: `${paymentMonths[i]}-12`, paymentAdjustment: -(i + 1), paymentAdjustmentGain: i + 1,
+  })), { date: '2026-08-01' })];
+  const before = structuredClone(services);
+  const total = (year, month) => buildStaffBalance({ services, period: { year, month } }).gainTotal;
+
+  assert.deepEqual(workMonths.map((month) => total('2026', month)), [1, 2, 3, 4]);
+  assert.equal(total('2026', '11'), 0);
+  assert.equal(total('2027', '01'), 0);
+  assert.equal(total('2026', ''), 10);
+  assert.deepEqual(services, before);
 });
 
 test('existing payment formulas remain identical for VAT, advances, cars, adjustments, travel and legacy totals', () => {

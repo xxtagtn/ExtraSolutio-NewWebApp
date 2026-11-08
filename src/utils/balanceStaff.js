@@ -1,7 +1,7 @@
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { isBillableEventAssignment } from './eventFinancialRules.js';
 import { staffPaymentHours } from './serviceFinance.js';
-import { assignmentWorkDateValue, staffAssignmentCostTotal, staffAssignmentOutstandingPay, staffPaymentTiming } from './staffPayment.js';
+import { assignmentWorkDateValue, staffAssignmentCostTotal, staffAssignmentOutstandingPay } from './staffPayment.js';
 import { staffAdjustmentGainAmount, staffAdjustmentGainDate } from './staffAdjustmentGain.js';
 import { staffPaymentWorkflowTab } from './staffPaymentWorkflow.js';
 import { isAssignmentOnCancelledDay } from './eventCancelledDays.js';
@@ -15,34 +15,22 @@ function workPeriod(assignment) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return { year: String(date.getFullYear()), month: date.getMonth() + 1, day: date.getDate() };
+  const year = String(date.getFullYear()), month = date.getMonth() + 1, day = date.getDate();
+  return { year, month, day, dateKey: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` };
 }
 
 export function staffAnalysisYears(services = []) {
-  return [...new Set(services.flatMap((event) => {
-    const financeReady = isFinanceReadyEvent(event);
-    const cancelled = String(event.status || '').toLowerCase() === 'cancelled';
-    return (event.assignments || []).flatMap((assignment) => [
-      workPeriod({ ...assignment, event })?.year,
-      cancelled ? null : extraRevenueForAssignment(assignment, event, financeReady)?.monthKey.slice(0, 4),
-    ]).filter(Boolean);
-  }))];
+  return [...new Set(services.flatMap((event) => (event.assignments || [])
+    .map((assignment) => workPeriod({ ...assignment, event })?.year)).filter(Boolean))];
 }
 
-function extraRevenueForAssignment(assignment, event, financeReady) {
+function extraRevenueForAssignment(assignment, financeReady, dateKey) {
+  const event = assignment.event;
+  if (!dateKey || isAssignmentOnCancelledDay(assignment, event)) return null;
   const fromWorkflow = staffPaymentWorkflowTab(assignment) === 'ganho';
-  const paymentDate = !fromWorkflow && financeReady && assignment.paymentAdjustmentGain != null
-    ? staffAdjustmentGainDate(assignment) : null;
-  if (!fromWorkflow && !paymentDate) return null;
-  if (!assignment.collaboratorId || !isBillableEventAssignment(assignment) || isAssignmentOnCancelledDay(assignment, event)) return null;
-  if (fromWorkflow) {
-    const withEvent = { ...assignment, event };
-    const monthKey = staffPaymentTiming(withEvent).paymentMonth;
-    const amount = staffAssignmentOutstandingPay(withEvent);
-    return monthKey && amount > 0 ? { monthKey, amount, source: 'workflow' } : null;
-  }
-  const amount = staffAdjustmentGainAmount(assignment, event);
-  return amount > 0 ? { monthKey: paymentDate.slice(0, 7), paymentDate, amount, source: 'adjustment' } : null;
+  if (!fromWorkflow && (!financeReady || assignment.paymentAdjustmentGain == null || !staffAdjustmentGainDate(assignment))) return null;
+  const amount = fromWorkflow ? staffAssignmentOutstandingPay(assignment) : staffAdjustmentGainAmount(assignment, event);
+  return amount > 0 ? { monthKey: dateKey.slice(0, 7), dateKey, amount, source: fromWorkflow ? 'workflow' : 'adjustment' } : null;
 }
 
 function summarize(entries) {
@@ -103,28 +91,24 @@ export function buildStaffBalance({ services = [], period = {}, collaboratorId =
     for (const assignment of event.assignments || []) {
       if (!assignment.collaboratorId || !isBillableEventAssignment(assignment)) continue;
       const withEvent = { ...assignment, event };
+      const work = workPeriod(withEvent);
+      if (!work) continue;
       const collaborator = {
         collaboratorId: String(assignment.collaboratorId),
         name: assignment.collaborator?.shortName || assignment.collaborator?.name || '-',
         nif: assignment.collaborator?.nif || '-',
       };
-      const gain = extraRevenueForAssignment(assignment, event, financeReady);
-      if (gain && (!period.year || gain.monthKey.slice(0, 4) === String(period.year))) {
+      const gain = extraRevenueForAssignment(withEvent, financeReady, work.dateKey);
+      if (gain && (!period.year || work.year === String(period.year))) {
         gainEntries.push({ ...collaborator, id: assignment.id, event: event.name, ...gain });
       }
       if (!financeReady) continue;
-      const work = workPeriod(withEvent);
-      if (!work) continue;
-      const dateKey = `${work.year}-${String(work.month).padStart(2, '0')}-${String(work.day).padStart(2, '0')}`;
       if (period.year && work.year !== String(period.year)
-        && !inRange({ dateKey }, calendar.previousMonth) && !inRange({ dateKey }, calendar.previousWeek)) continue;
+        && !inRange(work, calendar.previousMonth) && !inRange(work, calendar.previousWeek)) continue;
       const balance = staffAssignmentOutstandingPay(withEvent);
       candidateEntries.push({
         ...collaborator,
-        month: work.month,
-        day: work.day,
-        year: work.year,
-        dateKey,
+        ...work,
         hours: staffPaymentHours(assignment),
         cost: staffAssignmentCostTotal(withEvent),
         paid: assignment.paymentStatus === 'paid' ? balance : 0,
@@ -143,7 +127,7 @@ export function buildStaffBalance({ services = [], period = {}, collaboratorId =
   const selectedCandidates = candidateEntries.filter(matchesCollaborator);
   const gains = gainEntries.filter((entry) => matchesCollaborator(entry)
     && (!period.month || Number(entry.monthKey.slice(5, 7)) === Number(period.month)))
-    .sort((a, b) => (b.paymentDate || b.monthKey).localeCompare(a.paymentDate || a.monthKey) || a.name.localeCompare(b.name, 'pt'));
+    .sort((a, b) => b.dateKey.localeCompare(a.dateKey) || a.name.localeCompare(b.name, 'pt'));
   const selectedEntries = selectedCandidates.filter((entry) => !period.year || entry.year === String(period.year));
   const periodEntries = selectedEntries.filter((entry) => !period.month || entry.month === Number(period.month));
   const groups = new Map();

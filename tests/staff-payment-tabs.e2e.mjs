@@ -316,7 +316,7 @@ try {
     assert.equal(f.data.services[0].assignments[0].paymentStatus, 'paid');
     await page.goto(`${base}/balancete`);
     await page.locator('.balance-tabs').getByRole('button', { name: 'Staff', exact: true }).click();
-    await page.getByLabel('Mês', { exact: true }).selectOption('10');
+    await page.getByLabel('Mês', { exact: true }).selectOption('9');
     const extraRevenue = page.getByRole('button', { name: /^Receita Extra/ });
     const gains = page.locator('.balance-staff-gains');
     assert.equal(await extraRevenue.locator('strong').textContent(), money.format(207.5));
@@ -324,15 +324,15 @@ try {
     await extraRevenue.click();
     assert.equal(await extraRevenue.getAttribute('aria-expanded'), 'true');
     assert.equal(await gains.isVisible(), true);
-    assert.match(await gains.locator('tbody').innerText(), /Miriam Oliveira[\s\S]*Evento Principal/);
-    assert.match(await gains.locator('tbody').innerText(), /Sofia Rosa[\s\S]*Estado Ganho[\s\S]*10\/2026/);
-    await page.getByLabel('Mês', { exact: true }).selectOption('9');
+    assert.match(await gains.getByRole('row').filter({ hasText: 'Miriam Oliveira' }).innerText(), /Ajuste designado[\s\S]*04\/09\/2026/);
+    assert.match(await gains.getByRole('row').filter({ hasText: 'Sofia Rosa' }).innerText(), /Estado Ganho[\s\S]*04\/09\/2026/);
+    await page.getByLabel('Mês', { exact: true }).selectOption('10');
     assert.equal(await extraRevenue.locator('strong').textContent(), money.format(0));
     await extraRevenue.click();
     assert.equal(await gains.isVisible(), false);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
     await f.context.close();
-    console.log(`${width}px: explicit gain saved, paid and reported in the payment month only`);
+    console.log(`${width}px: explicit gain saved, paid and reported in the service month only`);
   }
 
   // Pagination must not limit totals; large values must remain inside the controls.
