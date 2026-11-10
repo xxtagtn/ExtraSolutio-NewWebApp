@@ -1932,6 +1932,10 @@ export default function Accounting() {
     () => visibleStaffPayments.filter((assignment) => selectedStaffPaymentIdSet.has(String(assignment.id))),
     [selectedStaffPaymentIdSet, visibleStaffPayments],
   );
+  const selectedStaffOutstanding = useMemo(() => summarizeStaffPaymentAmounts(selectedVisibleStaffPayments.map((assignment) => ({
+    ...assignment,
+    paymentAdjustment: staffPaymentDrafts[assignment.id]?.paymentAdjustment ?? assignment.paymentAdjustment,
+  }))).outstanding.total, [selectedVisibleStaffPayments, staffPaymentDrafts]);
 
   useEffect(() => {
     setSelectedStaffPaymentIds((prev) => prev.filter((id) => visibleStaffPaymentIds.includes(id)));
@@ -3264,6 +3268,12 @@ export default function Accounting() {
                   Limpar seleção
                 </button>
               ) : null}
+              {selectedVisibleStaffPayments.length > 0 && (
+                <div className="finance-bulk-selection-total" role="status">
+                  <span>Por pagar na seleção</span>
+                  <strong>{money.format(selectedStaffOutstanding)}</strong>
+                </div>
+              )}
             </div> : null}
             <div className="table-wrap">
               <table className="finance-staff-payment-groups">

@@ -9234,6 +9234,27 @@ th {
   background: rgba(15, 23, 27, 0.72);
 }
 
+.finance-bulk-selection-total {
+  display: grid;
+  gap: 2px;
+  margin-inline-start: auto;
+  padding-inline: 12px 4px;
+  border-inline-start: 1px solid var(--line);
+  text-align: end;
+  line-height: 1.2;
+}
+
+.finance-bulk-selection-total span {
+  color: var(--muted);
+  font-size: .75rem;
+}
+
+.finance-bulk-selection-total strong {
+  color: #99f6e4;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .finance-selection-check {
   display: inline-flex;
   align-items: center;
@@ -14834,6 +14855,13 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
     grid-template-columns: 1fr;
   }
 
+  .finance-bulk-selection-total {
+    margin-inline-start: 0;
+    padding: 8px 0 0;
+    border-inline-start: 0;
+    border-top: 1px solid var(--line);
+  }
+
   .data-table {
     min-width: 0;
     border-collapse: separate;
@@ -16910,6 +16938,11 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
   min-width: 0;
 }
 
+.finance-payment-filters > .secondary-button {
+  align-self: end;
+  min-height: var(--control-height);
+}
+
 .finance-payment-filter {
   display: grid;
   gap: 6px;
@@ -18238,9 +18271,18 @@ body:has(.toast-stack .toast) .back-to-top:not(.back-to-top--raised) {
 
   .finance-staff-payment-detail-table tbody td:first-child {
     grid-column: 1 / -1;
+    width: auto;
     flex-direction: row;
     align-items: center;
     gap: 10px;
+  }
+
+  .finance-staff-payment-detail-table td:first-child input[type="checkbox"] {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    min-height: 16px;
+    margin: 0;
   }
 
   .finance-staff-payment-detail-table tbody td:nth-child(13) {

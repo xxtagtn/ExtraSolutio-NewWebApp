@@ -91,6 +91,13 @@ async function layout(page) {
   });
   assert.deepEqual(result.clipped, []);
   assert.equal(result.pageOverflow, false);
+  const filters = await page.locator('.finance-payment-filters').evaluate((element) => {
+    const button = element.querySelector('button').getBoundingClientRect();
+    const fields = [...element.querySelectorAll('.form-control')].map((input) => input.getBoundingClientRect());
+    return { sameHeight: fields.every((field) => Math.abs(field.height - button.height) <= 1),
+      aligned: innerWidth <= 480 || Math.abs(fields.at(-1).bottom - button.bottom) <= 1 };
+  });
+  assert.deepEqual(filters, { sameHeight: true, aligned: true });
 }
 
 async function setup(width, initial = fixture()) {
@@ -261,6 +268,17 @@ try {
     const rows = page.locator('.finance-staff-payment-detail-table tbody tr');
     assert.deepEqual(await rows.locator('.finance-pay-total .finance-payment-amount > strong').allTextContents(), [40, 84, 80, 92].map((value) => money.format(value)));
     assert.deepEqual(await rows.locator('.finance-pay-total .finance-payment-amount__vat').allTextContents(), [49.2, 103.32, 98.4, 113.16].map((value) => `${money.format(value)} c/ IVA`));
+    const selectedTotal = page.locator('.finance-bulk-selection-total');
+    assert.equal(await selectedTotal.count(), 0);
+    const firstService = rows.first().getByRole('checkbox', { name: 'Selecionar pagamento de Ana Carolina Rodrigues' });
+    await firstService.check();
+    assert.equal(await selectedTotal.locator('strong').textContent(), money.format(49.2));
+    await page.getByRole('checkbox', { name: 'Selecionar 1 serviços processáveis de Sem IVA', exact: true }).check();
+    assert.equal(await selectedTotal.locator('strong').textContent(), money.format(89.2));
+    await firstService.uncheck();
+    assert.equal(await selectedTotal.locator('strong').textContent(), money.format(40));
+    await page.getByRole('button', { name: 'Limpar seleção', exact: true }).click();
+    assert.equal(await selectedTotal.count(), 0);
     await layout(page);
     const clipped = await page.locator('.finance-payment-amount').evaluateAll((elements) => elements.filter((element) => element.checkVisibility() && element.scrollWidth > element.clientWidth + 2).map((element) => element.textContent));
     assert.deepEqual(clipped, []);
@@ -270,6 +288,7 @@ try {
     assert.equal(await groupAmount(6).locator('> span').first().textContent(), money.format(40));
     assert.equal(await groupAmount(7).locator('> strong').textContent(), money.format(256));
     await page.getByRole('checkbox', { name: 'Selecionar 4 serviços processáveis de Ana Carolina Rodrigues', exact: true }).check();
+    assert.equal(await selectedTotal.locator('strong').textContent(), money.format(314.88));
     await page.locator('.finance-bulk-status').selectOption('paid');
     await page.getByRole('button', { name: 'Aplicar alteração', exact: true }).click();
     await summary(page, { all: [5, 404.08], paid: [1, 364.08], unpaid: [1, 40] });
