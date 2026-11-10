@@ -59,7 +59,8 @@ try {
         return send(buildAttendanceAttention(rows, { now, timeZone }));
       }
       if (path === '/notifications/overview') return send({ notifications: { total: 0, items: [], allItems: [] }, reminders: [] });
-      if (path === '/notifications/ignored') return send([]);
+      if (path === '/notifications/ignored' || path === '/notifications/dashboard-documents') return send([]);
+      if (path === '/auth/appearance') return send({ configured: false });
       if (path === '/services') return send([{ ...event, assignments: rows.map(({ event: _event, ...row }) => row) }]);
       if (path === '/collaborators') return send(rows.map((row) => row.collaborator));
       if (path === '/budgets' || path === '/invoices') return send([]);

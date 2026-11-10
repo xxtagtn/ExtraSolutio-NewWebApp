@@ -1,40 +1,32 @@
 import {
   AlertTriangle,
   BriefcaseBusiness,
-  CalendarClock,
   CalendarDays,
   ChevronRight,
   Clock3,
   Euro,
   FileText,
-  Inbox,
   MessageSquareText,
   Search,
   UsersRound,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Badge from '../components/UI/Badge.jsx';
 import EmptyState from '../components/UI/EmptyState.jsx';
 import AttendanceAttentionPanel from '../components/Dashboard/AttendanceAttentionPanel.jsx';
+import PendingActionsPanel from '../components/Dashboard/PendingActionsPanel.jsx';
 import { useApi } from '../hooks/useApi.js';
+import { useAuth } from '../hooks/useAuth.jsx';
+import { hasPermission, PERMISSIONS } from '../utils/accessPermissions.js';
+import { api } from '../utils/api.js';
 import { buildDashboardCommandCenter } from '../utils/dashboardCommandCenter.js';
 import { date, money } from '../utils/formatters.js';
 import { buildPendingActions } from '../utils/pendingActions.js';
+import { splitDocumentSnoozes } from '../../shared/dashboardDocumentSnooze.js';
 
-const priorityLabels = {
-  critical: 'Crítica',
-  high: 'Alta',
-  medium: 'Média',
-  low: 'Baixa',
-};
-
-const priorityTones = {
-  critical: 'danger',
-  high: 'warning',
-  medium: 'warning',
-  low: 'info',
-};
+const SNOOZE_PATH = '/notifications/dashboard-documents';
+const EMPTY_SNOOZES = [];
 
 const itemIcons = {
   service: CalendarDays,
@@ -68,38 +60,11 @@ const quickItems = [
   },
 ];
 
-function actionDaysUntil(value) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const target = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
-  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
-}
-
-function relativeDueDate(value) {
-  const days = actionDaysUntil(value);
-  if (days === null) return '-';
-  if (days === 0) return 'Hoje';
-  if (days === 1) return 'Amanhã';
-  if (days === -1) return 'Ontem';
-  if (days > 1) return `${days} dias`;
-  return `Há ${Math.abs(days)} dias`;
-}
-
 function formatItemDate(item) {
   if (!item?.date) return '';
   const parsed = new Date(item.date);
   if (Number.isNaN(parsed.getTime())) return '';
   return date.format(parsed);
-}
-
-function actionButtonLabel(action) {
-  if (action.category === 'Staff') return 'Enviar';
-  if (action.category === 'Orçamentos') return 'Registar';
-  if (action.category === 'Documentos') return 'Ver';
-  return 'Abrir';
 }
 
 function KpiCard({ icon: Icon, label, value, detail, tone = 'accent' }) {
@@ -159,10 +124,17 @@ function TimelinePanel({ title, actionLabel, to, items = [], emptyTitle = 'Sem r
 
 export default function PendingActions() {
   const { data: services, loading: loadingServices, error: servicesError } = useApi('/services', [], { revalidateOnFocus: true });
-  const { data: collaborators, loading: loadingCollaborators, error: collaboratorsError } = useApi('/collaborators?light=1', []);
+  const { data: collaborators, loading: loadingCollaborators, error: collaboratorsError, reload: reloadCollaborators } = useApi(
+    '/collaborators?light=1', [], { revalidateOnFocus: true },
+  );
   const { data: budgets, loading: loadingBudgets, error: budgetsError } = useApi('/budgets', []);
   const { data: invoices, loading: loadingInvoices, error: invoicesError } = useApi('/invoices', []);
-  const [showAllActions, setShowAllActions] = useState(false);
+  const { user } = useAuth();
+  const canSnooze = hasPermission(user, PERMISSIONS.COLLABORATORS_VIEW);
+  const { data: snoozes, loading: loadingSnoozes, error: snoozeError, reload: reloadSnoozes } = useApi(
+    SNOOZE_PATH, EMPTY_SNOOZES, { enabled: canSnooze, revalidateOnFocus: true },
+  );
+  const [expiryClock, setExpiryClock] = useState(Date.now);
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -170,27 +142,33 @@ export default function PendingActions() {
     () => buildPendingActions({ services, collaborators, budgets, invoices }),
     [services, collaborators, budgets, invoices],
   );
+  const { pending, nextExpiry } = useMemo(() => splitDocumentSnoozes(
+    actions, Array.isArray(snoozes) ? snoozes : EMPTY_SNOOZES, expiryClock,
+  ), [actions, snoozes, expiryClock]);
+
+  useEffect(() => {
+    if (!Number.isFinite(nextExpiry)) return undefined;
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      if (Date.now() >= nextExpiry) await reloadCollaborators({ background: true });
+      if (!cancelled) setExpiryClock(Date.now());
+    }, Math.max(0, Math.min(2147483647, nextExpiry - Date.now())));
+    return () => { cancelled = true; window.clearTimeout(timeout); };
+  }, [nextExpiry, expiryClock, reloadCollaborators]);
 
   const overview = useMemo(
-    () => buildDashboardCommandCenter({ services, collaborators, budgets, invoices, actions }),
-    [actions, budgets, collaborators, invoices, services],
+    () => buildDashboardCommandCenter({ services, collaborators, budgets, invoices, actions: pending }),
+    [pending, budgets, collaborators, invoices, services],
   );
 
   const loading = loadingServices || loadingCollaborators || loadingBudgets || loadingInvoices;
   const error = servicesError || collaboratorsError || budgetsError || invoicesError;
-  const tableActions = useMemo(() => {
-    const source = showAllActions ? overview.allPendingActions : overview.pendingActions;
-    const q = search.trim().toLowerCase();
-    if (!q) return source;
-    return source.filter((action) => [
-      action.category,
-      action.title,
-      action.description,
-      action.origin,
-      ...(action.details || []).flatMap((item) => [item.label, item.value]),
-      ...(action.meta || []),
-    ].join(' ').toLowerCase().includes(q));
-  }, [overview.allPendingActions, overview.pendingActions, search, showAllActions]);
+  async function snoozeAction(key, duration) {
+    const result = await api(SNOOZE_PATH, { method: 'PUT', body: JSON.stringify({ keys: [key], ...duration }) });
+    const refreshed = await reloadSnoozes({ background: true });
+    if (!Array.isArray(refreshed)) throw new Error('A alteração foi guardada, mas não foi possível atualizar a lista. Atualiza o Dashboard.');
+    return result.snoozedUntil;
+  }
 
   return (
     <div className="page command-dashboard-page">
@@ -294,68 +272,9 @@ export default function PendingActions() {
         </section>
       </section>
 
-      <section className="command-panel command-actions-panel">
-        <header>
-          <div>
-            <CalendarClock size={18} />
-            <h2>Ações Pendentes</h2>
-          </div>
-          <button type="button" onClick={() => setShowAllActions((current) => !current)}>
-            {showAllActions ? 'Ver principais ações' : 'Ver todas as ações'}
-          </button>
-        </header>
-
-        <div className="command-actions-table" role="table" aria-label="Ações pendentes">
-          <div className="command-actions-header" role="row">
-            <span>Prioridade</span>
-            <span>Ação</span>
-            <span>Origem</span>
-            <span>Prazo</span>
-            <span>Estado</span>
-            <span>Ação</span>
-          </div>
-          {tableActions.length ? tableActions.map((action) => (
-            <div key={action.id} className="command-actions-row" role="row">
-              <span>
-                <Badge tone={priorityTones[action.priority] || 'neutral'}>{priorityLabels[action.priority] || action.priority}</Badge>
-              </span>
-              <div className="command-action-detail">
-                <strong>{action.title}</strong>
-                {action.details?.length ? (
-                  <dl>
-                    {action.details.map((item) => (
-                      <div key={`${action.id}-${item.label}`}>
-                        <dt>{item.label}</dt>
-                        <dd>{item.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : <small>{action.description}</small>}
-              </div>
-              <span>{action.origin || action.meta?.[0] || action.category}</span>
-              <span>{relativeDueDate(action.dueDate)}</span>
-              <span>
-                <Badge tone={action.tone || 'neutral'}>{action.category}</Badge>
-              </span>
-              <Link className="secondary-button" to={action.to}>{action.buttonLabel || actionButtonLabel(action)}</Link>
-            </div>
-          )) : (
-            <div className="command-actions-empty">
-              <EmptyState
-                icon={search.trim() ? Search : Inbox}
-                title={loading ? 'A carregar ações' : search.trim() ? 'Nenhum resultado encontrado' : 'Sem ações pendentes'}
-                description={
-                  loading
-                    ? 'A consolidar eventos, clientes, colaboradores, orçamento e faturação.'
-                    : search.trim()
-                      ? 'Experimenta outro cliente, evento, colaborador ou tipo de ação.'
-                      : 'Quando existir algo a resolver, aparece aqui com ligação direta ao registo certo.'
-                }
-              />
-            </div>
-          )}
-        </div>
-      </section>
+      <PendingActionsPanel pending={overview.allPendingActions} search={search}
+        loading={loading || loadingSnoozes} canSnooze={canSnooze} snoozeError={snoozeError}
+        snoozeReady={!loadingSnoozes && !snoozeError && Array.isArray(snoozes)} onSnooze={snoozeAction} />
     </div>
   );
 }

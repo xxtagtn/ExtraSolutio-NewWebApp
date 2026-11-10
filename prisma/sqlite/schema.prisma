@@ -90,6 +90,7 @@ model NotificationDismissal {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   key       String
   createdAt DateTime @default(now())
+  snoozedUntil DateTime?
 
   @@unique([userId, key])
   @@index([userId])

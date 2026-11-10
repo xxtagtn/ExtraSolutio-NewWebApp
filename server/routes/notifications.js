@@ -5,8 +5,11 @@ import { readNotificationOverview } from '../services/notificationOverview.js';
 import { readAttendanceAttention } from '../services/attendanceAttention.js';
 import { requirePermission } from '../security/permissions.js';
 import { PERMISSIONS } from '../../src/utils/accessPermissions.js';
+import { DOCUMENT_SNOOZE_PREFIX } from '../../shared/dashboardDocumentSnooze.js';
+import { createDashboardDocumentSnoozeRouter } from './dashboardDocumentSnooze.js';
 
 export const notificationsRouter = Router();
+notificationsRouter.use('/dashboard-documents', createDashboardDocumentSnoozeRouter(prisma));
 
 notificationsRouter.get('/attendance-attention',
   requirePermission(PERMISSIONS.DASHBOARD_VIEW),
@@ -23,7 +26,7 @@ notificationsRouter.get('/overview', asyncHandler(async (req, res) => {
 notificationsRouter.get('/ignored', asyncHandler(async (req, res) => {
   const userId = Number(req.user?.id);
   const rows = await prisma.notificationDismissal.findMany({
-    where: { userId },
+    where: { userId, NOT: { key: { startsWith: DOCUMENT_SNOOZE_PREFIX } } },
     orderBy: { createdAt: 'desc' },
     select: { key: true },
   });
@@ -33,12 +36,13 @@ notificationsRouter.get('/ignored', asyncHandler(async (req, res) => {
 notificationsRouter.post('/ignored', asyncHandler(async (req, res) => {
   const userId = Number(req.user?.id);
   const key = String(req.body?.key || '').trim();
-  if (!key) return res.status(400).json({ message: 'Chave de notificação inválida.' });
+  if (!key || key.toLowerCase().startsWith(DOCUMENT_SNOOZE_PREFIX)) return res.status(400).json({ message: 'Chave de notificação inválida.' });
 
   await prisma.notificationDismissal.upsert({
     where: { userId_key: { userId, key } },
     update: {},
     create: { userId, key },
+    select: { key: true },
   });
 
   res.status(201).json({ ok: true, key });

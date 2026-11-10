@@ -1,5 +1,6 @@
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { clientBillingPeriodForDay } from '../../shared/clientBillingCalendar.js';
+import { documentSnoozeKey } from '../../shared/dashboardDocumentSnooze.js';
 import { buildClientFinanceSnapshot } from './clientFinanceSnapshot.js';
 import { decimalValue } from './serviceFinance.js';
 import { serviceTeamCoverage } from './serviceTeamCoverage.js';
@@ -477,7 +478,8 @@ function addDocumentActions(actions, collaborators, today) {
     addAction(actions, {
       id: `collaborator-document-${collaborator.id}`,
       category: 'Documentos',
-      title: 'Documento de identificação a expirar',
+      title: days < 0 ? 'Documento de identificação vencido' : 'Documento de identificação a expirar',
+      snoozeKey: documentSnoozeKey(collaborator.id, collaborator.documentExpiry),
       description: `${collaboratorName(collaborator)} - ${documentDescription(days)}`,
       priority,
       tone: priority === 'critical' || priority === 'high' ? 'danger' : priority === 'medium' ? 'warning' : 'info',

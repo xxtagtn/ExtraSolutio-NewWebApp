@@ -90,6 +90,7 @@ model NotificationDismissal {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   key       String   @db.VarChar(191)
   createdAt DateTime @default(now()) @db.DateTime(3)
+  snoozedUntil DateTime? @db.DateTime(3)
 
   @@unique([userId, key], map: "NotificationDismissal_userId_key_key")
   @@index([userId], map: "NotificationDismissal_userId_idx")

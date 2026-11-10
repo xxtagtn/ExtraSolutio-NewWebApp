@@ -1,0 +1,50 @@
+.command-snooze-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--line);
+  font-size: .85rem;
+  color: var(--muted);
+}
+
+.command-snooze-buttons,
+.command-snooze-pagination nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.command-snooze-pagination nav { flex-wrap: wrap; gap: 4px; }
+.command-snooze-pagination [aria-current="page"] { color: var(--accent); border-color: var(--accent); }
+.command-snooze-status { margin: 8px 18px; }
+.command-actions-panel :is(.command-actions-header, .command-actions-row) {
+  grid-template-columns: minmax(82px, .5fr) minmax(220px, 1.75fr) minmax(120px, .75fr)
+    minmax(78px, .5fr) minmax(100px, .72fr) minmax(130px, .55fr);
+}
+.command-actions-row .command-snooze-buttons { flex-wrap: wrap; }
+.command-actions-row .command-snooze-buttons .secondary-button { flex: 1 1 auto; min-width: 0; }
+.command-actions-row .command-snooze-buttons svg { flex-shrink: 0; }
+
+.command-snooze-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.command-snooze-form label { display: grid; gap: 6px; min-width: 0; }
+.command-snooze-form input, .command-snooze-form select { width: 100%; min-width: 0; }
+.command-snooze-form .command-snooze-buttons { justify-content: flex-end; }
+.command-snooze-form .notice { margin: 0; }
+
+@media (max-width: 1140px) {
+  .command-actions-panel .command-actions-header { display: none; }
+  .command-actions-panel .command-actions-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px; }
+  .command-actions-panel .command-action-detail { grid-column: 1 / -1; grid-row: 2; }
+  .command-actions-panel .command-actions-row > .command-snooze-buttons { grid-column: 1 / -1; justify-content: flex-end; }
+  .command-actions-panel .command-actions-row > .command-snooze-buttons .secondary-button { flex: 0 1 auto; }
+  .command-actions-panel .command-actions-row > .command-snooze-buttons .secondary-button { min-height: 40px; }
+}
