@@ -108,6 +108,22 @@ test('buildCalendarFeed omits cancelled occurrences from continuous events', () 
   assert.match(ics, /UID:service-14-20260722@extrasolutio\r\n/);
 });
 
+test('buildCalendarFeed omits fully cancelled services and their payment reminders', () => {
+  const service = { id: 20, date: new Date('2026-11-10T00:00:00Z'), remainingPaymentDate: '2026-11-11', billingStatus: 'partial70' };
+  const ics = buildCalendarFeed({ services: [
+    { ...service, name: 'Cancelado por inteiro', status: 'cancelled' },
+    { ...service, id: 21, name: 'Todos os dias cancelados', endDate: '2026-11-11', isContinuous: true,
+      cancelledDays: ['2026-11-10', { date: '2026-11-11' }] },
+    { ...service, id: 22, name: 'Apenas um dia cancelado', endDate: '2026-11-11', isContinuous: true,
+      cancelledDays: ['2026-11-11'] },
+  ] });
+
+  assert.doesNotMatch(ics, /UID:(service|payment)-(20|21)-/);
+  assert.match(ics, /UID:service-22-20261110@extrasolutio/);
+  assert.doesNotMatch(ics, /UID:service-22-20261111@extrasolutio/);
+  assert.match(ics, /UID:payment-22-20261111@extrasolutio/);
+});
+
 test('buildCalendarFeedUrls prefers a configured public URL for Outlook subscriptions', () => {
   const urls = buildCalendarFeedUrls({
     token: 'a'.repeat(64),

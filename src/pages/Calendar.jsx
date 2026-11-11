@@ -10,14 +10,12 @@ import {
   calendarDateWithMonth,
   calendarMonthCells,
   calendarWeekDates,
-  serviceOccursOnDate,
+  calendarServiceDayKeys,
 } from '../utils/calendarDates.js';
-import { isEventDayCancelled } from '../utils/eventCancelledDays.js';
 import { statusLabel } from '../utils/serviceStatus.js';
 
 const MONTHS_PT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const WEEKDAYS_PT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
-const HIDDEN_STATUS = new Set(['cancelled']);
 const WEEKDAY_FORMAT = new Intl.DateTimeFormat('pt-PT', { weekday: 'long' });
 const DAY_MONTH_FORMAT = new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' });
 const LEGEND_ITEMS = [
@@ -35,25 +33,6 @@ function parseDate(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function startOfDay(value) {
-  const d = parseDate(value);
-  if (!d) return null;
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
-function eventRangeEnd(service) {
-  return service?.isContinuous && service.endDate ? service.endDate : service?.date;
-}
-
-function eventTouchesYear(service, year) {
-  const start = startOfDay(service.date);
-  const end = startOfDay(eventRangeEnd(service));
-  if (!start || !end) return false;
-  const yearStart = new Date(year, 0, 1);
-  const yearEnd = new Date(year, 11, 31);
-  return start <= yearEnd && yearStart <= end;
 }
 
 function parseJsonArray(value) {
@@ -167,8 +146,8 @@ function calendarItemsForDate(date, services, budgetFollowUps) {
   const key = calendarDateKey(date);
   const items = [];
 
-  for (const service of services) {
-    if (serviceOccursOnDate(service, date) && !isEventDayCancelled(service, key)) {
+  for (const { service, days } of services) {
+    if (days.has(key)) {
       items.push({ ...service, _reminder: false, _calendarKey: `service-${service.id}-${key}` });
     }
     if (
@@ -200,7 +179,7 @@ export default function Calendar() {
   const [cursor, setCursor] = useState(() => calendarInitialCursor(today));
   const [calendarView, setCalendarView] = useState('month');
   const [expandedBirthdayKey, setExpandedBirthdayKey] = useState(null);
-  const { data: services = [], loading, error } = useApi('/services', []);
+  const { data: services = [], loading, error } = useApi('/services', [], { revalidateOnFocus: true });
   const { data: budgets = [] } = useApi('/budgets', []);
   const { data: collaborators = [] } = useApi('/collaborators?light=1', []);
   const { data: calendarFeed = null, reload: reloadCalendarFeed } = useApi('/calendar-feed/me', null);
@@ -218,7 +197,10 @@ export default function Calendar() {
   }, [calendarView, cursor]);
 
   const visibleServices = useMemo(
-    () => services.filter((service) => !HIDDEN_STATUS.has(service.status) && service.date),
+    () => services.flatMap((service) => {
+      const days = calendarServiceDayKeys(service);
+      return days.length ? [{ service, days: new Set(days) }] : [];
+    }),
     [services],
   );
 
@@ -245,34 +227,28 @@ export default function Calendar() {
 
   const yearOptions = useMemo(() => {
     const years = new Set([todayYear, cursor.getFullYear()]);
-    for (const service of services) {
-      const d = parseDate(service.date);
-      if (d) years.add(d.getFullYear());
-      const end = parseDate(eventRangeEnd(service));
-      if (end) years.add(end.getFullYear());
-      const rp = parseDate(service.remainingPaymentDate);
-      if (rp) years.add(rp.getFullYear());
+    for (const { service, days } of visibleServices) {
+      for (const day of days) years.add(Number(day.slice(0, 4)));
+      if (service.billingStatus === 'partial70') {
+        const paymentDate = calendarDateKey(service.remainingPaymentDate);
+        if (paymentDate) years.add(Number(paymentDate.slice(0, 4)));
+      }
     }
     for (const reminder of budgetFollowUps) {
       const d = parseDate(reminder.reminderDate);
       if (d) years.add(d.getFullYear());
     }
     return [...years].sort((a, b) => a - b);
-  }, [services, budgetFollowUps, todayYear, cursor]);
+  }, [visibleServices, budgetFollowUps, todayYear, cursor]);
 
   const monthsWithEventsInYear = useMemo(() => {
     const set = new Set();
-    for (const service of visibleServices) {
-      if (eventTouchesYear(service, cursor.getFullYear())) {
-        const start = startOfDay(service.date);
-        const end = startOfDay(eventRangeEnd(service));
-        const firstMonth = start.getFullYear() < cursor.getFullYear() ? 0 : start.getMonth();
-        const lastMonth = end.getFullYear() > cursor.getFullYear() ? 11 : end.getMonth();
-        for (let month = firstMonth; month <= lastMonth; month += 1) set.add(month);
-      }
+    const year = `${cursor.getFullYear()}-`;
+    for (const { service, days } of visibleServices) {
+      for (const day of days) if (day.startsWith(year)) set.add(Number(day.slice(5, 7)) - 1);
       if (service.billingStatus === 'partial70') {
-        const rp = parseDate(service.remainingPaymentDate);
-        if (rp && rp.getFullYear() === cursor.getFullYear()) set.add(rp.getMonth());
+        const paymentDate = calendarDateKey(service.remainingPaymentDate);
+        if (paymentDate.startsWith(year)) set.add(Number(paymentDate.slice(5, 7)) - 1);
       }
     }
     for (const reminder of budgetFollowUps) {

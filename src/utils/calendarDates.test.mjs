@@ -6,7 +6,7 @@ import {
   calendarDateWithMonth,
   calendarMonthCells,
   calendarWeekDates,
-  serviceOccursOnDate,
+  calendarServiceDayKeys,
 } from './calendarDates.js';
 
 test('returns the Monday-to-Sunday dates for the selected calendar week', () => {
@@ -44,11 +44,19 @@ test('detects every day of a continuous event', () => {
     isContinuous: true,
   };
 
-  assert.equal(serviceOccursOnDate(service, new Date(2026, 5, 17)), false);
-  assert.equal(serviceOccursOnDate(service, new Date(2026, 5, 18)), true);
-  assert.equal(serviceOccursOnDate(service, new Date(2026, 5, 19)), true);
-  assert.equal(serviceOccursOnDate(service, new Date(2026, 5, 20)), true);
-  assert.equal(serviceOccursOnDate(service, new Date(2026, 5, 21)), false);
+  assert.deepEqual(calendarServiceDayKeys(service), ['2026-06-18', '2026-06-19', '2026-06-20']);
+});
+
+test('returns only active service days, even across months or years', () => {
+  const service = { date: new Date('2026-12-30T00:00:00Z'), endDate: '2027-01-01', isContinuous: true,
+    cancelledDays: '["2026-12-31",{"date":"2027-01-01"}]' };
+
+  assert.deepEqual(calendarServiceDayKeys(service), ['2026-12-30']);
+  assert.deepEqual(calendarServiceDayKeys({ ...service, status: ' Cancelled ' }), []);
+  assert.deepEqual(calendarServiceDayKeys({ ...service, date: '2026-12-31' }), []);
+  assert.deepEqual(calendarServiceDayKeys({ date: '2026-06-20', status: 'cancelled' }), []);
+  assert.deepEqual(calendarServiceDayKeys({ date: '2026-06-20' }), ['2026-06-20']);
+  assert.deepEqual(calendarServiceDayKeys({ date: '2026-02-30' }), []);
 });
 
 test('builds a six-row month grid with adjacent month days', () => {

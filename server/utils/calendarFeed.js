@@ -1,5 +1,5 @@
 import { URL } from 'node:url';
-import { isEventDayCancelled } from '../../src/utils/eventCancelledDays.js';
+import { calendarServiceDayKeys } from '../../src/utils/calendarDates.js';
 
 const DEFAULT_PRODUCT_ID = '-//ExtraSolutio//Calendario//PT';
 const DEFAULT_TIMEZONE = 'Europe/Lisbon';
@@ -93,22 +93,6 @@ function addDays(parts, amount) {
   if (!date) return null;
   date.setDate(date.getDate() + amount);
   return dateParts(date);
-}
-
-function datesBetween(startValue, endValue) {
-  const start = dateParts(startValue);
-  const end = dateParts(endValue || startValue);
-  const startDate = dateFromParts(start);
-  const endDate = dateFromParts(end);
-  if (!startDate || !endDate || startDate > endDate) return [];
-
-  const result = [];
-  const cursor = new Date(startDate);
-  while (cursor <= endDate) {
-    result.push(dateParts(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return result;
 }
 
 function normalizeTime(value) {
@@ -257,10 +241,11 @@ function serviceDescription(service) {
 function buildServiceEvents(services, stamp, timezone) {
   const rows = [];
   for (const service of services || []) {
-    if (!service?.id || !service?.date) continue;
-    const endDate = service.isContinuous && service.endDate ? service.endDate : service.date;
-    for (const day of datesBetween(service.date, endDate)) {
-      if (isEventDayCancelled(service, day)) continue;
+    if (!service?.id) continue;
+    const days = calendarServiceDayKeys(service);
+    if (!days.length) continue;
+    for (const key of days) {
+      const day = dateParts(key);
       rows.push(...vevent({
         uid: `service-${service.id}-${compactDate(day)}@extrasolutio`,
         stamp,

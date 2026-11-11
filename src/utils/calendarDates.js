@@ -1,3 +1,5 @@
+import { activeEventDayKeys } from './eventCancelledDays.js';
+
 function localDate(value) {
   if (!value) return null;
   if (value instanceof Date) {
@@ -70,10 +72,7 @@ export function calendarMonthCells(value) {
   });
 }
 
-export function serviceOccursOnDate(service, value) {
-  const target = localDate(value);
-  const start = localDate(service?.date);
-  const end = localDate(service?.isContinuous && service?.endDate ? service.endDate : service?.date);
-  if (!target || !start || !end) return false;
-  return target >= start && target <= end;
+export function calendarServiceDayKeys(service) {
+  if (!service || String(service.status || '').trim().toLowerCase() === 'cancelled') return [];
+  return activeEventDayKeys(service).filter((day) => calendarDateKey(day));
 }
