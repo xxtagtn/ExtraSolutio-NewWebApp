@@ -59,6 +59,7 @@ const statusLabels = budgetStatusLabels;
 
 const leadSourceOptions = [
   'Google Ads',
+  'ChatGPT',
   'Site',
   'WhatsApp',
   'Instagram',
