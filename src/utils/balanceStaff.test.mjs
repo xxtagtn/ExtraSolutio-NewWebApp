@@ -54,15 +54,19 @@ test('preserves legacy event validation marker and complete validated client hou
   assert.equal(buildStaffBalance({ services, period }).totals.cost, 50);
 });
 
-test('only Paid counts as paid; Penhorado, Ganho, Validado ES and RV remain outstanding', () => {
+test('Ganho remains extra revenue while Penhorado, Validado ES and RV remain outstanding', () => {
   const states = ['unpaid', 'validated_es', 'awaiting_data', 'penhorado', 'ganho', 'paid'];
   const services = [event(states.map((state, i) => row(i, 1, '2026-09-01', state)))];
-  assert.equal(buildStaffBalance({ services, period }).totals.paid, 50);
-  assert.equal(buildStaffBalance({ services, period }).totals.unpaid, 250);
+  const before = buildStaffBalance({ services, period });
+  assert.equal(before.totals.paid, 50);
+  assert.equal(before.totals.unpaid, 200);
+  assert.equal(before.gainTotal, 50);
+  assert.equal(before.monthlySeries[8].unpaid, 200);
   services[0].assignments[0].paymentStatus = 'paid';
   const after = buildStaffBalance({ services, period });
   assert.equal(after.totals.paid, 100);
-  assert.equal(after.totals.unpaid, 200);
+  assert.equal(after.totals.unpaid, 150);
+  assert.equal(after.gainTotal, 50);
   assert.equal(after.totals.cost, 300);
 });
 
@@ -78,6 +82,7 @@ test('extra revenue includes the Finance Ganho balance once, plus separately des
   const september = buildStaffBalance({ services, period });
   const october = buildStaffBalance({ services, period: { ...period, month: '10' } });
   assert.equal(september.gainTotal, 90.35);
+  assert.equal(september.totals.unpaid, 40, 'An unpaid service with a designated adjustment still owes the adjusted balance');
   assert.equal(october.gainTotal, 0);
   assert.deepEqual(september.gains.map(({ id, source, dateKey, amount }) => ({ id, source, dateKey, amount })), [
     { id: 2, source: 'adjustment', dateKey: '2026-09-11', amount: 15 },
@@ -180,7 +185,8 @@ test('daily and weekly evolution reuse exact selected collaborator payment value
   const next = buildStaffBalance({ services, period, collaboratorId: '1', evolutionWeek: 7 });
   assert.equal(next.evolution.weekTotals.cost, 50);
   assert.equal(next.evolution.weekTotals.paid, 0);
-  assert.equal(next.evolution.weekTotals.unpaid, 50);
+  assert.equal(next.evolution.weekTotals.unpaid, 0);
+  assert.equal(next.evolution.weeklySeries[0].unpaid, 0);
   assert.deepEqual(next.totals, result.totals);
   assert.deepEqual(next.annualTotals, result.annualTotals);
 });
@@ -220,7 +226,8 @@ test('weekly amounts respect all analysis filters, states, adjustments and advan
   const after = buildStaffBalance({ services, period: { ...period, clientId: '1', status: 'finalized' }, search: 'pecanha' }).evolution.weekTotals;
   assert.equal(after.cost, before.cost);
   assert.equal(after.paid - before.paid, 50);
-  assert.equal(before.unpaid - after.unpaid, 50);
+  assert.equal(before.unpaid, 0);
+  assert.equal(after.unpaid, 0);
 });
 
 test('monthly comparison crosses the year without changing the annual summary or collaborators', () => {

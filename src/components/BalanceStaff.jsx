@@ -125,7 +125,7 @@ export default function BalanceStaff({ services, period, loading, error }) {
             </nav>
           </footer>
         ) : null}
-        <p className="balance-staff-note">Já pago e por pagar: saldo após adiantamentos. Penhorado e Ganho não são pagamentos concluídos.</p>
+        <p className="balance-staff-note">Já pago e por pagar: saldo após adiantamentos. Os registos em Ganho são apresentados na Receita Extra, não no saldo por pagar.</p>
       </section>
 
       <section className="balance-staff-evolution">

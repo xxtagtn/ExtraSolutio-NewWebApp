@@ -101,7 +101,16 @@ try {
   }
   for (const width of [1440, 1024, 768, 390, 320]) {
     const { page, context } = await setup(width);
-    await totals(page, [305, 50, 235], 355, 70);
+    await totals(page, [305, 50, 165], 355, 70);
+    await page.locator('.balance-tabs').getByRole('button', { name: 'Visão geral', exact: true }).click();
+    const pendingStaff = page.getByRole('button', { name: /^Staff por pagar/ });
+    // The overview uses the event date, so it also includes the January shift for this event.
+    assert.equal(await pendingStaff.locator('strong').textContent(), money.format(215));
+    await pendingStaff.click();
+    const pendingDetail = page.locator('#balance-attention-detail');
+    assert.equal(await pendingDetail.getByText('Ana Rosa', { exact: true }).count(), 0);
+    assert.ok(await pendingDetail.getByText('Miriam Peçanha Oliveira', { exact: true }).count() > 0);
+    await page.locator('.balance-tabs').getByRole('button', { name: 'Staff', exact: true }).click();
     assert.equal(await page.locator('.balance-staff-costs tbody tr').count(), 10);
     await page.getByRole('button', { name: 'Página seguinte de Staff', exact: true }).click();
     assert.match(await page.locator('.balance-staff-pagination').innerText(), /11-20 de 28/);
@@ -159,7 +168,7 @@ try {
     await page.getByLabel('Pesquisar colaborador').fill('pecanha');
     await totals(page, [150, 50, 100], 200);
     await page.getByLabel('Pesquisar colaborador').fill('300000002');
-    await totals(page, [90, 0, 70], 90, 70);
+    await totals(page, [90, 0, 0], 90, 70);
     await page.getByLabel('Pesquisar colaborador').fill('');
     await page.getByLabel('Cliente', { exact: true }).selectOption('2');
     await totals(page, [40, 0, 40], 40);
@@ -182,12 +191,12 @@ try {
     await context.close();
   }
   const refreshed = await setup(390);
-  await totals(refreshed.page, [305, 50, 235], 355, 70);
+  await totals(refreshed.page, [305, 50, 165], 355, 70);
   services[0].assignments[0].paymentStatus = 'paid';
   await refreshed.page.reload();
   await refreshed.page.locator('.balance-tabs').getByRole('button', { name: 'Staff', exact: true }).click();
   await refreshed.page.getByLabel('Mês', { exact: true }).selectOption('9');
-  await totals(refreshed.page, [305, 100, 185], 355, 70);
+  await totals(refreshed.page, [305, 100, 115], 355, 70);
   await refreshed.page.getByLabel('Ano', { exact: true }).selectOption('2027');
   await refreshed.page.getByLabel('Mês', { exact: true }).selectOption('1');
   await totals(refreshed.page, [50, 0, 50], 50);

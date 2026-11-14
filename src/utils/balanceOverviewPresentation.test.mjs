@@ -35,8 +35,8 @@ test('attention respects filtered events and counts shared overdue invoices once
   const attention = buildBalanceAttention({ eventRows: overview.eventRows, invoices, today });
   assert.equal(attention.overdue.amount, 250);
   assert.equal(attention.overdue.rows.length, 1);
-  assert.equal(attention.staff.amount, 200);
-  assert.deepEqual(attention.staff.rows.map((row) => row.key), ['assignment:1', 'assignment:3', 'assignment:4']);
+  assert.equal(attention.staff.amount, 130);
+  assert.deepEqual(attention.staff.rows.map((row) => row.key), ['assignment:1', 'assignment:4']);
   assert.equal(attention.unbilled.amount, 150); // Existing draft invoice suppresses billing adjustment.
   assert.equal(attention.unbilled.rows.length, 1);
   const filtered = buildBalanceAttention({ eventRows: overview.eventRows.filter((row) => row.id === 3), invoices, today });
@@ -53,7 +53,7 @@ test('pending billing reuses adjustments and issued/paid invoice rules', () => {
 
 test('staff pending amount reuses VAT, travel, adjustments and advances without changing work hours', () => {
   const assignment = { id: 10, collaboratorId: 10, status: 'confirmed', collaborator: { includeVat: true }, totalPay: 100, hourlyRate: 10,
-    paymentAdjustment: -5, advancePayments: [{ amount: 20 }, { amount: 40, car: true }] };
+    paymentAdjustment: -5, paymentAdjustmentGain: 5, advancePayments: [{ amount: 20 }, { amount: 40, car: true }] };
   const event = { ...services[0], travelExpenseEnabled: true, travelExpenseMode: 'kms',
     travelCars: [{ id: 'car-1', durationHours: 2 }], assignments: [assignment] };
   const rows = buildBalanceOverview({ services: [event], period }).eventRows;

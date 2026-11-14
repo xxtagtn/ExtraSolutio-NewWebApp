@@ -6,6 +6,7 @@ import { isBillableEventAssignment } from './eventFinancialRules.js';
 import { isFinanceReadyEvent } from './financeReadiness.js';
 import { staffAssignmentPaymentTotal } from './staffPayment.js';
 import { staffPaymentRemaining } from './staffAdvances.js';
+import { staffPaymentWorkflowTab } from './staffPaymentWorkflow.js';
 
 const sum = (rows) => Number(rows.reduce((total, row) => total + row.amount, 0).toFixed(2));
 
@@ -48,7 +49,8 @@ export function buildBalanceAttention({ eventRows = [], invoices = [], clients =
 
   const staff = eventRows.filter((row) => isFinanceReadyEvent(row.event)).flatMap((row) => (
     (row.event.assignments || []).filter((assignment) => (
-      assignment.collaboratorId && isBillableEventAssignment(assignment) && assignment.paymentStatus !== 'paid'
+      assignment.collaboratorId && isBillableEventAssignment(assignment)
+      && !['paid', 'ganho'].includes(staffPaymentWorkflowTab(assignment))
     )).map((assignment) => ({
       key: `assignment:${assignment.id}`,
       title: assignment.collaborator?.name || 'Colaborador', subtitle: row.eventName,

@@ -24,10 +24,9 @@ export function staffAnalysisYears(services = []) {
     .map((assignment) => workPeriod({ ...assignment, event })?.year)).filter(Boolean))];
 }
 
-function extraRevenueForAssignment(assignment, financeReady, dateKey) {
+function extraRevenueForAssignment(assignment, financeReady, dateKey, fromWorkflow) {
   const event = assignment.event;
   if (!dateKey || isAssignmentOnCancelledDay(assignment, event)) return null;
-  const fromWorkflow = staffPaymentWorkflowTab(assignment) === 'ganho';
   if (!fromWorkflow && (!financeReady || assignment.paymentAdjustmentGain == null || !staffAdjustmentGainDate(assignment))) return null;
   const amount = fromWorkflow ? staffAssignmentOutstandingPay(assignment) : staffAdjustmentGainAmount(assignment, event);
   return amount > 0 ? { monthKey: dateKey.slice(0, 7), dateKey, amount, source: fromWorkflow ? 'workflow' : 'adjustment' } : null;
@@ -98,7 +97,8 @@ export function buildStaffBalance({ services = [], period = {}, collaboratorId =
         name: assignment.collaborator?.shortName || assignment.collaborator?.name || '-',
         nif: assignment.collaborator?.nif || '-',
       };
-      const gain = extraRevenueForAssignment(withEvent, financeReady, work.dateKey);
+      const paymentState = staffPaymentWorkflowTab(assignment);
+      const gain = extraRevenueForAssignment(withEvent, financeReady, work.dateKey, paymentState === 'ganho');
       if (gain && (!period.year || work.year === String(period.year))) {
         gainEntries.push({ ...collaborator, id: assignment.id, event: event.name, ...gain });
       }
@@ -111,8 +111,8 @@ export function buildStaffBalance({ services = [], period = {}, collaboratorId =
         ...work,
         hours: staffPaymentHours(assignment),
         cost: staffAssignmentCostTotal(withEvent),
-        paid: assignment.paymentStatus === 'paid' ? balance : 0,
-        unpaid: assignment.paymentStatus === 'paid' ? 0 : balance,
+        paid: paymentState === 'paid' ? balance : 0,
+        unpaid: paymentState === 'paid' || paymentState === 'ganho' ? 0 : balance,
       });
     }
   }
