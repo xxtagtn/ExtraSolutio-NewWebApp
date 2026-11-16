@@ -9444,6 +9444,21 @@ th {
   font-size: 0.74rem;
 }
 
+.finance-staff-deferral-badge .badge {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.finance-staff-deferral-form .finance-payment-notes-context {
+  justify-content: space-between;
+}
+
+.finance-staff-deferral-form > label {
+  display: grid;
+  gap: 6px;
+}
+
 .finance-client-schedule {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

@@ -104,6 +104,7 @@ import { buildClientFinanceSnapshot } from '../../src/utils/clientFinanceSnapsho
 import { updateClientFinancialMetadata } from '../services/clientFinancialMetadata.js';
 import { settleClientInvoice } from '../services/clientInvoiceSettlement.js';
 import { saveStaffPaymentAdjustment } from '../services/staffPaymentAdjustment.js';
+import { saveStaffPaymentDeferral } from '../services/staffPaymentDeferral.js';
 import { staffAdjustmentGainInvalidated } from '../../src/utils/staffAdjustmentGain.js';
 
 export const apiRouter = Router();
@@ -165,6 +166,7 @@ const financialAssignmentFields = [
   'paymentStatus',
   'paymentDate',
   'paymentDeferredMonth',
+  'paymentDeferredDate',
 ];
 const sensitiveCollaboratorFields = [
   'nif',
@@ -1041,6 +1043,13 @@ apiRouter.use('/service-templates', createCrudRouter(prisma.eventTemplate, [], {
 apiRouter.put('/assignments/:id/payment-adjustment', financeUpdatePayments, asyncHandler(async (req, res) => {
   if (!canViewFinancialData(req.user)) return res.status(403).json({ message: 'Sem permissão para consultar valores financeiros.' });
   const row = await saveStaffPaymentAdjustment(prisma, req.params.id, req.body);
+  if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
+  return res.json(maskAssignmentForRole(row, req.user));
+}));
+
+apiRouter.put('/assignments/:id/payment-deferral', financeUpdatePayments, asyncHandler(async (req, res) => {
+  if (!canViewFinancialData(req.user)) return res.status(403).json({ message: 'Sem permissão para consultar valores financeiros.' });
+  const row = await saveStaffPaymentDeferral(prisma, req.params.id, req.body ?? {});
   if (!row) return res.status(404).json({ message: 'Registo não encontrado.' });
   return res.json(maskAssignmentForRole(row, req.user));
 }));

@@ -91,11 +91,12 @@ import {
   createStaffPaymentGroupSnapshot,
   groupStaffPaymentEntries,
   restoreStaffPaymentSnapshotGroups,
+  staffDebtsWithDeferredPayments,
   summarizeStaffPaymentAmounts,
 } from '../utils/staffPaymentGroups.js';
 import {
   assignmentWorkDateValue,
-  nextStaffPaymentMonth,
+  isStaffPaymentDeferredDate,
   staffPaymentRequiresAttention,
   staffPaymentTiming,
   validatedClientScheduleLabel,
@@ -206,6 +207,10 @@ function monthLabel(month) {
   const [year, monthNumber] = String(month || monthInputValue()).split('-').map(Number);
   if (monthNumber === 0) return `Todos os meses de ${year}`;
   return new Intl.DateTimeFormat('pt-PT', { month: 'long', year: 'numeric' }).format(monthDate(month));
+}
+
+function deferredPaymentDateLabel(dateValue) {
+  return dateValue.split('-').reverse().join('/');
 }
 
 function dateInputValue(value) {
@@ -1199,6 +1204,10 @@ export default function Accounting() {
   const [bulkPaymentDate, setBulkPaymentDate] = useState(todayIso());
   const [bulkUpdatingPayments, setBulkUpdatingPayments] = useState(false);
   const [paymentNotesAssignment, setPaymentNotesAssignment] = useState(null);
+  const [paymentDeferral, setPaymentDeferral] = useState(null);
+  const [paymentDeferralSaving, setPaymentDeferralSaving] = useState(false);
+  const [paymentDeferralError, setPaymentDeferralError] = useState('');
+  const [paymentDeferralNotice, setPaymentDeferralNotice] = useState('');
   const [staffAdjustment, setStaffAdjustment] = useState(null);
   const [savingStaffAdjustment, setSavingStaffAdjustment] = useState(false);
   const [staffAdjustmentError, setStaffAdjustmentError] = useState('');
@@ -1289,6 +1298,7 @@ export default function Accounting() {
 
   const yearOptions = useMemo(() => {
     const years = new Set([String(new Date().getFullYear())]);
+    if (selectedYear) years.add(selectedYear);
     for (const event of services) {
       if (event?.date) years.add(String(new Date(event.date).getFullYear()));
       for (const assignment of billableAssignments(event)) {
@@ -1303,7 +1313,7 @@ export default function Accounting() {
       if (expense?.date) years.add(String(new Date(expense.date).getFullYear()));
     }
     return [...years].sort((a, b) => Number(b) - Number(a));
-  }, [services, invoices, expenses]);
+  }, [services, invoices, expenses, selectedYear]);
 
   const eventRows = useMemo(
     () => financeServices.map((event) => eventFinancialRow(event, invoices, expenses)),
@@ -1641,6 +1651,8 @@ export default function Accounting() {
     .flatMap((event) => billableAssignments(event).map((assignment) => ({ ...assignment, event, _financeReady: true })))
     .sort((a, b) => assignmentWorkDateTimestamp(a) - assignmentWorkDateTimestamp(b)),
   [financeServices]);
+
+  const staffDebtsAcrossMonths = useMemo(() => staffDebtsWithDeferredPayments(allPaymentStaffEntries), [allPaymentStaffEntries]);
 
   const selectedPaymentStaffEntries = useMemo(() => allPaymentStaffEntries
     .filter((assignment) => paymentMonthMatches(assignment, selectedMonth)),
@@ -2026,7 +2038,6 @@ export default function Accounting() {
     paymentStatus,
     paymentDate = assignment.paymentDate || null,
     paymentAdjustment = assignment.paymentAdjustment || 0,
-    paymentDeferredMonth = assignment.paymentDeferredMonth || null,
   ) {
     setUpdatingAssignmentId(assignment.id);
     try {
@@ -2036,7 +2047,6 @@ export default function Accounting() {
           paymentStatus,
           paymentDate,
           paymentAdjustment,
-          paymentDeferredMonth,
         }, todayIso())),
       });
       reload({ background: true });
@@ -2045,28 +2055,41 @@ export default function Accounting() {
     }
   }
 
-  async function updatePaymentDeferredMonth(assignment, paymentDeferredMonth) {
-    setUpdatingAssignmentId(assignment.id);
-    try {
-      await api(`/assignments/${assignment.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ paymentDeferredMonth }),
-      });
-      reload({ background: true });
-    } finally {
-      setUpdatingAssignmentId(null);
-    }
-  }
-
-  async function deferPaymentToNextMonth(assignment) {
+  function openPaymentDeferral(assignment) {
     const timing = staffPaymentTiming(assignment);
-    const targetMonth = nextStaffPaymentMonth(timing.paymentMonth || timing.defaultMonth);
-    if (!targetMonth) return;
-    await updatePaymentDeferredMonth(assignment, targetMonth);
+    setPaymentDeferral({
+      assignment,
+      date: timing.deferredDate || (timing.deferred ? dateInputValue(timing.end) : ''),
+      timing,
+    });
+    setPaymentDeferralError('');
+    setPaymentDeferralNotice('');
   }
 
-  async function resetPaymentMonth(assignment) {
-    await updatePaymentDeferredMonth(assignment, null);
+  async function savePaymentDeferral(dateValue) {
+    if (!paymentDeferral || paymentDeferralSaving) return;
+    if (dateValue !== null && !isStaffPaymentDeferredDate(dateValue)) return;
+    const { assignment } = paymentDeferral;
+    setPaymentDeferralSaving(true);
+    setPaymentDeferralError('');
+    try {
+      await api(`/assignments/${assignment.id}/payment-deferral`, {
+        method: 'PUT',
+        body: JSON.stringify({ date: dateValue, updatedAt: assignment.updatedAt }),
+      });
+      await reload({ background: true });
+      setPaymentDeferralNotice(dateValue
+        ? `Pagamento adiado até ${deferredPaymentDateLabel(dateValue)}.`
+        : `Pagamento reposto em ${monthLabel(paymentDeferral.timing.defaultMonth)}.`);
+      setPaymentDeferral(null);
+    } catch (error) {
+      if (!isSessionExpiredError(error)) {
+        setPaymentDeferralError(error?.message || 'Não foi possível alterar a data do pagamento.');
+        await reload({ background: true });
+      }
+    } finally {
+      setPaymentDeferralSaving(false);
+    }
   }
 
   function paymentDraftFor(assignment) {
@@ -2109,7 +2132,6 @@ export default function Accounting() {
         paymentStatus,
         paymentDate || null,
         draft.paymentAdjustment,
-        assignment.paymentDeferredMonth || null,
       );
       updatePaymentDraft(assignment.id, { paymentStatus, paymentDate });
     } catch (error) {
@@ -2164,7 +2186,6 @@ export default function Accounting() {
             paymentStatus: bulkPaymentStatus,
             paymentDate,
             paymentAdjustment: draft.paymentAdjustment,
-            paymentDeferredMonth: assignment.paymentDeferredMonth || null,
           }, todayIso()),
         };
       });
@@ -3220,6 +3241,7 @@ export default function Accounting() {
                 </p>
               ) : null}
             </div>
+            {paymentDeferralNotice ? <p className="muted" role="status">{paymentDeferralNotice}</p> : null}
             {staffPaymentTabActionable ? <div className="finance-bulk-toolbar">
               <label className="finance-selection-check">
                 <input
@@ -3307,6 +3329,7 @@ export default function Accounting() {
                     const groupSelected = groupIds.length > 0 && groupIds.every((id) => selectedStaffPaymentIdSet.has(id));
                     const groupExpanded = expandedStaffPaymentGroupKey === group.key;
                     const groupName = group.collaborator?.shortName || group.collaborator?.name || '-';
+                    const debtAcrossMonths = staffDebtsAcrossMonths.get(group.key);
                     const groupStatuses = [...group.statusCounts.entries()].map(([status, count]) => ({
                       status,
                       count,
@@ -3339,6 +3362,9 @@ export default function Accounting() {
                                 </span>
                               ))}
                             </div>
+                            {(staffPaymentTab === 'unpaid' || staffPaymentTab === 'all') && debtAcrossMonths > group.outstanding ? (
+                              <small className="muted">Em dívida (todos os meses): <strong>{money.format(debtAcrossMonths)}</strong></small>
+                            ) : null}
                             <div className="finance-payment-group-mobile-metrics">
                               <span><small>Serviços</small><strong>{group.assignments.length}</strong></span>
                               <span><small>Horas</small><strong>{durationHours(group.hours)}</strong></span>
@@ -3396,7 +3422,7 @@ export default function Accounting() {
                       const paymentAssignment = { ...assignment, paymentStatus: draft.paymentStatus || assignment.paymentStatus };
                       const workflowTab = staffPaymentWorkflowTab(paymentAssignment);
                       const awaitingValidation = workflowTab === 'awaiting_validation';
-                      const showPaymentActions = workflowTab === 'unpaid'
+                      const showPaymentActions = workflowTab === 'unpaid' && assignment._financeReady
                         && (staffPaymentTab === 'unpaid' || staffPaymentTab === 'all');
                       const timing = staffPaymentTiming(paymentAssignment);
                       const paymentRequiresAttention = !awaitingValidation && staffPaymentRequiresAttention(paymentAssignment);
@@ -3504,7 +3530,14 @@ export default function Accounting() {
                           >
                             {PAYMENT_STATUS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                           </select>
-                          <input
+                          {timing.deferred && workflowTab === 'unpaid' ? (
+                            <span className="finance-staff-deferral-badge"><Badge tone="warning">
+                              {timing.deferredDate
+                                ? `Adiado até ${deferredPaymentDateLabel(timing.deferredDate)}`
+                                : `Adiado para ${monthLabel(timing.paymentMonth)}`}
+                            </Badge></span>
+                          ) : null}
+                          {draft.paymentStatus === 'paid' ? <input
                             className="finance-staff-payment-date"
                             type="date"
                             aria-label={`Data de pagamento de ${assignment.collaborator?.shortName || assignment.collaborator?.name || 'colaborador'}`}
@@ -3519,7 +3552,7 @@ export default function Accounting() {
                                 draft.paymentAdjustment,
                               );
                             }}
-                          />
+                          /> : null}
                         </div>}
                       </td>
                       {staffPaymentTab === 'unpaid' || staffPaymentTab === 'all' ? (
@@ -3534,25 +3567,14 @@ export default function Accounting() {
                               >
                                 Mover para pagos
                               </button>
-                              {timing.deferred ? (
-                                <button
-                                  type="button"
-                                  className="secondary-button"
-                                  disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
-                                  onClick={() => resetPaymentMonth(assignment)}
-                                >
-                                  Repor mês normal
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="secondary-button"
-                                  disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
-                                  onClick={() => deferPaymentToNextMonth(assignment)}
-                                >
-                                  Adiar mês
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={bulkUpdatingPayments || updatingAssignmentId === assignment.id}
+                                onClick={() => openPaymentDeferral(assignment)}
+                              >
+                                {timing.deferred ? 'Alterar data' : 'Adiar pagamento'}
+                              </button>
                             </div>
                           ) : '—'}
                         </td>
@@ -3947,6 +3969,37 @@ export default function Accounting() {
                 onClick={() => saveStaffAdjustment(true)}><TrendingUp size={15} aria-hidden="true" />Guardar como ganho da empresa</button> : null}
             </footer>
           </div>
+        </Modal>
+      ) : null}
+      {paymentDeferral ? (
+        <Modal title={paymentDeferral.timing.deferred ? 'Alterar data do pagamento' : 'Adiar pagamento'}
+          onClose={() => { if (!paymentDeferralSaving) setPaymentDeferral(null); }} preventFocusScroll>
+          <form className="resource-form finance-staff-deferral-form" onSubmit={(event) => { event.preventDefault(); savePaymentDeferral(paymentDeferral.date); }}>
+            <div className="finance-payment-notes-context">
+              <div>
+                <strong>{paymentDeferral.assignment.collaborator?.shortName || paymentDeferral.assignment.collaborator?.name || '-'}</strong>
+                <span>{paymentDeferral.assignment.event?.name || '-'} · {date.format(new Date(assignmentWorkDateValue(paymentDeferral.assignment)))}</span>
+                <span>Mês original: {monthLabel(paymentDeferral.timing.defaultMonth)}</span>
+              </div>
+              <strong>{money.format(assignmentOutstandingPay(paymentDeferral.assignment))}</strong>
+            </div>
+            <label>Data prevista de pagamento
+              <input className="form-control" type="date" required value={paymentDeferral.date} disabled={paymentDeferralSaving}
+                onChange={(event) => { setPaymentDeferral({ ...paymentDeferral, date: event.target.value }); setPaymentDeferralError(''); }} />
+            </label>
+            {paymentDeferralError ? <p className="notice" role="alert">{paymentDeferralError}</p> : null}
+            <footer className="form-actions finance-staff-adjustment-actions">
+              {paymentDeferral.timing.deferred ? (
+                <button type="button" className="secondary-button" disabled={paymentDeferralSaving}
+                  onClick={() => savePaymentDeferral(null)}>Repor mês original</button>
+              ) : null}
+              <button type="button" className="secondary-button" disabled={paymentDeferralSaving}
+                onClick={() => setPaymentDeferral(null)}>Cancelar</button>
+              <button type="submit" className="command-button" disabled={paymentDeferralSaving || !isStaffPaymentDeferredDate(paymentDeferral.date)}>
+                {paymentDeferralSaving ? 'A guardar...' : 'Guardar data'}
+              </button>
+            </footer>
+          </form>
         </Modal>
       ) : null}
       {paymentNotesAssignment ? (

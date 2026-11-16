@@ -4,7 +4,18 @@ import {
   createStaffPaymentGroupSnapshot,
   groupStaffPaymentEntries,
   restoreStaffPaymentSnapshotGroups,
+  staffDebtsWithDeferredPayments,
 } from './staffPaymentGroups.js';
+
+test('keeps the collaborator debt across months without including paid work or company gains', () => {
+  const row = (id, totalPay, extra = {}) => ({ id, collaboratorId: 1, paymentStatus: 'unpaid', totalPay, ...extra });
+  const debts = staffDebtsWithDeferredPayments([
+    row(1, 76, { paymentDeferredDate: '2027-02-28' }), row(2, 64), row(3, 52),
+    row(4, 25, { paymentStatus: 'paid' }), row(5, 30, { paymentStatus: 'ganho' }),
+    row(6, 40, { _financeReady: false }), row(7, 10, { collaboratorId: 2 }),
+  ]);
+  assert.deepEqual([...debts], [['collaborator:1', 192]]);
+});
 
 test('groups staff payment entries by collaborator while preserving service rows and order', () => {
   const first = { id: 1, collaboratorId: 10, paymentStatus: 'unpaid', collaborator: { id: 10, name: 'Miriam' } };

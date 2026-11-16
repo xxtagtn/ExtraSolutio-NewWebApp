@@ -125,12 +125,15 @@ async function setup(width, initial = fixture()) {
       }
       assert.equal(method, 'PUT');
       const adjustment = path.match(/^\/assignments\/(\d+)\/payment-adjustment$/);
+      const deferral = path.match(/^\/assignments\/(\d+)\/payment-deferral$/);
       const updates = path === '/assignments/bulk' ? request.postDataJSON().updates
         : adjustment ? [{ id: Number(adjustment[1]), data: {
           paymentAdjustment: request.postDataJSON().amount,
           paymentAdjustmentGain: request.postDataJSON().asGain ? -request.postDataJSON().amount : null,
+        } }] : deferral ? [{ id: Number(deferral[1]), data: {
+          paymentDeferredDate: request.postDataJSON().date, paymentDeferredMonth: null,
         } }] : [{ id: Number(path.split('/').at(-1)), data: request.postDataJSON() }];
-      assert.ok(path === '/assignments/bulk' || adjustment || /^\/assignments\/\d+$/.test(path));
+      assert.ok(path === '/assignments/bulk' || adjustment || deferral || /^\/assignments\/\d+$/.test(path));
       for (const update of updates) {
         const row = data.services.flatMap((event) => event.assignments).find((assignment) => assignment.id === Number(update.id));
         assert.ok(row);
@@ -156,6 +159,72 @@ async function setup(width, initial = fixture()) {
 }
 
 try {
+  for (const width of [1440, 320]) {
+    const data = fixture();
+    const service = data.services[0];
+    service.assignments = [76, 64, 52].map((amount, index) => ({ ...service.assignments[index], hourlyRate: amount, totalPay: amount }));
+    data.services = [service];
+    const f = await setup(width, data);
+    const { page } = f;
+    const period = page.locator('.finance-month-control select');
+    const group = page.locator('.finance-staff-payment-group-row');
+    const details = page.locator('.finance-staff-payment-detail-table tbody');
+    const openGroup = async () => {
+      const button = page.getByRole('button', { name: 'Consultar serviços de Miriam Oliveira' });
+      if (await button.isVisible()) await button.click();
+    };
+    await summary(page, { unpaid: [1, 192] });
+    await openGroup();
+    await details.getByRole('button', { name: 'Adiar pagamento' }).first().click();
+    let dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Data prevista de pagamento').fill('2027-01-01');
+    f.failWrite();
+    await dialog.getByRole('button', { name: 'Guardar data' }).click();
+    await dialog.getByRole('alert').getByText('Teste: pagamento recusado').waitFor();
+    await dialog.getByRole('button', { name: 'Guardar data' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    await summary(page, { unpaid: [1, 116] });
+    assert.ok((await group.textContent()).includes(money.format(192)));
+    assert.equal(f.writes.at(-1).payload.updatedAt, service.assignments[0].updatedAt);
+    assert.equal(service.assignments[0].paymentStatus, 'unpaid');
+    assert.equal(service.assignments[1].paymentDeferredDate, undefined);
+
+    await period.nth(1).selectOption('2027');
+    await period.first().selectOption('01');
+    await summary(page, { unpaid: [1, 76] });
+    await openGroup();
+    await details.getByText('Adiado até 01/01/2027').waitFor();
+    await details.getByRole('button', { name: 'Alterar data' }).click();
+    dialog = page.getByRole('dialog');
+    assert.equal(await dialog.getByLabel('Data prevista de pagamento').inputValue(), '2027-01-01');
+    await dialog.getByLabel('Data prevista de pagamento').fill('2027-02-28');
+    await dialog.getByRole('button', { name: 'Guardar data' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    await summary(page, { unpaid: [0, 0] });
+    await period.first().selectOption('02');
+    await summary(page, { unpaid: [1, 76] });
+    await page.reload();
+    await period.nth(1).selectOption('2027');
+    await period.first().selectOption('02');
+    await summary(page, { unpaid: [1, 76] });
+    await openGroup();
+    await details.getByText('Adiado até 28/02/2027').waitFor();
+    await details.getByRole('button', { name: 'Alterar data' }).click();
+    dialog = page.getByRole('dialog');
+    assert.equal(await dialog.evaluate((element) => element.scrollWidth > element.clientWidth + 1), false);
+    await page.screenshot({ path: `${output}/staff-deferral-${width}.png`, animations: 'disabled' });
+    await dialog.getByRole('button', { name: 'Repor mês original' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    await summary(page, { unpaid: [0, 0] });
+    await period.nth(1).selectOption('2026');
+    await period.first().selectOption('10');
+    await summary(page, { unpaid: [1, 192] });
+    await openGroup();
+    assert.equal(await details.getByRole('button', { name: 'Adiar pagamento' }).count(), 3);
+    await f.context.close();
+    console.log(`${width}px: exact deferral, rejection, rescheduling, debt across months, reload and reset passed`);
+  }
+
   for (const width of [1440, 768, 390, 320]) {
     const f = await setup(width);
     const { page } = f;

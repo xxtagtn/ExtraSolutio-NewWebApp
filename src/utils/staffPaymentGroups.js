@@ -1,4 +1,5 @@
 import { staffAssignmentPaymentBalance } from './staffPayment.js';
+import { staffPaymentWorkflowTab } from './staffPaymentWorkflow.js';
 
 export function groupStaffPaymentEntries(entries = []) {
   const groups = new Map();
@@ -63,4 +64,17 @@ export function summarizeStaffPaymentAmounts(assignments = []) {
   return Object.fromEntries(Object.entries(cents).map(([state, amounts]) => [state,
     Object.fromEntries(fields.map((field) => [field, amounts[field] / 100])),
   ]));
+}
+
+export function staffDebtsWithDeferredPayments(entries = []) {
+  const debts = new Map();
+  for (const group of groupStaffPaymentEntries(entries)) {
+    const outstanding = group.assignments.filter((assignment) => (
+      !['paid', 'ganho', 'awaiting_validation'].includes(staffPaymentWorkflowTab(assignment))
+    ));
+    if (outstanding.some((assignment) => assignment.paymentDeferredDate || assignment.paymentDeferredMonth)) {
+      debts.set(group.key, summarizeStaffPaymentAmounts(outstanding).outstanding.total);
+    }
+  }
+  return debts;
 }

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   assignmentWorkDateValue,
   defaultStaffPaymentMonth,
+  isStaffPaymentDeferredDate,
   staffPaymentRequiresAttention,
   staffPaymentTiming,
   staffPaymentTotal,
@@ -60,6 +61,32 @@ test('allows a staff payment to be deferred to a later month', () => {
   assert.equal(timing.paymentMonth, '2026-08');
   assert.equal(timing.status, 'not_open');
   assert.equal(timing.deferred, true);
+});
+
+test('an exact date moves only the payment period and replaces the normal payment window', () => {
+  const assignment = {
+    assignmentDate: '2026-09-13', paymentStatus: 'unpaid',
+    paymentDeferredDate: '2027-02-28', paymentDeferredMonth: '2026-11',
+  };
+  const before = new Date(2027, 1, 27, 12);
+  const on = new Date(2027, 1, 28, 12);
+  const after = new Date(2027, 2, 1, 12);
+  const timing = staffPaymentTiming(assignment, before);
+  assert.equal(timing.paymentMonth, '2027-02');
+  assert.equal(timing.defaultMonth, '2026-10');
+  assert.equal(timing.deferredDate, '2027-02-28');
+  assert.equal(timing.status, 'not_open');
+  assert.equal(staffPaymentTiming(assignment, on).status, 'open');
+  assert.equal(staffPaymentTiming(assignment, after).status, 'overdue');
+  assert.equal(staffPaymentTiming({ ...assignment, paymentStatus: 'paid' }, after).status, 'paid');
+  assert.equal(staffPaymentTiming({ ...assignment, paymentDeferredDate: '2026-10-25' }).deferred, true);
+});
+
+test('validates calendar dates without timezones or overflow into another month', () => {
+  assert.equal(isStaffPaymentDeferredDate('2028-02-29'), true);
+  for (const value of ['2027-02-29', '2027-02-30', '2027-13-01', '2027-01', '0000-02-01', '2027-02-28T00:00:00Z', '', null]) {
+    assert.equal(isStaffPaymentDeferredDate(value), false, value);
+  }
 });
 
 test('shows the validated client schedule and supports legacy client hours', () => {

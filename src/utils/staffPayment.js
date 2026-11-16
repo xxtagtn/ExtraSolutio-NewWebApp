@@ -93,13 +93,6 @@ export function validatedClientScheduleLabel(assignment = {}) {
   return start && end ? `${start} - ${end}` : '-';
 }
 
-export function nextStaffPaymentMonth(paymentMonth) {
-  const [year, month] = String(paymentMonth || '').split('-').map(Number);
-  if (!Number.isFinite(year) || !Number.isFinite(month)) return '';
-  const date = new Date(year, month, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
 export function staffPaymentWindow(paymentMonth) {
   const [year, month] = String(paymentMonth || '').split('-').map(Number);
   if (!Number.isFinite(year) || !Number.isFinite(month)) return { start: null, end: null };
@@ -109,11 +102,20 @@ export function staffPaymentWindow(paymentMonth) {
   };
 }
 
+export function isStaffPaymentDeferredDate(value) {
+  if (typeof value !== 'string' || !/^(?!0000)\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 export function staffPaymentTiming(assignment = {}, today = new Date()) {
   const serviceDate = assignmentWorkDateValue(assignment);
   const defaultMonth = defaultStaffPaymentMonth(serviceDate);
-  const paymentMonth = assignment.paymentDeferredMonth || defaultMonth;
-  const { start, end } = staffPaymentWindow(paymentMonth);
+  const deferredDate = isStaffPaymentDeferredDate(assignment.paymentDeferredDate) ? assignment.paymentDeferredDate : null;
+  const paymentMonth = deferredDate?.slice(0, 7) || assignment.paymentDeferredMonth || defaultMonth;
+  const deadline = deferredDate ? new Date(`${deferredDate}T00:00:00`) : null;
+  const { start, end } = deadline ? { start: deadline, end: deadline } : staffPaymentWindow(paymentMonth);
+  const deferred = Boolean(deferredDate || (assignment.paymentDeferredMonth && assignment.paymentDeferredMonth !== defaultMonth));
   const reference = parseDate(today);
 
   if (!paymentMonth || !start || !end || !reference) {
@@ -121,7 +123,8 @@ export function staffPaymentTiming(assignment = {}, today = new Date()) {
       paymentMonth,
       defaultMonth,
       status: 'unknown',
-      deferred: Boolean(assignment.paymentDeferredMonth),
+      deferred,
+      deferredDate,
       start,
       end,
     };
@@ -137,7 +140,8 @@ export function staffPaymentTiming(assignment = {}, today = new Date()) {
     paymentMonth,
     defaultMonth,
     status,
-    deferred: Boolean(assignment.paymentDeferredMonth && assignment.paymentDeferredMonth !== defaultMonth),
+    deferred,
+    deferredDate,
     start,
     end,
   };

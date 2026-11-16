@@ -16,7 +16,7 @@ export async function readNotificationOverview(db, user, { now = applicationWall
         assignments: { select: {
           id: true, collaboratorId: true, assignmentDate: true, status: true, role: true,
           validationStatus: true, clientCheckIn: true, clientCheckOut: true, validatedCheckIn: true, validatedCheckOut: true,
-          ...(canFinance ? { paymentStatus: true, paymentDeferredMonth: true } : {}),
+          ...(canFinance ? { paymentStatus: true, paymentDeferredMonth: true, paymentDeferredDate: true } : {}),
         } },
       },
     }) : [],

@@ -446,6 +446,7 @@ model EventAssignment {
   paymentStatus  String       @default("unpaid") @db.VarChar(40)
   paymentDate    DateTime?    @db.DateTime(3)
   paymentDeferredMonth String? @db.VarChar(7)
+  paymentDeferredDate String?  @db.VarChar(10)
   paymentAdjustment Decimal   @default(0) @db.Decimal(12, 2)
   paymentAdjustmentGain Decimal? @db.Decimal(12, 2)
   paymentNotes   String?      @db.LongText

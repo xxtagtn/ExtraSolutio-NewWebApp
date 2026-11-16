@@ -159,6 +159,7 @@ function cancellationBlocker(event, assignments) {
       String(assignment.paymentStatus || '').trim().toLowerCase(),
     )
     || assignment.paymentDeferredMonth
+    || assignment.paymentDeferredDate
     || Number(assignment.paymentAdjustment || 0) !== 0
     || hasRecordedAdvance(assignment.advancePayments)
   ))) {
