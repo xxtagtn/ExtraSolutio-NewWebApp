@@ -14,6 +14,9 @@
   Prisma 7/8 nem alteracoes aos schemas ou dados.
 - allowScripts autoriza apenas os tres pacotes Prisma, na versao revista
   6.19.3, para instalacoes com npm 12. Nao autorizar globalmente todos os scripts.
+- .npmrc define allow-remote=root: no npm 12, permite apenas os tarballs por URL
+  declarados diretamente no package.json, incluindo o SheetJS oficial. Nao
+  permite URLs remotos arbitrarios introduzidos por dependencias transitivas.
 
 ## Publicacao
 
@@ -37,7 +40,7 @@ cd /var/www/esgestao.ddns.net
 sudo -u esgestao -H npm run db:backup
 sudo systemctl stop esgestao-api
 sudo -u esgestao -H git pull --ff-only
-sudo -u esgestao -H npm ci
+sudo -u esgestao -H npm ci --include=dev --allow-remote=root
 sudo -u esgestao -H chmod u+x node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x
 sudo -u esgestao -H npm run db:generate:mysql
 sudo -u esgestao -H npm run build
