@@ -15,7 +15,7 @@ const source = {
   eventType: 'Catering', clientId: '3', clientName: '', date: '2026-10-01',
   endDate: '2026-10-03', isContinuous: true, startTime: '18:00', endTime: '04:00',
   location: 'Local original', useDefaultLocation: false, guestsCount: 100,
-  uniform: 'Outros', uniformOther: 'Avental', meetingPoint: 'Entrada',
+  uniform: 'Outros', uniformOther: 'Avental', uniformNotes: 'Levar gravata', meetingPoint: 'Entrada',
   onsiteContactName: 'Contacto', onsiteContactPhone: '900000000',
   description: 'Notas operacionais [BUDGET_REF:ORC-123] [EVENT_VALIDATED_HOURS]',
   status: 'finalized', statusMode: 'manual', billingStatus: 'paid',
@@ -42,7 +42,7 @@ const source = {
 test('duplicates planning without creating identities, billing or workflow history', () => {
   const form = buildServiceDuplicateForm(source, defaults());
   assert.equal(form.name, 'Cópia de Evento original');
-  for (const field of ['clientId', 'location', 'date', 'endDate', 'startTime', 'endTime', 'uniform', 'uniformOther']) {
+  for (const field of ['clientId', 'location', 'date', 'endDate', 'startTime', 'endTime', 'uniform', 'uniformOther', 'uniformNotes']) {
     assert.equal(form[field], source[field]);
   }
   assert.equal(form.description, 'Notas operacionais');

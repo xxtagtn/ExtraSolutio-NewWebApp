@@ -6,6 +6,7 @@ import { readQrCodesPage, readRelevantQrEvents } from '../services/qrCodesPage.j
 import { communicationAssignmentSchedule } from '../../src/utils/communicationCenter.js';
 import { publicQrCheckoutReceipt, qrCheckoutProtection, readPublicQr, registerPublicQr } from '../services/qrAttendance.js';
 import { ensureAssignmentQr } from '../services/qrCodeGeneration.js';
+import { publicUniform } from '../utils/publicUniform.js';
 import { publicDailyPunchPayload, readDailyQr, registerDailyQr } from '../services/qrDailyAttendance.js';
 import { createDailyQrToken } from '../utils/qrDailyToken.js';
 import { createMonthlyPunchToken, monthlyPunchCycle } from '../utils/qrMonthlyToken.js';
@@ -94,6 +95,7 @@ function publicPayload(req, qrCode) {
     state,
     collaboratorName: collaborator.shortName || collaborator.name || 'Colaborador',
     eventName: event.name || 'Evento/Serviço',
+    ...publicUniform(event),
     clientName: event.client?.name || event.clientName || '',
     assignmentDate: assignment.assignmentDate || event.date || null,
     role: assignment.role || '',

@@ -189,6 +189,7 @@ function emptyForm() {
     endTime: '',
     uniform: '',
     uniformOther: '',
+    uniformNotes: '',
     meetingPoint: '',
     onsiteContactName: '',
     onsiteContactPhone: '',
@@ -459,6 +460,7 @@ function toForm(row) {
     endTime: row.endTime || '',
     uniform: isKnownUniform ? savedUniform : (savedUniform ? 'Outros' : ''),
     uniformOther: isKnownUniform || isOtherUniform ? '' : savedUniform,
+    uniformNotes: row.uniformNotes || '',
     meetingPoint: row.meetingPoint || '',
     onsiteContactName: row.onsiteContactName || '',
     onsiteContactPhone: row.onsiteContactPhone || '',
@@ -1466,6 +1468,7 @@ export default function Services() {
         endDate: form.isContinuous && form.endDate ? form.endDate : null,
         location: effectiveLocation,
         uniform: form.uniform === 'Outros' ? form.uniformOther : form.uniform,
+        uniformNotes: form.uniformNotes.trim() || null,
         clientId: form.clientId ? Number(form.clientId) : null,
         clientName: form.clientId ? null : (form.clientName.trim() || null),
         guestsCount: form.guestsCount === '' ? null : Number(form.guestsCount),
@@ -2166,6 +2169,11 @@ export default function Services() {
                         </label>
                       ) : null}
                     </div>
+                    <label className="span-2">Observações do fardamento (opcional)
+                      <textarea value={form.uniformNotes} maxLength={1000} rows={2}
+                        placeholder="Ex.: Avental fornecido no local"
+                        onChange={(event) => setForm({ ...form, uniformNotes: event.target.value })} />
+                    </label>
                     <label>Contacto no Local - Nome
                       <input value={form.onsiteContactName} placeholder="Ex: João Silva" onChange={(event) => setForm({ ...form, onsiteContactName: event.target.value })} />
                     </label>

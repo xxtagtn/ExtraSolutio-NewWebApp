@@ -2,6 +2,7 @@ import { CheckCircle2, LogIn, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import QrLocationLink from './QrLocationLink.jsx';
 import QrLinkHeader from './QrLinkHeader.jsx';
+import QrUniform from './QrUniform.jsx';
 
 function schedule(service) {
   return [service.startTime || '--:--', service.endTime || '--:--'].join(' → ');
@@ -45,6 +46,7 @@ export default function DailyQrServices({ payload, saving, onRegister, showHeade
         <h2>{current.eventName}</h2>
         {current.clientName && <p>{current.clientName}</p>}
         <QrLocationLink location={current.location} workLocation={current.workLocation} />
+        <QrUniform uniform={current.uniform} uniformNotes={current.uniformNotes} />
       </header>
       <dl className="qr-check-details">
         <div><dt>Função</dt><dd>{current.role || '-'}</dd></div>

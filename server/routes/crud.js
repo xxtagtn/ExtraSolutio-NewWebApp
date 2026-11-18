@@ -224,6 +224,12 @@ export function normalizeEvent(input) {
     ...(input.serviceReference !== undefined
       ? { serviceReference: String(input.serviceReference || '').trim().slice(0, 160) || null }
       : {}),
+    ...(input.uniformNotes !== undefined
+      ? { uniformNotes: String(input.uniformNotes || '').trim().slice(0, 1000) || null }
+      : {}),
+    ...(input.uniform !== undefined
+      ? { uniform: String(input.uniform || '').trim() || null }
+      : {}),
     workLocationsEnabled: parseBoolean(input.workLocationsEnabled),
     totalCost: parseDecimal(input.totalCost),
     totalRevenue: parseDecimal(input.totalRevenue),

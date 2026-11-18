@@ -1,5 +1,6 @@
 import { Check, Copy, Eye, MapPin } from 'lucide-react';
 import { useState } from 'react';
+import QrUniform from './QrUniform.jsx';
 import { qrPlannedSchedule, qrSummaryDate, qrSummaryRecords, qrSummaryText, recordedIntervalLabel } from '../../utils/qrConsultationSummary.js';
 import './qrConsultation.css';
 
@@ -53,6 +54,7 @@ export function QrConsultationRecord({ service, showRecordedHours = true, compac
     <header><h2>{service.eventName}</h2>
       {(service.role || service.clientName) && <p>{[service.role, service.clientName].filter(Boolean).join(' · ')}</p>}
       {(service.workLocation || service.location) && <p className="qr-day-location"><MapPin size={15} /><span>{[service.location, service.workLocation].filter(Boolean).join(' · ')}</span></p>}
+      <QrUniform uniform={service.uniform} uniformNotes={service.uniformNotes} />
     </header>
     <dl className="qr-consultation-planned"><div><dt>Horário previsto</dt><dd>{qrPlannedSchedule(service)}</dd></div></dl>
     {showRecordedHours && <div className="qr-consultation-punches">

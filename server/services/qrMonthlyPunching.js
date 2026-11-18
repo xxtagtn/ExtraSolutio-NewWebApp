@@ -8,6 +8,7 @@ import { monthlyQrEligible, monthlyQrRows } from './qrMonthlyAttendance.js';
 import { publicDailyPunchPayload, QR_SERVICE_SWITCH_DELAY_MS, readDailyQr, registerDailyQr } from './qrDailyAttendance.js';
 import { publicQrError } from './qrAttendance.js';
 import { requireActiveQrCollaborator } from './collaboratorQrAccess.js';
+import { publicUniform } from '../utils/publicUniform.js';
 
 function identity(token, now) {
   if (!String(token || '').startsWith('month2.')) {
@@ -63,6 +64,7 @@ function servicePayload(row) {
   return {
     assignmentId: row.id, assignmentDate: eventDayKey(row.assignmentDate || row.event.date),
     eventName: row.event.name, role: row.role || '', location: row.event.location || '',
+    ...publicUniform(row.event),
     workLocation: row.event.workLocationsEnabled ? row.workLocation?.name || '' : '',
     startTime: planned.plannedCheckIn, endTime: planned.plannedCheckOut,
     inProgress: Boolean(row.checkIn && !row.checkOut),

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import DailyQrServices from './DailyQrServices.jsx';
 import QrLocationLink from './QrLocationLink.jsx';
 import QrLinkHeader from './QrLinkHeader.jsx';
+import QrUniform from './QrUniform.jsx';
 import { qrSummaryDate } from '../../utils/qrConsultationSummary.js';
 import { monthlyDaysPage, monthlyServiceDays } from '../../utils/qrMonthlyPresentation.js';
 import './qrConsultation.css';
@@ -63,6 +64,7 @@ export default function MonthlyQrServices({ payload, saving, onRegister, themed 
             <h2>{service.eventName}</h2>
             <p>{service.role || '-'}</p>
             <QrLocationLink location={service.location} workLocation={service.workLocation} />
+            <QrUniform uniform={service.uniform} uniformNotes={service.uniformNotes} />
           </header>
           <dl className="qr-consultation-planned"><div><dt>Horário previsto</dt>
             <dd>{service.startTime || '--:--'} → {service.endTime || '--:--'}</dd></div></dl>

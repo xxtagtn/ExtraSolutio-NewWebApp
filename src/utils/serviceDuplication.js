@@ -3,7 +3,7 @@ import { activeEventDayKeys, eventDayKey, isAssignmentOnCancelledDay, isEventDay
 const planningFields = [
   'eventType', 'date', 'endDate', 'isContinuous', 'clientId', 'clientName',
   'useDefaultLocation', 'location', 'guestsCount', 'startTime', 'endTime',
-  'uniform', 'uniformOther', 'meetingPoint', 'onsiteContactName', 'onsiteContactPhone',
+  'uniform', 'uniformOther', 'uniformNotes', 'meetingPoint', 'onsiteContactName', 'onsiteContactPhone',
   'travelExpenseEnabled', 'travelExpenseAmount', 'travelType', 'travelPeople',
   'km', 'kmRate', 'durationHours', 'travelStaffHourlyRate', 'split5050',
   'travelManualAmount', 'workLocationsEnabled', 'vatRateSnapshot', 'staffVatRateSnapshot',

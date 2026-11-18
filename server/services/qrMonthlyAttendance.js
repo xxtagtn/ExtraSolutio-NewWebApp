@@ -8,6 +8,7 @@ import { qrUsageWindow } from '../utils/qrCheckins.js';
 import { publicQrPlannedSchedule, publicQrValidation } from '../utils/qrConsultation.js';
 import { publicQrError } from './qrAttendance.js';
 import { readDailyQr, registerDailyQr } from './qrDailyAttendance.js';
+import { publicUniform } from '../utils/publicUniform.js';
 
 export function monthlyQrEligible(row) {
   return ['confirmed', 'confirmado'].includes(String(row.status || '').toLowerCase())
@@ -56,6 +57,7 @@ export function monthlyServicePayload(row, now, cycle = monthlyQrCycle(now)) {
     assignmentId: row.id, assignmentDate: eventDayKey(row.assignmentDate || row.event.date),
     eventName: row.event.name, clientName: row.event.client?.name || row.event.clientName || '',
     role: row.role || '', location: row.event.location || '',
+    ...publicUniform(row.event),
     workLocation: row.event.workLocationsEnabled ? row.workLocation?.name || '' : '',
     ...communicationAssignmentSchedule(row, row.event),
     ...publicQrPlannedSchedule(row, row.event),

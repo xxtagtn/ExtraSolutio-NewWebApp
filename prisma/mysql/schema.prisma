@@ -340,6 +340,7 @@ model Event {
   rateHistory  String?           @db.LongText
   externalCosts String?          @db.LongText
   uniform      String?           @db.VarChar(80)
+  uniformNotes String?           @db.Text
   meetingPoint String?           @db.Text
   onsiteContactName String?      @db.VarChar(191)
   onsiteContactPhone String?     @db.VarChar(40)

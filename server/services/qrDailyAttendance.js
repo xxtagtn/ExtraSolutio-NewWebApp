@@ -9,6 +9,7 @@ import { publicQrPlannedSchedule, publicQrValidation, qrConsultationAccess } fro
 import { ensureAssignmentQr } from './qrCodeGeneration.js';
 import { publicQrCheckoutReceipt, publicQrError, qrCheckoutProtection, registerPublicQr } from './qrAttendance.js';
 import { requireActiveQrCollaborator } from './collaboratorQrAccess.js';
+import { publicUniform } from '../utils/publicUniform.js';
 
 export const QR_SERVICE_SWITCH_DELAY_MS = 2000;
 const excludedStatuses = new Set(['cancelled', 'canceled', 'removed', 'missed_justified', 'missed_unjustified']);
@@ -110,6 +111,7 @@ function payload(state, now) {
       assignmentId: row.id, eventName: row.event.name,
       clientName: row.event.client?.name || row.event.clientName || '',
       location: row.event.location || '',
+      ...publicUniform(row.event),
       workLocation: row.event.workLocationsEnabled ? row.workLocation?.name || '' : '',
       role: row.role || '', ...communicationAssignmentSchedule(row, row.event),
       ...publicQrPlannedSchedule(row, row.event),
@@ -132,6 +134,7 @@ export function publicDailyPunchPayload(state) {
   const services = state.services.filter((service) => candidateIds.includes(service.assignmentId)).map((service) => ({
     assignmentId: service.assignmentId, eventName: service.eventName, clientName: service.clientName,
     location: service.location, workLocation: service.workLocation, role: service.role,
+    ...publicUniform(service),
     startTime: service.startTime, endTime: service.endTime, checkIn: service.checkIn, checkOut: service.checkOut,
     state: service.state, expired: service.expired, checkOutAvailableAt: service.checkOutAvailableAt,
     checkOutAvailableTime: service.checkOutAvailableTime, checkOutRetryAfterMs: service.checkOutRetryAfterMs,

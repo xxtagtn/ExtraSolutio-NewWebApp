@@ -1490,6 +1490,7 @@ export default function ServiceDetail() {
               <InfoItem label="Entrada prevista" value={fieldValue(service.startTime)} />
               <InfoItem label="Saída prevista" value={fieldValue(service.endTime)} />
               <InfoItem label="Uniforme" value={fieldValue(service.uniform)} />
+              {service.uniformNotes && <InfoItem label="Observações do fardamento" value={service.uniformNotes} />}
               <InfoItem label="Horas mínimas" value={parseNumber(service.minimumHoursSnapshot) > 0 ? `${service.minimumHoursSnapshot} h por colaborador/turno` : 'Sem mínimo'} />
             </div>
           </Card>

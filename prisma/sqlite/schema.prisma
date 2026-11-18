@@ -340,6 +340,7 @@ model Event {
   rateHistory  String?
   externalCosts String?
   uniform      String?
+  uniformNotes String?
   meetingPoint String?
   onsiteContactName String?
   onsiteContactPhone String?

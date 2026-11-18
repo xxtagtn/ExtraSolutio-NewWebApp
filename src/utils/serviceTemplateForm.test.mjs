@@ -20,6 +20,7 @@ test('applying a second service template replaces values loaded by the first tem
       endTime: '16:00',
       uniform: 'Camisa Branca',
       uniformOther: '',
+      uniformNotes: 'Avental fornecido no local.',
       meetingPoint: 'Porta A',
       onsiteContactName: 'Ana',
       onsiteContactPhone: '910000000',
@@ -100,6 +101,9 @@ test('applying a second service template replaces values loaded by the first tem
   });
 
   assert.equal(afterFirst.workLocationsEnabled, true);
+  assert.equal(afterFirst.uniformNotes, 'Avental fornecido no local.');
+  assert.equal(afterSecond.uniformNotes, '');
+  assert.equal(templateFormModule.templatePayloadFromForm(afterFirst).uniformNotes, 'Avental fornecido no local.');
   assert.deepEqual(afterFirst.workLocations, ['Lounge A', 'Lounge VIP']);
   assert.equal(afterSecond.name, 'Cocktail B');
   assert.equal(afterSecond.eventType, 'Corporate');

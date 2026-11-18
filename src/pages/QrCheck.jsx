@@ -6,6 +6,7 @@ import DailyQrServices from '../components/Communication/DailyQrServices.jsx';
 import MonthlyQrServices from '../components/Communication/MonthlyQrServices.jsx';
 import QrLocationLink from '../components/Communication/QrLocationLink.jsx';
 import QrLinkHeader from '../components/Communication/QrLinkHeader.jsx';
+import QrUniform from '../components/Communication/QrUniform.jsx';
 import { qrSummaryDate } from '../utils/qrConsultationSummary.js';
 import { resolveSeasonalTheme } from '../utils/seasonalTheme.js';
 import SeasonalArtwork from '../components/Appearance/SeasonalArtwork.jsx';
@@ -216,6 +217,7 @@ function QrCheckPage({ token, daily, monthly, permanent }) {
               <h1>{payload.eventName}</h1>
               <p>{payload.clientName || 'ExtraSolutio'} · {formatDate(payload.assignmentDate)}</p>
               <QrLocationLink location={payload.location} />
+              <QrUniform uniform={payload.uniform} uniformNotes={payload.uniformNotes} />
             </QrLinkHeader>
 
             <dl className="qr-check-details">
