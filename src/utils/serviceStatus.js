@@ -152,6 +152,22 @@ export function nextTimeValidationServiceStatus(event = {}) {
   return SERVICE_STATUS.toValidateStaff;
 }
 
+export function deriveServiceWorkflowStatus(event = {}, now = new Date(), timeZone = 'Europe/Lisbon') {
+  const status = normalizeStatus(event.status);
+  if (externalServiceCanArchive(event, now, timeZone)) return SERVICE_STATUS.finalized;
+  if (event.statusMode === 'manual') return status;
+  if (status === SERVICE_STATUS.finalized || status === 'cancelled') return status;
+  if (isExternalOnlyService(event)) return nextAutomaticServiceStatus({ ...event, status }, now);
+  return status === SERVICE_STATUS.toValidateStaff || status === SERVICE_STATUS.toValidateClient
+    ? nextTimeValidationServiceStatus({ ...event, status })
+    : nextAutomaticServiceStatus({ ...event, status }, now);
+}
+
+export function servicesNeedingWorkflowSync(events = [], now = new Date()) {
+  return events.filter((event) => event.statusMode !== 'manual'
+    && deriveServiceWorkflowStatus(event, now) !== event.status);
+}
+
 export function isArchivedService(event = {}, now = new Date()) {
   if (isExternalOnlyService(event)) return externalServiceCanArchive(event, now);
   return normalizeStatus(event.status) === SERVICE_STATUS.finalized;

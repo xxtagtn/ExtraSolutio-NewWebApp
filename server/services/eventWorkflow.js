@@ -1,6 +1,5 @@
 import {
-  nextAutomaticServiceStatus,
-  nextTimeValidationServiceStatus,
+  deriveServiceWorkflowStatus,
   SERVICE_STATUS,
 } from '../../src/utils/serviceStatus.js';
 import {
@@ -50,19 +49,7 @@ export function isEventWorkflowManual(event = {}) {
 }
 
 export function deriveEventWorkflowStatus(event = {}, now = new Date()) {
-  const status = normalizedStatus(event.status);
-  if (externalServiceCanArchive(event, now, process.env.APP_TIMEZONE || 'Europe/Lisbon')) return SERVICE_STATUS.finalized;
-  if (isEventWorkflowManual(event)) return status || SERVICE_STATUS.drafting;
-  if (status === SERVICE_STATUS.finalized || status === 'cancelled') return status;
-  if (isExternalOnlyService(event)) return nextAutomaticServiceStatus({ ...event, status }, now);
-
-  const validationStage = new Set([
-    SERVICE_STATUS.toValidateStaff,
-    SERVICE_STATUS.toValidateClient,
-  ]);
-  return validationStage.has(status)
-    ? nextTimeValidationServiceStatus({ ...event, status })
-    : nextAutomaticServiceStatus({ ...event, status }, now);
+  return deriveServiceWorkflowStatus(event, now, process.env.APP_TIMEZONE || 'Europe/Lisbon');
 }
 
 function withoutValidatedHoursMarker(notes) {

@@ -29,32 +29,33 @@ function LayoutContent() {
   const [ignoredNotifications, setIgnoredNotifications] = useState([]);
   const [notificationReferenceDate, setNotificationReferenceDate] = useState(() => new Date());
   const location = useLocation();
-  const communicationPage = location.pathname.replace(/\/$/, '') === '/communication';
-  const { data: remoteOverview } = useCommunicationData(communicationPage ? `/notifications/overview?day=${notificationReferenceDate.toDateString()}` : null);
-  const { data: services, reload: reloadServices } = useApi('/services', [], { enabled: !communicationPage });
-  const { data: budgets } = useApi('/budgets', [], { enabled: !communicationPage });
-  const { data: invoices } = useApi('/invoices', [], { enabled: !communicationPage });
-  const { data: collaborators } = useApi('/collaborators?light=1', [], { enabled: !communicationPage });
+  const lightweightNotifications = ['/communication', '/services'].includes(location.pathname.replace(/\/$/, ''));
+  const { data: remoteOverview, reload: reloadOverview } = useCommunicationData(lightweightNotifications ? `/notifications/overview?day=${notificationReferenceDate.toDateString()}` : null);
+  const { data: services, reload: reloadServices } = useApi('/services', [], { enabled: !lightweightNotifications });
+  const { data: budgets } = useApi('/budgets', [], { enabled: !lightweightNotifications });
+  const { data: invoices } = useApi('/invoices', [], { enabled: !lightweightNotifications });
+  const { data: collaborators } = useApi('/collaborators?light=1', [], { enabled: !lightweightNotifications });
   const { data: ignoredFromDb } = useApi('/notifications/ignored', []);
 
-  const reminders = useMemo(() => communicationPage ? (remoteOverview?.reminders || []) : layoutPaymentReminders(services), [communicationPage, remoteOverview, services]);
+  const reminders = useMemo(() => lightweightNotifications ? (remoteOverview?.reminders || []) : layoutPaymentReminders(services), [lightweightNotifications, remoteOverview, services]);
   const showReminder = reminders.length > 0 && !dismissed;
 
   useEffect(() => {
-    const refreshPayments = () => reloadServices({ background: true });
+    const refreshPayments = () => lightweightNotifications
+      ? reloadOverview({ background: true }) : reloadServices({ background: true });
     window.addEventListener('extrasolutio:client-payment-changed', refreshPayments);
     return () => window.removeEventListener('extrasolutio:client-payment-changed', refreshPayments);
-  }, [reloadServices]);
+  }, [lightweightNotifications, reloadOverview, reloadServices]);
 
   const notifications = useMemo(() => {
     const result = remoteOverview?.notifications;
-    if (communicationPage && result) {
+    if (lightweightNotifications && result) {
       const allItems = result.allItems.map((item) => ({ ...item, ignored: ignoredNotifications.includes(item.id) }));
       const items = allItems.filter((item) => !item.ignored);
       return { allItems, items, total: items.length };
     }
     return buildLayoutNotifications({ budgets, invoices, services, collaborators, ignoredNotifications, now: notificationReferenceDate });
-  }, [communicationPage, remoteOverview, budgets, invoices, services, collaborators, ignoredNotifications, notificationReferenceDate]);
+  }, [lightweightNotifications, remoteOverview, budgets, invoices, services, collaborators, ignoredNotifications, notificationReferenceDate]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

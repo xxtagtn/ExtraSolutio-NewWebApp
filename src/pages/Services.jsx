@@ -79,6 +79,7 @@ import {
   operationalStatusOptions,
   SERVICE_STATUS,
   serviceStatusForDisplay,
+  servicesNeedingWorkflowSync,
   statusLabel,
 } from '../utils/serviceStatus.js';
 import {
@@ -531,12 +532,13 @@ export default function Services() {
   const serviceOrder = useServiceOrder(user?.id);
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [formOpen, setFormOpen] = useState(false);
+  const needsEditorData = formOpen || searchParams.has('serviceId') || searchParams.has('duplicateServiceId');
   const { data, loading, error, reload } = useApi('/services', []);
   const { data: clients, loading: clientsLoading } = useApi('/clients', []);
   const { data: collaborators, loading: collaboratorsLoading } = useApi('/collaborators?light=1', []);
-  const { data: budgets, reload: reloadBudgets } = useApi('/budgets', []);
-  const { data: roleCatalog } = useApi('/collaborators/roles', []);
-  const { data: serviceTemplates, reload: reloadTemplates } = useApi('/service-templates', []);
+  const { data: roleCatalog } = useApi('/collaborators/roles', [], { enabled: needsEditorData });
+  const { data: serviceTemplates, reload: reloadTemplates } = useApi('/service-templates', [], { enabled: needsEditorData });
   const [fromDate, setFromDate] = useState('');
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -547,7 +549,6 @@ export default function Services() {
   const [archiveYear, setArchiveYear] = useState('');
   const [archivePage, setArchivePage] = useState(1);
   const [archivePageSize, setArchivePageSize] = useState('10');
-  const [formOpen, setFormOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('summary');
   const [editing, setEditing] = useState(null);
   const [duplicateSource, setDuplicateSource] = useState(null);
@@ -571,7 +572,6 @@ export default function Services() {
   const [templateName, setTemplateName] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState('');
-  const [statusSyncing, setStatusSyncing] = useState(false);
 
   const filteredRows = useMemo(() => searchServices(data.filter((row) => {
     const byArchive = listScope === 'archive' ? isArchivedService(row) : !isArchivedService(row);
@@ -908,31 +908,27 @@ export default function Services() {
   }, [activeCollaboratorPickerIndex]);
 
   useEffect(() => {
-    if (loading || statusSyncing || formOpen || !data.length || searchParams.get('duplicateServiceId')) return;
-    const updates = data.filter((row) => row.statusMode !== 'manual');
+    if (loading || formOpen || !data.length || searchParams.get('duplicateServiceId')) return;
+    const updates = servicesNeedingWorkflowSync(data);
     if (!updates.length) return;
 
     let cancelled = false;
-    setStatusSyncing(true);
     Promise.all(updates.map((row) => api(`/services/${row.id}/workflow/synchronize`, {
       method: 'POST',
       body: JSON.stringify({ recalculateTotals: false }),
     })))
       .then((synced) => {
         const changed = synced.some((event, index) => event?.status !== updates[index]?.status);
-        if (!cancelled && changed) reload();
+        if (!cancelled && changed) reload({ background: true });
       })
       .catch((err) => {
         console.warn('Falha ao sincronizar estados dos eventos/serviços:', err);
-      })
-      .finally(() => {
-        if (!cancelled) setStatusSyncing(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [data, loading, reload, statusSyncing, formOpen, searchParams]);
+  }, [data, loading, reload, formOpen, searchParams]);
 
   useEffect(() => {
     if (!formOpen) return;
@@ -1588,13 +1584,13 @@ export default function Services() {
           editing?.name || '',
         ].join(' '));
         if (budgetReference) {
+          const budgets = await api('/budgets');
           const linkedBudget = (budgets || []).find((budget) => String(budget.reference || '').trim().toUpperCase() === budgetReference.toUpperCase());
           if (linkedBudget && linkedBudget.paymentStatus !== 'paid') {
             await api(`/budgets/${linkedBudget.id}`, {
               method: 'PUT',
               body: JSON.stringify({ paymentStatus: 'paid' }),
             });
-            reloadBudgets();
           }
         }
       }

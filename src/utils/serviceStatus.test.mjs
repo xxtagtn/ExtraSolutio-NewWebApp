@@ -3,12 +3,47 @@ import { test } from 'node:test';
 import { STAFF_ACCEPTED_VALIDATION_STATUS } from './hourValidationStatus.js';
 import {
   isArchivedService,
+  deriveServiceWorkflowStatus,
   nextAutomaticServiceStatus,
   nextTimeValidationServiceStatus,
   operationalStatusOptions,
   serviceStatusForDisplay,
+  servicesNeedingWorkflowSync,
   statusLabel,
 } from './serviceStatus.js';
+
+test('9 current active services and 54 archived services need no synchronization requests', () => {
+  const now = new Date('2026-11-19T12:00:00');
+  const rows = [
+    ...Array.from({ length: 9 }, (_, i) => ({ id: i + 1, status: 'drafting',
+      statusMode: 'automatic', date: '2027-02-01', assignments: [] })),
+    ...Array.from({ length: 54 }, (_, i) => ({ id: i + 10, status: 'finalized',
+      statusMode: 'automatic', date: '2026-10-01', assignments: [] })),
+  ];
+  assert.deepEqual(servicesNeedingWorkflowSync(rows, now), []);
+  assert.equal(rows.length, 63);
+});
+
+test('sync candidates retain validation transitions and skip manual and unchanged statuses', () => {
+  const now = new Date('2026-11-19T12:00:00');
+  const rows = [
+    { id: 1, status: 'drafting', date: '2026-11-19', assignments: [] },
+    { id: 2, status: 'in_progress', date: '2026-11-19', assignments: [] },
+    { id: 3, status: 'drafting', statusMode: 'manual', date: '2026-11-19', assignments: [] },
+    { id: 4, status: 'cancelled', date: '2026-11-18', assignments: [] },
+    { id: 5, status: 'to_validate_staff', date: '2026-11-18', assignments: [
+      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00', validationStatus: 'validated' },
+    ] },
+    { id: 6, status: 'to_validate_client', date: '2026-11-18', assignments: [
+      { status: 'confirmed', checkIn: '09:00', checkOut: '17:00', validationStatus: 'validated' },
+    ] },
+    { id: 7, status: 'paid', date: '2026-10-01', assignments: [] },
+  ];
+  assert.deepEqual(servicesNeedingWorkflowSync(rows, now).map((row) => row.id), [1, 5, 7]);
+  assert.equal(deriveServiceWorkflowStatus(rows[0], now), 'in_progress');
+  assert.equal(deriveServiceWorkflowStatus(rows[4], now), 'to_validate_client');
+  assert.equal(deriveServiceWorkflowStatus(rows[6], now), 'finalized');
+});
 
 test('uses only operational service statuses and includes Finalizado', () => {
   const values = operationalStatusOptions.map((option) => option.value);
