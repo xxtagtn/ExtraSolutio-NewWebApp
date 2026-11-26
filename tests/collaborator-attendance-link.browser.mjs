@@ -23,12 +23,15 @@ try {
       startTime: '09:00', endTime: '12:00', checkIn: entered ? '09:00' : null, checkOut: completed ? '12:00' : null,
       state: { key: entered ? 'checked_in' : 'qr_generated', label: entered ? 'Entrada registada' : 'QR Gerado',
         nextAction: entered ? 'check_out' : 'check_in' } });
+    const futureServices = () => ['2026-12-05', '2026-12-31', '2027-01-03', '2027-03-10', '2027-06-20', '2028-01-08']
+      .map((day, index) => ({ ...service(), assignmentId: index + 2, assignmentDate: day,
+        eventName: `Evento futuro ${day}`, checkIn: null, checkOut: null }));
     const payload = () => ({ scope: 'collaborator', permanent: true, monthFrom: '2026-11-01',
       collaboratorName: name, timeZone: 'Europe/Lisbon', appearance: { theme: 'original' },
       activeDay: empty || completed ? null : '2026-11-01',
       active: empty || completed ? null : { collaboratorName: name, assignmentDate: '2026-11-01',
         activeAssignmentId: 1, candidateIds: [1], services: [service()], revision: entered ? 'entered' : 'initial' },
-      services: empty || completed ? [] : [service()],
+      services: empty ? [] : [...(completed ? [] : [service()]), ...futureServices()],
       ...(completed ? { checkoutReceipt: { ...service(), plannedCheckIn: '09:00', plannedCheckOut: '12:00' } } : {}) });
     await context.route('**/*', async (route) => {
       const req = route.request(), url = new URL(req.url());
@@ -46,7 +49,7 @@ try {
       }
       if (url.pathname === '/api/qr-codes/links') {
         searches.push(url.searchParams.get('search'));
-        return route.fulfill({ json: { items: listEmpty ? [] : [{ id: 1, name, shortName: null, confirmedServices }], monthFrom: '2026-11-01', total: listEmpty ? 0 : 1, page: 1, pageSize: 25, totalPages: 1 } });
+        return route.fulfill({ json: { items: listEmpty ? [] : [{ id: 1, name, shortName: null, confirmedServices }], monthFrom: '2026-11-01', includesFutureMonths: true, total: listEmpty ? 0 : 1, page: 1, pageSize: 25, totalPages: 1 } });
       }
       if (url.pathname === '/api/qr-codes/links/1') {
         writes.push(url.pathname);
@@ -65,6 +68,7 @@ try {
     const table = page.locator('.attendance-links-table');
     await table.getByRole('columnheader', { name: 'Serviços confirmados', exact: true }).waitFor();
     assert.deepEqual(await table.getByRole('columnheader').allTextContents(), ['Nome', 'Serviços confirmados', 'Ação']);
+    assert.equal(await page.locator('.attendance-links-heading > span').count(), 0, 'Confirmed counts are not restricted to one month');
     assert.equal(await table.locator('thead').evaluate((el) => getComputedStyle(el).display), 'table-header-group', 'Mobile remains a table, not separate cards');
     await table.locator('.attendance-links-count strong').getByText('8', { exact: true }).waitFor();
     const aligned = await table.evaluate((el) => [...el.querySelectorAll('thead th')].every((th, index) => {
@@ -99,7 +103,7 @@ try {
     await page.screenshot({ path: `${output}/management-${width}.png`, fullPage: true });
     listEmpty = true;
     await page.getByRole('searchbox', { name: 'Pesquisar colaborador nos links de picagem' }).fill('');
-    await page.getByText('Sem colaboradores com serviços confirmados neste mês.', { exact: true }).waitFor();
+    await page.getByText('Sem colaboradores com serviços confirmados.', { exact: true }).waitFor();
     assert.equal(await table.getByRole('button').count(), 0);
     assert.match(await page.locator('.attendance-links .collab-pagination__summary').innerText(), /0-0 de 0/);
     listEmpty = false;
@@ -109,16 +113,32 @@ try {
     await page.goto(publicUrl);
     await page.getByRole('button', { name: 'Dar Entrada', exact: true }).waitFor();
     assert.equal(await page.getByText(/Válido até/).count(), 0);
+    assert.equal(await page.locator('.qr-month-label').count(), 0, 'A permanent multi-month link must not imply a monthly limit');
+    await page.getByText('05/12/2026', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Página seguinte', exact: true }).click();
+    await page.getByText('08/01/2028', { exact: true }).waitFor();
+    await page.getByRole('searchbox', { name: 'Pesquisar evento ou dia', exact: true }).fill('2027');
+    await page.getByText('03/01/2027', { exact: true }).waitFor();
+    assert.equal(await page.locator('.qr-month-day').count(), 3);
+    await page.getByRole('searchbox', { name: 'Pesquisar evento ou dia', exact: true }).fill('');
+    await page.locator('.qr-month-day summary').filter({ hasText: '05/12/2026' }).click();
+    await page.getByRole('heading', { name: 'Evento futuro 2026-12-05', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Dar Entrada', exact: true }).count(), 1, 'Only the active service has a punch control');
+    assert.equal(writes.filter((path) => path.startsWith('/api/qr-check/')).length, 0, 'Previewing/searching future months never punches');
+    await page.screenshot({ path: `${output}/future-months-${width}.png`, fullPage: true });
     await page.getByRole('button', { name: 'Dar Entrada', exact: true }).click();
     await page.getByRole('button', { name: 'Dar Saída', exact: true }).click();
     await page.getByRole('region', { name: 'Serviço acabado de concluir' }).count();
-    await page.getByText('Não tens serviços disponíveis para picar neste momento.', { exact: true }).waitFor();
+    await page.getByRole('region', { name: 'Próximos Serviços', exact: true }).waitFor();
+    await page.getByText('05/12/2026', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /Dar Entrada|Dar Saída/ }).count(), 0);
     assert.equal(await page.getByText('Restaurante Luz Chakall', { exact: true }).count(), 1, 'Only the temporary checkout receipt remains');
     active = false;
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await page.getByRole('heading', { name: 'Página não encontrada', exact: true }).waitFor();
     assert.equal(await page.getByText(name, { exact: true }).count(), 0);
     assert.equal(await page.getByText('Restaurante Luz Chakall', { exact: true }).count(), 0);
+    assert.equal(await page.getByText('Evento futuro 2026-12-05', { exact: true }).count(), 0);
     assert.equal(await page.locator('.qr-check-checkout-reminder').count(), 0);
     await page.screenshot({ path: `${output}/not-found-${width}.png` });
     active = true; empty = true; completed = false;
@@ -136,6 +156,6 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(errors, []);
     await context.close();
-    console.log(`Fixed links: management, replacement, public punches, empty and inactive stale-page privacy at ${width}px`);
+    console.log(`Fixed links: future months/years, search/pagination, management, replacement, public punches, empty/inactive privacy at ${width}px`);
   }
 } finally { await browser.close(); }

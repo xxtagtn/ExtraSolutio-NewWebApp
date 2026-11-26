@@ -29,7 +29,7 @@ export default function MonthlyQrServices({ payload, saving, onRegister, themed 
     <QrLinkHeader themed={themed} className="qr-consultation-header">
       <h1>{payload.collaboratorName}</h1>
       <p>Link de Picagens</p>
-      <strong className="qr-month-label">{month.charAt(0).toUpperCase() + month.slice(1)}</strong>
+      {!payload.permanent && <strong className="qr-month-label">{month.charAt(0).toUpperCase() + month.slice(1)}</strong>}
       {!payload.permanent && <small>{payload.closed ? 'Link terminado' : payload.checkoutOnly ? 'Apenas saída do turno em curso'
         : `Válido até ${qrSummaryDate(payload.expiresAt, payload.timeZone)}`}</small>
       }

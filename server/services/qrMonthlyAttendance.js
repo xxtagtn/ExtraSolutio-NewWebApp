@@ -23,11 +23,11 @@ function identity(token, now) {
   return result;
 }
 
-export async function monthlyQrRows(db, { now = new Date(), collaboratorId, eventId, cycle = monthlyQrCycle(now), includeEntryLogs = false, includeExitLogs = false } = {}) {
+export async function monthlyQrRows(db, { now = new Date(), collaboratorId, eventId, cycle = monthlyQrCycle(now), includeEntryLogs = false, includeExitLogs = false, includeFuture = false } = {}) {
   const from = new Date(`${cycle.historyFrom}T00:00:00Z`);
   const until = new Date(`${cycle.servicesUntil}T00:00:00Z`);
-  // Assignment dates are civil service dates; only the current link's days are listed.
-  const range = { gte: from, lt: until };
+  // Monthly links stay bounded; permanent-link previews can include later months.
+  const range = { gte: from, ...(!includeFuture ? { lt: until } : {}) };
   const found = await db.eventAssignment.findMany({
     where: {
       ...(collaboratorId ? { collaboratorId } : {}),

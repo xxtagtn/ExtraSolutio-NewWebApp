@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { requireActiveQrCollaborator, qrPageNotFound } from './collaboratorQrAccess.js';
 import { createMonthlyPunchToken, monthlyPunchCycle } from '../utils/qrMonthlyToken.js';
-import { readMonthlyPunchQr, registerMonthlyPunchQr } from './qrMonthlyPunching.js';
+import { monthlyPunchServicePayload, readMonthlyPunchQr, registerMonthlyPunchQr } from './qrMonthlyPunching.js';
 import { communicationPagination } from './communicationPage.js';
 import { buildPaginatedPayload } from '../utils/listQuery.js';
-import { monthlyQrEligible } from './qrMonthlyAttendance.js';
+import { monthlyQrEligible, monthlyQrRows } from './qrMonthlyAttendance.js';
 
 const newToken = () => randomBytes(32).toString('base64url');
 
@@ -37,17 +37,27 @@ function permanentPayload(payload) {
   return { ...rest, scope: 'collaborator', permanent: true };
 }
 
+async function withFutureServices(db, collaboratorId, payload, now) {
+  const cycle = monthlyPunchCycle(now);
+  const future = await monthlyQrRows(db, { collaboratorId, now, includeFuture: true,
+    cycle: { ...cycle, historyFrom: cycle.servicesUntil } });
+  return permanentPayload({ ...payload, services: [...payload.services,
+    ...future.filter((row) => !(row.checkIn && row.checkOut)).map(monthlyPunchServicePayload)] });
+}
+
 export async function readCollaboratorAttendanceLink(db, token, { now = new Date() } = {}) {
   const collaborator = await identity(db, token);
-  // The address is permanent; service selection and overnight rules stay monthly.
+  // Preview every future month without extending the active punching window.
+  let payload;
   try {
-    return permanentPayload(await readMonthlyPunchQr(db, createMonthlyPunchToken(collaborator.id, now), { now }));
+    payload = await readMonthlyPunchQr(db, createMonthlyPunchToken(collaborator.id, now), { now });
   } catch (error) {
     if (error.code !== 'QR_MONTH_EMPTY') throw error;
-    return permanentPayload({ collaboratorName: collaborator.shortName || collaborator.name,
+    payload = { collaboratorName: collaborator.shortName || collaborator.name,
       timeZone: process.env.APP_TIMEZONE || 'Europe/Lisbon', monthFrom: monthlyPunchCycle(now).historyFrom,
-      activeDay: null, active: null, services: [] });
+      activeDay: null, active: null, services: [] };
   }
+  return withFutureServices(db, collaborator.id, payload, now);
 }
 
 export async function registerCollaboratorAttendanceLink(db, token, action, request, { now = new Date(), ...options } = {}) {
@@ -56,7 +66,7 @@ export async function registerCollaboratorAttendanceLink(db, token, action, requ
     ...options, now, allowEmptyAfterCheckout: true,
     authorize: (tx) => identity(tx, token),
   });
-  return permanentPayload(result);
+  return withFutureServices(db, collaborator.id, result, now);
 }
 
 export async function listCollaboratorAttendanceLinks(db, query = {}, { now = new Date() } = {}) {
@@ -65,7 +75,7 @@ export async function listCollaboratorAttendanceLinks(db, query = {}, { now = ne
     { name: { contains: search } }, { shortName: { contains: search } },
   ] } : {}) };
   const cycle = monthlyPunchCycle(now);
-  const range = { gte: new Date(`${cycle.historyFrom}T00:00:00Z`), lt: new Date(`${cycle.servicesUntil}T00:00:00Z`) };
+  const range = { gte: new Date(`${cycle.historyFrom}T00:00:00Z`) };
   // Filter eligibility before pagination, including cancelled days stored on events.
   const assignments = await db.eventAssignment.findMany({
     where: { collaborator: { is: where }, status: { in: ['confirmed', 'confirmado'] },
@@ -83,5 +93,5 @@ export async function listCollaboratorAttendanceLinks(db, query = {}, { now = ne
   const items = total ? await db.collaborator.findMany({ where: { ...where, id: { in: [...counts.keys()] } }, skip, take: pageSize,
     orderBy: [{ name: 'asc' }, { id: 'asc' }], select: { id: true, name: true, shortName: true } }) : [];
   return { ...buildPaginatedPayload({ items: items.map((item) => ({ ...item, confirmedServices: counts.get(item.id) })),
-    total, page, pageSize }), monthFrom: cycle.historyFrom };
+    total, page, pageSize }), monthFrom: cycle.historyFrom, includesFutureMonths: true };
 }

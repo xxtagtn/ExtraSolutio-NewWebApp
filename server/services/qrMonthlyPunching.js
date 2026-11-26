@@ -59,7 +59,7 @@ function pending(row, now, cycle) {
     || (cycle && openMonthlyCheckout(row, cycle, now)));
 }
 
-function servicePayload(row) {
+export function monthlyPunchServicePayload(row) {
   const planned = publicQrPlannedSchedule(row, row.event);
   return {
     assignmentId: row.id, assignmentDate: eventDayKey(row.assignmentDate || row.event.date),
@@ -107,7 +107,7 @@ export async function readMonthlyPunchQr(db, token, { now = new Date() } = {}) {
     scope: 'month', collaboratorName: all[0].collaborator.shortName || all[0].collaborator.name,
     timeZone: cycle.timeZone, monthFrom: cycle.historyFrom, expiresAt: cycle.expiresAt.toISOString(),
     checkoutOnly: expired,
-    activeDay, active, services: remaining.map(servicePayload),
+    activeDay, active, services: remaining.map(monthlyPunchServicePayload),
   };
 }
 

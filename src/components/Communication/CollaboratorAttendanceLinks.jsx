@@ -19,7 +19,7 @@ export default function CollaboratorAttendanceLinks({ tools, userId }) {
   const { data, loading, error, reload } = useCommunicationData(
     `/qr-codes/links?search=${encodeURIComponent(query)}&page=${page}&pageSize=${pageSize}`, { poll: true },
   );
-  const period = data?.monthFrom ? new Intl.DateTimeFormat('pt-PT', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+  const period = data?.monthFrom && !data.includesFutureMonths ? new Intl.DateTimeFormat('pt-PT', { month: 'long', year: 'numeric', timeZone: 'UTC' })
     .format(new Date(`${data.monthFrom}T12:00:00Z`)) : '';
   useEffect(() => {
     const timer = window.setTimeout(() => { setQuery(search); setPage(1); }, 250);
@@ -77,7 +77,7 @@ export default function CollaboratorAttendanceLinks({ tools, userId }) {
               disabled={busy !== null} onClick={() => setReplacement(collaborator)}><RefreshCw size={16} /></button>
           </div></td>
         </tr>) : <tr><td colSpan="3">{query ? 'Sem resultados para esta pesquisa.'
-          : 'Sem colaboradores com serviços confirmados neste mês.'}</td></tr>}</tbody>
+          : 'Sem colaboradores com serviços confirmados.'}</td></tr>}</tbody>
     </table></div>
     <CommunicationPagination payload={data} page={page} pageSize={pageSize} loading={loading}
       onPageChange={setPage} onPageSizeChange={(size) => {

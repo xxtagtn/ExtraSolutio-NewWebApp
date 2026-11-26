@@ -71,15 +71,85 @@ test('one unpredictable stable address exists before allocation and survives mon
   assert.equal(await db.collaboratorAttendanceLink.count({ where: { collaboratorId: f.collaborator.id } }), 1);
 });
 
-test('the same link selects the new month automatically and only confirmed eligible services', async () => {
+test('the same link previews future confirmed services and changes the active month automatically', async () => {
   const f = await fixture();
   const oct = await f.add('2026-10-31'), nov = await f.add('2026-11-01');
   await f.add('2026-11-02', { status: 'missed_justified' });
   await f.add('2026-11-03', { status: 'pending_confirmation' });
   const october = await read(db, f.link.token, { now: at('2026-10-31') });
   const november = await read(db, f.link.token, { now: at('2026-11-01') });
-  assert.deepEqual(october.services.map((s) => s.assignmentId), [oct.id]);
+  assert.deepEqual(october.services.map((s) => s.assignmentId), [oct.id, nov.id]);
   assert.deepEqual(november.services.map((s) => s.assignmentId), [nov.id]);
+});
+
+test('November permanent links show December and later years without broadening monthly punching access', async () => {
+  const f = await fixture(), now = at('2026-11-26');
+  const current = await f.add('2026-11-26');
+  const december = await f.add('2026-12-01');
+  const january = await f.add('2027-01-15');
+  const later = await f.add('2028-06-10');
+  await f.add('2026-12-02', { status: 'pending_confirmation' });
+  await f.add('2026-12-03', { status: 'cancelled' });
+  await f.add('2026-12-04', { status: 'missed_justified' });
+  await f.add('2026-12-05', { status: 'missed_unjustified' });
+  await f.add('2026-12-06', { checkIn: '09:00', checkOut: '12:00' });
+  await f.add('2026-12-07');
+  await db.event.update({ where: { id: f.event.id }, data: {
+    cancelledDays: JSON.stringify(['2026-12-07']), notes: 'PRIVATE_TEST_NOTES',
+  } });
+  const revoked = await f.add('2026-12-08');
+  const qr = await ensureAssignmentQr(db, revoked.id);
+  await db.qrCheckCode.update({ where: { id: qr.id }, data: { revokedAt: now } });
+  const cancelled = await db.event.create({ data: { name: 'Cancelled future event', date: new Date('2026-12-09'), status: 'cancelled' } });
+  await f.add('2026-12-09', { eventId: cancelled.id });
+  const other = await fixture(); await other.add('2026-12-10');
+  const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
+  const state = await read(db, f.link.token, { now });
+  assert.equal(state.permanent, true);
+  assert.deepEqual(state.services.map((row) => row.assignmentId), [current.id, december.id, january.id, later.id]);
+  assert.equal(state.activeDay, '2026-11-26');
+  assert.equal(state.active.activeAssignmentId, current.id);
+  assert.equal(JSON.stringify(state).includes('PRIVATE_TEST_NOTES'), false);
+  assert.equal(state.services.some((row) => Object.hasOwn(row, 'hourlyRate')), false);
+  assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
+  assert.equal((await ensure(db, f.collaborator.id)).token, f.link.token);
+  const monthly = await readMonthlyPunchQr(db, createMonthlyPunchToken(f.collaborator.id, now), { now });
+  assert.deepEqual(monthly.services.map((row) => row.assignmentId), [current.id]);
+  await assert.rejects(register(db, f.link.token, 'check_in', {
+    assignmentId: december.id, revision: state.active.revision,
+  }, { now }));
+  assert.equal(await db.qrCheckLog.count({ where: { collaboratorId: f.collaborator.id } }), 0);
+});
+
+test('a future-only collaborator is listed now and can preview a single-date service without early punches', async () => {
+  const f = await fixture(), now = at('2026-11-26');
+  const future = await db.event.create({ data: { name: 'Next year single-day event', date: new Date('2027-02-20') } });
+  const row = await f.add('2027-02-20', { eventId: future.id, assignmentDate: null });
+  const state = await read(db, f.link.token, { now });
+  assert.deepEqual(state.services.map((service) => service.assignmentId), [row.id]);
+  assert.equal(state.services[0].assignmentDate, '2027-02-20');
+  assert.equal(state.active, null); assert.equal(state.activeDay, null);
+  const management = await list(db, { search: f.collaborator.name }, { now });
+  assert.equal(management.total, 1); assert.equal(management.items[0].confirmedServices, 1);
+  assert.equal(management.includesFutureMonths, true);
+  await assert.rejects(register(db, f.link.token, 'check_in', { assignmentId: row.id }, { now }), { code: 'QR_MONTH_EMPTY' });
+  assert.equal(await db.qrCheckLog.count({ where: { collaboratorId: f.collaborator.id } }), 0);
+  await db.eventAssignment.update({ where: { id: row.id }, data: { status: 'cancelled' } });
+  assert.deepEqual((await read(db, f.link.token, { now })).services, []);
+  assert.equal((await list(db, { search: f.collaborator.name }, { now })).total, 0);
+});
+
+test('future previews survive check-in and checkout responses without revealing completed history', async () => {
+  const f = await fixture();
+  const current = await f.add('2026-11-26');
+  const december = await f.add('2026-12-01'), january = await f.add('2027-01-01');
+  const entered = await punch(f, 'check_in', at('2026-11-26', '09:00'));
+  assert.deepEqual(entered.services.map((row) => row.assignmentId), [current.id, december.id, january.id]);
+  const exited = await punch(f, 'check_out', at('2026-11-26', '12:00'));
+  assert.deepEqual(exited.services.map((row) => row.assignmentId), [december.id, january.id]);
+  assert.equal(exited.active, null); assert.equal(exited.permanent, true);
+  assert.equal(exited.checkoutReceipt.assignmentId, current.id);
+  assert.equal(await db.qrCheckLog.count({ where: { collaboratorId: f.collaborator.id } }), 2);
 });
 
 test('inactive and paused collaborators return identical 404 on read and stale-page POST; reactivation restores link', async () => {
@@ -199,7 +269,7 @@ test('management shows active people only after confirmation and never exposes l
   assert.equal((await list(db, { search: f.collaborator.name }, { now })).total, 0);
 });
 
-test('confirmed counts use current-month service days, include completed shifts and exclude absences, cancellations and revoked access', async () => {
+test('confirmed counts include current and future service days, retaining existing exclusions', async () => {
   const f = await fixture();
   await f.add('2026-11-01');
   await f.add('2026-11-02', { checkIn: '09:00', checkOut: '12:00' });
@@ -219,7 +289,8 @@ test('confirmed counts use current-month service days, include completed shifts 
   const before = await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } });
   const result = await list(db, { search: f.collaborator.name }, { now: at('2026-11-15') });
   assert.equal(result.monthFrom, '2026-11-01');
-  assert.equal(result.items[0].confirmedServices, 3);
+  assert.equal(result.items[0].confirmedServices, 4);
+  assert.equal(result.includesFutureMonths, true);
   assert.deepEqual(await db.eventAssignment.findMany({ where: { collaboratorId: f.collaborator.id } }), before);
   const december = await list(db, { search: f.collaborator.name }, { now: at('2026-12-01') });
   assert.equal(december.items[0].confirmedServices, 1);
@@ -261,10 +332,10 @@ test('confirmed-only filter runs before search totals and pagination, excluding 
   }
   const now = at('2026-11-15'), query = { search: 'Rosterfilter', pageSize: 2 };
   const first = await list(db, query, { now }), second = await list(db, { ...query, page: 2 }, { now });
-  assert.equal(first.total, 3); assert.equal(first.totalPages, 2);
+  assert.equal(first.total, 4); assert.equal(first.totalPages, 2);
   assert.deepEqual(first.items.map((item) => item.id), [fixtures[5].collaborator.id, fixtures[6].collaborator.id]);
   assert.deepEqual(first.items.map((item) => item.confirmedServices), [2, 1]);
-  assert.deepEqual(second.items.map((item) => item.id), [fixtures[7].collaborator.id]);
+  assert.deepEqual(second.items.map((item) => item.id), [fixtures[7].collaborator.id, fixtures[8].collaborator.id]);
   const clamped = await list(db, { ...query, page: 99 }, { now });
   assert.equal(clamped.page, 2); assert.deepEqual(clamped.items, second.items);
   const shortName = await list(db, { search: 'Unique confirmed match' }, { now });
@@ -274,7 +345,7 @@ test('confirmed-only filter runs before search totals and pagination, excluding 
   assert.equal((await read(db, fixtures[0].link.token, { now })).permanent, true, 'Being absent from the list never revokes an active person\'s permanent link');
   const final = await db.eventAssignment.findFirst({ where: { collaboratorId: fixtures[7].collaborator.id } });
   await db.eventAssignment.update({ where: { id: final.id }, data: { status: 'pending_confirmation' } });
-  assert.equal((await list(db, query, { now })).total, 2, 'Removing the last confirmation removes that person on refresh');
+  assert.equal((await list(db, query, { now })).total, 3, 'Removing the last confirmation removes that person on refresh');
 });
 
 test('migration is additive and deletion cascades only the access token', () => {
@@ -293,6 +364,7 @@ test('HTTP read and POST return neutral 404, no cache, while management generate
   applicationDb = (await import('../prisma.js')).prisma;
   const { requireAuth } = await import('../middleware/auth.js');
   const f = await fixture();
+  const future = await f.add(`${new Date().getUTCFullYear() + 2}-02-01`);
   const admin = await db.user.create({ data: { name: 'Link manager', email: 'link-manager@example.test', password: 'test-only', role: 'admin' } });
   const profile = await db.accessProfile.create({ data: { key: 'no-links', name: 'No links', permissions: '[]' } });
   const denied = await db.user.create({ data: { name: 'Denied', email: 'link-denied@example.test', password: 'test-only', role: 'operations', accessProfileId: profile.id } });
@@ -313,7 +385,13 @@ test('HTTP read and POST return neutral 404, no cache, while management generate
     const first = await (await create()).json(); assert.match(first.attendanceQrUrl, /\/qr\/link\/[\w-]{43}$/);
     assert.deepEqual(await (await create()).json(), first);
     const url = `${base}/public/link/${f.link.token}`;
-    assert.equal((await fetch(url)).status, 200);
+    const publicResponse = await fetch(url);
+    assert.equal(publicResponse.status, 200);
+    assert.deepEqual((await publicResponse.json()).services.map((service) => service.assignmentId), [future.id]);
+    const management = await (await fetch(`${base}/manage/links?search=${encodeURIComponent(f.collaborator.name)}`, { headers: auth(admin) })).json();
+    assert.equal(management.includesFutureMonths, true);
+    assert.equal(management.items[0].confirmedServices, 1);
+    assert.equal(JSON.stringify(management).includes(f.link.token), false);
     await db.collaborator.update({ where: { id: f.collaborator.id }, data: { status: 'inactive' } });
     for (const path of ['', '/check-in', '/check-out']) {
       const response = await fetch(url + path, { method: path ? 'POST' : 'GET' });
