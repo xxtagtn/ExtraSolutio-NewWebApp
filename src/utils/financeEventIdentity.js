@@ -84,6 +84,19 @@ function billingSchedule(assignment, event) {
   };
 }
 
+function validatedScheduleLabel(assignment) {
+  const candidates = [
+    [assignment?.validatedCheckIn, assignment?.validatedCheckOut],
+    [assignment?.clientCheckIn, assignment?.clientCheckOut],
+  ];
+  for (const [rawStart, rawEnd] of candidates) {
+    const start = timeKey(rawStart);
+    const end = timeKey(rawEnd);
+    if (roundedClockTime(start) && roundedClockTime(end)) return `${start} - ${end}`;
+  }
+  return 'Horário validado não registado';
+}
+
 function collaboratorKey(assignment, index) {
   const collaborator = assignment?.collaborator || {};
   return cleanText(
@@ -143,6 +156,7 @@ export function financeEventOperationalSummary(event = {}) {
       start: schedule.start,
       end: schedule.end,
       label: schedule.label,
+      validatedScheduleLabel: validatedScheduleLabel(assignment),
       billableHours: assignmentBillableHours,
       clientRate,
       billableValue: assignmentBillableValue,

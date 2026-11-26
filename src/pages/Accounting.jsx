@@ -712,7 +712,7 @@ function ClientFinancialEventTable({
                           {day.entries.map((entry) => (
                             <li key={entry.key}>
                               <strong>{entry.collaboratorName}</strong>
-                              <span>{entry.role} · {entry.label}</span>
+                              <span>{entry.role} · {entry.validatedScheduleLabel}</span>
                               <small>
                                 {entry.hasBillableRate && entry.clientRate > 0
                                   ? `${durationHours(entry.billableHours)} × ${money.format(entry.clientRate)}/h = ${money.format(entry.billableValue)}`

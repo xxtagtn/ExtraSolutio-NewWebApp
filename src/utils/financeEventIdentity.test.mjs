@@ -6,6 +6,47 @@ import {
   financeEventOperationalSummary,
 } from './financeEventIdentity.js';
 
+test('LX Factory summary displays exact validated client clocks without changing rounded billing', () => {
+  const event = { id: 42, date: '2026-11-06', startTime: '17:00', endTime: '22:00',
+    minimumHoursSnapshot: 0, requiredRoles: [{ role: 'Emp.Mesa', qty: 1, agreedRate: 10.2 }],
+    assignments: [{ id: 1, collaboratorId: 1, role: 'Emp.Mesa', status: 'confirmed',
+      plannedCheckIn: '17:00', plannedCheckOut: '22:00', checkIn: '17:01', checkOut: '22:04',
+      clientCheckIn: '17:05', clientCheckOut: '21:50',
+      validatedCheckIn: '17:10', validatedCheckOut: '21:56', validationStatus: 'validated' }] };
+  const before = structuredClone(event);
+  const summary = financeEventOperationalSummary(event);
+  const entry = summary.days[0].entries[0];
+  assert.equal(entry.validatedScheduleLabel, '17:10 - 21:56');
+  assert.equal(entry.label, '17:00 - 22:00', 'Billing groups keep their existing rounded interval');
+  assert.equal(entry.billableHours, 5);
+  assert.equal(entry.billableValue, 51);
+  assert.equal(summary.billableHours, 5);
+  assert.equal(summary.scheduleCount, 1);
+  assert.deepEqual(event, before);
+});
+
+test('summary uses complete client clock pairs, preserving minutes and overnight schedules', () => {
+  const summary = financeEventOperationalSummary({ assignments: [
+    { id: 1, collaboratorId: 1, status: 'confirmed', clientCheckIn: '17:10:30', clientCheckOut: '21:56:59' },
+    { id: 2, collaboratorId: 2, status: 'confirmed', validatedCheckIn: '23:47', validatedCheckOut: '02:12',
+      clientCheckIn: '23:00', clientCheckOut: '02:00' },
+    { id: 3, collaboratorId: 3, status: 'confirmed', validatedCheckIn: '16:12',
+      clientCheckIn: '17:10', clientCheckOut: '21:56' },
+  ] });
+  const entries = summary.days.flatMap((day) => day.entries);
+  assert.equal(entries.find((entry) => entry.collaboratorKey === '1').validatedScheduleLabel, '17:10 - 21:56');
+  assert.equal(entries.find((entry) => entry.collaboratorKey === '2').validatedScheduleLabel, '23:47 - 02:12');
+  assert.equal(entries.find((entry) => entry.collaboratorKey === '3').validatedScheduleLabel, '17:10 - 21:56');
+});
+
+test('summary never presents planned or staff clocks as validated client clocks', () => {
+  const summary = financeEventOperationalSummary({ startTime: '17:00', endTime: '22:00',
+    assignments: [{ id: 1, collaboratorId: 1, role: 'Emp.Mesa', status: 'confirmed',
+      checkIn: '17:03', checkOut: '22:04', plannedCheckIn: '17:00', plannedCheckOut: '22:00',
+      validatedCheckIn: '17:10' }] });
+  assert.equal(summary.days[0].entries[0].validatedScheduleLabel, 'Horário validado não registado');
+});
+
 test('counts distinct turns without counting several collaborators on the same schedule twice', () => {
   const event = {
     date: '2026-07-22',
